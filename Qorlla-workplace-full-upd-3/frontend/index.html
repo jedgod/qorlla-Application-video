@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoom Workplace – Full</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #f4f5f7; height: 100vh; display: flex; }
+  .sidebar { width: 70px; background: #fff; border-right: 1px solid #e5e5e5; display: flex; flex-direction: column; align-items: center; padding-top: 12px; }
+  .nav { width: 100%; text-align: center; padding: 14px 0; cursor: pointer; font-size: 11px; color: #555; }
+  .nav.active { background: #e8f0fe; color: #0e72ed; }
+  .main { flex: 1; display: flex; flex-direction: column; }
+  .top { height: 52px; background: #fff; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; padding: 0 20px; font-weight: 600; }
+  .view { flex: 1; padding: 20px; overflow: auto; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  button { background: #0e72ed; color: #fff; border: none; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+  input, textarea { width: 100%; padding: 8px; margin: 6px 0; border: 1px solid #ddd; border-radius: 6px; }
+  canvas { border: 1px solid #ccc; background: #fff; cursor: crosshair; }
+  .list-item { border-bottom: 1px solid #eee; padding: 10px 0; }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="nav active" data-view="home">Home</div>
+    <div class="nav" data-view="mail">Mail</div>
+    <div class="nav" data-view="whiteboard">Whiteboard</div>
+    <div class="nav" data-view="calendar">Calendar</div>
+    <div class="nav" data-view="schedule">Schedule</div>
+    <div class="nav" data-view="notes">My Notes</div>
+    <div class="nav" data-view="chat">Chat</div>
+    <div class="nav" data-view="settings">Settings</div>
+  </aside>
+  <div class="main">
+    <div class="top">Zoom Workplace</div>
+    <div class="view" id="view"></div>
+  </div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+[
+  {"id":"c-general","type":"channel","name":"general","public":true,"autoJoin":true,"createdBy":"system","createdAt":"2026-10-20T12:00:00Z","members":[],"reads":{},"messages":[
+    {"id":"m0","userId":"system","name":"Qorlla","text":"Welcome to #general. Everyone is added here when they create an account.","at":"2026-10-20T12:00:00Z"}]},
+  {"id":"c-quantum","type":"meeting","name":"H-Quantum-CLASSICAL Meeting","public":true,"autoJoin":true,"createdBy":"system","createdAt":"2026-10-20T12:00:00Z","members":[],"reads":{},"messages":[
+    {"id":"m2","userId":"system","name":"Qorlla","text":"Welcome to the H-Quantum-CLASSICAL Meeting chat.","at":"2026-10-20T12:00:00Z"}]},
+  {"id":"c-cda","type":"meeting","name":"CDA Research Meeting & Update","public":true,"autoJoin":false,"createdBy":"system","createdAt":"2026-10-20T12:00:00Z","members":[],"reads":{},"messages":[
+    {"id":"m3","userId":"system","name":"Qorlla","text":"CDA Research updates will be shared here. Join from Chat, then + and Join a channel.","at":"2026-10-20T12:00:00Z"}]}
+]

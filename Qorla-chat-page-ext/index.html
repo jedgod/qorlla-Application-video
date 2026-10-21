@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoom Chat</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; height: 100vh; background: #fff; color: #222; overflow: hidden; }
+  .app { display: flex; height: 100vh; }
+  .sidebar { width: 280px; border-right: 1px solid #e5e5e5; display: flex; flex-direction: column; background: #fafafa; }
+  .sidebar-header { padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #eee; }
+  .sidebar-header h2 { font-size: 16px; font-weight: 600; }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+  .icon-btn { width: 32px; height: 32px; border: none; background: transparent; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  .icon-btn:hover { background: #eee; }
+  .plus-btn { background: #0e72ed; color: white; border-radius: 50%; width: 32px; height: 32px; }
+  .filters { padding: 10px 12px; display: flex; gap: 6px; }
+  .filter { padding: 6px 12px; border-radius: 16px; border: 1px solid #ddd; background: #fff; font-size: 13px; cursor: pointer; }
+  .filter.active { background: #e8f0fe; color: #0e72ed; border-color: #0e72ed; }
+  .section { padding: 8px 12px; }
+  .section-title { font-size: 13px; color: #666; padding: 6px 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .section-title:hover { background: #f0f0f0; border-radius: 4px; }
+  .chat-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; border-radius: 6px; font-size: 14px; position: relative; }
+  .chat-item:hover { background: #eee; }
+  .chat-item.active { background: #e8f0fe; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; background: #ddd; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .online { position: relative; }
+  .online::after { content: ''; position: absolute; width: 8px; height: 8px; background: #34c759; border-radius: 50%; bottom: 0; right: 0; border: 2px solid #fff; }
+  .unread-badge { margin-left: auto; background: #0e72ed; color: white; font-size: 11px; min-width: 18px; height: 18px; border-radius: 9px; display: flex; align-items: center; justify-content: center; padding: 0 5px; }
+  .main { flex: 1; display: flex; flex-direction: column; position: relative; }
+  .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666; text-align: center; padding: 40px; }
+  .bubble { width: 120px; height: 120px; background: #0e72ed; border-radius: 60px 60px 60px 20px; position: relative; margin-bottom: 20px; }
+  .bubble::before { content: ''; position: absolute; width: 90px; height: 90px; background: #b3d4ff; border-radius: 45px; left: -30px; bottom: -10px; z-index: -1; }
+  .dots { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); display: flex; gap: 8px; }
+  .dots span { width: 12px; height: 12px; background: white; border-radius: 50%; }
+  .dropdown { position: absolute; background: white; border: 1px solid #e5e5e5; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.12); min-width: 220px; z-index: 100; display: none; padding: 6px 0; }
+  .dropdown.show { display: block; }
+  .dropdown-item { padding: 10px 16px; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .dropdown-item:hover { background: #f5f5f5; }
+  .dropdown-item.divider { border-top: 1px solid #eee; margin-top: 4px; padding-top: 12px; }
+  .toggle { margin-left: auto; width: 36px; height: 20px; background: #ccc; border-radius: 10px; position: relative; cursor: pointer; }
+  .toggle.on { background: #0e72ed; }
+  .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; background: white; border-radius: 50%; top: 2px; left: 2px; transition: 0.2s; }
+  .toggle.on::after { left: 18px; }
+  .chat-view { display: none; flex-direction: column; height: 100%; }
+  .chat-view.active { display: flex; }
+  .chat-header { padding: 12px 16px; border-bottom: 1px solid #eee; font-weight: 600; }
+  .messages { flex: 1; padding: 16px; overflow-y: auto; }
+  .msg { margin-bottom: 12px; max-width: 70%; }
+  .msg.me { margin-left: auto; background: #0e72ed; color: white; padding: 8px 12px; border-radius: 12px 12px 2px 12px; }
+  .msg.other { background: #f0f0f0; padding: 8px 12px; border-radius: 12px 12px 12px 2px; }
+  .chat-input { padding: 12px; border-top: 1px solid #eee; display: flex; gap: 8px; }
+  .chat-input input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 20px; outline: none; }
+  .chat-input button { background: #0e72ed; color: white; border: none; border-radius: 20px; padding: 0 18px; cursor: pointer; }
+  .notice { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #333; color: white; padding: 10px 20px; border-radius: 8px; z-index: 200; display: none; }
+  .local-note { font-size: 11px; color: #999; padding: 4px 16px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h2>Chat ▾</h2>
+      <div class="header-actions">
+        <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
+        <button class="icon-btn plus-btn" id="plusBtn" title="New">+</button>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="filter active">All</div>
+      <div class="filter">@</div>
+      <div class="filter">💬</div>
+      <div class="filter" id="moreFilter">⋯</div>
+    </div>
+    <div class="section">
+      <div class="section-title">▾ Shared spaces</div>
+    </div>
+    <div class="section">
+      <div class="section-title">▾ Starred</div>
+      <div class="chat-item" data-chat="you">
+        <div class="avatar online">JG</div>
+        Jerry Godwin (You)
+        <span class="unread-badge" data-unread="you" style="display:none"></span>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">▾ Chats & Channels</div>
+      <div class="chat-item" data-chat="quantum">
+        <div class="avatar">📅</div>
+        H-Quantum-CLASSICAL Meeting
+        <span class="unread-badge" data-unread="quantum" style="display:none"></span>
+      </div>
+      <div class="chat-item" data-chat="cda">
+        <div class="avatar">📅</div>
+        CDA Research Meeting & Update
+        <span class="unread-badge" data-unread="cda" style="display:none"></span>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">▸ Apps</div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="empty-state" id="emptyState">
+      <div class="bubble">
+        <div class="dots"><span></span><span></span><span></span></div>
+      </div>
+      <p>Start chatting by clicking or creating a chat in the left sidebar.</p>
+      <p class="local-note">Local demo only — messages stay in this browser tab. No sign-in or real direct messages between accounts.</p>
+    </div>
+
+    <div class="chat-view" id="chatView">
+      <div class="chat-header" id="chatTitle">Chat</div>
+      <div class="messages" id="messages"></div>
+      <div class="local-note">Local demo only — people are told apart by name + per-tab ID. Not real account-to-account DMs.</div>
+      <div class="chat-input">
+        <input type="text" id="msgInput" placeholder="Write a message...">
+        <button onclick="sendMessage()">Send</button>
+      </div>
+    </div>
+
+    <div class="dropdown" id="plusDropdown" style="top:52px; left:220px;">
+      <div class="dropdown-item" style="font-weight:600; color:#888;">New</div>
+      <div class="dropdown-item" onclick="newChat('Message')">✏️ Message</div>
+      <div class="dropdown-item" onclick="newChat('Channel')"># Channel</div>
+      <div class="dropdown-item" onclick="showNotice('Folder is not available yet')">📁 Folder</div>
+      <div class="dropdown-item" onclick="showNotice('Shared space is not available yet')">🔗 Shared space</div>
+      <div class="dropdown-item divider" onclick="newChat('Invite')">👤 Invite new contact</div>
+      <div class="dropdown-item" onclick="showNotice('Join a channel is not available yet')">⊕ Join a channel</div>
+      <div class="dropdown-item" onclick="showNotice('Get apps is not available yet')">🧩 Get apps</div>
+    </div>
+
+    <div class="dropdown" id="settingsDropdown" style="top:52px; left:160px;">
+      <div class="dropdown-item" style="font-weight:600;">Settings</div>
+      <div class="dropdown-item">
+        Show unread only
+        <div class="toggle" id="unreadToggle" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="dropdown-item">Filter by ▸</div>
+      <div class="dropdown-item">Sort by ▸</div>
+      <div class="dropdown-item">Mark all as read</div>
+    </div>
+
+    <div class="dropdown" id="moreDropdown" style="top:100px; left:140px;">
+      <div class="dropdown-item" style="font-weight:600;">More</div>
+      <div class="dropdown-item"># Channels</div>
+      <div class="dropdown-item">📅 Meeting chats</div>
+      <div class="dropdown-item">☆ Starred</div>
+      <div class="dropdown-item">📁 Folders</div>
+      <div class="dropdown-item">🔗 Shared spaces</div>
+      <div class="dropdown-item">🧩 Apps</div>
+      <div class="dropdown-item">✏️ Drafts</div>
+      <div class="dropdown-item">📤 Sent</div>
+      <div class="dropdown-item">🔖 Bookmarks</div>
+      <div class="dropdown-item">⏰ Reminders</div>
+      <div class="dropdown-item">📞 Missed calls</div>
+      <div class="dropdown-item">👥 External</div>
+      <div class="dropdown-item" style="font-size:12px; color:#888;">Drag to pin or reorder &nbsp;&nbsp; <span style="color:#0e72ed;">Reset</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="notice" id="notice"></div>
+
+<script>
+const emptyState = document.getElementById('emptyState');
+const chatView = document.getElementById('chatView');
+const chatTitle = document.getElementById('chatTitle');
+const messagesEl = document.getElementById('messages');
+const msgInput = document.getElementById('msgInput');
+const notice = document.getElementById('notice');
+
+const TAB_ID = sessionStorage.getItem('tabId') || Math.random().toString(36).slice(2, 8);
+sessionStorage.setItem('tabId', TAB_ID);
+
+// Starter messages are pre-read so new tabs don't show them as unread
+const starterRead = { quantum: true, cda: true, you: true };
+
+let messages = JSON.parse(localStorage.getItem('chatMessages') || '{}');
+let unread = JSON.parse(localStorage.getItem('chatUnread') || '{}');
+
+// Seed starters only if never seen
+if (!localStorage.getItem('chatSeeded')) {
+  messages.quantum = [{ from: 'other', text: 'Welcome to the H-Quantum-CLASSICAL Meeting chat.', tab: 'system' }];
+  messages.cda = [{ from: 'other', text: 'CDA Research update will be shared here.', tab: 'system' }];
+  messages.you = [{ from: 'me', text: 'Personal notes and self chat.', tab: TAB_ID }];
+  unread = {}; // starters are not unread
+  localStorage.setItem('chatSeeded', '1');
+  localStorage.setItem('chatMessages', JSON.stringify(messages));
+  localStorage.setItem('chatUnread', JSON.stringify(unread));
+}
+
+function updateBadges() {
+  document.querySelectorAll('.unread-badge').forEach(b => {
+    const key = b.dataset.unread;
+    const count = unread[key] || 0;
+    b.textContent = count;
+    b.style.display = count > 0 ? 'flex' : 'none';
+  });
+}
+
+function save() {
+  localStorage.setItem('chatMessages', JSON.stringify(messages));
+  localStorage.setItem('chatUnread', JSON.stringify(unread));
+}
+
+document.querySelectorAll('.chat-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.chat-item').forEach(i => i.classList.remove('active'));
+    item.classList.add('active');
+    const key = item.dataset.chat;
+    chatTitle.textContent = item.textContent.trim().replace(/\d+$/, '').trim();
+    emptyState.style.display = 'none';
+    chatView.classList.add('active');
+    unread[key] = 0;
+    save();
+    updateBadges();
+    renderMessages(key);
+  });
+});
+
+function renderMessages(key) {
+  messagesEl.innerHTML = (messages[key] || []).map(m =>
+    `<div class="msg ${m.from === 'me' && m.tab === TAB_ID ? 'me' : 'other'}">${m.text}</div>`
+  ).join('');
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function sendMessage() {
+  const text = msgInput.value.trim();
+  if (!text) return;
+  const active = document.querySelector('.chat-item.active');
+  const key = active ? active.dataset.chat : 'you';
+  if (!messages[key]) messages[key] = [];
+  messages[key].push({ from: 'me', text, tab: TAB_ID });
+  msgInput.value = '';
+  save();
+  renderMessages(key);
+}
+
+msgInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
+
+function toggleDropdown(id) {
+  document.querySelectorAll('.dropdown').forEach(d => {
+    if (d.id !== id) d.classList.remove('show');
+  });
+  document.getElementById(id).classList.toggle('show');
+}
+
+document.getElementById('plusBtn').onclick = e => { e.stopPropagation(); toggleDropdown('plusDropdown'); };
+document.getElementById('settingsBtn').onclick = e => { e.stopPropagation(); toggleDropdown('settingsDropdown'); };
+document.getElementById('moreFilter').onclick = e => { e.stopPropagation(); toggleDropdown('moreDropdown'); };
+
+document.addEventListener('click', () => {
+  document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('show'));
+});
+
+function showNotice(text) {
+  notice.textContent = text;
+  notice.style.display = 'block';
+  setTimeout(() => notice.style.display = 'none', 2200);
+  document.getElementById('plusDropdown').classList.remove('show');
+}
+
+function newChat(type) {
+  showNotice('New ' + type + ' created (local only)');
+}
+
+document.querySelectorAll('.filter').forEach(f => {
+  if (f.id !== 'moreFilter') {
+    f.onclick = () => {
+      document.querySelectorAll('.filter').forEach(x => x.classList.remove('active'));
+      f.classList.add('active');
+    };
+  }
+});
+
+updateBadges();
+</script>
+</body>
+</html>

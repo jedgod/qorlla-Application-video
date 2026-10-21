@@ -1,0 +1,19 @@
+node_modules/
+data/
+playwright-report/
+test-results/
+.env
+
+# Local configuration and generated review artifacts
+.env.*
+!.env.example
+*.log
+artifacts/
+.codex/
+.agents/
+.aws/
+.DS_Store
+Thumbs.db
+*.pem
+*.key
+*.pfx
