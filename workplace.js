@@ -93,12 +93,12 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
         const failed = (err) => { console.error('Meet sync failed:', err.message); return new Error('Could not queue the meeting for Qorlla Meet. Try again shortly.'); };
         return {
             enabled: true,
-            async save(s, ownerName, legacyId, passcodeHash) {
+            async save(s, ownerName, legacyId, passcodeHash, ownerUserId) {
                 try {
                     const { saveSchedule } = await store();
                     await saveSchedule(pool, {
                         sourceId: s.id, legacyCode: String(legacyId).replace(/\D/g, ''),
-                        title: s.title, ownerName: ownerName || 'Host', scheduledAt: isoOf(s), passcodeHash
+                        title: s.title, ownerName: ownerName || 'Host', scheduledAt: isoOf(s), passcodeHash, ownerUserId: String(ownerUserId || '').replace(/^u_/, '')
                     });
                 } catch (err) { throw failed(err); }
             },
@@ -345,7 +345,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
             const pc = passcodeChange(body);
             if (pc.error) throw new Error(pc.error);
             if (next.title === prev.title && next.date === prev.date && next.time === prev.time && pc.hash === undefined) return;
-            await meetSync.save(next, prev.ownerName || '', prev.meetingId, pc.hash);
+            await meetSync.save(next, prev.ownerName || '', prev.meetingId, pc.hash, prev.hostId);
             if (pc.hash !== undefined) next.hasPasscode = !!pc.hash;
         },
         beforeDelete: async (item) => {
@@ -366,7 +366,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
             if (pc.error) throw new Error(pc.error);
             if (pc.hash && !meetSync.enabled) throw new Error('Passcodes need Qorlla Meet sync to be enabled.');
             if (meetSync.enabled) {
-                await meetSync.save(out, user.displayName, meeting.meetingId, pc.hash);
+                await meetSync.save(out, user.displayName, meeting.meetingId, pc.hash, user.id);
                 out.syncStatus = 'pending_sync';
                 out.hasPasscode = !!pc.hash;
             }

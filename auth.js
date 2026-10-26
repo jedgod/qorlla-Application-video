@@ -312,6 +312,15 @@ module.exports = function createAuth({ dataDir, mailer }) {
 
     // Server-to-server: lets the portal confirm a session is still alive (logout / password change revoke at once).
     // Authenticated with PORTAL_INTROSPECTION_SECRET; the reverse proxy must NOT expose /api/auth/internal/ publicly.
+    router.get('/internal/users/:uuid', (req, res) => {
+        const expected = process.env.PORTAL_INTROSPECTION_SECRET || '';
+        const given = (req.get('authorization') || '').replace(/^Bearer /, '');
+        const ok = expected.length >= 32 && given.length === expected.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+        if (!ok) return res.status(401).json({ error: 'Unauthorized' });
+        const u = loadUsers().find((x) => portalTokens.subjectFor(x.id) === String(req.params.uuid).toLowerCase());
+        res.set('Cache-Control', 'no-store').json(u ? { displayName: u.displayName || u.username } : { displayName: null });
+    });
+
     router.get('/internal/session/:sid', (req, res) => {
         const expected = process.env.PORTAL_INTROSPECTION_SECRET || '';
         const given = (req.get('authorization') || '').replace(/^Bearer /, '');

@@ -48,9 +48,11 @@ services:
       - ./meet-sync/sql/003_passcode.sql:/docker-entrypoint-initdb.d/003_passcode.sql:ro
       - ./meet-sync/sql/004_ack_retry.sql:/docker-entrypoint-initdb.d/004_ack_retry.sql:ro
       - ./meet-sync/sql/005_roles.sh:/docker-entrypoint-initdb.d/005_roles.sh:ro
+      - ./meet-sync/sql/006_meeting_directory.sql:/docker-entrypoint-initdb.d/007_meeting_directory.sql:ro
       - ./qorlla-portal/sql/001_portal.sql:/docker-entrypoint-initdb.d/010_portal_001.sql:ro
       - ./qorlla-portal/sql/002_billing.sql:/docker-entrypoint-initdb.d/011_portal_002_billing.sql:ro
-      - ./qorlla-portal/sql/003_roles.sh:/docker-entrypoint-initdb.d/012_portal_roles.sh:ro
+      - ./qorlla-portal/sql/004_meeting_ai.sql:/docker-entrypoint-initdb.d/012_portal_004_meeting_ai.sql:ro
+      - ./qorlla-portal/sql/003_roles.sh:/docker-entrypoint-initdb.d/013_portal_roles.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qorlla_main"]
       interval: 5s
@@ -71,6 +73,11 @@ services:
       - MAIN_AUTH_JWKS_URL=http://workspace-signaling-engine:5000/.well-known/jwks.json
       - MAIN_INTROSPECTION_URL=http://workspace-signaling-engine:5000/api/auth/internal/session
       - PORTAL_INTROSPECTION_SECRET=${PORTAL_INTROSPECTION_SECRET:?set PORTAL_INTROSPECTION_SECRET (32+ chars) in .env}
+      - MEET_INTERNAL_URL=http://meet:3000
+      - MEET_READ_SECRET=${MEET_READ_SECRET:-}
+      - AI_LLM_API_KEY=${AI_LLM_API_KEY:-}
+      - AI_LLM_MODEL=${AI_LLM_MODEL:-}
+      - AI_TRANSCRIPT_RETENTION_DAYS=${AI_TRANSCRIPT_RETENTION_DAYS:-90}
       - TRUST_PROXY_HOPS=1
       - BILLING_ENABLED=${BILLING_ENABLED:-false}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
@@ -122,6 +129,7 @@ services:
       - RECOVERY_ESCROW_KEY=${RECOVERY_ESCROW_KEY:?set RECOVERY_ESCROW_KEY (base64 of 32 bytes) in .env}
       - CORS_ORIGIN=${PUBLIC_ORIGIN:-}
       - TRUST_PROXY_HOPS=1
+      - MEET_READ_SECRET=${MEET_READ_SECRET:-}
       - ICE_SERVERS_JSON=${ICE_SERVERS_JSON:-[{"urls":"stun:stun.l.google.com:19302"}]}
     ports:
       - "127.0.0.1:${MEET_HOST_PORT:-3000}:3000"

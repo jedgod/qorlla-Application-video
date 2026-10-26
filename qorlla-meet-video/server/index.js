@@ -131,6 +131,23 @@ app.post('/api/integrations/scheduled-meetings',bridgeAuth,async(req,res)=>{
  }catch(e){await client.query('ROLLBACK').catch(()=>{});if(e.code==='23505')return fail(res,409,'Meeting mapping conflict');console.error(e);return fail(res,500,'Reconciliation failed');}
  finally{client.release();}
 });
+// v4.2: read-only chat export for Workplace AI Meeting Intelligence. Uses its OWN secret (MEET_READ_SECRET) so the portal never holds the
+// scheduling/recovery bridge secret. Returns only what participants typed in the meeting chat; the portal checks consent before calling.
+const readAuth=(req,res,next)=>{
+ const expected=process.env.MEET_READ_SECRET||'', provided=req.get('x-qorlla-readonly-secret')||'';
+ if(expected.length<32||provided.length!==expected.length||!timingSafeEqual(Buffer.from(provided),Buffer.from(expected)))return fail(res,401,'Read authentication required');
+ next();
+};
+app.get('/api/integrations/meetings/:id/chat',readAuth,async(req,res)=>{
+ res.set('Cache-Control','no-store');
+ if(!isUuid(req.params.id))return fail(res,400,'Invalid meeting id');
+ try{
+  const m=await db.query('SELECT id,title,created_at,ended_at FROM meetings WHERE id=$1',[req.params.id]);
+  if(!m.rowCount)return fail(res,404,'Meeting unavailable');
+  const {rows}=await db.query('SELECT p.display_name AS name, p.role, c.body, c.created_at FROM messages c JOIN participants p ON p.id=c.participant_id WHERE c.meeting_id=$1 ORDER BY c.created_at,c.id LIMIT 5000',[req.params.id]);
+  res.json({meetingId:m.rows[0].id,title:m.rows[0].title,startedAt:m.rows[0].created_at,endedAt:m.rows[0].ended_at,messages:rows.map(r=>({speaker:r.name,speakerRole:r.role,text:r.body,at:r.created_at}))});
+ }catch(e){console.error('chat export failed');fail(res,503,'Unavailable');}
+});
 // v3.9: host credential recovery with stable request ID + acknowledgment (replaces v3.8 blind rotation).
 // Bridge-only; the caller must authorize the schedule. Responses are never cached or logged.
 const recovery=process.env.RECOVERY_ESCROW_KEY?recoveryService(db,Buffer.from(process.env.RECOVERY_ESCROW_KEY,'base64'),{hashSecret:s=>bcrypt.hash(s,10),verifySecret:(s,h)=>bcrypt.compare(s,h)}):null;

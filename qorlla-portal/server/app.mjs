@@ -11,6 +11,11 @@ import { createLogger, requestLogger } from './log.mjs';
 import { createBillingService, BillingError } from './billing/service.mjs';
 import { createStripe } from './billing/stripe.mjs';
 import { PlanLimitError, entitlementsFor, quotaFor, withWorkspaceLock } from './entitlements.mjs';
+import { registerMeetingAi } from './meeting-ai.mjs';
+import { createLlm } from './ai/llm.mjs';
+import { createMeetClient } from './ai/meet-client.mjs';
+import { createAiWorker } from './ai/worker.mjs';
+import { createDirectory } from './directory.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
 const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -18,7 +23,7 @@ const ALL_ROLES = ['owner', 'admin', 'billing', 'member'];
 const MANAGE = ['owner', 'admin'];
 const BILLING = ['owner', 'admin', 'billing'];
 
-export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogger(), now = () => Date.now(), stripe: stripeOverride } = {}) {
+export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogger(), now = () => Date.now(), stripe: stripeOverride, ai: aiOverride = {} } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', cfg.trustProxyHops);
@@ -34,6 +39,10 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   const billing = createBillingService({ pool, stripe, cfg, log, now });
   const auth = createAuth({ cfg, pool, jwks, fetchImpl, log, now });
   const { identity, member, roles } = auth;
+  const directory = aiOverride.directory || createDirectory({ baseUrl: cfg.ai.directoryUrl, secret: cfg.introspectionSecret, fetchImpl, now });
+  const llm = aiOverride.llm || createLlm({ ...cfg.ai.llm, fetchImpl });
+  const meet = aiOverride.meet || createMeetClient({ baseUrl: cfg.ai.meetBaseUrl, readSecret: cfg.ai.meetReadSecret, fetchImpl });
+  const aiWorker = createAiWorker({ pool, llm, meet, log, ...(aiOverride.worker || {}) });
 
   // ---- webhook FIRST: it needs the raw bytes, and its authenticity is the provider signature (no cookies, no CSRF) ----
   app.post('/api/v1/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), h(async (req, res) => {
@@ -112,7 +121,11 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   }));
 
   // members
-  app.get('/api/v1/members', member, h(async (req, res) => res.json((await pool.query('SELECT user_id,role FROM portal.members WHERE workspace_id=$1 ORDER BY role,user_id', [req.workspace])).rows)));
+  app.get('/api/v1/members', member, h(async (req, res) => {
+    const rows = (await pool.query('SELECT user_id,role FROM portal.members WHERE workspace_id=$1 ORDER BY role,user_id', [req.workspace])).rows;
+    const names = await directory.names(rows.map((r) => r.user_id));
+    res.json(rows.map((r) => ({ ...r, display_name: names[r.user_id] || null })));
+  }));
   app.post('/api/v1/members', member, roles(...MANAGE), h(async (req, res) => {
     const p = z.object({ user_id: z.string().regex(UUID_RE), role: z.enum(['admin', 'billing', 'member']) }).parse(req.body);
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
@@ -218,6 +231,9 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   }));
   app.post('/api/v1/billing/reconcile', member, roles(...MANAGE), h(async (req, res) => res.json(await billing.reconcile(req.workspace))));
 
+  registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet });
+  app.get('/shared/report/:token', (req, res) => { res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' }); res.sendFile(path.join(root, 'shared.html')); });
+
   app.get('/api/v1/:module/status', member, (req, res) => {
     const allowed = ['meet', 'receptionist', 'phone', 'mate', 'suite', 'solutions', 'ai'];
     if (!allowed.includes(req.params.module)) return res.status(404).json({ error: 'Unknown module' });
@@ -229,6 +245,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   app.get('/app/*', (req, res) => res.sendFile(path.join(root, 'index.html')));
 
   app.use((err, req, res, next) => {
+    if (err.http) return res.status(err.http.status).json(err.http.body);
     if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input', issues: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) });
     if (err instanceof PlanLimitError) return res.status(402).json({ error: err.message, code: 'plan_limit', feature: err.feature, limit: err.limit, plan: err.plan, ...err.extra });
     if (err instanceof BillingError) return res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });
@@ -237,5 +254,5 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     log.error('unhandled error', { req_id: req.id, err: err.message });
     res.status(500).json({ error: 'Server error' });
   });
-  return { app, billing, auth };
+  return { app, billing, auth, ai: { worker: aiWorker, llm, meet, directory } };
 }

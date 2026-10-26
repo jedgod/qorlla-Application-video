@@ -15,15 +15,19 @@ export const here = path.dirname(fileURLToPath(import.meta.url));
 export const ADMIN_URL = process.env.TEST_DATABASE_ADMIN_URL || 'postgres://postgres:postgres@127.0.0.1:25611/postgres';
 export const ORIGIN = 'https://qorlla.test';
 const sql = (f) => fs.readFileSync(path.join(here, '..', 'sql', f), 'utf8');
+const meetSyncSql = (f) => fs.readFileSync(path.join(here, '..', '..', 'meet-sync', 'sql', f), 'utf8');
 
-export async function freshDatabase({ migrate = true } = {}) {
+export async function freshDatabase({ migrate = true, ai = true } = {}) {
   const admin = new pg.Client({ connectionString: ADMIN_URL }); await admin.connect();
   const name = 'portal_t_' + crypto.randomBytes(5).toString('hex');
   await admin.query(`CREATE DATABASE ${name}`); await admin.end();
   const url = ADMIN_URL.replace(/\/[^/]*$/, '/' + name);
   const pool = new pg.Pool({ connectionString: url, max: 12 });
+  // MAIN's Meet-sync tables + the narrow directory view the portal reads (public schema), exactly as in the deployment
+  await pool.query(meetSyncSql('001.sql')); await pool.query(meetSyncSql('006_meeting_directory.sql'));
   await pool.query(sql('001_portal.sql'));
   if (migrate) await pool.query(sql('002_billing.sql'));
+  if (migrate && ai) await pool.query(sql('004_meeting_ai.sql'));
   return { pool, name, url, sql,
     async drop() { await pool.end(); const a = new pg.Client({ connectionString: ADMIN_URL }); await a.connect(); await a.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`); await a.end(); } };
 }
@@ -58,12 +62,13 @@ export function testConfig(over = {}, main) {
   return Object.assign(cfg, over.cfg || {});
 }
 
-export async function startApp({ pool, cfg, jwks, fetchImpl, stripe }) {
+export async function startApp({ pool, cfg, jwks, fetchImpl, stripe, ai }) {
   const quiet = process.env.TEST_LOG ? createLogger() : createLogger(() => {});
-  const { app, billing } = createApp({ pool, cfg, jwks, fetchImpl, log: quiet, stripe });
+  const built = createApp({ pool, cfg, jwks, fetchImpl, log: quiet, stripe, ai });
+  const { app, billing } = built;
   const server = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
-  return { base, billing, close: () => new Promise((r) => server.close(r)),
+  return { base, billing, ai: built.ai, close: () => new Promise((r) => server.close(r)),
     /** HTTP client acting as a signed-in browser (cookies + same-origin headers). */
     client(session, { origin = ORIGIN, workspace } = {}) {
       const call = async (method, p, body, extra = {}) => {
@@ -87,3 +92,11 @@ export async function seedWorkspace(pool, ownerSub, name = 'WS') {
   return ws;
 }
 export async function addMember(pool, ws, sub, role) { await pool.query('INSERT INTO portal.members(workspace_id,user_id,role) VALUES($1,$2,$3)', [ws, sub, role]); }
+
+/** A Meet meeting as MAIN's sync records it (scheduled by `ownerSub`, registered with Meet): what the portal's directory view exposes. */
+export async function seedMeeting(pool, ownerSub, { title = 'Weekly sync', status = 'synced' } = {}) {
+  const meet = crypto.randomUUID(); const src = crypto.randomUUID();
+  await pool.query(`INSERT INTO qorlla_schedules(source_id,legacy_code,title,owner_name,scheduled_at,status,meet_uuid,meet_code,owner_user_id) VALUES($1,$2,$3,'Host',now(),$4,$5,$6,$7)`,
+    [src, String(Math.floor(1e10 + Math.random() * 9e10)), title, status, meet, String(Math.floor(1e11 + Math.random() * 9e11)), ownerSub]);
+  return meet;
+}

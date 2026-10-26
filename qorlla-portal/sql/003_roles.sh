@@ -9,7 +9,12 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'qorlla_portal_app') \g
 GRANT CONNECT ON DATABASE qorlla_main TO qorlla_portal_app;
 GRANT USAGE ON SCHEMA portal TO qorlla_portal_app;
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA portal TO qorlla_portal_app;
-GRANT DELETE ON portal.members TO qorlla_portal_app;
+GRANT DELETE ON portal.members, portal.meeting_action_items TO qorlla_portal_app;
+-- read-only window onto Meet's scheduled meetings (the view hides every other MAIN column; the base tables stay inaccessible)
+GRANT USAGE ON SCHEMA public TO qorlla_portal_app;
+GRANT SELECT ON public.portal_meeting_directory TO qorlla_portal_app;
+-- future portal migrations (run by the owner) are readable/writable by the app automatically
+ALTER DEFAULT PRIVILEGES IN SCHEMA portal GRANT SELECT, INSERT, UPDATE ON TABLES TO qorlla_portal_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA portal GRANT USAGE, SELECT ON SEQUENCES TO qorlla_portal_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA portal TO qorlla_portal_app;
-REVOKE ALL ON SCHEMA public FROM qorlla_portal_app;
 SQL

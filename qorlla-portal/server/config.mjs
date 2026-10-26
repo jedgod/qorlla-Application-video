@@ -36,6 +36,16 @@ export function loadConfig(env = process.env) {
   if (!cfg.jwksUrl) authProblems.push('MAIN_AUTH_JWKS_URL');
   if (!cfg.origin) authProblems.push('PORTAL_ALLOWED_ORIGIN');
   if (cfg.requireIntrospection && (!cfg.introspectionUrl || cfg.introspectionSecret.length < 32)) authProblems.push('MAIN_INTROSPECTION_URL + PORTAL_INTROSPECTION_SECRET (>=32 chars)');
+  const aiKey = trim(env.AI_LLM_API_KEY);
+  cfg.ai = {
+    workerEnabled: env.AI_WORKER_ENABLED !== 'false',
+    llm: { provider: 'anthropic', apiKey: aiKey, model: trim(env.AI_LLM_MODEL) || 'claude-sonnet-5-5',
+      // like the payment API base: a non-default endpoint exists only so tests can use a local test double, and is refused in production
+      apiBase: production ? 'https://api.anthropic.com' : (trim(env.AI_LLM_API_BASE) || 'https://api.anthropic.com'), maxInputChars: Number(env.AI_LLM_MAX_INPUT_CHARS || 120000) },
+    meetBaseUrl: trim(env.MEET_INTERNAL_URL), meetReadSecret: trim(env.MEET_READ_SECRET),
+    directoryUrl: trim(env.MAIN_DIRECTORY_URL) || (cfg.introspectionUrl ? cfg.introspectionUrl.replace(/\/session$/, '/users') : ''),
+    transcriptRetentionDays: Number(env.AI_TRANSCRIPT_RETENTION_DAYS || 90)
+  };
   cfg.authProblems = authProblems;
   cfg.authConfigured = authProblems.length === 0;
 
