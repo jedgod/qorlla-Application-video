@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qorlla™ Workplace Pricing</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f8; color: #222; display: flex; flex-direction: column; min-height: 100vh; }
+  .layout { display: flex; flex: 1; min-width: 0; }
+  .site-header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 24px; padding: 10px 20px; background: #fff; border-bottom: 1px solid #e5e5e5; }
+  .site-header a { color: #0b1633; text-decoration: none; font-size: 15px; font-weight: 500; white-space: nowrap; }
+  .site-logo img { display: block; height: clamp(34px, 5vw, 48px); width: auto; }
+  .site-nav { display: flex; align-items: center; gap: 28px; margin-left: 8px; }
+  .site-nav a.current { font-weight: 700; }
+  .caret { font-size: 10px; margin-left: 3px; }
+  .site-actions { display: flex; align-items: center; gap: 22px; margin-left: auto; }
+  .icon-link { display: inline-flex; width: 26px; height: 26px; }
+  .icon-link svg { width: 100%; height: 100%; fill: none; stroke: #0b1633; stroke-width: 2; stroke-linecap: round; }
+  .hbtn { padding: 10px 18px; border-radius: 10px; border: 1px solid #cfd8e8; background: #f2f6fd; }
+  .hbtn.primary { background: #0e72ed; border-color: #0e72ed; color: #fff !important; }
+  .apps-wrap { position: relative; }
+  .apps-btn { width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; cursor: pointer; display: grid; grid-template-columns: repeat(3, 4px); gap: 4px; align-content: center; justify-content: center; }
+  .apps-btn:hover, .apps-btn[aria-expanded="true"] { background: #dde8f8; }
+  .apps-btn i { width: 4px; height: 4px; border-radius: 50%; background: #0b1633; }
+  .apps-menu { display: none; position: absolute; right: 0; top: calc(100% + 10px); width: min(420px, calc(100vw - 24px)); background: #fff; border-radius: 22px; box-shadow: 0 12px 40px rgba(11,22,51,.22); overflow-y: auto; max-height: calc(100vh - 90px); z-index: 20; }
+  .apps-menu.open { display: block; }
+  .apps-menu { scrollbar-width: none; -ms-overflow-style: none; }
+  .apps-menu::-webkit-scrollbar { display: none; }
+  .apps-menu h4 { font-size: 20px; font-weight: 700; color: #000; }
+  .apps-sec { padding: 22px 24px 8px; }
+  .apps-sec-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .apps-sec-head a { font-size: 14px; color: #6b7280; font-weight: 600; }
+  .apps-grid { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .site-header .apps-grid a { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 4px; font-size: 14px; text-align: center; border-radius: 12px; white-space: normal; }
+  .site-header .apps-grid a:hover { background: #f2f6fd; }
+  .apps-grid svg { width: 26px; height: 26px; fill: none; stroke: #0e72ed; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .apps-foot { position: sticky; bottom: 0; background: #f4f6f8; border-top: 1px solid #e5e5e5; padding: 12px 24px 20px; }
+  .apps-foot .apps-grid a { font-size: 15px; }
+  .apps-ico { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; }
+  .apps-grid .apps-ico svg { width: 16px; height: 16px; stroke: #fff; }
+  .apps-tile { width: 50px; height: 50px; border-radius: 12px; display: grid; place-items: center; background: #0e72ed; }
+  .apps-tile.orange { background: #f26d21; }
+  .apps-tile svg { stroke: #fff; width: 26px; height: 26px; }
+  .apps-cta { display: block; margin-top: 14px; padding: 15px; text-align: center; border-radius: 10px; background: #0e72ed; color: #fff !important; font-weight: 600; }
+  @media (max-width: 1100px) { .site-nav, .hide-md { display: none; } .site-actions { gap: 14px; } }
+  @media (max-width: 600px) { .site-header { padding: 8px 12px; gap: 12px; } .hide-sm { display: none; } }
+  .sidebar { width: 220px; background: #f0f2f5; padding: 20px 12px; border-right: 1px solid #e5e5e5; }
+  .sidebar h3 { font-size: 13px; color: #666; margin: 16px 0 8px 8px; }
+  .nav-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; font-size: 14px; cursor: pointer; margin-bottom: 2px; }
+  .nav-item.active { background: #0e72ed; color: white; }
+  .nav-item:hover:not(.active) { background: #e5e7eb; }
+  .nav-sub { font-size: 12px; color: #888; margin-left: 28px; }
+  .main { flex: 1; padding: 20px 24px; overflow-x: auto; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+  .title-block h1 { font-size: 28px; }
+  .includes { font-size: 14px; color: #555; margin-top: 4px; }
+  .controls { display: flex; align-items: center; gap: 12px; }
+  .toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .switch { width: 40px; height: 22px; background: #ccc; border-radius: 11px; position: relative; cursor: pointer; }
+  .switch.on { background: #0e72ed; }
+  .switch::after { content: ''; position: absolute; width: 18px; height: 18px; background: white; border-radius: 50%; top: 2px; left: 2px; transition: 0.2s; }
+  .switch.on::after { left: 20px; }
+  .currency { border: 1px solid #ddd; border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+  .plans { display: flex; gap: 16px; min-width: 900px; }
+  .plan { background: white; border: 1px solid #e5e5e5; border-radius: 12px; padding: 20px; flex: 1; min-width: 240px; position: relative; }
+  .plan.popular { border: 2px solid #0e72ed; }
+  .badge { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: #0e72ed; color: white; font-size: 12px; padding: 4px 14px; border-radius: 12px; font-weight: 600; }
+  .plan-icon { width: 32px; height: 32px; background: #0e72ed; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; margin-bottom: 6px; }
+  .plan-type { font-size: 13px; color: #666; }
+  .plan-name { font-size: 22px; font-weight: 700; margin: 4px 0; }
+  .plan-desc { font-size: 13px; color: #666; margin-bottom: 8px; }
+  .price { font-size: 22px; font-weight: 700; }
+  .price span { font-size: 13px; font-weight: 400; color: #666; }
+  .btn { width: 100%; border: none; border-radius: 8px; padding: 12px; font-size: 15px; font-weight: 600; cursor: pointer; margin: 14px 0; }
+  .btn.primary { background: #0e72ed; color: white; }
+  .btn.secondary { background: #f0f4ff; color: #0e72ed; }
+  .btn.outline { background: white; border: 1px solid #ddd; color: #333; }
+  .highlights h4 { font-size: 13px; color: #666; margin: 8px 0; }
+  .section { margin: 10px 0; }
+  .section-title { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .feature-row { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; margin: 4px 0; }
+  .check { color: #1a9f4a; font-weight: 700; }
+  .link { color: #0e72ed; }
+  .more { color: #0e72ed; font-size: 13px; cursor: pointer; margin-top: 6px; }
+  .hidden { display: none; }
+  .warning { display: none; background: #fff8e6; border: 1px solid #f5d7a1; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
+  .footer-links { font-size: 13px; color: #0e72ed; margin-top: 10px; }
+  .footer-links span { margin-right: 12px; cursor: pointer; }
+</style>
+</head>
+<body>
+  <header class="site-header">
+    <a class="site-logo" href="../qorlla.html" aria-label="Qorlla home"><img src="../Qorlla-Logo.jpg" alt="Qorlla"></a>
+    <nav class="site-nav" aria-label="Main">
+      <a href="#">Products <span class="caret">&#9660;</span></a>
+      <a href="#">&#10022; AI <span class="caret">&#9660;</span></a>
+      <a href="#">Solutions <span class="caret">&#9660;</span></a>
+      <a href="#" class="current">Pricing</a>
+    </nav>
+    <div class="site-actions">
+      <a class="icon-link" href="#" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></a>
+      <a class="icon-link hide-sm" href="#" aria-label="Language"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg></a>
+      <a class="hide-md" href="../index.html">Meet <span class="caret">&#9660;</span></a>
+      <a href="../login.html">Sign In</a>
+      <a class="hide-md" href="#">Support</a>
+      <a class="hbtn hide-sm" href="#">Contact Sales</a>
+      <a class="hbtn primary" href="../login.html">Sign Up Free</a>
+      <div class="apps-wrap">
+        <button class="apps-btn" id="appsBtn" type="button" aria-label="Qorlla apps" aria-haspopup="true" aria-expanded="false" aria-controls="appsMenu"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></button>
+        <div class="apps-menu" id="appsMenu" role="menu">
+          <div class="apps-sec">
+            <div class="apps-sec-head"><h4>Qorlla Workplace</h4><a href="#">View All</a></div>
+            <div class="apps-grid">
+              <a href="../index.html" role="menuitem"><svg viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h7A2.5 2.5 0 0 1 15 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 3 16.5zM15 10l6-3v10l-6-3"/></svg>Meetings</a>
+              <a href="../chat.html" role="menuitem"><svg viewBox="0 0 24 24"><path d="M4 5h11v8H8l-4 3zM18 9h2v9l-3-2h-6v-2"/></svg>Team Chat</a>
+              <a href="#" role="menuitem"><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A15 15 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>Phone</a>
+              <a href="../qorlla.html" role="menuitem"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 11h18"/></svg>Mail &amp; Calendar</a>
+              <a href="../qorlla.html" role="menuitem"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 3h6"/></svg>Scheduler</a>
+              <a href="../qorlla.html" role="menuitem"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H11l-2 3v-3H4z"/></svg>Whiteboard</a>
+              <a href="#" role="menuitem"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="m10 8.5 4 2-4 2zM8 21h8"/></svg>Clips</a>
+              <a href="#" role="menuitem"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="10" rx="2"/><circle cx="12" cy="7" r="1.5"/><path d="M7 21v-5M17 21v-5M5 16h14"/></svg>Rooms</a>
+              <a href="#" role="menuitem"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/><path d="M17.5 3v7M14 6.5h7"/></svg>Qorlla Marketplace</a>
+            </div>
+          </div>
+          <div id="appsMore"></div>
+          <div class="apps-foot">
+            <div class="apps-grid">
+              <a href="../index.html" role="menuitem"><span class="apps-tile orange"><svg viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h7A2.5 2.5 0 0 1 15 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 3 16.5zM15 10l6-3v10l-6-3"/></svg></span>New Meeting &#9662;</a>
+              <a href="../index.html" role="menuitem"><span class="apps-tile"><svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg></span>Join</a>
+              <a href="../qorlla.html" role="menuitem"><span class="apps-tile"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4M16 3v4M4 11h16"/></svg></span>Schedule</a>
+            </div>
+            <a class="apps-cta" href="#">Contact Sales</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+  <div class="layout">
+  <aside class="sidebar">
+    <h3>Popular</h3>
+    <div class="nav-item active">
+      <span>🏢</span> Workplace<br><span style="font-size:11px">Meetings, Chat and more</span>
+    </div>
+    <div class="nav-item">📞 Phone</div>
+    <div class="nav-item">🤖 AI Receptionist</div>
+    <div class="nav-item">🎥 Webinars & Events</div>
+    <div class="nav-item">👥 QorllaMate</div>
+    <div class="nav-item">📝 My Notes</div>
+    <div class="nav-item">📊 AI Productivity Suite<br><span class="nav-sub">Slides, Sheets, Paper, Canvas</span></div>
+    <h3>Explore more</h3>
+    <div style="font-size:12px;color:#888;margin:4px 8px">Productivity</div>
+    <div class="nav-item">📅 Scheduler</div>
+    <div class="nav-item">⬜ Whiteboard</div>
+    <div class="nav-item">🎬 Clips</div>
+    <div style="font-size:12px;color:#888;margin:8px 8px 4px">Employee engagement</div>
+    <div class="nav-item">💬 Workvivo</div>
+    <div style="font-size:12px;color:#888;margin:8px 8px 4px">Spaces</div>
+  </aside>
+
+  <div class="main">
+    <div class="top">
+      <div class="title-block">
+        <h1>Workplace</h1>
+        <div class="includes">Includes: 📅 Meetings 💬 Chat ✉️ Mail 📅 Calendar and more, all at low price.</div>
+      </div>
+      <div class="controls">
+        <div class="toggle">
+          <div class="switch" id="annualToggle" onclick="toggleAnnual()"></div>
+          <span>Annually <span style="color:#1a9f4a">(Save up to 16%)</span></span>
+        </div>
+        <select class="currency"><option>US Dollars $</option></select>
+      </div>
+    </div>
+
+    <!-- Warning only shown when 40-min limit expires -->
+    <div class="warning" id="limitWarning">⚠️ You’ve reached your 40-minute meeting limit. Upgrade your plan to get more.</div>
+
+    <div class="plans">
+      <!-- Basic / Free -->
+      <div class="plan">
+        <div class="plan-icon">Q</div>
+        <div class="plan-type">Workplace</div>
+        <div class="plan-name">Basic</div>
+        <div class="price">Free</div>
+        <button class="btn secondary" onclick="buy('Basic')">Sign up free</button>
+        <div class="highlights">
+          <h4>Highlights:</h4>
+          <div class="section">
+            <div class="section-title">📅 Meetings</div>
+            <div class="feature-row"><span class="check">✓</span> 40 minutes per meeting</div>
+            <div class="feature-row"><span class="check">✓</span> 100 participants per meeting</div>
+          </div>
+          <div class="section">
+            <div class="section-title">✨ AI features</div>
+            <div class="feature-row"><span class="check">✓</span> Meeting summaries (for 3 hosted meetings per month)</div>
+            <div class="feature-row"><span class="check">✓</span> AI queries (20 per month)</div>
+          </div>
+          <div class="section">
+            <div class="section-title">📝 My Notes</div>
+            <div class="feature-row"><span class="check">✓</span> AI note-taking (3 uses per month)</div>
+          </div>
+          <div class="section">
+            <div class="section-title">💬 Chat</div>
+            <div class="feature-row"><span class="check">✓</span> Instant messaging</div>
+          </div>
+          <div class="more-list hidden" id="basic-more">
+          <div class="section">
+            <div class="section-title">📞 Phone</div>
+            <div class="feature-row"><span class="check">✓</span> VoIP calling</div>
+          </div>
+          <div class="section">
+            <div class="section-title">⬜ Whiteboard</div>
+            <div class="feature-row"><span class="check">✓</span> 3 editable whiteboards</div>
+          </div>
+          <div class="section">
+            <div class="section-title">🎬 Clips</div>
+            <div class="feature-row"><span class="check">✓</span> 5 two-minute clips</div>
+          </div>
+          <div class="section">
+            <div class="section-title">📊 AI Productivity Suite</div>
+            <div class="feature-row"><span class="check">✓</span> Limited AI capabilities</div>
+            <div class="feature-row"><span class="check">✓</span> AI help me write (Canvas) (3 docs per month)</div>
+          </div>
+          <div class="section">
+            <div class="section-title">✉️ Mail</div>
+            <div class="feature-row"><span class="check">✓</span> Connect Gmail/Outlook in Qorlla</div>
+          </div>
+          <div class="section">
+            <div class="section-title">📅 Calendar</div>
+            <div class="feature-row"><span class="check">✓</span> Sync Google/Microsoft calendars</div>
+          </div>
+          <div class="section">
+            <div class="section-title">✅ Tasks</div>
+            <div class="feature-row"><span class="check">✓</span> Surface, manage, and complete tasks</div>
+          </div>
+          <div class="section">
+            <div class="section-title">☁️ Hub</div>
+            <div class="feature-row"><span class="check">✓</span> One place for your Qorlla files</div>
+          </div>
+          </div>
+          <div class="footer-links"><span onclick="toggle('basic-more', this, 'See all features', 'See fewer features')">See all features</span></div>
+        </div>
+      </div>
+
+      <!-- Pro -->
+      <div class="plan popular">
+        <div class="badge">Most popular</div>
+        <div class="plan-icon">Q</div>
+        <div class="plan-type">Workplace</div>
+        <div class="plan-name">Pro</div>
+        <div class="plan-desc">Best for personal use or small teams.</div>
+        <div class="price" id="proPrice">$16.99 <span>/user/month · billed monthly*</span></div>
+        <button class="btn primary" onclick="buy('Pro')">Buy now</button>
+        <div class="highlights">
+          <h4>All of Workplace Basic, and:</h4>
+          <div class="section">
+            <div class="section-title">📅 Meetings</div>
+            <div class="feature-row"><span class="check">✓</span> 30 hours per meeting</div>
+            <div class="feature-row"><span class="check">✓</span> 100 participants per meeting</div>
+            <div class="feature-row"><span class="link">Increase with Large Meeting</span></div>
+          </div>
+          <div class="section">
+            <div class="section-title">📝 My Notes</div>
+            <div class="feature-row"><span class="check">✓</span> <strong style="color:#c026d3">Unlimited My Notes</strong></div>
+            <div class="feature-row"><span class="check">✓</span> AI note taker for Qorlla, third-party, and in-person conversations</div>
+          </div>
+          <div class="section">
+            <div class="section-title">✨ AI features</div>
+            <div class="feature-row"><span class="check">✓</span> Basic AI queries</div>
+            <div class="feature-row"><span class="check">✓</span> Agentic search</div>
+            <div class="feature-row"><span class="check">✓</span> Workflows in Qorlla</div>
+            <div class="feature-row"><span class="check">✓</span> Unlimited meeting summaries</div>
+            <div class="feature-row"><span class="check">✓</span> Unlimited in meeting questions</div>
+            <div class="feature-row"><span class="check">✓</span> Create custom meeting summary templates (8 per month)</div>
+          </div>
+          <div class="more-list hidden" id="pro-more">
+            <div class="section">
+              <div class="section-title">🎬 Video Management</div>
+              <div class="feature-row"><span class="check">✓</span> Group videos in channels (25 unique viewers)</div>
+              <div class="feature-row"><span class="check">✓</span> Qorlla recordings, Clips, and uploads</div>
+            </div>
+            <div class="section">
+              <div class="section-title">📄 Canvas</div>
+              <div class="feature-row"><span class="check">✓</span> Unlimited AI document creation</div>
+            </div>
+            <div class="section">
+              <div class="section-title">🎬 Clips</div>
+              <div class="feature-row"><span class="check">✓</span> Unlimited clips</div>
+              <div class="feature-row"><span class="check">✓</span> Custom avatars (3 mins per month)</div>
+            </div>
+            <div class="section">
+              <div class="section-title">✉️ Mail</div>
+              <div class="feature-row"><span class="check">✓</span> Qorlla Mail</div>
+            </div>
+            <div class="section">
+              <div class="section-title">📅 Calendar</div>
+              <div class="feature-row"><span class="check">✓</span> Qorlla Calendar</div>
+            </div>
+            <div class="section">
+              <div class="section-title">💾 Cloud storage</div>
+              <div class="feature-row"><span class="check">✓</span> 10 GB per user</div>
+            </div>
+            <div class="section">
+              <div class="section-title">💬 Live Chat Support</div>
+            </div>
+          </div>
+          <div class="more" onclick="toggle('pro-more', this)">▸ See more highlights</div>
+          <div class="footer-links"><span>See all features</span> <span>See add-ons</span></div>
+        </div>
+      </div>
+
+      <!-- Business -->
+      <div class="plan">
+        <div class="plan-icon">Q</div>
+        <div class="plan-type">Workplace</div>
+        <div class="plan-name">Business</div>
+        <div class="plan-desc">Best for larger teams.</div>
+        <div class="price" id="bizPrice">$21.99 <span>/user/month · billed monthly*</span></div>
+        <button class="btn secondary" onclick="buy('Business')">Buy now</button>
+        <div class="highlights">
+          <h4>All of Workplace Pro, and:</h4>
+          <div class="section">
+            <div class="section-title">📅 Meetings</div>
+            <div class="feature-row"><span class="check">✓</span> 300 participants per meeting</div>
+            <div class="feature-row"><span class="link">Increase with Large Meeting</span></div>
+          </div>
+          <div class="section">
+            <div class="section-title">🎨 Branded experience</div>
+            <div class="feature-row"><span class="check">✓</span> Company branding, vanity URLs, and custom mail domain with Qorlla Mail service</div>
+          </div>
+          <div class="section">
+            <div class="section-title">📅 Scheduler</div>
+            <div class="feature-row"><span class="check">✓</span> Offer appointment bookings — one-on-one, group, or round robin, any duration</div>
+            <div class="feature-row"><span class="check">✓</span> Leads route to the right person, pay before the meeting*, and send automated reminders to reduce no shows</div>
+          </div>
+          <div class="section">
+            <div class="section-title">🔒 Secure access & compliance</div>
+            <div class="feature-row"><span class="check">✓</span> Single sign-on (SSO) and managed domains</div>
+            <div class="feature-row"><span class="check">✓</span> Information barriers, data loss prevention and archival APIs for regulated teams</div>
+          </div>
+          <div class="more-list hidden" id="biz-more">
+            <div class="section">
+              <div class="section-title">✓ Extras</div>
+              <div class="feature-row"><span class="check">✓</span> Unlimited Whiteboards, custom templates, facilitation tools (timer, presentation mode and voting)</div>
+              <div class="feature-row"><span class="check">✓</span> Multi-region storage and media control</div>
+              <div class="feature-row"><span class="check">✓</span> Device management</div>
+            </div>
+          </div>
+          <div class="more" onclick="toggle('biz-more', this)">▸ See more highlights</div>
+          <div class="footer-links"><span>See all features</span> <span>See add-ons</span></div>
+          <div style="font-size:12px;color:#888;margin-top:8px">*Available in US and UK only</div>
+        </div>
+      </div>
+
+      <!-- Enterprise -->
+      <div class="plan">
+        <div class="plan-icon">Q</div>
+        <div class="plan-type">Workplace</div>
+        <div class="plan-name">Enterprise</div>
+        <div class="price" style="font-size:18px">Talk to us</div>
+        <button class="btn outline" onclick="buy('Enterprise')">Contact sales</button>
+        <div class="highlights">
+          <h4>All of Workplace Business, and:</h4>
+          <div class="section">
+            <div class="section-title">📅 Meetings</div>
+            <div class="feature-row"><span class="check">✓</span> 1000 participants per meeting</div>
+          </div>
+          <div class="section">
+            <div class="section-title">📞 Phone</div>
+            <div class="feature-row"><span class="check">✓</span> Full-featured PBX</div>
+          </div>
+          <div class="section">
+            <div class="section-title">🎥 Webinars</div>
+            <div class="feature-row"><span class="check">✓</span> 500 attendees</div>
+          </div>
+          <div class="section">
+            <div class="section-title">🏠 Rooms</div>
+          </div>
+          <div class="section">
+            <div class="section-title">🏢 Workspace Reservation</div>
+          </div>
+          <div class="section">
+            <div class="section-title">👤 Visitor Management</div>
+          </div>
+          <div class="section">
+            <div class="section-title">🌐 Translated captions</div>
+          </div>
+          <div class="section">
+            <div class="section-title">🔒 Advanced Data Protection</div>
+            <div class="feature-row"><span class="check">✓</span> Customer Managed Keys</div>
+            <div class="feature-row"><span class="check">✓</span> Sensitivity Labels</div>
+          </div>
+          <div class="section">
+            <div class="section-title">+ Add-ons</div>
+            <div class="feature-row"><span class="check">✓</span> Customer managed key</div>
+            <div class="feature-row"><span class="check">✓</span> Hybrid cloud</div>
+            <div class="feature-row"><span class="check">✓</span> Contact management network</div>
+          </div>
+          <div class="footer-links"><span>See all features</span> <span>See add-ons</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+<script>
+let annual = false;
+const prices = {
+  pro: { monthly: '$16.99', annual: '$14.99' },
+  biz: { monthly: '$21.99', annual: '$18.33' }
+};
+function toggleAnnual() {
+  annual = !annual;
+  document.getElementById('annualToggle').classList.toggle('on', annual);
+  document.getElementById('proPrice').innerHTML = (annual ? prices.pro.annual : prices.pro.monthly) + ' <span>/user/month · billed ' + (annual ? 'annually' : 'monthly*') + '</span>';
+  document.getElementById('bizPrice').innerHTML = (annual ? prices.biz.annual : prices.biz.monthly) + ' <span>/user/month · billed ' + (annual ? 'annually' : 'monthly*') + '</span>';
+}
+function toggle(id, el, moreLabel = '▸ See more highlights', lessLabel = '▾ See less highlights') {
+  const box = document.getElementById(id);
+  const isHidden = box.classList.toggle('hidden');
+  el.textContent = isHidden ? moreLabel : lessLabel;
+}
+
+const APP_SECTIONS = [
+  { title: 'Qorlla AI', items: [
+    ['QorllaMate', 'M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z'],
+    ['My Notes', 'M4 20l1-4L16 5l3 3L8 19zM14 7l3 3'],
+    ['Virtual Agent', 'M5 12a7 7 0 0 1 14 0v3a4 4 0 0 1-4 4H9l-4 2zM9.500 13.500c1.500 1.500 3.500 1.500 5 0'],
+    ['AI Services', 'M5 4h10v4H5zM7 8v8h5M16 14a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'],
+    ['AI On-Prem', 'M5 4h14v6H5zM5 14h14v6H5zM8 7h.01M8 17h.01'],
+    ['AI Productivity Suite', 'M4 4h16v16H4zM12 8l1 3 3 1-3 1-1 3-1-3-3-1 3-1z'],
+    ['Canvas', 'M7 3h7l4 4v14H7zM10 12h5M10 16h5', '#1a63f5'],
+    ['Slides', 'M5 4h14v12H5zM12 16v4M8 20h8M9 8h6', '#ff4081'],
+    ['Sheets', 'M5 4h14v16H5zM5 10h14M5 15h14M11 4v16', '#2da44e']
+  ] },
+  { title: 'Qorlla CX', items: [
+    ['Contact Center', 'M4 14v-2a8 8 0 0 1 16 0v2M4 14h3v4H4zM17 14h3v4h-3zM17 18c0 2-2 3-5 3'],
+    ['AI Expert Assist', 'M4 14v-2a8 8 0 0 1 16 0v2M4 14h3v4H4zM17 14h3v4h-3zM12 8l1 2 2 1-2 1-1 2-1-2-2-1 2-1z'],
+    ['Workforce Management', 'M6 3h9l4 4v14H6zM9 11h6M9 15h4'],
+    ['Quality Management', 'M3 5h18v13H3zM7 11l2 2 3-4M14 10h4M14 14h4'],
+    ['CX Insights', 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 3v6M12 15v6M4 7.500l5 3M15 13.500l5 3M4 16.500l5-3M15 10.500l5-3']
+  ] },
+  { title: 'Business Services', items: [
+    ['Revenue Accelerator', 'M4 18a8 8 0 1 1 16 0M12 18l4-6M7 18h.01M17 18h.01'],
+    ['Webinars & Events', 'M3 7h18v4a2 2 0 0 0 0 4v4H3v-4a2 2 0 0 0 0-4zM12 9l1 2 2 .3-1.500 1.500.4 2.200-1.900-1-1.900 1 .4-2.200L9 11.300 11 11z'],
+    ['Contracts', 'M6 3h9l4 4v14H6zM9 12h6M9 16h6M9 8h3'],
+    ['Hiring', 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20c0-3 3-5 6-5s6 2 6 5M17 8h4M19 6v4']
+  ] }
+];
+(function renderApps() {
+  const esc = (t) => t.replace(/&/g, '&amp;');
+  document.getElementById('appsMore').innerHTML = APP_SECTIONS.map((sec) =>
+    '<div class="apps-sec"><div class="apps-sec-head"><h4>' + sec.title + '</h4></div><div class="apps-grid">' +
+    sec.items.map(([name, path, bg]) => {
+      const svg = '<svg viewBox="0 0 24 24"><path d="' + path + '"/></svg>';
+      const icon = bg ? '<span class="apps-ico" style="background:' + bg + '">' + svg + '</span>' : svg;
+      return '<a href="#" role="menuitem">' + icon + esc(name) + '</a>';
+    }).join('') + '</div></div>'
+  ).join('');
+})();
+const appsBtn = document.getElementById('appsBtn');
+const appsMenu = document.getElementById('appsMenu');
+function setApps(open) {
+  appsMenu.classList.toggle('open', open);
+  appsBtn.setAttribute('aria-expanded', String(open));
+}
+appsBtn.addEventListener('click', (e) => { e.stopPropagation(); setApps(!appsMenu.classList.contains('open')); });
+document.addEventListener('click', (e) => { if (!appsMenu.contains(e.target)) setApps(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { setApps(false); appsBtn.focus(); } });
+function buy(plan) {
+  alert('Selected: ' + plan + (annual ? ' (annual)' : ' (monthly)'));
+}
+// Demo: show warning only when simulating 40-min expiry
+// document.getElementById('limitWarning').style.display = 'flex';
+</script>
+</body>
+</html>

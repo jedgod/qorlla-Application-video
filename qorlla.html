@@ -99,6 +99,19 @@
   .action-btn span { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 3px; }
   .action-btn span svg.i { width: 14px; height: 14px; }
 
+  .bill-card {
+    max-width: 560px; margin: 0 auto 18px; border: 1px solid rgba(106,77,255,.16); border-radius: var(--radius);
+    background: linear-gradient(135deg, rgba(106,77,255,.07), rgba(37,99,255,.06));
+    box-shadow: 0 10px 24px rgba(106,77,255,.12); padding: 18px 18px 16px;
+  }
+  .bill-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .bill-label { font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--brand); text-transform: uppercase; }
+  .bill-title { font-size: 18px; font-weight: 800; letter-spacing: -.3px; margin-top: 2px; }
+  .bill-badge { background: rgba(37,99,255,.12); color: var(--brand); border-radius: 999px; padding: 5px 10px; font-size: 11px; font-weight: 700; }
+  .bill-badge.charged { background: rgba(255,107,44,.12); color: #c65d1a; }
+  .bill-timer { font-size: clamp(28px, 5vw, 42px); font-weight: 800; letter-spacing: -.08em; margin: 8px 0 6px; }
+  .bill-copy { color: var(--muted); font-size: 14px; line-height: 1.5; margin-bottom: 12px; }
+  .bill-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .calendar-card { max-width: 560px; margin: 0 auto; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
   .cal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); font-weight: 700; }
   .cal-header .l { display: flex; align-items: center; gap: 10px; }
@@ -373,8 +386,7 @@
 <div class="app">
   <aside class="sidebar">
     <a class="logo" href="#home" aria-label="Qorlla home">
-      <div class="logo-mark">Q</div>
-      <div class="logo-word">Qorlla</div>
+      <img src="Qorlla-Logo.jpg" alt="Qorlla" style="display:block;width:100%;max-width:68px;height:auto">
     </a>
     <div class="nav-item active" data-view="home" role="button" tabindex="0">
       <svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg>
@@ -498,6 +510,22 @@
     <div class="action-btn" data-act="notes" role="button" tabindex="0">
       <div class="action-icon"><svg class="i" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
       <span><span data-i18n="Notes">Notes</span></span>
+    </div>
+  </div>
+
+  <div class="bill-card" id="billingCard" aria-live="polite">
+    <div class="bill-head">
+      <div>
+        <div class="bill-label">Billing</div>
+        <div class="bill-title">30-minute session</div>
+      </div>
+      <span class="bill-badge" id="billingBadge">Session active</span>
+    </div>
+    <div class="bill-timer" id="billingTimer">00:30:00</div>
+    <div class="bill-copy" id="billingCopy">The session is active. A charge is prepared after 30 minutes of use.</div>
+    <div class="bill-actions">
+      <button class="btn primary small" type="button" data-act="charge-session">Charge now</button>
+      <button class="btn small" type="button" data-act="skip-charge">Skip charge</button>
     </div>
   </div>
 
@@ -752,6 +780,7 @@
     var tpl = $('tpl-home').content.cloneNode(true);
     viewEl.appendChild(tpl);
     paintClock();
+    applyBillingTimer();
     var meetingBox = viewEl.querySelector('#homeMeetings');
     if (!state.user) {
       viewEl.querySelector('#homeDayLabel').textContent = I18n.t('Your day');
@@ -1646,10 +1675,103 @@
     var tag = (e.target && e.target.tagName) || '';
     if (e.key === '?' && !/INPUT|TEXTAREA|SELECT/.test(tag) && !document.querySelector('dialog[open]')) { e.preventDefault(); showShortcuts(); }
   });
+  function formatDuration(totalSeconds) {
+    var total = Math.max(0, Math.floor(totalSeconds));
+    var hours = Math.floor(total / 3600);
+    var minutes = Math.floor((total % 3600) / 60);
+    var seconds = total % 60;
+    return [hours, minutes, seconds].map(function (n) { return String(n).padStart(2, '0'); }).join(':');
+  }
+
+  function getBillingState() {
+    try {
+      return JSON.parse(localStorage.getItem('qorllaBillingState') || '{}');
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function setBillingState(next) {
+    localStorage.setItem('qorllaBillingState', JSON.stringify(next));
+  }
+
+  function updateBillingUi() {
+    var card = document.getElementById('billingCard');
+    if (!card) return;
+    var badge = document.getElementById('billingBadge');
+    var timer = document.getElementById('billingTimer');
+    var copy = document.getElementById('billingCopy');
+    var state = getBillingState();
+    var now = Date.now();
+    var startedAt = Number(state.startedAt || 0);
+    var charged = !!state.charged;
+    var remainingMs = Math.max(0, (30 * 60 * 1000) - (now - startedAt));
+    var secsLeft = Math.ceil(remainingMs / 1000);
+
+    if (!startedAt) {
+      startedAt = now;
+      state.startedAt = startedAt;
+      state.charged = false;
+      setBillingState(state);
+    }
+
+    if (charged) {
+      badge.textContent = 'Charged';
+      badge.classList.add('charged');
+      timer.textContent = '00:00:00';
+      copy.textContent = 'This session has already been charged after 30 minutes.';
+      return;
+    }
+
+    badge.textContent = 'Session active';
+    badge.classList.remove('charged');
+    timer.textContent = formatDuration(secsLeft);
+    copy.textContent = secsLeft <= 0 ? 'The 30-minute billing window has ended and the user can be charged.' : 'The session is active. A charge is prepared after 30 minutes of use.';
+  }
+
+  function applyBillingTimer() {
+    updateBillingUi();
+    var timer = setInterval(function () {
+      if (state.view !== 'home') return;
+      updateBillingUi();
+    }, 1000);
+    if (cleanup) {
+      var previousCleanup = cleanup;
+      cleanup = function () {
+        previousCleanup && previousCleanup();
+        clearInterval(timer);
+      };
+    } else {
+      cleanup = function () {
+        clearInterval(timer);
+      };
+    }
+  }
+
+  function chargeCurrentSession() {
+    var s = getBillingState();
+    s.charged = true;
+    s.chargedAt = Date.now();
+    setBillingState(s);
+    updateBillingUi();
+    toast('User charged after 30 minutes', 'ok');
+  }
+
+  function skipCurrentCharge() {
+    var s = getBillingState();
+    s.charged = false;
+    s.startedAt = Date.now();
+    setBillingState(s);
+    updateBillingUi();
+    toast('30-minute charge window reset', 'ok');
+  }
+
   function act(name) {
     if (name === 'meet' || name === 'share') openDialog('new');
     else if (name === 'join') openDialog('join');
     else if (name === 'chat') window.location.href = 'chat.html';
+    else if (name === 'charge-session') chargeCurrentSession();
+    else if (name === 'skip-charge') skipCurrentCharge();
     else show(name);
   }
   $('searchForm').addEventListener('submit', function (e) { e.preventDefault(); show('search', { q: $('searchInput').value.trim() }); });

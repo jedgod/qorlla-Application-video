@@ -1,0 +1,163 @@
+{
+  "info": {
+    "name": "Qorlla_Aud-Video API",
+    "description": "Collection for Qorlla Workplace REST endpoints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "health"]
+        }
+      }
+    },
+    {
+      "name": "Auth / Register",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"jane\",\n  \"displayName\": \"Jane Doe\",\n  \"password\": \"StrongPass123\",\n  \"email\": \"jane@example.com\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "register"]
+        }
+      }
+    },
+    {
+      "name": "Auth / Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"jane\",\n  \"password\": \"StrongPass123\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "login"]
+        }
+      }
+    },
+    {
+      "name": "Auth / Me",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/me",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "me"]
+        }
+      }
+    },
+    {
+      "name": "Workplace / Chat",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/workplace/chat",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "workplace", "chat"]
+        }
+      }
+    },
+    {
+      "name": "Workplace / Mail List",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/workplace/mail",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "workplace", "mail"]
+        }
+      }
+    },
+    {
+      "name": "Workplace / Notes List",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/workplace/notes",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "workplace", "notes"]
+        }
+      }
+    },
+    {
+      "name": "Workplace / Schedule List",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/workplace/schedule",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "workplace", "schedule"]
+        }
+      }
+    },
+    {
+      "name": "Meetings / Create",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"topic\": \"Weekly Sync\",\n  \"startTime\": \"2026-11-15T10:00:00.000Z\",\n  \"durationMinutes\": 45,\n  \"hostId\": \"u_xxx\",\n  \"timezone\": \"GMT-4:00 (Eastern Time)\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/meetings/create",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "meetings", "create"]
+        }
+      }
+    },
+    {
+      "name": "Meetings / Validate",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/meetings/validate/123 4567 8901",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "meetings", "validate", "123 4567 8901"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    }
+  ]
+}
