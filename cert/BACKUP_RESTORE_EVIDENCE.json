@@ -1,54 +1,37 @@
 {
-  "finished": "2026-10-26T20:08:22.042Z",
+  "finished": "2026-10-26T20:13:33.799Z",
   "git": {
-    "headSha": "5af3f8e16b4b6b32cad50ebe00e65a864fcfa42c",
+    "headSha": "16cfdc45038ed5de1f5a2da945fe4bfcaa6f8ec5",
     "branch": "release/qorlla-meet-v3.9.2-production-closure",
     "sourceTreeClean": false,
     "dirtySourcePaths": [
-      " M cert/PROXY_EVIDENCE.json",
-      " M cert/PROXY_EVIDENCE.md",
-      " M cert/evidence.json",
-      " M cert/run-security.mjs",
-      " M cert/screenshots/C12-independent.png",
-      " M cert/screenshots/C12-returned.png",
-      " M cert/screenshots/C13-prefs.png",
-      " M cert/screenshots/C14-passcode.png",
-      " M cert/screenshots/C16-guest.png",
-      " M cert/screenshots/C16-host.png",
-      " M cert/screenshots/C24-pending.png",
-      " M cert/screenshots/P06-proxy-passcode.png",
-      " M cert/screenshots/P07-proxy-guest.png",
-      " M cert/screenshots/P07-proxy-host.png",
-      " M qorlla-meet-video/package-lock.json",
-      " M qorlla-meet-video/package.json",
-      " M qorlla-meet-video/server/index.js",
-      "?? qorlla-meet-video/server/threadpool.js"
+      " M cert/SECURITY_EVIDENCE.md"
     ]
   },
-  "gitHeadSha": "5af3f8e16b4b6b32cad50ebe00e65a864fcfa42c",
+  "gitHeadSha": "16cfdc45038ed5de1f5a2da945fe4bfcaa6f8ec5",
   "steps": [
     {
-      "at": "2026-10-26T20:06:44.123Z",
+      "at": "2026-10-26T20:11:56.267Z",
       "step": "seed: user, 5 synced schedules (1 passcode), 1 completed recovery, 2 pending recoveries (escrow pending)"
     },
     {
-      "at": "2026-10-26T20:07:07.468Z",
-      "step": "pre-backup state: {\"auditEvents\":344,\"escrow\":[{\"state\":\"acknowledged\",\"c\":25},{\"state\":\"pending\",\"c\":3}],\"schedules\":6}"
+      "at": "2026-10-26T20:12:20.514Z",
+      "step": "pre-backup state: {\"auditEvents\":657,\"escrow\":[{\"state\":\"acknowledged\",\"c\":48},{\"state\":\"pending\",\"c\":4}],\"schedules\":6}"
     },
     {
-      "at": "2026-10-26T20:07:07.469Z",
+      "at": "2026-10-26T20:12:20.515Z",
       "step": "backup: quiesce MAIN + worker + Meet, dump both databases, archive MAIN data volume"
     },
     {
-      "at": "2026-10-26T20:07:26.677Z",
+      "at": "2026-10-26T20:12:38.234Z",
       "step": "DISASTER: destroy MAIN stack + volumes and Meet database container"
     },
     {
-      "at": "2026-10-26T20:07:35.954Z",
+      "at": "2026-10-26T20:12:47.297Z",
       "step": "restore: fresh Meet PostgreSQL, fresh MAIN PostgreSQL, MAIN data volume, services"
     },
     {
-      "at": "2026-10-26T20:08:10.901Z",
+      "at": "2026-10-26T20:13:22.220Z",
       "step": "verify"
     }
   ],
@@ -61,7 +44,7 @@
     {
       "name": "restored MAIN data volume: pre-disaster session still valid",
       "status": "PASS",
-      "detail": "{\"u\":\"bkf676fa1c\"}"
+      "detail": "{\"u\":\"bkeaee7d25\"}"
     },
     {
       "name": "schedules restored consistently (JSON volume and PostgreSQL agree)",
@@ -100,13 +83,13 @@
     },
     {
       "name": "restored sync worker completes outstanding acknowledgments; no escrow left pending",
-      "status": "FAIL",
-      "detail": "pending=1"
+      "status": "PASS",
+      "detail": "pending=0"
     },
     {
       "name": "audit log preserved and sequence continues (no id reuse)",
       "status": "PASS",
-      "detail": "before=344/344 after=352/352"
+      "detail": "before=657/657 after=665/665"
     },
     {
       "name": "schedule reconciliation works after restore (edit + new schedule sync)",
@@ -116,37 +99,37 @@
     {
       "name": "measured RTO within target (900 s)",
       "status": "PASS",
-      "detail": "RTO 45.401s"
+      "detail": "RTO 45.355s"
     }
   ],
   "timings": {
-    "backupSeconds": 11.537,
-    "rpoSeconds": 7.671,
-    "rtoSeconds": 45.401,
-    "restoreCompletedSeconds": 55.295
+    "backupSeconds": 9.983,
+    "rpoSeconds": 7.736,
+    "rtoSeconds": 45.355,
+    "restoreCompletedSeconds": 55.49
   },
   "backupArtifacts": [
     {
       "file": "main.dump",
-      "bytes": 47349,
-      "sha256": "1ccbea83b4bd881a90302069d0724e28fdf62e21fa41ccde9026601d0eed1f70"
+      "bytes": 74337,
+      "sha256": "323aa95fa53806b32784e3f06c10a99d65a2cb636e1dfa51a986e04b17fe9467"
     },
     {
       "file": "meet.dump",
-      "bytes": 84251,
-      "sha256": "677f19b861a4ae9b9bc6c21f6c6df151a71498e12f0975e353cc82ef87d51ad6"
+      "bytes": 136101,
+      "sha256": "1e695125118734ad16f2077da2a5d63bb56a2633af591102ce003537563f6240"
     },
     {
       "file": "workspace.tgz",
-      "bytes": 15330,
-      "sha256": "06ef19184183292e8b87e53e84af677e8b1ddb25c44b2a294383f82ffd582713"
+      "bytes": 22862,
+      "sha256": "e00e41fe4e55b9b8278c024c4fc4656d05e758715df6cc66380d36563d4df278"
     }
   ],
   "objectives": {
     "rtoTargetSeconds": 900,
     "rpoTargetSeconds": 900,
-    "rtoMeasuredSeconds": 45.401,
-    "rpoMeasuredSeconds": 7.671,
+    "rtoMeasuredSeconds": 45.355,
+    "rpoMeasuredSeconds": 7.736,
     "note": "RPO measured here is only the gap between this drill's backup and the simulated disaster. No automated backup schedule exists yet, so the RPO the product can actually guarantee is undefined until one is configured."
   }
 }
