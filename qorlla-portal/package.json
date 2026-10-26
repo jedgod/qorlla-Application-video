@@ -6,7 +6,7 @@
     "start": "node server/index.mjs",
     "dev": "node --watch server/index.mjs",
     "check": "node --check server/index.mjs && node --check server/app.mjs && node --check server/auth.mjs && node --check server/billing/service.mjs && node --check server/billing/stripe.mjs",
-    "test": "node --test --test-concurrency=1 tests/",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
     "test:unit": "node --test tests/unit/"
   },
   "dependencies": {

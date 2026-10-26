@@ -99,7 +99,7 @@ describe('authentication & authorization', () => {
   });
   test('role matrix: member cannot bill or manage; billing role bills but cannot manage members; admin manages; last owner protected', async () => {
     const owner = await main.mint(), adm = await main.mint(), bill = await main.mint(), mem = await main.mint();
-    const ws = await seedWorkspace(db.pool, owner.sub); await addMember(db.pool, ws, adm.sub, 'admin'); await addMember(db.pool, ws, bill.sub, 'billing'); await addMember(db.pool, ws, mem.sub, 'member');
+    const ws = await seedWorkspace(db.pool, owner.sub); await db.pool.query(`UPDATE portal.subscriptions SET plan_slug='pro',status='active',current_period_end=now()+interval '20 days' WHERE workspace_id=$1`, [ws]); await addMember(db.pool, ws, adm.sub, 'admin'); await addMember(db.pool, ws, bill.sub, 'billing'); await addMember(db.pool, ws, mem.sub, 'member');
     const newUser = crypto.randomUUID();
     assert.equal((await app.client(mem).post('/api/v1/members', { user_id: newUser, role: 'member' })).status, 403);
     assert.equal((await app.client(bill).post('/api/v1/members', { user_id: newUser, role: 'member' })).status, 403);

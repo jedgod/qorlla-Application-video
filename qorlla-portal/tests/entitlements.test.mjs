@@ -56,7 +56,7 @@ describe('backend entitlement enforcement, sales inquiries', () => {
   test('Enterprise "Contact sales" stores a real inquiry; validation, honeypot and rate limit protect the endpoint', async () => {
     const anon = app.client(null);
     const ok = await anon.post('/api/v1/sales-inquiries', { name: 'Dana Buyer', email: 'Dana@Example.COM', company: 'Acme', message: 'We need SSO for 500 seats.', plan_interest: 'enterprise' }, { origin: 'https://qorlla.test' });
-    assert.equal(ok.status, 201);
+    assert.equal(ok.status, 201, JSON.stringify(ok.body));
     const row = (await db.pool.query('SELECT * FROM portal.sales_inquiries WHERE id=$1', [ok.body.id])).rows[0];
     assert.equal(row.email, 'dana@example.com'); assert.equal(row.status, 'new'); assert.equal(row.plan_interest, 'enterprise'); assert.match(row.source_ip_hash, /^[0-9a-f]{64}$/); assert.ok(!JSON.stringify(row).includes('127.0.0.1'));
     assert.equal((await anon.post('/api/v1/sales-inquiries', { name: '', email: 'x', message: 'hi' })).status, 400);

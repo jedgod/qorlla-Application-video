@@ -66,7 +66,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     const p = z.object({
       name: z.string().trim().min(1).max(120), email: z.string().trim().toLowerCase().email().max(200),
       company: z.string().trim().max(160).optional().default(''), message: z.string().trim().min(5).max(4000),
-      plan_interest: z.enum(['basic', 'pro', 'business', 'enterprise']).optional(), website: z.string().max(0).optional().default('')
+      plan_interest: z.enum(['basic', 'pro', 'business', 'enterprise']).optional(), website: z.string().max(200).optional().default('')
     }).parse(req.body);
     if (p.website) return res.status(201).json({ id: crypto.randomUUID() }); // honeypot: pretend success, store nothing
     const ipHash = crypto.createHash('sha256').update(cfg.salesIpPepper + '|' + (req.ip || '')).digest('hex');
@@ -91,7 +91,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
       const ws = (await c.query('INSERT INTO portal.workspaces(name) VALUES($1) RETURNING id,name', [p.name])).rows[0];
       await c.query(`INSERT INTO portal.members(workspace_id,user_id,role) VALUES($1,$2,'owner')`, [ws.id, req.actor]);
       await c.query(`INSERT INTO portal.subscriptions(workspace_id,plan_slug,status) VALUES($1,'basic','active')`, [ws.id]);
-      await c.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'workspace.created',$1)`, [ws.id, req.actor]);
+      await c.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'workspace.created',$3)`, [ws.id, req.actor, ws.id]);
       await c.query('COMMIT');
       res.status(201).json({ workspace_id: ws.id, name: ws.name, role: 'owner' });
     } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
@@ -107,7 +107,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   app.patch('/api/v1/workspace', member, roles(...MANAGE), h(async (req, res) => {
     const p = z.object({ name: z.string().trim().min(1).max(120) }).parse(req.body);
     await pool.query('UPDATE portal.workspaces SET name=$2 WHERE id=$1', [req.workspace, p.name]);
-    await pool.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'workspace.renamed',$1)`, [req.workspace, req.actor]);
+    await pool.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'workspace.renamed',$3)`, [req.workspace, req.actor, req.workspace]);
     res.json({ id: req.workspace, name: p.name });
   }));
 
@@ -213,7 +213,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   }));
   app.post('/api/v1/billing/cancel', member, roles(...BILLING), h(async (req, res) => {
     const out = await billing.cancel(req.workspace);
-    await pool.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'billing.cancel_requested',$1)`, [req.workspace, req.actor]);
+    await pool.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'billing.cancel_requested',$3)`, [req.workspace, req.actor, req.workspace]);
     res.status(202).json(out);
   }));
   app.post('/api/v1/billing/reconcile', member, roles(...MANAGE), h(async (req, res) => res.json(await billing.reconcile(req.workspace))));

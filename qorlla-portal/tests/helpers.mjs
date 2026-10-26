@@ -59,7 +59,7 @@ export function testConfig(over = {}, main) {
 }
 
 export async function startApp({ pool, cfg, jwks, fetchImpl, stripe }) {
-  const quiet = createLogger(() => {});
+  const quiet = process.env.TEST_LOG ? createLogger() : createLogger(() => {});
   const { app, billing } = createApp({ pool, cfg, jwks, fetchImpl, log: quiet, stripe });
   const server = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;

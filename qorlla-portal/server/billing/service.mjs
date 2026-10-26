@@ -69,7 +69,7 @@ export function createBillingService({ pool, stripe, cfg, log, now = () => Date.
   // ---------- applying provider state ----------
   async function lockWorkspace(client, workspaceId) { await client.query('SELECT id FROM portal.workspaces WHERE id=$1 FOR UPDATE', [workspaceId]); }
 
-  async function writeSubscription(client, { workspaceId, plan, interval, seats, sub, eventAt }) {
+  async function writeSubscription(client, { workspaceId, plan, interval, seats, sub, eventAt, force = false }) {
     const p = periodOf(sub);
     const r = await client.query(
       `INSERT INTO portal.subscriptions(workspace_id,plan_slug,status,billing_interval,provider,provider_customer_id,provider_subscription_id,seats,current_period_start,current_period_end,cancel_at_period_end,canceled_at,last_event_at,updated_at)
@@ -77,9 +77,9 @@ export function createBillingService({ pool, stripe, cfg, log, now = () => Date.
        ON CONFLICT (workspace_id) DO UPDATE SET plan_slug=EXCLUDED.plan_slug,status=EXCLUDED.status,billing_interval=EXCLUDED.billing_interval,provider='stripe',
          provider_customer_id=EXCLUDED.provider_customer_id,provider_subscription_id=EXCLUDED.provider_subscription_id,seats=EXCLUDED.seats,
          current_period_start=EXCLUDED.current_period_start,current_period_end=EXCLUDED.current_period_end,cancel_at_period_end=EXCLUDED.cancel_at_period_end,
-         canceled_at=EXCLUDED.canceled_at,last_event_at=EXCLUDED.last_event_at,updated_at=now()
-       WHERE portal.subscriptions.last_event_at IS NULL OR portal.subscriptions.last_event_at <= EXCLUDED.last_event_at`,
-      [workspaceId, plan, STATUS[sub.status] || 'incomplete', interval, sub.customer, sub.id, seats, iso(p.start), iso(p.end), !!sub.cancel_at_period_end, iso(sub.canceled_at), iso(eventAt)]);
+         canceled_at=EXCLUDED.canceled_at,last_event_at=GREATEST(portal.subscriptions.last_event_at,EXCLUDED.last_event_at),updated_at=now()
+       WHERE $13::boolean OR portal.subscriptions.last_event_at IS NULL OR portal.subscriptions.last_event_at <= EXCLUDED.last_event_at`,
+      [workspaceId, plan, STATUS[sub.status] || 'incomplete', interval, sub.customer, sub.id, seats, iso(p.start), iso(p.end), !!sub.cancel_at_period_end, iso(sub.canceled_at), iso(eventAt), force]);
     if (sub.customer) await client.query(`INSERT INTO portal.billing_customers(workspace_id,provider,provider_customer_id) VALUES($1,'stripe',$2) ON CONFLICT (workspace_id) DO NOTHING`, [workspaceId, sub.customer]);
     return r.rowCount > 0; // false = a newer event had already been applied (stale/out-of-order event ignored)
   }
@@ -221,7 +221,7 @@ export function createBillingService({ pool, stripe, cfg, log, now = () => Date.
     try {
       await client.query('BEGIN'); await lockWorkspace(client, workspaceId);
       const item = sub.items?.data?.[0];
-      await writeSubscription(client, { workspaceId, plan: local.plan_slug, interval: local.billing_interval, seats: item?.quantity || local.seats, sub, eventAt: Math.floor(now() / 1000) });
+      await writeSubscription(client, { workspaceId, plan: local.plan_slug, interval: local.billing_interval, seats: item?.quantity || local.seats, sub, eventAt: Math.floor(now() / 1000), force: true }); // a direct read from the provider is the freshest truth
       await client.query('COMMIT');
     } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
   }
