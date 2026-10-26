@@ -1,4 +1,7 @@
 // Qorlla Workplace portal (browser). Identity comes from MAIN's cookies; this file never stores tokens in JavaScript-visible storage.
+import { $, esc, money, day, cookie, notice, ApiError, api, heading, panel, describe } from './core.js';
+import { renderAiDashboard, renderReport } from './ai.js';
+const state = { me: null, workspace: null, role: null, signedIn: null };
 const modules = [
   ['products', '📦', 'Products', 'Explore all Qorlla applications and workplace tools.'],
   ['meet', '📹', 'Meet', 'Host, schedule and join secure meetings.'],
@@ -11,36 +14,9 @@ const modules = [
   ['solutions', '🏢', 'Solutions', 'Qorlla solutions for education, business, healthcare and events.'],
   ['support', '🛟', 'Support', 'Help center, service requests and technical assistance.']
 ];
-const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const money = (cents, cur = 'usd') => new Intl.NumberFormat(undefined, { style: 'currency', currency: cur.toUpperCase() }).format(cents / 100);
-const day = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '-');
-const cookie = (n) => decodeURIComponent((document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]+)')) || [])[1] || '');
-const state = { me: null, workspace: null, role: null, signedIn: null };
-const notice = (t) => { $('#notice').textContent = t || ''; };
-
-class ApiError extends Error { constructor(status, body) { super(body?.error || 'Request failed'); this.status = status; this.body = body || {}; } }
-
-// Renews the 15-minute portal token from MAIN (same origin) when it has lapsed, then retries once.
-let renewing = null;
-async function renewToken() {
-  renewing ??= fetch('/api/auth/portal-token', { method: 'POST', credentials: 'same-origin' }).then((r) => r.ok).finally(() => { renewing = null; });
-  return renewing;
-}
-async function api(path, options = {}, retried = false) {
-  const method = options.method || 'GET';
-  const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(method !== 'GET' ? { 'X-CSRF-Token': cookie('qorlla_csrf') } : {}) };
-  const r = await fetch('/api/v1' + path, { ...options, headers, credentials: 'same-origin' });
-  const body = await r.json().catch(() => ({}));
-  if (r.status === 401 && !retried && (await renewToken())) return api(path, options, true);
-  if (!r.ok) throw new ApiError(r.status, body);
-  return body;
-}
 const signInUrl = () => '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
 
 const card = (m) => `<article class="card"><div class="emoji" aria-hidden="true">${m[1]}</div><h3>${esc(m[2])}</h3><p>${esc(m[3])}</p><a class="link" href="/app/${m[0]}">Explore ${esc(m[2])} →</a></article>`;
-const heading = (title, sub, icon = '✦') => `<div class="hero"><div><div class="eyebrow">Qorlla Workplace</div><h1>${esc(title)}</h1><p>${esc(sub)}</p></div><div class="symbol" aria-hidden="true">${icon}</div></div>`;
-const panel = (title, body) => `<section class="panel"><h2>${esc(title)}</h2>${body}</section>`;
 const tiles = (items) => `<div class="cards">${items.map(([a, b]) => `<article class="card"><h3>${esc(a)}</h3><p>${esc(b)}</p><span class="pill">Provider integration pending</span></article>`).join('')}</div>`;
 const signInPrompt = () => panel('Sign in required', `<p>Please sign in with your Qorlla account to use this page.</p><a class="button" href="${esc(signInUrl())}">Sign in</a>`);
 const onboarding = () => panel('Create your workspace', `<p>You are signed in as a Qorlla user, but you do not belong to a workspace yet. Create one to start (you will be its owner on the free Basic plan).</p><form id="ws-form"><label>Workspace name<input name="name" maxlength="120" value="My workspace" required></label><button>Create workspace</button></form>`);
@@ -52,7 +28,7 @@ const routes = {
   phone: () => heading('Qorlla Phone', 'Business calling and telephony management.', '📞') + tiles([['Dialer', 'Make and receive business calls'], ['Numbers', 'Manage assigned business phone numbers'], ['Voicemail', 'Messages, transcripts and notifications'], ['Extensions', 'Teams, queues and call forwarding'], ['Call History', 'Audit inbound and outbound calls'], ['Settings', 'Working hours, devices and routing']]),
   mate: () => heading('QorllaMate', 'An AI assistant for your workplace.', '🤖') + tiles([['Ask QorllaMate', 'Workspace-aware AI conversations'], ['Meeting Prep', 'Agendas and background briefs'], ['Task Planner', 'Action items and follow-ups'], ['Workflow Approvals', 'Review actions before execution'], ['Knowledge Search', 'Search authorized documents'], ['Assistant History', 'Saved sessions and conversations']]),
   suite: () => heading('AI Productivity Suite', 'Create, organize and collaborate in a single workspace.', '✨') + tiles([['Qorlla Docs', 'Rich text documents and coauthoring'], ['Qorlla Sheets', 'Spreadsheets and analysis'], ['Qorlla Slides', 'Presentation builder'], ['Qorlla Paper', 'Research and long-form writing'], ['Shared Files', 'Team folders and permissions'], ['Templates', 'Ready-to-use productivity templates']]),
-  ai: () => heading('AI Meeting Intelligence', 'Turn authorized meetings into searchable knowledge and shareable reports.', '🧠') + tiles([['Transcription', 'Consent-aware speaker transcripts'], ['Smart Summaries', 'Decisions and key discussion points'], ['Action Items', 'Owners, deadlines and follow-up'], ['Meeting Reports', 'Browse and export reports'], ['Secure Sharing', 'Controlled, revocable report access'], ['Usage & Fees', 'Metered AI features and invoices']]) + '<div id="reports"></div>',
+  ai: () => heading('AI Meeting Intelligence', 'Consent-based summaries, decisions and action items from your meetings.', '🧠') + '<div id="ai-root"></div>',
   solutions: () => heading('Solutions for Every Team', 'Purpose-built workflows across organizations.', '🏢') + tiles([['Education', 'Classes, tutoring and office hours'], ['Healthcare', 'Administrative communication and scheduling'], ['Small Business', 'Customer engagement and meetings'], ['Enterprise', 'Security, governance and scale'], ['Events', 'Webinars, registration and reporting'], ['Remote Teams', 'Async collaboration and meetings']]),
   support: () => heading('Support Center', 'Get help, report problems and track requests.', '🛟') + `<div class="cards">${[['Help Center', 'Documentation and troubleshooting'], ['Technical Diagnostics', 'Browser, connection and meeting checks'], ['Billing Support', 'Plan, invoice and payment questions']].map(([a, b]) => `<article class="card"><h3>${a}</h3><p>${b}</p></article>`).join('')}</div>` +
     panel('Create support ticket', '<form id="ticket-form"><label>Subject<input name="subject" required minlength="3" maxlength="160"></label><label>Describe the issue<textarea name="details" required minlength="5"></textarea></label><button>Submit Ticket</button></form>') + panel('Your tickets', '<div id="tickets" class="empty">Loading…</div>'),
@@ -65,11 +41,7 @@ async function list(path, sel, format, empty = 'No records yet.') {
   try { const items = await api(path); $(sel).className = ''; $(sel).innerHTML = items.length ? items.map(format).join('') : `<div class="empty">${esc(empty)}</div>`; return items; }
   catch (e) { $(sel).className = 'empty'; $(sel).textContent = e.message; return []; }
 }
-function describe(e) {
-  if (e.status === 402) return `Your ${e.body.plan} plan allows ${e.body.limit} for this. Upgrade on the pricing page to add more.`;
-  if (e.status === 403) return 'You do not have permission to do that in this workspace.';
-  return e.message;
-}
+
 
 async function renderNotes() {
   const draw = (x) => `<article class="card"><h3>${esc(x.title)}</h3><p>${esc(x.body)}</p><span class="muted">${esc(new Date(x.created_at).toLocaleString())}</span></article>`;
@@ -126,7 +98,7 @@ async function renderTeam() {
 }
 
 async function boot() {
-  const slug = location.pathname.split('/')[2] || 'products';
+  const parts = location.pathname.split('/'); const slug = parts[2] || 'products';
   $('#side').innerHTML = modules.filter((m) => !['products', 'ai', 'solutions', 'support', 'meet'].includes(m[0])).map((m) => `<a class="${slug === m[0] ? 'active' : ''}" ${slug === m[0] ? 'aria-current="page"' : ''} href="/app/${m[0]}"><span aria-hidden="true">${m[1]}</span> ${esc(m[2])}</a>`).join('');
   document.title = (modules.find((m) => m[0] === slug)?.[2] || { billing: 'Plans & Billing', team: 'Team' }[slug] || 'Workplace') + ' | Qorlla';
   $('#page').innerHTML = (routes[slug] || routes.products)();
@@ -150,6 +122,7 @@ async function boot() {
   if (slug === 'support') await renderSupport();
   if (slug === 'billing') await renderBilling();
   if (slug === 'team') await renderTeam();
-  if (slug === 'ai') await list('/reports', '#reports', (x) => `<article class="card"><h3>${esc(x.title)}</h3><p>${esc(x.summary)}</p></article>`, 'No meeting reports yet.');
+  if (slug === 'ai' && parts[3] === 'reports' && parts[4]) { $('#page').innerHTML = ''; const root = document.createElement('div'); $('#page').append(root); await renderReport(root, parts[4]); }
+  else if (slug === 'ai') { try { await renderAiDashboard($('#ai-root')); } catch (e) { $('#ai-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
 }
 boot();

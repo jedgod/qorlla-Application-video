@@ -289,6 +289,12 @@ describe('AI meeting intelligence', () => {
       assert.equal((await fetch(again.base + '/api/v1/shared/reports/' + share.token)).status, 200); assert.ok((await c.get('/api/v1/meeting-ai/usage')).body.events.meeting_report >= 1);
       assert.equal((await c.get(`/api/v1/meeting-ai/meetings/${meet}/consents`)).body.consents.filter((x) => !x.revoked_at).length, 2); await again.close(); await pool2.end();
     });
+    test('retention: transcript text older than the policy is deleted, the report stays', async () => {
+      await consent(host()); const rid = await makeReport();
+      await db.pool.query(`UPDATE portal.meeting_transcripts SET created_at = now() - interval '100 days' WHERE id = (SELECT transcript_id FROM portal.meeting_reports WHERE id=$1)`, [rid]);
+      assert.ok(await app.ai.worker.purgeExpired(90) >= 1);
+      assert.equal((await host().get(`/api/v1/meeting-ai/reports/${rid}/transcript`)).status, 410); assert.match((await host().get('/api/v1/meeting-ai/reports/' + rid)).body.summary, /TEST-DOUBLE/);
+    });
     test('MAIN-side display names flow into the members list', async () => {
       const m = (await host().get('/api/v1/members')).body; assert.ok(m.every((x) => x.display_name === 'Name-' + x.user_id.slice(0, 4)));
     });

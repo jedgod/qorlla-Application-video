@@ -32,12 +32,12 @@ try { docker('rm', '-f', pgName); } catch {}
 docker('run', '-d', '--name', pgName, '-e', 'POSTGRES_PASSWORD=postgres', '-p', `127.0.0.1:${P.pg}:5432`, 'postgres:16-alpine');
 await waitFor(() => { try { docker('exec', pgName, 'pg_isready', '-U', 'postgres'); return true; } catch { return false; } }, { what: 'test postgres' }); await sleep(2500);
 {
-  const r = spawnSync('node', ['--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/auth.test.mjs', 'tests/billing.test.mjs', 'tests/entitlements.test.mjs', 'tests/migrations.test.mjs', 'tests/contract-main.test.mjs'], { cwd: path.join(root, 'qorlla-portal'), encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, TEST_DATABASE_ADMIN_URL: `postgres://postgres:postgres@127.0.0.1:${P.pg}/postgres` } });
+  const r = spawnSync('node', ['--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/auth.test.mjs', 'tests/billing.test.mjs', 'tests/entitlements.test.mjs', 'tests/migrations.test.mjs', 'tests/contract-main.test.mjs', 'tests/meeting-ai.test.mjs'], { cwd: path.join(root, 'qorlla-portal'), encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, TEST_DATABASE_ADMIN_URL: `postgres://postgres:postgres@127.0.0.1:${P.pg}/postgres` } });
   fs.writeFileSync(path.join(root, 'cert', 'portal-unit.tap'), r.stdout);
   const tests = [...r.stdout.matchAll(/^\s*(ok|not ok) \d+ - (.+?)(?: # .*)?$/gm)].filter((m) => !/^\S.*\.test\.mjs$/.test(m[2]));
   const leaf = tests.filter((m) => !m[2].includes('authentication & authorization') || true);
   const pass = Number((/^# pass (\d+)/m.exec(r.stdout) || [])[1] || 0), fail = Number((/^# fail (\d+)/m.exec(r.stdout) || [])[1] || 0);
-  record('U-ALL', 'portal node:test suites (auth, billing lifecycle, entitlements, sales, migrations/rollback, real-MAIN contract)', fail === 0 && pass > 40 ? 'PASS' : 'FAIL', `${pass} passed, ${fail} failed`);
+  record('U-ALL', 'portal node:test suites (auth, billing lifecycle, entitlements, sales, migrations/rollback, real-MAIN contract)', fail === 0 && pass > 60 ? 'PASS' : 'FAIL', `${pass} passed, ${fail} failed`);
   if (fail) record('U-FAIL', 'failing tests', 'FAIL', [...r.stdout.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1]).join(' | '));
 }
 try { docker('rm', '-f', pgName); } catch {}
@@ -52,15 +52,17 @@ const env = {
   PROXY_MAIN_PORT: P.http, PROXY_MEET_PORT: P.meet, PROXY_MAIN_TLS_PORT: P.tls, PROXY_MEET_TLS_PORT: P.meetTls,
   PROXY_TLS_CONF: './deploy/nginx/tls.conf', PROXY_HTTP_CONF: './deploy/nginx/http-redirect.conf', PROXY_CERT_DIR: certDir.replace(/\\/g, '/'),
   MAIN_HOST_PORT: P.main, MEET_HOST_PORT: P.meetHost,
+  MEET_READ_SECRET: rnd(24), AI_LLM_API_KEY: 'test-llm-key', AI_LLM_MODEL: 'claude-test', AI_LLM_API_BASE: 'http://host.docker.internal:19600',
   BILLING_ENABLED: 'true', STRIPE_SECRET_KEY: 'sk_test_fake', STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, STRIPE_API_BASE: `http://host.docker.internal:${P.fake}`
 };
 const envFile = path.join(scratch, 'v41.env'); fs.writeFileSync(envFile, Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n') + '\n');
 // e2e-only override: the portal must talk to the local provider test double, which production mode refuses (NODE_ENV=production pins api.stripe.com)
 const override = path.join(scratch, 'compose.e2e.yml');
-fs.writeFileSync(override, `services:\n  qorlla-portal:\n    extra_hosts:\n      - "host.docker.internal:host-gateway"\n    environment:\n      - NODE_ENV=staging\n      - AUTH_REQUIRE_INTROSPECTION=true\n      - STRIPE_API_BASE=\${STRIPE_API_BASE}\n`);
+fs.writeFileSync(override, `services:\n  qorlla-portal:\n    extra_hosts:\n      - "host.docker.internal:host-gateway"\n    environment:\n      - NODE_ENV=staging\n      - AUTH_REQUIRE_INTROSPECTION=true\n      - STRIPE_API_BASE=\${STRIPE_API_BASE}\n      - AI_LLM_API_BASE=\${AI_LLM_API_BASE}\n`);
 const compose = (...a) => docker('compose', '--env-file', envFile, '-p', PROJECT, '-f', 'docker-compose.yml', '-f', override.replace(/\\/g, '/'), ...a);
 try { compose('down', '-v'); } catch {}
 const fake = spawn('node', ['qorlla-portal/tests/fake-stripe.mjs', String(P.fake)], { cwd: root, stdio: 'ignore' });
+const fakeLlm = spawn('node', ['qorlla-portal/tests/fake-llm.mjs', '19600', '19601'], { cwd: root, stdio: 'ignore' });   // TEST DOUBLE for the language model
 await check('D01', 'docker compose config is valid and every long-running service has a restart policy', async () => {
   const cfg = JSON.parse(compose('config', '--format', 'json')); const svc = cfg.services;
   const missing = Object.entries(svc).filter(([, v]) => v.restart !== 'always').map(([k]) => k); if (missing.length) throw new Error('no restart policy: ' + missing);
@@ -107,12 +109,12 @@ await check('D06', 'portal fails closed (503) while authentication is not operat
   fs.writeFileSync(path.join(root, 'cert', 'e2e-output.txt'), (r.stdout || '') + (r.stderr || ''));
   let counts = { passed: 0, failed: 0, skipped: 0, titles: [] };
   try { const j = JSON.parse(fs.readFileSync(json, 'utf8')); const walk = (s) => { (s.specs || []).forEach((sp) => sp.tests.forEach((t) => { const st = t.results?.[t.results.length - 1]?.status; counts[st === 'passed' ? 'passed' : st === 'skipped' ? 'skipped' : 'failed']++; counts.titles.push((st === 'passed' ? 'ok ' : 'FAIL ') + sp.title); })); (s.suites || []).forEach(walk); }; (j.suites || []).forEach(walk); } catch (e) { counts.error = e.message; }
-  record('E2E', 'browser E2E: pricing, checkout/webhook, portal auth, navigation, mobile, Meet under /meet/', counts.failed === 0 && counts.passed >= 20 ? 'PASS' : 'FAIL', `${counts.passed} passed, ${counts.failed} failed${counts.error ? ' (' + counts.error + ')' : ''}`);
+  record('E2E', 'browser E2E: pricing, checkout/webhook, portal auth, navigation, mobile, Meet under /meet/, meeting-to-report', counts.failed === 0 && counts.passed >= 20 ? 'PASS' : 'FAIL', `${counts.passed} passed, ${counts.failed} failed${counts.error ? ' (' + counts.error + ')' : ''}`);
   for (const t of counts.titles.filter((x) => x.startsWith('FAIL'))) record('E2E-FAIL', t, 'FAIL');
   results.find((x) => x.id === 'E2E').titles = counts.titles;
 }
 
-try { fake.kill(); } catch {}
+try { fake.kill(); fakeLlm.kill(); } catch {}
 await check('D07', 'restart resilience: portal and nginx restart cleanly and the site keeps serving', async () => {
   compose('restart', 'qorlla-portal'); compose('restart', 'dashboard-client-proxy');
   await waitFor(async () => (await fetch(`${ORIGIN}/api/v1/health`)).status === 200 && (await fetch(`${ORIGIN}/pricing/`)).status === 200, { timeout: 90000, what: 'site back after restart' });

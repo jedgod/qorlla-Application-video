@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 const CONSENT_SCOPES = ['transcription', 'summary'];
 const safe = (s, n = 300) => String(s || '').replace(/[\u0000-\u001F]/g, ' ').slice(0, n);
 
-export function createAiWorker({ pool, llm, meet, log, leaseSeconds = 120, maxAttempts = 5, backoffBaseSeconds = 15 }) {
+export function createAiWorker({ pool, llm, meet, log, leaseSeconds = 120, maxAttempts = 5, backoffBaseSeconds = 15, retentionDays = 0 }) {
   async function activeConsents(db, job) {
     const r = await db.query(`SELECT scope FROM portal.meeting_ai_consents WHERE workspace_id=$1 AND meet_meeting_id=$2 AND revoked_at IS NULL AND scope = ANY($3)`, [job.workspace_id, job.meet_meeting_id, CONSENT_SCOPES]);
     return CONSENT_SCOPES.every((s) => r.rows.some((x) => x.scope === s));
@@ -103,11 +103,18 @@ export function createAiWorker({ pool, llm, meet, log, leaseSeconds = 120, maxAt
     try { await process(job); } catch (e) { try { await fail(job, e); } catch (e2) { log?.error('could not record job failure', { job_id: job.id, err: e2.message }); } }
     return true;
   }
-  let timer = null, stopped = false;
+  /** Retention: transcript TEXT is deleted after `days` days (reports and their metadata stay). Returns how many were purged. */
+  async function purgeExpired(days = retentionDays) {
+    if (!(days > 0)) return 0;
+    const r = await pool.query(`UPDATE portal.meeting_transcripts SET segments='[]'::jsonb, full_text='', purged_at=now(), purge_reason='retention' WHERE purged_at IS NULL AND created_at < now() - ($1::int * interval '1 day')`, [days]);
+    if (r.rowCount) log?.info('transcripts purged by retention policy', { count: r.rowCount, days });
+    return r.rowCount;
+  }
+  let timer = null, stopped = false, lastPurge = 0;
   function start(intervalMs = 2000) {
-    const tick = async () => { if (stopped) return; try { while (await runOne()) { /* drain */ } } catch (e) { log?.error('ai worker tick failed', { err: e.message }); } timer = setTimeout(tick, intervalMs); timer.unref?.(); };
+    const tick = async () => { if (stopped) return; try { if (Date.now() - lastPurge > 3600_000) { lastPurge = Date.now(); await purgeExpired(); } while (await runOne()) { /* drain */ } } catch (e) { log?.error('ai worker tick failed', { err: e.message }); } timer = setTimeout(tick, intervalMs); timer.unref?.(); };
     timer = setTimeout(tick, 500); timer.unref?.();
   }
   const stop = () => { stopped = true; clearTimeout(timer); };
-  return { runOne, claim, start, stop };
+  return { runOne, claim, start, stop, purgeExpired };
 }

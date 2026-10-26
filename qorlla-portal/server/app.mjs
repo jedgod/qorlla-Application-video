@@ -42,7 +42,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   const directory = aiOverride.directory || createDirectory({ baseUrl: cfg.ai.directoryUrl, secret: cfg.introspectionSecret, fetchImpl, now });
   const llm = aiOverride.llm || createLlm({ ...cfg.ai.llm, fetchImpl });
   const meet = aiOverride.meet || createMeetClient({ baseUrl: cfg.ai.meetBaseUrl, readSecret: cfg.ai.meetReadSecret, fetchImpl });
-  const aiWorker = createAiWorker({ pool, llm, meet, log, ...(aiOverride.worker || {}) });
+  const aiWorker = createAiWorker({ pool, llm, meet, log, retentionDays: cfg.ai.transcriptRetentionDays, ...(aiOverride.worker || {}) });
 
   // ---- webhook FIRST: it needs the raw bytes, and its authenticity is the provider signature (no cookies, no CSRF) ----
   app.post('/api/v1/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), h(async (req, res) => {
