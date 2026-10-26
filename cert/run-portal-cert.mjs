@@ -26,6 +26,7 @@ const PROJECT = 'qv41';
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'qv41-'));
 const rnd = (n) => crypto.randomBytes(n).toString('hex');
 const WEBHOOK_SECRET = 'whsec_' + 'test'.repeat(8);
+const METRICS_TOKEN = 'metrics-' + crypto.randomBytes(16).toString('hex');
 
 // ------------------------------------------------------------------ 1. portal suites (PostgreSQL, auth, billing, migrations, MAIN contract)
 const pgName = 'qv41-test-pg';
@@ -33,7 +34,7 @@ try { docker('rm', '-f', pgName); } catch {}
 docker('run', '-d', '--name', pgName, '-e', 'POSTGRES_PASSWORD=postgres', '-p', `127.0.0.1:${P.pg}:5432`, 'postgres:16-alpine');
 await waitFor(() => { try { docker('exec', pgName, 'pg_isready', '-U', 'postgres'); return true; } catch { return false; } }, { what: 'test postgres' }); await sleep(2500);
 {
-  const r = spawnSync('node', ['--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/auth.test.mjs', 'tests/billing.test.mjs', 'tests/entitlements.test.mjs', 'tests/migrations.test.mjs', 'tests/contract-main.test.mjs', 'tests/meeting-ai.test.mjs', 'tests/phone.test.mjs', 'tests/workspace-tools.test.mjs'], { cwd: path.join(root, 'qorlla-portal'), encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, TEST_DATABASE_ADMIN_URL: `postgres://postgres:postgres@127.0.0.1:${P.pg}/postgres` } });
+  const r = spawnSync('node', ['--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/auth.test.mjs', 'tests/billing.test.mjs', 'tests/entitlements.test.mjs', 'tests/migrations.test.mjs', 'tests/contract-main.test.mjs', 'tests/meeting-ai.test.mjs', 'tests/phone.test.mjs', 'tests/workspace-tools.test.mjs', 'tests/billing-launch.test.mjs'], { cwd: path.join(root, 'qorlla-portal'), encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, TEST_DATABASE_ADMIN_URL: `postgres://postgres:postgres@127.0.0.1:${P.pg}/postgres` } });
   fs.writeFileSync(path.join(root, 'cert', 'portal-unit.tap'), r.stdout);
   const tests = [...r.stdout.matchAll(/^\s*(ok|not ok) \d+ - (.+?)(?: # .*)?$/gm)].filter((m) => !/^\S.*\.test\.mjs$/.test(m[2]));
   const leaf = tests.filter((m) => !m[2].includes('authentication & authorization') || true);
@@ -103,10 +104,31 @@ await check('D06', 'portal fails closed (503) while authentication is not operat
   const last = out.stdout.trim().split(/\r?\n/).pop(); if (!last.startsWith('503')) throw new Error('unconfigured portal answered ' + out.stdout.slice(-300) + out.stderr.slice(-300)); return last;
 });
 
+// ------------------------------------------------------------------ 2b. platform-admin bootstrap, metrics exposure, kill-switch endpoints (v4.5)
+const ADMIN = { username: 'e2eplatformadmin', password: 'E2e-admin-pass-0123456789!8' };
+await check('D08', 'a platform admin can be provisioned (configuration only) and the console + metrics are not reachable by anyone else', async () => {
+  const reg = await fetch(`${ORIGIN}/api/auth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: ADMIN.username, displayName: 'E2E Platform Admin', password: ADMIN.password }) });
+  if (reg.status !== 201) throw new Error('admin registration failed: ' + reg.status);
+  const adminId = String((await reg.json()).user.id).replace(/^u_/, '');
+  fs.appendFileSync(envFile, `PLATFORM_ADMIN_USER_IDS=${adminId}\nMETRICS_TOKEN=${METRICS_TOKEN}\n`);
+  compose('up', '-d', '--no-deps', '--force-recreate', '--wait', '--wait-timeout', '120', 'qorlla-portal');
+  await waitFor(async () => (await fetch(`${ORIGIN}/api/v1/health`)).status === 200, { timeout: 60000, what: 'portal after admin configuration' });
+  const anon = await fetch(`${ORIGIN}/api/v1/admin/me`); if (anon.status !== 401) throw new Error('anonymous /admin/me answered ' + anon.status);
+  const pub = await fetch(`${ORIGIN}/internal/metrics`, { headers: { authorization: 'Bearer ' + METRICS_TOKEN } }); if (pub.status === 200) throw new Error('metrics reachable through the public proxy');
+  return 'admin id configured; /internal/metrics is not routed publicly';
+});
+await check('D09', 'metrics are served inside the private network only, with the bearer token, as Prometheus text with no secrets', async () => {
+  const probe = (auth) => compose('exec', '-T', 'qorlla-portal', 'node', '-e', `fetch('http://127.0.0.1:'+(process.env.PORT||5500)+'/internal/metrics',{headers:${auth ? "{authorization:'Bearer ${METRICS_TOKEN}'}" : '{}'}}).then(async r=>{console.log(r.status);console.log((await r.text()).slice(0,4000))})`);
+  const no = probe(false).split(/\r?\n/)[0]; if (no !== '404') throw new Error('metrics answered without a token: ' + no);
+  const out = probe(true); if (!out.startsWith('200') || !out.includes('qorlla_billing_available 1') || !out.includes('# TYPE qorlla_subscriptions gauge')) throw new Error('unexpected metrics: ' + out.slice(0, 200));
+  for (const k of ['STRIPE_SECRET_KEY', 'sk_test_fake', WEBHOOK_SECRET, METRICS_TOKEN]) if (out.includes(k)) throw new Error('secret in metrics: ' + k);
+  return out.split('\n').filter((l) => l.startsWith('# TYPE')).length + ' gauges';
+});
+
 // ------------------------------------------------------------------ 3. browser E2E against the unified origin
 {
   const cfgFile = path.join(root, 'qorlla-portal', 'e2e', 'playwright.config.cjs'); const json = path.join(root, 'cert', 'e2e-results.json');
-  const r = spawnSync('npx', ['playwright', 'test', '-c', cfgFile], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32', maxBuffer: 1 << 28, env: { ...process.env, E2E_BASE: ORIGIN, E2E_DB_CONTAINER: `${PROJECT}-main-db-1`, E2E_FAKE_STRIPE_URL: `http://127.0.0.1:${P.fake}`, E2E_JSON: json, NO_COLOR: '1', NODE_TLS_REJECT_UNAUTHORIZED: '0' } });
+  const r = spawnSync('npx', ['playwright', 'test', '-c', cfgFile], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32', maxBuffer: 1 << 28, env: { ...process.env, E2E_BASE: ORIGIN, E2E_DB_CONTAINER: `${PROJECT}-main-db-1`, E2E_FAKE_STRIPE_URL: `http://127.0.0.1:${P.fake}`, E2E_JSON: json, E2E_ADMIN_USER: ADMIN.username, E2E_ADMIN_PASS: ADMIN.password, NO_COLOR: '1', NODE_TLS_REJECT_UNAUTHORIZED: '0' } });
   fs.writeFileSync(path.join(root, 'cert', 'e2e-output.txt'), (r.stdout || '') + (r.stderr || ''));
   let counts = { passed: 0, failed: 0, skipped: 0, titles: [] };
   try { const j = JSON.parse(fs.readFileSync(json, 'utf8')); const walk = (s) => { (s.specs || []).forEach((sp) => sp.tests.forEach((t) => { const st = t.results?.[t.results.length - 1]?.status; counts[st === 'passed' ? 'passed' : st === 'skipped' ? 'skipped' : 'failed']++; counts.titles.push((st === 'passed' ? 'ok ' : 'FAIL ') + sp.title); })); (s.suites || []).forEach(walk); }; (j.suites || []).forEach(walk); } catch (e) { counts.error = e.message; }

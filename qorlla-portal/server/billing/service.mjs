@@ -85,14 +85,28 @@ export function createBillingService({ pool, stripe, cfg, log, now = () => Date.
   }
   async function upsertInvoice(client, workspaceId, inv, status) {
     await client.query(
-      `INSERT INTO portal.invoices(workspace_id,provider,provider_invoice_id,number,status,currency,amount_due_cents,amount_paid_cents,hosted_invoice_url,receipt_url,period_start,period_end,attempt_count,next_payment_attempt,paid_at)
-       VALUES($1,'stripe',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      `INSERT INTO portal.invoices(workspace_id,provider,provider_invoice_id,number,status,currency,amount_due_cents,amount_paid_cents,hosted_invoice_url,receipt_url,period_start,period_end,attempt_count,next_payment_attempt,paid_at,provider_payment_intent,provider_charge_id)
+       VALUES($1,'stripe',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        ON CONFLICT (provider,provider_invoice_id) DO UPDATE SET status=CASE WHEN portal.invoices.status IN ('refunded','partially_refunded') AND EXCLUDED.status='paid' THEN portal.invoices.status ELSE EXCLUDED.status END,
          number=COALESCE(EXCLUDED.number,portal.invoices.number),amount_due_cents=EXCLUDED.amount_due_cents,amount_paid_cents=EXCLUDED.amount_paid_cents,
          hosted_invoice_url=COALESCE(EXCLUDED.hosted_invoice_url,portal.invoices.hosted_invoice_url),receipt_url=COALESCE(EXCLUDED.receipt_url,portal.invoices.receipt_url),
-         attempt_count=EXCLUDED.attempt_count,next_payment_attempt=EXCLUDED.next_payment_attempt,paid_at=COALESCE(EXCLUDED.paid_at,portal.invoices.paid_at)`,
+         attempt_count=EXCLUDED.attempt_count,next_payment_attempt=EXCLUDED.next_payment_attempt,paid_at=COALESCE(EXCLUDED.paid_at,portal.invoices.paid_at),
+         provider_payment_intent=COALESCE(EXCLUDED.provider_payment_intent,portal.invoices.provider_payment_intent),provider_charge_id=COALESCE(EXCLUDED.provider_charge_id,portal.invoices.provider_charge_id)`,
       [workspaceId, inv.id, inv.number || null, status, (inv.currency || 'usd').toLowerCase(), inv.amount_due ?? 0, inv.amount_paid ?? 0, inv.hosted_invoice_url || null, inv.invoice_pdf || null,
-        iso(inv.period_start), iso(inv.period_end), inv.attempt_count ?? 0, iso(inv.next_payment_attempt), status === 'paid' ? new Date(now()).toISOString() : null]);
+        iso(inv.period_start), iso(inv.period_end), inv.attempt_count ?? 0, iso(inv.next_payment_attempt), status === 'paid' ? new Date(now()).toISOString() : null,
+        typeof inv.payment_intent === 'string' ? inv.payment_intent : null, typeof inv.charge === 'string' ? inv.charge : null]);
+  }
+
+  // ---------- plan changes: local state follows the PROVIDER, never the request ----------
+  const itemMatches = (pc, sub) => { const item = sub.items?.data?.[0]; return !!item && ['active', 'trialing'].includes(sub.status) && item.price?.unit_amount === pc.unit_amount_cents &&
+    (item.price?.currency || '').toLowerCase() === pc.currency && item.price?.recurring?.interval === pc.to_interval && item.quantity === pc.to_seats; };
+  /** Apply a requested change iff the provider's subscription now shows exactly the price snapshot the customer was shown. */
+  async function confirmChange(client, pc, sub, { eventAt, force }) {
+    if (!itemMatches(pc, sub)) return false;
+    await lockWorkspace(client, pc.workspace_id);
+    await writeSubscription(client, { workspaceId: pc.workspace_id, plan: pc.to_plan, interval: pc.to_interval, seats: pc.to_seats, sub, eventAt, force });
+    await client.query(`UPDATE portal.plan_changes SET status='applied', applied_at=now() WHERE id=$1 AND status IN ('requested','scheduled')`, [pc.id]);
+    return true;
   }
 
   // ---------- event handlers (run inside the event transaction) ----------
@@ -154,6 +168,11 @@ export function createBillingService({ pool, stripe, cfg, log, now = () => Date.
       const local = (await client.query(`SELECT * FROM portal.subscriptions WHERE provider='stripe' AND provider_subscription_id=$1`, [sub.id])).rows[0];
       if (!local) return 'unmatched_subscription'; // never activates a workspace: activation needs a paid invoice
       await lockWorkspace(client, local.workspace_id);
+      if (deleted) await client.query(`UPDATE portal.plan_changes SET status='cancelled', error_code='subscription_canceled' WHERE workspace_id=$1 AND status IN ('requested','scheduled')`, [local.workspace_id]);
+      else {
+        const pc = (await client.query(`SELECT * FROM portal.plan_changes WHERE workspace_id=$1 AND provider_subscription_id=$2 AND status='requested'`, [local.workspace_id, sub.id])).rows[0];
+        if (pc && (await confirmChange(client, pc, sub, { eventAt: ev.created, force: false }))) return 'plan_change_applied';
+      }
       const item = sub.items?.data?.[0];
       const r = await writeSubscription(client, { workspaceId: local.workspace_id, plan: local.plan_slug, interval: local.billing_interval, seats: item?.quantity || local.seats, sub: deleted ? { ...sub, status: 'canceled' } : sub, eventAt: ev.created });
       return r ? (deleted ? 'canceled' : 'updated') : 'stale_event_ignored';
@@ -254,5 +273,5 @@ export function createBillingService({ pool, stripe, cfg, log, now = () => Date.
     return (await pool.query(`SELECT id,provider_invoice_id,number,status,currency,amount_due_cents,amount_paid_cents,amount_refunded_cents,hosted_invoice_url,receipt_url,period_start,period_end,attempt_count,next_payment_attempt,created_at,paid_at
       FROM portal.invoices WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT $2`, [workspaceId, limit])).rows;
   }
-  return { catalog, createCheckout, handleWebhook, processEvent, subscriptionFor, cancel, reconcile, expireLapsed, invoices, available };
+  return { catalog, createCheckout, handleWebhook, processEvent, subscriptionFor, cancel, reconcile, expireLapsed, invoices, available, internals: { confirmChange } };
 }

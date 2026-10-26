@@ -54,6 +54,8 @@ export function loadConfig(env = process.env) {
     apiBase: production ? 'https://api.twilio.com' : (trim(env.TWILIO_API_BASE) || 'https://api.twilio.com'),
     complianceAck: trim(env.TELEPHONY_COMPLIANCE_ACK), allowInternational: env.TELEPHONY_ALLOW_INTERNATIONAL === 'true'
   };
+  cfg.platformAdmins = String(env.PLATFORM_ADMIN_USER_IDS || '').split(',').map((x) => x.trim().toLowerCase()).filter((x) => /^[0-9a-f-]{36}$/.test(x));
+  cfg.metricsToken = trim(env.METRICS_TOKEN).length >= 24 ? trim(env.METRICS_TOKEN) : '';   // shorter tokens are ignored: the endpoint then stays off
   cfg.authProblems = authProblems;
   cfg.authConfigured = authProblems.length === 0;
 

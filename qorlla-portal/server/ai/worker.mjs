@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 const CONSENT_SCOPES = ['transcription', 'summary'];
 const safe = (s, n = 300) => String(s || '').replace(/[\u0000-\u001F]/g, ' ').slice(0, n);
 
-export function createAiWorker({ pool, llm, meet, log, leaseSeconds = 120, maxAttempts = 5, backoffBaseSeconds = 15, retentionDays = 0 }) {
+export function createAiWorker({ pool, llm, meet, log, overage = null, isEnabled = async () => true, leaseSeconds = 120, maxAttempts = 5, backoffBaseSeconds = 15, retentionDays = 0 }) {
   async function activeConsents(db, job) {
     const r = await db.query(`SELECT scope FROM portal.meeting_ai_consents WHERE workspace_id=$1 AND meet_meeting_id=$2 AND revoked_at IS NULL AND scope = ANY($3)`, [job.workspace_id, job.meet_meeting_id, CONSENT_SCOPES]);
     return CONSENT_SCOPES.every((s) => r.rows.some((x) => x.scope === s));
@@ -73,7 +73,8 @@ export function createAiWorker({ pool, llm, meet, log, leaseSeconds = 120, maxAt
           await c.query(`INSERT INTO portal.meeting_action_items(workspace_id,report_id,title,owner_hint,due_hint,source,created_by) VALUES($1,$2,$3,$4,$5,'ai',$6)`, [job.workspace_id, rep.id, a.title, a.owner_hint, a.due_hint, job.requested_by]);
         }
         // accounting: keyed by job, so a retry after a crash can never double count
-        for (const [feature, units, key] of [['meeting_report', 1, 'report'], ['llm_input_tokens', res.inputTokens, 'in'], ['llm_output_tokens', res.outputTokens, 'out']]) {
+        if (overage) await overage.meter(c, job.workspace_id, 'meeting_report', `job:${job.id}:report`, { jobId: job.id, plan });
+        for (const [feature, units, key] of [...(overage ? [] : [['meeting_report', 1, 'report']]), ['llm_input_tokens', res.inputTokens, 'in'], ['llm_output_tokens', res.outputTokens, 'out']]) {
           await c.query(`INSERT INTO portal.ai_usage_events(workspace_id,job_id,feature,units,idempotency_key,plan_slug) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (workspace_id, idempotency_key) DO NOTHING`, [job.workspace_id, job.id, feature, units, `job:${job.id}:${key}`, plan]);
         }
         await c.query(`UPDATE portal.meeting_ai_jobs SET status='completed', stage='done', report_id=$2, error_code=NULL, error_message=NULL, lease_until=NULL, lease_token=NULL, finished_at=now() WHERE id=$1`, [job.id, rep.id]);
@@ -99,6 +100,7 @@ export function createAiWorker({ pool, llm, meet, log, leaseSeconds = 120, maxAt
 
   /** @returns {Promise<boolean>} true if a job was processed (successfully or not) */
   async function runOne() {
+    if (!(await isEnabled())) return false;                    // kill switch: jobs stay queued and resume when switched back on
     const job = await claim(); if (!job) return false;
     try { await process(job); } catch (e) { try { await fail(job, e); } catch (e2) { log?.error('could not record job failure', { job_id: job.id, err: e2.message }); } }
     return true;

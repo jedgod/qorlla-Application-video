@@ -67,6 +67,18 @@ export function createStripe({ secretKey, webhookSecret, apiBase = 'https://api.
         subscription_data: { metadata: { checkout_id: checkoutId, workspace_id: workspaceId } }
       }, { 'idempotency-key': `checkout-${checkoutId}` }),
     retrieveSubscription: (id) => api('GET', `/v1/subscriptions/${encodeURIComponent(id)}`),
-    cancelAtPeriodEnd: (id) => api('POST', `/v1/subscriptions/${encodeURIComponent(id)}`, { cancel_at_period_end: 'true' })
+    cancelAtPeriodEnd: (id) => api('POST', `/v1/subscriptions/${encodeURIComponent(id)}`, { cancel_at_period_end: 'true' }),
+    /** Change the price/quantity of the subscription's single item. prorationBehavior: 'always_invoice' (upgrade, charged now) or 'none' (downgrade at renewal). */
+    changeSubscription: ({ id, itemId, product, currency, unitAmountCents, interval, quantity, prorationBehavior, changeId }) =>
+      api('POST', `/v1/subscriptions/${encodeURIComponent(id)}`, {
+        items: [{ id: itemId, quantity, price_data: { currency, product, unit_amount: unitAmountCents, recurring: { interval } } }],
+        proration_behavior: prorationBehavior, metadata: { plan_change_id: changeId }
+      }, { 'idempotency-key': `planchange-${changeId}-${prorationBehavior}` }),
+    /** Refund part or all of a payment. The reason text stays in OUR records; the provider only accepts its own enumeration. */
+    createRefund: ({ paymentIntent, amountCents, requestId, workspaceId, idempotencyKey }) =>
+      api('POST', '/v1/refunds', { payment_intent: paymentIntent, amount: amountCents, reason: 'requested_by_customer', metadata: { refund_request_id: requestId, workspace_id: workspaceId } }, { 'idempotency-key': idempotencyKey }),
+    /** A one-off line that the provider adds to the customer's next invoice (used for AI overage). */
+    createInvoiceItem: ({ customer, amountCents, currency, description, metadata, idempotencyKey }) =>
+      api('POST', '/v1/invoiceitems', { customer, amount: amountCents, currency, description, metadata }, { 'idempotency-key': idempotencyKey })
   };
 }

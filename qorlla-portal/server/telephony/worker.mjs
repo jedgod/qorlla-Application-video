@@ -16,7 +16,7 @@ const SYSTEM = [
 ].join('\n');
 const safe = (s, n = 300) => String(s || '').replace(/[\u0000-\u001F]/g, ' ').slice(0, n);
 
-export function createPhoneWorker({ pool, llm, log, leaseSeconds = 120, maxAttempts = 5, backoffBaseSeconds = 15 }) {
+export function createPhoneWorker({ pool, llm, log, isEnabled = async () => true, leaseSeconds = 120, maxAttempts = 5, backoffBaseSeconds = 15 }) {
   async function claim() {
     const token = crypto.randomUUID();
     return (await pool.query(
@@ -57,6 +57,7 @@ export function createPhoneWorker({ pool, llm, log, leaseSeconds = 120, maxAttem
     await finish(job, 'failed', code); await pool.query(`UPDATE portal.voicemails SET summary_status='failed' WHERE id=$1`, [job.voicemail_id]);
   }
   async function runOne() {
+    if (!(await isEnabled())) return false;
     const job = await claim(); if (!job) return false;
     try { await process(job); } catch (e) { try { await fail(job, e); } catch (e2) { log?.error('could not record phone job failure', { job_id: job.id, err: e2.message }); } }
     return true;

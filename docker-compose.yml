@@ -54,6 +54,7 @@ services:
       - ./qorlla-portal/sql/004_meeting_ai.sql:/docker-entrypoint-initdb.d/012_portal_004_meeting_ai.sql:ro
       - ./qorlla-portal/sql/005_phone.sql:/docker-entrypoint-initdb.d/012b_portal_005_phone.sql:ro
       - ./qorlla-portal/sql/006_workspace_tools.sql:/docker-entrypoint-initdb.d/012c_portal_006_workspace_tools.sql:ro
+      - ./qorlla-portal/sql/007_billing_launch.sql:/docker-entrypoint-initdb.d/012d_portal_007_billing_launch.sql:ro
       - ./qorlla-portal/sql/003_roles.sh:/docker-entrypoint-initdb.d/013_portal_roles.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qorlla_main"]
@@ -79,6 +80,8 @@ services:
       - MEET_READ_SECRET=${MEET_READ_SECRET:-}
       - AI_LLM_API_KEY=${AI_LLM_API_KEY:-}
       - AI_LLM_MODEL=${AI_LLM_MODEL:-}
+      - PLATFORM_ADMIN_USER_IDS=${PLATFORM_ADMIN_USER_IDS:-}
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
       - TELEPHONY_ENABLED=${TELEPHONY_ENABLED:-false}
       - TELEPHONY_COMPLIANCE_ACK=${TELEPHONY_COMPLIANCE_ACK:-}
       - TELEPHONY_ALLOW_INTERNATIONAL=${TELEPHONY_ALLOW_INTERNATIONAL:-false}

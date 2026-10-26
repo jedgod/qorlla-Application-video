@@ -17,6 +17,10 @@ import { createMeetClient } from './ai/meet-client.mjs';
 import { createAiWorker } from './ai/worker.mjs';
 import { registerPhone } from './phone.mjs';
 import { registerWorkspaceTools } from './workspace-tools.mjs';
+import { createFlags } from './flags.mjs';
+import { createOverage } from './billing/overage.mjs';
+import { createBillingLaunch } from './billing/launch.mjs';
+import { registerBillingLaunch } from './billing/routes.mjs';
 import { createPhoneWorker } from './telephony/worker.mjs';
 import { createDirectory } from './directory.mjs';
 
@@ -40,13 +44,16 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
 
   const stripe = stripeOverride || (cfg.billing.available ? createStripe({ secretKey: cfg.billing.secretKey, webhookSecret: cfg.billing.webhookSecret, apiBase: cfg.billing.apiBase, fetchImpl, now }) : null);
   const billing = createBillingService({ pool, stripe, cfg, log, now });
+  const flags = createFlags({ pool, now });
+  const overage = createOverage({ flags });
+  const launch = createBillingLaunch({ pool, stripe, cfg, log, billing, flags, now });
   const auth = createAuth({ cfg, pool, jwks, fetchImpl, log, now });
   const { identity, member, roles } = auth;
   const directory = aiOverride.directory || createDirectory({ baseUrl: cfg.ai.directoryUrl, secret: cfg.introspectionSecret, fetchImpl, now });
   const llm = aiOverride.llm || createLlm({ ...cfg.ai.llm, fetchImpl });
   const meet = aiOverride.meet || createMeetClient({ baseUrl: cfg.ai.meetBaseUrl, readSecret: cfg.ai.meetReadSecret, fetchImpl });
-  const phoneWorker = createPhoneWorker({ pool, llm, log, ...(aiOverride.phoneWorker || {}) });
-  const aiWorker = createAiWorker({ pool, llm, meet, log, retentionDays: cfg.ai.transcriptRetentionDays, ...(aiOverride.worker || {}) });
+  const phoneWorker = createPhoneWorker({ pool, llm, log, isEnabled: () => flags.enabled('ai'), ...(aiOverride.phoneWorker || {}) });
+  const aiWorker = createAiWorker({ pool, llm, meet, log, overage, isEnabled: () => flags.enabled('ai'), retentionDays: cfg.ai.transcriptRetentionDays, ...(aiOverride.worker || {}) });
 
   // ---- webhook FIRST: it needs the raw bytes, and its authenticity is the provider signature (no cookies, no CSRF) ----
   app.post('/api/v1/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), h(async (req, res) => {
@@ -92,7 +99,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   // ---- identity-only (no workspace needed): who am I / create my first workspace ----
   app.get('/api/v1/me', identity, h(async (req, res) => {
     const rows = (await pool.query('SELECT m.workspace_id,w.name,m.role FROM portal.members m JOIN portal.workspaces w ON w.id=m.workspace_id WHERE m.user_id=$1 ORDER BY w.created_at,w.id', [req.actor])).rows;
-    res.set('Cache-Control', 'no-store').json({ user_id: req.actor, workspaces: rows });
+    res.set('Cache-Control', 'no-store').json({ user_id: req.actor, workspaces: rows, platform_admin: (cfg.platformAdmins || []).includes(String(req.actor).toLowerCase()) });
   }));
   app.post('/api/v1/workspaces', identity, h(async (req, res) => {
     const p = z.object({ name: z.string().trim().min(1).max(120).default('My workspace') }).parse(req.body || {});
@@ -212,7 +219,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
       checkout_available: billing.available(), unavailable_reasons: billing.available() ? [] : cfg.billing.unavailableReasons, can_manage: BILLING.includes(req.role) });
   }));
   app.get('/api/v1/billing/invoices', member, roles(...BILLING), h(async (req, res) => res.set('Cache-Control', 'no-store').json(await billing.invoices(req.workspace))));
-  app.post('/api/v1/billing/checkout', member, roles(...BILLING), h(async (req, res) => {
+  app.post('/api/v1/billing/checkout', member, roles(...BILLING), flags.require('checkout'), h(async (req, res) => {
     const p = z.object({ plan: z.enum(['pro', 'business']), interval: z.enum(['month', 'year']), seats: z.number().int().min(1).max(cfg.billing.maxSeats).default(1) }).parse(req.body);
     const out = await billing.createCheckout({ workspaceId: req.workspace, userId: req.actor, plan: p.plan, interval: p.interval, seats: p.seats, publicOrigin: cfg.origin });
     await pool.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'billing.checkout_started',$3)`, [req.workspace, req.actor, out.checkout_id]);
@@ -225,8 +232,9 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   }));
   app.post('/api/v1/billing/reconcile', member, roles(...MANAGE), h(async (req, res) => res.json(await billing.reconcile(req.workspace))));
 
-  registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet });
-  registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm });
+  registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage, flags });
+  registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags });
+  registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags });
   registerPhone(app, { pool, cfg, auth, h, log, llm, ...(aiOverride.phone || {}) });
   app.get('/shared/report/:token', (req, res) => { res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' }); res.sendFile(path.join(root, 'shared.html')); });
 
@@ -250,5 +258,5 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     log.error('unhandled error', { req_id: req.id, err: err.message });
     res.status(500).json({ error: 'Server error' });
   });
-  return { app, billing, auth, ai: { phoneWorker, worker: aiWorker, llm, meet, directory } };
+  return { app, billing, launch, flags, auth, ai: { phoneWorker, worker: aiWorker, llm, meet, directory } };
 }

@@ -3,6 +3,8 @@ import { $, esc, money, day, cookie, notice, ApiError, api, heading, panel, desc
 import { renderAiDashboard, renderReport } from './ai.js';
 import { renderPhone, renderReceptionist } from './phone.js';
 import { renderNotes, renderMate, renderSuite } from './workspace.js';
+import { renderChangePlan, renderUsage } from './billing-ops.js';
+import { renderAdmin } from './admin.js';
 const state = { me: null, workspace: null, role: null, signedIn: null };
 const modules = [
   ['products', '📦', 'Products', 'Explore all Qorlla applications and workplace tools.'],
@@ -36,6 +38,7 @@ const routes = {
     panel('Create support ticket', '<form id="ticket-form"><label>Subject<input name="subject" required minlength="3" maxlength="160"></label><label>Describe the issue<textarea name="details" required minlength="5"></textarea></label><button>Submit Ticket</button></form>') + panel('Your tickets', '<div id="tickets" class="empty">Loading…</div>'),
   notes: () => heading('My Notes', 'Capture ideas, meeting takeaways and workplace knowledge.', '📝') + '<div id="notes-root"></div>',
   billing: () => heading('Plans & Billing', 'Your plan, subscription status, invoices and receipts.', '💳') + '<div id="billing" class="empty">Loading…</div>',
+  admin: () => heading('Platform admin', 'Billing operations, sales leads and launch controls.', '🛡️') + '<div id="admin-root"></div>',
   team: () => heading('Team', 'People in this workspace and what they can do.', '👥') + '<div id="team" class="empty">Loading…</div>'
 };
 
@@ -64,6 +67,9 @@ async function renderBilling() {
         `<div class="row"><a class="button" href="/pricing/">View plans</a>${b.can_manage && sub && ['active', 'trialing', 'past_due'].includes(sub.status) && !sub.cancel_at_period_end ? '<button id="cancel" class="secondary">Cancel at period end</button>' : ''}${b.can_manage && sub ? '<button id="reconcile" class="secondary">Refresh from payment provider</button>' : ''}</div>` +
         (!b.checkout_available ? '<p class="muted">Online checkout is not enabled for this deployment yet.</p>' : '')) +
       panel('Invoices & receipts', b.can_manage ? (inv.length ? `<table><thead><tr><th>Date</th><th>Number</th><th>Status</th><th>Amount</th><th>Receipt</th></tr></thead><tbody>${inv.map((i) => `<tr><td>${esc(day(i.created_at))}</td><td>${esc(i.number || '-')}</td><td>${esc(i.status.replace('_', ' '))}</td><td>${esc(money(i.amount_paid_cents || i.amount_due_cents, i.currency))}${i.amount_refunded_cents ? ` <span class="muted">(refunded ${esc(money(i.amount_refunded_cents, i.currency))})</span>` : ''}</td><td>${i.hosted_invoice_url && /^https:\/\//.test(i.hosted_invoice_url) ? `<a class="link" href="${esc(i.hosted_invoice_url)}" rel="noopener noreferrer">View</a>` : '-'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No invoices yet.</div>') : '<p class="muted">Only owners, admins and billing contacts can see invoices.</p>');
+    root.insertAdjacentHTML('beforeend', '<div id="plan-change"></div><div id="usage-panel"></div>');
+    await renderChangePlan($('#plan-change'), b, draw).catch((e) => notice(describe(e)));
+    await renderUsage($('#usage-panel'), b, draw).catch((e) => notice(describe(e)));
     const act = async (fn, msg) => { try { await fn(); notice(msg); await draw(); } catch (e) { notice(describe(e)); } };
     $('#cancel')?.addEventListener('click', () => confirm('Cancel at the end of the current period? You keep your plan until then.') && act(() => api('/billing/cancel', { method: 'POST', body: '{}' }), 'Cancellation requested. Your plan stays active until the period ends.'));
     $('#reconcile')?.addEventListener('click', () => act(() => api('/billing/reconcile', { method: 'POST', body: '{}' }), 'Refreshed from the payment provider.'));
@@ -93,7 +99,7 @@ async function renderTeam() {
 async function boot() {
   const parts = location.pathname.split('/'); const slug = parts[2] || 'products';
   $('#side').innerHTML = modules.filter((m) => !['products', 'ai', 'solutions', 'support', 'meet'].includes(m[0])).map((m) => `<a class="${slug === m[0] ? 'active' : ''}" ${slug === m[0] ? 'aria-current="page"' : ''} href="/app/${m[0]}"><span aria-hidden="true">${m[1]}</span> ${esc(m[2])}</a>`).join('');
-  document.title = (modules.find((m) => m[0] === slug)?.[2] || { billing: 'Plans & Billing', team: 'Team' }[slug] || 'Workplace') + ' | Qorlla';
+  document.title = (modules.find((m) => m[0] === slug)?.[2] || { billing: 'Plans & Billing', team: 'Team', admin: 'Platform admin' }[slug] || 'Workplace') + ' | Qorlla';
   $('#page').innerHTML = (routes[slug] || routes.products)();
 
   // who am I?
@@ -102,7 +108,7 @@ async function boot() {
   if (state.signedIn) { who.innerHTML = '<button id="signout" class="linkbtn">Sign out</button>'; $('#signout').onclick = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/login.html'; }; }
   else who.innerHTML = `<a class="button small" href="${esc(signInUrl())}">Sign in</a>`;
 
-  const privateRoute = ['notes', 'support', 'billing', 'team', 'phone', 'receptionist', 'mate', 'suite'].includes(slug) || slug === 'ai';
+  const privateRoute = ['notes', 'support', 'billing', 'team', 'phone', 'receptionist', 'mate', 'suite', 'admin'].includes(slug) || slug === 'ai';
   if (!privateRoute) return;
   if (state.signedIn === false) { $('#page').innerHTML = heading('Sign in', 'This page is private to your workspace.', '🔒') + signInPrompt(); return; }
   if (state.signedIn === null) { notice('The service is temporarily unavailable. Please try again shortly.'); return; }
@@ -114,6 +120,8 @@ async function boot() {
   const role = state.me.workspaces[0]?.role;
   if (slug === 'phone') { try { await renderPhone($('#phone-root'), { role }); } catch (e) { $('#phone-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
   if (slug === 'receptionist') { try { await renderReceptionist($('#receptionist-root'), { role }); } catch (e) { $('#receptionist-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
+  if (state.me.platform_admin) $('#side').insertAdjacentHTML('beforeend', `<a class="${slug === 'admin' ? 'active' : ''}" href="/app/admin"><span aria-hidden="true">🛡️</span> Platform admin</a>`);
+  if (slug === 'admin') { try { await renderAdmin($('#admin-root')); } catch (e) { $('#admin-root').innerHTML = `<div class="empty">${esc(e.status === 404 ? 'Not found.' : describe(e))}</div>`; } }
   if (slug === 'notes') { try { await renderNotes(); } catch (e) { $('#notes-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
   if (slug === 'mate') { try { await renderMate($('#mate-root')); } catch (e) { $('#mate-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
   if (slug === 'suite') { try { await renderSuite($('#suite-root')); } catch (e) { $('#suite-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }

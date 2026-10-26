@@ -106,6 +106,31 @@ describe('PostgreSQL migration and rollback', () => {
     assert.equal(Number((await p.query("SELECT count(*) FROM portal.entitlements WHERE feature IN ('documents.max','ai.assistant_messages_per_month')")).rows[0].count), 0);
     await p.query(sqlFile('006_workspace_tools.sql')); assert.ok((await tables(p)).includes('documents'));
   });
+  test('007 (billing launch): re-runnable; constraints hold; legacy sales statuses survive; rollback restores the 006 schema and keeps invoices and refunds', async () => {
+    const db = await freshDatabase({ migrate: false }); dbs.push(db); const p = db.pool;
+    for (const f of ['002_billing.sql', '004_meeting_ai.sql', '005_phone.sql', '006_workspace_tools.sql']) await p.query(sqlFile(f));
+    const snapshot = async () => ({ tables: await tables(p), invoices: await cols(p, 'invoices'), sales: await cols(p, 'sales_inquiries') });
+    const before = await snapshot();
+    const ws = (await p.query("INSERT INTO portal.workspaces(name) VALUES('Billing') RETURNING id")).rows[0].id; const u = crypto.randomUUID();
+    await p.query("INSERT INTO portal.sales_inquiries(name,email,message,status) VALUES('Old','o@x.co','hi','contacted')");
+    const inv = (await p.query("INSERT INTO portal.invoices(workspace_id,provider,provider_invoice_id,status,currency,amount_due_cents,amount_paid_cents) VALUES($1,'stripe','in_1','paid','usd',100,100) RETURNING id", [ws])).rows[0].id;
+    await p.query(sqlFile('007_billing_launch.sql')); await p.query(sqlFile('007_billing_launch.sql'));
+    for (const t of ['plan_changes', 'refund_requests', 'usage_prices', 'usage_overage_events', 'usage_invoice_items', 'workspace_billing_settings', 'platform_flags', 'platform_audit', 'sales_inquiry_notes']) assert.ok((await tables(p)).includes(t), t);
+    assert.equal(Number((await p.query('SELECT count(*) FROM portal.platform_flags WHERE enabled')).rows[0].count), 4, 'every switch starts ON');
+    assert.equal(Number((await p.query('SELECT count(*) FROM portal.usage_prices')).rows[0].count), 0, 'no usage price is published by default');
+    assert.equal((await p.query("SELECT status FROM portal.sales_inquiries WHERE email='o@x.co'")).rows[0].status, 'contacted');
+    await assert.rejects(p.query("INSERT INTO portal.sales_inquiries(name,email,message,status) VALUES('x','x@x.co','m','hot')"), /check/i);
+    await assert.rejects(p.query("INSERT INTO portal.platform_flags(key) VALUES ('everything')"), /check/i);
+    await assert.rejects(p.query("INSERT INTO portal.usage_prices(usage_feature,unit_amount_cents,active) VALUES ('meeting_report',0,true)"), /check/i);
+    const change = (status) => p.query("INSERT INTO portal.plan_changes(workspace_id,provider_subscription_id,kind,from_plan,from_interval,from_seats,to_plan,to_interval,to_seats,unit_amount_cents,currency,status,effective_at,requested_by) VALUES($1,'sub_1','upgrade','pro','month',1,'business','month',1,2199,'usd',$2,now(),$3)", [ws, status, u]);
+    await change('requested'); await assert.rejects(change('scheduled'), /plan_changes_one_open/, 'one open change per workspace'); await p.query("UPDATE portal.plan_changes SET status='applied'"); await change('requested');
+    await p.query("UPDATE portal.sales_inquiries SET status='won'");
+    await p.query(sqlFile('rollback', '007_billing_launch.down.sql')); await p.query(sqlFile('rollback', '007_billing_launch.down.sql'));
+    assert.deepEqual(await snapshot(), before);
+    assert.equal((await p.query("SELECT status FROM portal.sales_inquiries WHERE email='o@x.co'")).rows[0].status, 'closed', 'workflow states collapse to closed');
+    assert.equal((await p.query('SELECT amount_paid_cents FROM portal.invoices WHERE id=$1', [inv])).rows[0].amount_paid_cents, 100);
+    await p.query(sqlFile('007_billing_launch.sql')); assert.ok((await tables(p)).includes('plan_changes'));
+  });
   test('004 refuses to run without the Meet directory view (clear error, no half-applied schema)', async () => {
     const db = await freshDatabase({ migrate: false }); dbs.push(db); await db.pool.query(sqlFile('002_billing.sql'));
     await db.pool.query('DROP VIEW public.portal_meeting_directory');

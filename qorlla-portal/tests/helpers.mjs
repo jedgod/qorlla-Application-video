@@ -27,7 +27,7 @@ export async function freshDatabase({ migrate = true, ai = true } = {}) {
   await pool.query(meetSyncSql('001.sql')); await pool.query(meetSyncSql('006_meeting_directory.sql'));
   await pool.query(sql('001_portal.sql'));
   if (migrate) await pool.query(sql('002_billing.sql'));
-  if (migrate && ai) { await pool.query(sql('004_meeting_ai.sql')); await pool.query(sql('005_phone.sql')); await pool.query(sql('006_workspace_tools.sql')); }
+  if (migrate && ai) { await pool.query(sql('004_meeting_ai.sql')); await pool.query(sql('005_phone.sql')); await pool.query(sql('006_workspace_tools.sql')); await pool.query(sql('007_billing_launch.sql')); }
   return { pool, name, url, sql,
     async drop() { await pool.end(); const a = new pg.Client({ connectionString: ADMIN_URL }); await a.connect(); await a.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`); await a.end(); } };
 }
@@ -68,7 +68,7 @@ export async function startApp({ pool, cfg, jwks, fetchImpl, stripe, ai }) {
   const { app, billing } = built;
   const server = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
-  return { base, billing, ai: built.ai, close: () => new Promise((r) => server.close(r)),
+  return { base, billing, launch: built.launch, flags: built.flags, ai: built.ai, close: () => new Promise((r) => server.close(r)),
     /** HTTP client acting as a signed-in browser (cookies + same-origin headers). */
     client(session, { origin = ORIGIN, workspace } = {}) {
       const call = async (method, p, body, extra = {}) => {

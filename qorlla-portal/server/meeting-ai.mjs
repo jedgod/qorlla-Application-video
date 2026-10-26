@@ -21,7 +21,7 @@ const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const CONSENT_SCOPES = ['transcription', 'summary'];
 const httpErr = (status, error, code, extra = {}) => Object.assign(new Error(error), { http: { status, body: { error, code, ...extra } } });
 
-export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet }) {
+export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage = null, flags = null }) {
   const { member } = auth;
   const audit = (db, ws, actor, action, obj) => db.query('INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,$3,$4)', [ws, actor, action, String(obj ?? '')]);
 
@@ -112,7 +112,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
       if (missing.length) throw httpErr(403, 'The meeting host has not given consent for AI processing', 'consent_required', { missing });
       const q = await quotaFor(c, req.workspace, 'ai.meeting_reports_per_month');
       const used = Number((await c.query(`SELECT count(*) FROM portal.meeting_ai_jobs WHERE workspace_id=$1 AND status IN ('queued','running','completed') AND created_at >= date_trunc('month', now())`, [req.workspace])).rows[0].count);
-      if (!q.granted || (q.quota !== null && used >= q.quota)) throw new PlanLimitError('ai.meeting_reports_per_month', q.quota, q.plan, { used });
+      if (!q.granted || (q.quota !== null && used >= q.quota)) { if (overage) await overage.allowBeyondQuota(c, req.workspace, 'meeting_report', q, { used }); else throw new PlanLimitError('ai.meeting_reports_per_month', q.quota, q.plan, { used }); }
       const job = (await c.query(`INSERT INTO portal.meeting_ai_jobs(workspace_id,meet_meeting_id,requested_by,source,stage,idempotency_key) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
         [req.workspace, m.meet_uuid, req.actor, p.source, parsed ? 'summarize' : 'fetch', p.idempotency_key])).rows[0];
       if (parsed) {
