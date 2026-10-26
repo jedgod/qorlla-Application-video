@@ -12,7 +12,7 @@ const BILLING_ROLES = ['owner', 'admin', 'billing'];
 const uuid = z.string().regex(UUID_RE);
 const SALES_NEXT = { new: ['contacted', 'lost', 'closed'], contacted: ['qualified', 'lost', 'closed'], qualified: ['won', 'lost', 'closed'], won: ['closed'], lost: ['new', 'closed'], closed: ['new'] };
 
-export function registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags }) {
+export function registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags, limiters = {} }) {
   const { member, identity, roles } = auth;
   const billingRoles = roles(...BILLING_ROLES);
   const handle = (fn) => h(async (req, res) => { try { return await fn(req, res); } catch (e) { if (e instanceof BillingError) return res.status(e.status).json({ error: e.message, code: e.code, ...e.extra }); throw e; } });
@@ -77,7 +77,7 @@ export function registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, l
     const q = z.object({ outcome: z.string().max(80).optional() }).parse(req.query);
     res.set('Cache-Control', 'no-store').json((await pool.query(`SELECT event_id, type, outcome, received_at, processed_at FROM portal.billing_events WHERE ($1::text IS NULL OR outcome=$1) ORDER BY received_at DESC LIMIT 100`, [q.outcome ?? null])).rows);
   }));
-  app.post(`${A}/billing/refunds`, adminOnly, handle(async (req, res) => {
+  app.post(`${A}/billing/refunds`, adminOnly, (limiters.refund || ((req, res, next) => next())), handle(async (req, res) => {
     const p = z.object({ invoice_id: uuid, amount_cents: z.number().int().positive().optional(), reason: z.string().trim().min(3).max(300), idempotency_key: z.string().min(8).max(100) }).parse(req.body);
     const out = await launch.refund({ actor: req.actor, invoiceId: p.invoice_id, amountCents: p.amount_cents, reason: p.reason, idempotencyKey: p.idempotency_key });
     res.status(out.duplicate ? 200 : 201).json(out);

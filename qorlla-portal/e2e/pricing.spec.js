@@ -112,7 +112,7 @@ test.describe('pricing page - prices come only from the server catalogue', () =>
     // the signed, provider-confirmed webhook is what activates
     const paid = await providerPays({ checkoutId, workspaceId: ws.workspaceId, unitAmount: unit, interval: 'year', quantity: 2 }); expect(paid.status).toBe(200);
     await expect(page.locator('#notice')).toContainText('Payment confirmed', { timeout: 30000 });
-    await expect(page.locator('#billing')).toContainText('pro'); await expect(page.locator('#billing table')).toContainText(money(unit * 2));
+    await expect(page.locator('#billing')).toContainText('pro'); await expect(page.locator('#billing table:has(th:text("Receipt"))')).toContainText(money(unit * 2));
     expect(dbq(`SELECT plan_slug FROM portal.workspace_effective_plan WHERE workspace_id='${ws.workspaceId}'`)).toBe('pro');
     // the identical delivery replayed (provider retry) is acknowledged and changes nothing
     const again = await redeliver(paid.ev); expect(again.status).toBe(200); expect(again.body.duplicate).toBe(true);

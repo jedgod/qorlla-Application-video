@@ -28,7 +28,7 @@ export function destinationAllowed(e164, { allowInternational = false } = {}) {
   return { ok: true };
 }
 
-export function registerPhone(app, { pool, cfg, auth, h, log, llm, fetchImpl = fetch, now = () => Date.now(), twilio: twilioOverride }) {
+export function registerPhone(app, { pool, cfg, auth, h, log, llm, limiters = {}, fetchImpl = fetch, now = () => Date.now(), twilio: twilioOverride }) {
   const { member } = auth;
   const t = cfg.telephony;
   const reasons = [];
@@ -60,7 +60,7 @@ export function registerPhone(app, { pool, cfg, auth, h, log, llm, fetchImpl = f
 
   // ================================================================== provider webhooks (public, signature-verified)
   const form = express.urlencoded({ extended: false, limit: '64kb' });
-  const verified = [form, (req, res, next) => {
+  const verified = [limiters.webhook || ((req, res, next) => next()), form, (req, res, next) => {
     if (!available) return res.status(503).type('text/plain').send('Telephony is not enabled');
     const ok = verifySignature({ authToken: t.authToken, url: cfg.origin + req.originalUrl, params: req.body || {}, signature: req.get('x-twilio-signature') });
     if (!ok) { log.warn('telephony webhook rejected: bad signature', { path: req.path }); return res.status(403).type('text/plain').send('Forbidden'); }
@@ -275,7 +275,7 @@ export function registerPhone(app, { pool, cfg, auth, h, log, llm, fetchImpl = f
       FROM portal.call_sessions s LEFT JOIN portal.receptionist_calls rc ON rc.call_session_id=s.id WHERE s.workspace_id=$1 AND ($2::boolean OR s.initiated_by=$3) ORDER BY s.started_at DESC LIMIT 200`, [req.workspace, isManager(req.role), req.actor])).rows;
     res.set('Cache-Control', 'no-store').json(rows);
   }));
-  app.post('/api/v1/phone/calls', member, h(async (req, res) => {       // click-to-call: ring the user's own phone, then bridge to the destination
+  app.post('/api/v1/phone/calls', member, (limiters.call || ((req, res, next) => next())), h(async (req, res) => {       // click-to-call: ring the user's own phone, then bridge to the destination
     if (!available) return res.status(503).json({ error: 'Telephony is not enabled', code: 'telephony_unavailable', reasons });
     const p = z.object({ my_phone: z.string().regex(E164), to: z.string().regex(E164) }).parse(req.body);
     const dest = destinationAllowed(p.to, { allowInternational: t.allowInternational }); if (!dest.ok) return res.status(400).json({ error: 'That destination is not allowed', code: dest.reason });

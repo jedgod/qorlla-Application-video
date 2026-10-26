@@ -49,6 +49,10 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   const launch = createBillingLaunch({ pool, stripe, cfg, log, billing, flags, now });
   const auth = createAuth({ cfg, pool, jwks, fetchImpl, log, now });
   const { identity, member, roles } = auth;
+  // limits are per signed-in user (these run after `member`), so one noisy or compromised account cannot burn the model budget or the phone bill
+  const perUser = (name, limit) => rateLimit({ windowMs: 60_000, limit: cfg.rateLimits?.[name] ?? limit, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: (req) => `${name}:${req.actor}`, message: { error: 'Too many requests. Please slow down.', code: 'rate_limited' } });
+  const limiters = { ai: perUser('ai', 30), draft: perUser('draft', 10), job: perUser('job', 10), call: perUser('call', 6), refund: perUser('refund', 10),
+    webhook: rateLimit({ windowMs: 60_000, limit: cfg.rateLimits?.webhook ?? 1200, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many requests' }) };
   const directory = aiOverride.directory || createDirectory({ baseUrl: cfg.ai.directoryUrl, secret: cfg.introspectionSecret, fetchImpl, now });
   const llm = aiOverride.llm || createLlm({ ...cfg.ai.llm, fetchImpl });
   const meet = aiOverride.meet || createMeetClient({ baseUrl: cfg.ai.meetBaseUrl, readSecret: cfg.ai.meetReadSecret, fetchImpl });
@@ -68,6 +72,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     }
   }));
 
+  app.use(['/api/v1/documents', '/api/v1/meeting-ai/jobs'], express.json({ limit: '2mb' }));   // bigger bodies only where the schemas allow them; body-parser skips an already-parsed request
   app.use(express.json({ limit: '128kb' }));
   app.use('/app/assets', express.static(path.join(root, 'assets'), { index: false, maxAge: '5m' }));
 
@@ -232,10 +237,10 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   }));
   app.post('/api/v1/billing/reconcile', member, roles(...MANAGE), h(async (req, res) => res.json(await billing.reconcile(req.workspace))));
 
-  registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage, flags });
-  registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags });
-  registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags });
-  registerPhone(app, { pool, cfg, auth, h, log, llm, ...(aiOverride.phone || {}) });
+  registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage, flags, limiters });
+  registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags, limiters });
+  registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags, limiters });
+  registerPhone(app, { pool, cfg, auth, h, log, llm, limiters, ...(aiOverride.phone || {}) });
   app.get('/shared/report/:token', (req, res) => { res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' }); res.sendFile(path.join(root, 'shared.html')); });
 
   app.get('/api/v1/:module/status', member, (req, res) => {
@@ -255,6 +260,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     if (err instanceof BillingError) return res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });
     if (err.status && err.code === 'last_owner') return res.status(409).json({ error: 'A workspace needs at least one owner', code: 'last_owner' });
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Malformed JSON' });
+    if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Request body too large', code: 'payload_too_large' });
     log.error('unhandled error', { req_id: req.id, err: err.message });
     res.status(500).json({ error: 'Server error' });
   });

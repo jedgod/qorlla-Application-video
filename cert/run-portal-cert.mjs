@@ -34,7 +34,7 @@ try { docker('rm', '-f', pgName); } catch {}
 docker('run', '-d', '--name', pgName, '-e', 'POSTGRES_PASSWORD=postgres', '-p', `127.0.0.1:${P.pg}:5432`, 'postgres:16-alpine');
 await waitFor(() => { try { docker('exec', pgName, 'pg_isready', '-U', 'postgres'); return true; } catch { return false; } }, { what: 'test postgres' }); await sleep(2500);
 {
-  const r = spawnSync('node', ['--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/auth.test.mjs', 'tests/billing.test.mjs', 'tests/entitlements.test.mjs', 'tests/migrations.test.mjs', 'tests/contract-main.test.mjs', 'tests/meeting-ai.test.mjs', 'tests/phone.test.mjs', 'tests/workspace-tools.test.mjs', 'tests/billing-launch.test.mjs'], { cwd: path.join(root, 'qorlla-portal'), encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, TEST_DATABASE_ADMIN_URL: `postgres://postgres:postgres@127.0.0.1:${P.pg}/postgres` } });
+  const r = spawnSync('node', ['--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/auth.test.mjs', 'tests/billing.test.mjs', 'tests/entitlements.test.mjs', 'tests/migrations.test.mjs', 'tests/contract-main.test.mjs', 'tests/meeting-ai.test.mjs', 'tests/phone.test.mjs', 'tests/workspace-tools.test.mjs', 'tests/billing-launch.test.mjs', 'tests/limits.test.mjs'], { cwd: path.join(root, 'qorlla-portal'), encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, TEST_DATABASE_ADMIN_URL: `postgres://postgres:postgres@127.0.0.1:${P.pg}/postgres` } });
   fs.writeFileSync(path.join(root, 'cert', 'portal-unit.tap'), r.stdout);
   const tests = [...r.stdout.matchAll(/^\s*(ok|not ok) \d+ - (.+?)(?: # .*)?$/gm)].filter((m) => !/^\S.*\.test\.mjs$/.test(m[2]));
   const leaf = tests.filter((m) => !m[2].includes('authentication & authorization') || true);
@@ -118,7 +118,7 @@ await check('D08', 'a platform admin can be provisioned (configuration only) and
   return 'admin id configured; /internal/metrics is not routed publicly';
 });
 await check('D09', 'metrics are served inside the private network only, with the bearer token, as Prometheus text with no secrets', async () => {
-  const probe = (auth) => compose('exec', '-T', 'qorlla-portal', 'node', '-e', `fetch('http://127.0.0.1:'+(process.env.PORT||5500)+'/internal/metrics',{headers:${auth ? "{authorization:'Bearer ${METRICS_TOKEN}'}" : '{}'}}).then(async r=>{console.log(r.status);console.log((await r.text()).slice(0,4000))})`);
+  const probe = (auth) => compose('exec', '-T', 'qorlla-portal', 'node', '-e', `fetch('http://127.0.0.1:'+(process.env.PORT||5500)+'/internal/metrics',{headers:${auth ? ("{authorization:'Bearer " + METRICS_TOKEN + "'}") : '{}'}}).then(async r=>{console.log(r.status);console.log((await r.text()).slice(0,4000))})`);
   const no = probe(false).split(/\r?\n/)[0]; if (no !== '404') throw new Error('metrics answered without a token: ' + no);
   const out = probe(true); if (!out.startsWith('200') || !out.includes('qorlla_billing_available 1') || !out.includes('# TYPE qorlla_subscriptions gauge')) throw new Error('unexpected metrics: ' + out.slice(0, 200));
   for (const k of ['STRIPE_SECRET_KEY', 'sk_test_fake', WEBHOOK_SECRET, METRICS_TOKEN]) if (out.includes(k)) throw new Error('secret in metrics: ' + k);

@@ -39,3 +39,78 @@ Existing MAIN data volumes created by earlier releases were written by root: `ch
 * **Database (billing schema)**: backup first, then `psql -U qorlla_main -d qorlla_main -f qorlla-portal/sql/rollback/002_billing.down.sql`. This **drops invoices, refunds, checkout sessions, provider events and sales inquiries**; `billing` roles become `member`; workspaces and notes are untouched. Verified by `tests/migrations.test.mjs` (up -> down -> up).
 * **Turn billing off without rollback**: `BILLING_ENABLED=false` (checkout and webhooks answer 503; existing subscriptions keep their recorded state).
 * **Disable the portal only**: stop `qorlla-portal`; nginx returns 502 for `/app/` and `/api/v1/` while MAIN, Meet and the old pages keep working.
+
+---
+
+# Workplace v4.2 - v4.5 operations
+
+Everything below is OFF or inert by default. Nothing in this section charges a customer, places a call or sends an email until an operator
+completes the matching checklist **and** sets the matching configuration.
+
+## 1. Migrations and rollback
+
+| Migration | Adds | Roll back with | Data lost on rollback |
+|---|---|---|---|
+| `004_meeting_ai.sql` | consents, jobs, transcripts, reports, action items, shares, usage ledger | `sql/rollback/004_meeting_ai.down.sql` | AI reports, transcripts, consents, shares |
+| `005_phone.sql` | receptionist profiles/hours/routes, numbers, calls, voicemails, appointments, telephony events | `sql/rollback/005_phone.down.sql` | call history, voicemails, appointments |
+| `006_workspace_tools.sql` | notebooks, note visibility/search, documents + versions + permissions, assistant threads/tasks | `sql/rollback/006_workspace_tools.down.sql` | assistant history, notebooks, documents (notes are kept) |
+| `007_billing_launch.sql` | plan changes, refund requests, usage prices/overage, kill switches, platform audit, sales workflow | `sql/rollback/007_billing_launch.down.sql` | plan-change history, usage prices, overage records, notes on leads |
+
+* Fresh installs apply them through `docker-compose.yml` (`docker-entrypoint-initdb.d`, in numeric order, before `003_roles.sh` grants privileges).
+* **Existing databases** are migrated by running the files in order as the database owner (`psql -v ON_ERROR_STOP=1 -f ...`). Every file is idempotent. Take a backup first (`pg_dump -Fc`).
+* Roll back in **reverse** order (007 -> 004). Each rollback file is idempotent and restores the previous schema exactly (verified by `tests/migrations.test.mjs`).
+* `004` refuses to run unless Meet's `public.portal_meeting_directory` view exists (apply `meet-sync/sql/006_meeting_directory.sql` first).
+* After adding tables on an existing database re-run `sql/003_roles.sh`-style grants (or `GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA portal TO qorlla_portal_app;` plus the few `DELETE` grants listed in that script).
+
+## 2. Telephony (v4.3) - enablement checklist
+
+Telephony stays **OFF** unless `TELEPHONY_ENABLED=true`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, a public origin **and**
+`TELEPHONY_COMPLIANCE_ACK=confirmed-numbers-consent-and-regulatory-review` are all set. While off, every provider webhook answers 503, numbers cannot be activated, and the call history is empty - nothing is simulated.
+
+Before setting the acknowledgement, someone accountable must have confirmed:
+
+1. The phone numbers are provisioned in the provider account and registered for the intended use (SMS/voice registration, caller-ID rules for the countries involved).
+2. Recording / voicemail consent law for every jurisdiction callers may be in has been reviewed. The product plays the profile's *recording notice* before every voicemail beep and ignores any recording callback for a call where no notice was played, but it cannot decide what notice your jurisdictions require.
+3. Emergency-calling limits are understood (the product never dials emergency or premium-rate numbers and cannot be relied on for emergency calls).
+4. Outbound destination policy: international calling is off unless `TELEPHONY_ALLOW_INTERNATIONAL=true`. Set per-account spend limits at the provider.
+
+Provider console configuration (replace `https://HOST` with `PORTAL_ALLOWED_ORIGIN`): voice webhook for each number `POST https://HOST/api/v1/telephony/voice/inbound`, status callback `POST https://HOST/api/v1/telephony/voice/status`; for the browser dialer create an API key + TwiML application whose voice URL is `POST https://HOST/api/v1/telephony/voice/outbound`, and set `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_TWIML_APP_SID`.
+Webhook authenticity is the provider's `X-Twilio-Signature` over the **public URL built from configuration** - make sure `PORTAL_ALLOWED_ORIGIN` is exactly the URL the provider calls.
+
+First live verification (not yet done - see the release report): place one inbound call to a test number, leave a voicemail, check the transcript/summary, place one click-to-call, then confirm minutes metering matches the provider's usage page.
+
+## 3. Billing launch (v4.1 + v4.5) - go-live gate
+
+Online billing is available only when `BILLING_ENABLED=true`, a secret key and a webhook secret are present, and (for a **live** key) `BILLING_LIVE_AUTHORIZED=yes-i-authorize-real-payments`. Checklist before authorising a live key:
+
+1. Complete a full **test-mode** run against the real provider: checkout, paid invoice, renewal, failed payment, cancellation, plan upgrade (proration), scheduled downgrade, refund, month-end overage invoice item. Compare each against the provider dashboard.
+2. Confirm the webhook endpoint (`/api/v1/billing/webhook`) is registered for: `checkout.session.completed`, `checkout.session.expired`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`, `charge.refunded`.
+3. Review `plan_prices` (the database is the only price source) and decide whether to publish any usage price (`PUT /api/v1/admin/billing/usage-prices/:feature`). **No usage price exists by default**; without one nobody can be billed beyond a plan.
+4. Name the platform administrators: `PLATFORM_ADMIN_USER_IDS=<MAIN user id>,<...>`.
+5. Rehearse the kill switches (section 4) and the rollback (section 1).
+
+Plan-change semantics: upgrades and added seats take effect immediately (provider charges the proration; `plan_changes` row `requested` -> `applied` only after the provider is re-read and matches the price snapshot the customer saw). Downgrades, fewer seats and billing-cycle changes are `scheduled` for the period end and are sent to the provider ~30 minutes before renewal with no proration. A change that the provider has not confirmed within 24 hours is marked `failed`; the plan never changes without provider confirmation.
+
+## 4. Kill switches and monitoring (v4.5)
+
+Platform admins (`/app/admin`, or the API under `/api/v1/admin`) can switch off, without a deploy, within seconds on every replica:
+
+| Switch | Effect when OFF |
+|---|---|
+| `checkout` | new checkouts answer 503 `feature_disabled` |
+| `plan_changes` | change-plan and scheduled changes pause |
+| `ai` | QorllaMate, AI drafts and meeting-AI job creation answer 503; AI workers stop claiming jobs (queued jobs resume when ON) |
+| `overage_billing` | usage beyond a plan is no longer allowed; month-end invoicing pauses |
+
+Switching a feature OFF requires a reason and is written to `portal.platform_audit`.
+
+Monitoring:
+
+* `GET /api/v1/admin/health` returns alerts (critical: provider events stuck > 10 min, rejected/unmatched provider events in 24 h; warning: refund or plan change not confirmed, past-due subscriptions, AI queues stalled > 15 min, sales leads unanswered > 24 h; info: switches that are OFF, billing enabled but unavailable).
+* `GET /internal/metrics` (Prometheus text) exists only when `METRICS_TOKEN` (>= 24 chars) is set, requires `Authorization: Bearer <token>`, and is **not routed by nginx** - scrape it from inside the private network (`docker compose exec qorlla-portal ...` or a sidecar). Suggested alert rules: `qorlla_billing_events_unprocessed > 0 for 10m`, `qorlla_billing_events_rejected_24h > 0`, `qorlla_ai_oldest_queued_seconds > 900`, `qorlla_sales_inquiries_new > 0 for 24h`, `qorlla_billing_available == 0` while billing is expected on.
+* Structured JSON logs (`docker compose logs qorlla-portal`) include `ALERT` lines for price mismatches and checkout re-use.
+
+## 5. Deploy / rollback
+
+1. Back up both databases. 2. Apply migrations (section 1). 3. `docker compose build qorlla-portal && docker compose up -d`. 4. Verify `/api/v1/health`, `/pricing/`, `/app/`, `/meet/`. 5. Keep the new capabilities dark: telephony off, billing per section 3, `ai` switch ON only after `AI_LLM_API_KEY` is configured.
+Rollback: switch the affected feature OFF, `docker compose up -d` the previous image tag, then (only if the schema must go back) run the matching rollback SQL in reverse order. Data created by a newer release is lost by the rollback SQL - export first.

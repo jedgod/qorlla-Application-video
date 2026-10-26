@@ -112,6 +112,8 @@ async function boot() {
   if (!privateRoute) return;
   if (state.signedIn === false) { $('#page').innerHTML = heading('Sign in', 'This page is private to your workspace.', '🔒') + signInPrompt(); return; }
   if (state.signedIn === null) { notice('The service is temporarily unavailable. Please try again shortly.'); return; }
+  if (state.me.platform_admin) $('#side').insertAdjacentHTML('beforeend', `<a class="${slug === 'admin' ? 'active' : ''}" href="/app/admin"><span aria-hidden="true">🛡️</span> Platform admin</a>`);
+  if (slug === 'admin') { try { await renderAdmin($('#admin-root')); } catch (e) { $('#admin-root').innerHTML = `<div class="empty">${esc(e.status === 404 ? 'Not found.' : describe(e))}</div>`; } return; }   // the console needs no workspace
   if (!state.me.workspaces.length) {
     $('#page').innerHTML = heading('Welcome', 'Let us set up your workspace.', '👋') + onboarding();
     $('#ws-form').onsubmit = async (e) => { e.preventDefault(); try { await api('/workspaces', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(e.target))) }); location.reload(); } catch (err) { notice(describe(err)); } };
@@ -120,8 +122,6 @@ async function boot() {
   const role = state.me.workspaces[0]?.role;
   if (slug === 'phone') { try { await renderPhone($('#phone-root'), { role }); } catch (e) { $('#phone-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
   if (slug === 'receptionist') { try { await renderReceptionist($('#receptionist-root'), { role }); } catch (e) { $('#receptionist-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
-  if (state.me.platform_admin) $('#side').insertAdjacentHTML('beforeend', `<a class="${slug === 'admin' ? 'active' : ''}" href="/app/admin"><span aria-hidden="true">🛡️</span> Platform admin</a>`);
-  if (slug === 'admin') { try { await renderAdmin($('#admin-root')); } catch (e) { $('#admin-root').innerHTML = `<div class="empty">${esc(e.status === 404 ? 'Not found.' : describe(e))}</div>`; } }
   if (slug === 'notes') { try { await renderNotes(); } catch (e) { $('#notes-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
   if (slug === 'mate') { try { await renderMate($('#mate-root')); } catch (e) { $('#mate-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
   if (slug === 'suite') { try { await renderSuite($('#suite-root')); } catch (e) { $('#suite-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }

@@ -59,7 +59,8 @@ export async function startMainStandIn() {
 export function testConfig(over = {}, main) {
   const cfg = loadConfig({ NODE_ENV: 'test', DATABASE_URL: 'x', PORTAL_ALLOWED_ORIGIN: ORIGIN, MAIN_AUTH_ISSUER: ORIGIN, MAIN_AUTH_JWKS_URL: ORIGIN + '/.well-known/jwks.json',
     MAIN_INTROSPECTION_URL: main?.introspectionUrl, PORTAL_INTROSPECTION_SECRET: main?.secret, AUTH_REQUIRE_INTROSPECTION: 'true', ...over.env });
-  return Object.assign(cfg, over.cfg || {});
+  // functional tests make many calls in a minute; the rate-limit behaviour itself is covered by tests/limits.test.mjs with its own values
+  return Object.assign(cfg, { rateLimits: { ai: 100000, draft: 100000, job: 100000, call: 100000, refund: 100000, webhook: 1000000 } }, over.cfg || {});
 }
 
 export async function startApp({ pool, cfg, jwks, fetchImpl, stripe, ai }) {

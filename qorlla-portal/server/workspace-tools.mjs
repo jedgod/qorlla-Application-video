@@ -55,7 +55,8 @@ const draftSchema = (kind) => z.object({ title: z.string().trim().min(1).max(200
   if (!parsed.success) { ctx.addIssue({ code: 'custom', message: 'invalid content' }); return z.NEVER; } return { title, content: parsed.data };
 });
 
-export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage = null, flags = null }) {
+export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage = null, flags = null, limiters = {} }) {
+  const lim = (k) => limiters[k] || ((req, res, next) => next());
   const aiOn = flags ? flags.require('ai') : (req, res, next) => next();
   const { member } = auth;
   const audit = (db, ws, actor, action, obj) => db.query('INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,$3,$4)', [ws, actor, action, String(obj ?? '')]);
@@ -174,7 +175,7 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     res.status(out.dup ? 200 : 201).json(docMeta(out.d));
   }));
 
-  app.post('/api/v1/documents/ai-draft', member, aiOn, h(async (req, res) => {
+  app.post('/api/v1/documents/ai-draft', member, aiOn, lim('draft'), h(async (req, res) => {
     const p = z.object({ kind: z.enum(['doc', 'sheet', 'slides']), prompt: z.string().trim().min(3).max(4000), idempotency_key: z.string().min(8).max(100) }).parse(req.body);
     const key = 'aidoc:' + p.idempotency_key;
     const existing = async (db) => (await db.query(`SELECT d.*, ${docRightSql} AS my_role FROM portal.documents d WHERE d.workspace_id=$3 AND d.creation_key=$1 AND d.owner_id=$2`, [key, req.actor, req.workspace])).rows[0];
@@ -302,7 +303,7 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     : a.kind === 'create_document' ? { kind: 'doc', title: a.title, text: a.body || '' }
     : { to: a.to || '', subject: (a.subject || a.title).slice(0, 200), body: a.body || '' });
 
-  app.post('/api/v1/assistant/threads/:id/messages', member, aiOn, h(async (req, res) => {
+  app.post('/api/v1/assistant/threads/:id/messages', member, aiOn, lim('ai'), h(async (req, res) => {
     const p = z.object({ content: z.string().trim().min(1).max(4000), idempotency_key: z.string().min(8).max(100) }).parse(req.body);
     const t = await myThread(pool, req, req.params.id); if (!t) return res.status(404).json({ error: 'Conversation not found' });
     const replay = async (db) => {
