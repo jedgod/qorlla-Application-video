@@ -1,6 +1,8 @@
 // Qorlla Workplace portal (browser). Identity comes from MAIN's cookies; this file never stores tokens in JavaScript-visible storage.
 import { $, esc, money, day, cookie, notice, ApiError, api, heading, panel, describe } from './core.js';
 import { renderAiDashboard, renderReport } from './ai.js';
+import { renderPhone, renderReceptionist } from './phone.js';
+import { renderNotes, renderMate, renderSuite } from './workspace.js';
 const state = { me: null, workspace: null, role: null, signedIn: null };
 const modules = [
   ['products', '📦', 'Products', 'Explore all Qorlla applications and workplace tools.'],
@@ -24,15 +26,15 @@ const onboarding = () => panel('Create your workspace', `<p>You are signed in as
 const routes = {
   products: () => heading('All Products', 'One workspace for communication, meetings, intelligent collaboration and productivity.', '📦') + `<div class="cards">${modules.filter((m) => !['products', 'solutions', 'support'].includes(m[0])).map(card).join('')}</div>`,
   meet: () => heading('Qorlla Meet', 'Schedule and host meetings, manage recordings, review reports and collaborate securely.', '📹') + panel('Open Qorlla Meet', '<p>Meetings run on the Qorlla Meet service. Scheduled meetings are created from your Qorlla home page.</p><a class="button" href="/meet/">Open Meet</a> <a class="button secondary" href="/qorlla.html">Schedule from Home</a>'),
-  receptionist: () => heading('AI Receptionist', 'An intelligent front desk for your organization.', '🎧') + tiles([['Incoming Calls', 'Call log, summaries and caller identification'], ['Call Routing', 'Teams, departments and escalation'], ['Appointment Scheduling', 'Calendar integration and reminders'], ['Receptionist Voice', 'Voice and language configuration'], ['Knowledge Base', 'Approved answers to common questions'], ['Analytics', 'Call volume and handoff metrics']]),
-  phone: () => heading('Qorlla Phone', 'Business calling and telephony management.', '📞') + tiles([['Dialer', 'Make and receive business calls'], ['Numbers', 'Manage assigned business phone numbers'], ['Voicemail', 'Messages, transcripts and notifications'], ['Extensions', 'Teams, queues and call forwarding'], ['Call History', 'Audit inbound and outbound calls'], ['Settings', 'Working hours, devices and routing']]),
-  mate: () => heading('QorllaMate', 'An AI assistant for your workplace.', '🤖') + tiles([['Ask QorllaMate', 'Workspace-aware AI conversations'], ['Meeting Prep', 'Agendas and background briefs'], ['Task Planner', 'Action items and follow-ups'], ['Workflow Approvals', 'Review actions before execution'], ['Knowledge Search', 'Search authorized documents'], ['Assistant History', 'Saved sessions and conversations']]),
-  suite: () => heading('AI Productivity Suite', 'Create, organize and collaborate in a single workspace.', '✨') + tiles([['Qorlla Docs', 'Rich text documents and coauthoring'], ['Qorlla Sheets', 'Spreadsheets and analysis'], ['Qorlla Slides', 'Presentation builder'], ['Qorlla Paper', 'Research and long-form writing'], ['Shared Files', 'Team folders and permissions'], ['Templates', 'Ready-to-use productivity templates']]),
+  receptionist: () => heading('AI Receptionist', 'An intelligent front desk for your organization.', '🎧') + '<div id="receptionist-root"></div>',
+  phone: () => heading('Qorlla Phone', 'Business calling and telephony management.', '📞') + '<div id="phone-root"></div>',
+  mate: () => heading('QorllaMate', 'An AI assistant for your workplace.', '🤖') + '<div id="mate-root"></div>',
+  suite: () => heading('AI Productivity Suite', 'Create, organize and collaborate in a single workspace.', '✨') + '<div id="suite-root"></div>',
   ai: () => heading('AI Meeting Intelligence', 'Consent-based summaries, decisions and action items from your meetings.', '🧠') + '<div id="ai-root"></div>',
   solutions: () => heading('Solutions for Every Team', 'Purpose-built workflows across organizations.', '🏢') + tiles([['Education', 'Classes, tutoring and office hours'], ['Healthcare', 'Administrative communication and scheduling'], ['Small Business', 'Customer engagement and meetings'], ['Enterprise', 'Security, governance and scale'], ['Events', 'Webinars, registration and reporting'], ['Remote Teams', 'Async collaboration and meetings']]),
   support: () => heading('Support Center', 'Get help, report problems and track requests.', '🛟') + `<div class="cards">${[['Help Center', 'Documentation and troubleshooting'], ['Technical Diagnostics', 'Browser, connection and meeting checks'], ['Billing Support', 'Plan, invoice and payment questions']].map(([a, b]) => `<article class="card"><h3>${a}</h3><p>${b}</p></article>`).join('')}</div>` +
     panel('Create support ticket', '<form id="ticket-form"><label>Subject<input name="subject" required minlength="3" maxlength="160"></label><label>Describe the issue<textarea name="details" required minlength="5"></textarea></label><button>Submit Ticket</button></form>') + panel('Your tickets', '<div id="tickets" class="empty">Loading…</div>'),
-  notes: () => heading('My Notes', 'Capture ideas, meeting takeaways and workplace knowledge.', '📝') + panel('New note', '<p id="note-quota" class="muted"></p><form id="note-form"><label>Title<input name="title" required maxlength="160"></label><label>Content<textarea name="body"></textarea></label><button>Save Note</button></form>') + panel('Recent notes', '<div id="notes" class="empty">Loading…</div>'),
+  notes: () => heading('My Notes', 'Capture ideas, meeting takeaways and workplace knowledge.', '📝') + '<div id="notes-root"></div>',
   billing: () => heading('Plans & Billing', 'Your plan, subscription status, invoices and receipts.', '💳') + '<div id="billing" class="empty">Loading…</div>',
   team: () => heading('Team', 'People in this workspace and what they can do.', '👥') + '<div id="team" class="empty">Loading…</div>'
 };
@@ -43,15 +45,6 @@ async function list(path, sel, format, empty = 'No records yet.') {
 }
 
 
-async function renderNotes() {
-  const draw = (x) => `<article class="card"><h3>${esc(x.title)}</h3><p>${esc(x.body)}</p><span class="muted">${esc(new Date(x.created_at).toLocaleString())}</span></article>`;
-  const refresh = async () => {
-    const items = await list('/notes', '#notes', draw, 'No notes yet.');
-    try { const q = (await api('/entitlements')).features['notes.max']; $('#note-quota').textContent = q.unlimited ? 'Unlimited notes on your plan.' : `${items.length} of ${q.quota} notes used on your plan.`; } catch { /* quota text is optional */ }
-  };
-  await refresh();
-  $('#note-form').onsubmit = async (e) => { e.preventDefault(); try { await api('/notes', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(e.target))) }); notice('Note saved.'); e.target.reset(); await refresh(); } catch (err) { notice(describe(err)); } };
-}
 async function renderSupport() {
   const draw = (x) => `<article class="card"><h3>${esc(x.subject)}</h3><p>${esc(x.details)}</p><span class="pill">${esc(x.status)}</span></article>`;
   await list('/support/tickets', '#tickets', draw, 'No tickets yet.');
@@ -109,7 +102,7 @@ async function boot() {
   if (state.signedIn) { who.innerHTML = '<button id="signout" class="linkbtn">Sign out</button>'; $('#signout').onclick = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/login.html'; }; }
   else who.innerHTML = `<a class="button small" href="${esc(signInUrl())}">Sign in</a>`;
 
-  const privateRoute = ['notes', 'support', 'billing', 'team'].includes(slug) || slug === 'ai';
+  const privateRoute = ['notes', 'support', 'billing', 'team', 'phone', 'receptionist', 'mate', 'suite'].includes(slug) || slug === 'ai';
   if (!privateRoute) return;
   if (state.signedIn === false) { $('#page').innerHTML = heading('Sign in', 'This page is private to your workspace.', '🔒') + signInPrompt(); return; }
   if (state.signedIn === null) { notice('The service is temporarily unavailable. Please try again shortly.'); return; }
@@ -118,7 +111,12 @@ async function boot() {
     $('#ws-form').onsubmit = async (e) => { e.preventDefault(); try { await api('/workspaces', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(e.target))) }); location.reload(); } catch (err) { notice(describe(err)); } };
     return;
   }
-  if (slug === 'notes') await renderNotes();
+  const role = state.me.workspaces[0]?.role;
+  if (slug === 'phone') { try { await renderPhone($('#phone-root'), { role }); } catch (e) { $('#phone-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
+  if (slug === 'receptionist') { try { await renderReceptionist($('#receptionist-root'), { role }); } catch (e) { $('#receptionist-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
+  if (slug === 'notes') { try { await renderNotes(); } catch (e) { $('#notes-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
+  if (slug === 'mate') { try { await renderMate($('#mate-root')); } catch (e) { $('#mate-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
+  if (slug === 'suite') { try { await renderSuite($('#suite-root')); } catch (e) { $('#suite-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
   if (slug === 'support') await renderSupport();
   if (slug === 'billing') await renderBilling();
   if (slug === 'team') await renderTeam();

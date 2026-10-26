@@ -46,6 +46,14 @@ export function loadConfig(env = process.env) {
     directoryUrl: trim(env.MAIN_DIRECTORY_URL) || (cfg.introspectionUrl ? cfg.introspectionUrl.replace(/\/session$/, '/users') : ''),
     transcriptRetentionDays: Number(env.AI_TRANSCRIPT_RETENTION_DAYS || 90)
   };
+  cfg.telephony = {
+    enabled: env.TELEPHONY_ENABLED === 'true',
+    accountSid: trim(env.TWILIO_ACCOUNT_SID), authToken: trim(env.TWILIO_AUTH_TOKEN),
+    apiKeySid: trim(env.TWILIO_API_KEY_SID), apiKeySecret: trim(env.TWILIO_API_KEY_SECRET), twimlAppSid: trim(env.TWILIO_TWIML_APP_SID),
+    // like the payment/LLM bases: a non-default endpoint exists only so tests can use a local test double, and is refused in production
+    apiBase: production ? 'https://api.twilio.com' : (trim(env.TWILIO_API_BASE) || 'https://api.twilio.com'),
+    complianceAck: trim(env.TELEPHONY_COMPLIANCE_ACK), allowInternational: env.TELEPHONY_ALLOW_INTERNATIONAL === 'true'
+  };
   cfg.authProblems = authProblems;
   cfg.authConfigured = authProblems.length === 0;
 

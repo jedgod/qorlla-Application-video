@@ -15,6 +15,9 @@ import { registerMeetingAi } from './meeting-ai.mjs';
 import { createLlm } from './ai/llm.mjs';
 import { createMeetClient } from './ai/meet-client.mjs';
 import { createAiWorker } from './ai/worker.mjs';
+import { registerPhone } from './phone.mjs';
+import { registerWorkspaceTools } from './workspace-tools.mjs';
+import { createPhoneWorker } from './telephony/worker.mjs';
 import { createDirectory } from './directory.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
@@ -42,6 +45,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   const directory = aiOverride.directory || createDirectory({ baseUrl: cfg.ai.directoryUrl, secret: cfg.introspectionSecret, fetchImpl, now });
   const llm = aiOverride.llm || createLlm({ ...cfg.ai.llm, fetchImpl });
   const meet = aiOverride.meet || createMeetClient({ baseUrl: cfg.ai.meetBaseUrl, readSecret: cfg.ai.meetReadSecret, fetchImpl });
+  const phoneWorker = createPhoneWorker({ pool, llm, log, ...(aiOverride.phoneWorker || {}) });
   const aiWorker = createAiWorker({ pool, llm, meet, log, retentionDays: cfg.ai.transcriptRetentionDays, ...(aiOverride.worker || {}) });
 
   // ---- webhook FIRST: it needs the raw bytes, and its authenticity is the provider signature (no cookies, no CSRF) ----
@@ -191,17 +195,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   }));
 
   // notes / tickets / reports
-  app.get('/api/v1/notes', member, h(async (req, res) => res.json((await pool.query('SELECT id,title,body,author_id,created_at,updated_at FROM portal.notes WHERE workspace_id=$1 ORDER BY updated_at DESC LIMIT 100', [req.workspace])).rows)));
-  app.post('/api/v1/notes', member, h(async (req, res) => {
-    const p = z.object({ title: z.string().trim().min(1).max(160), body: z.string().max(50000).default('') }).parse(req.body);
-    const row = await withWorkspaceLock(pool, req.workspace, async (c) => {
-      const q = await quotaFor(c, req.workspace, 'notes.max');
-      const n = Number((await c.query('SELECT count(*) FROM portal.notes WHERE workspace_id=$1', [req.workspace])).rows[0].count);
-      if (q.quota !== null && n >= q.quota) throw new PlanLimitError('notes.max', q.quota, q.plan);
-      return (await c.query('INSERT INTO portal.notes(workspace_id,author_id,title,body) VALUES($1,$2,$3,$4) RETURNING id,title,body,author_id,created_at,updated_at', [req.workspace, req.actor, p.title, p.body])).rows[0];
-    });
-    res.status(201).json(row);
-  }));
+  // notes, notebooks, documents and the assistant live in workspace-tools.mjs
   app.get('/api/v1/support/tickets', member, h(async (req, res) => res.json((await pool.query('SELECT id,subject,details,status,author_id,created_at FROM portal.support_tickets WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 100', [req.workspace])).rows)));
   app.post('/api/v1/support/tickets', member, h(async (req, res) => {
     const p = z.object({ subject: z.string().trim().min(3).max(160), details: z.string().trim().min(5).max(10000) }).parse(req.body);
@@ -232,6 +226,8 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   app.post('/api/v1/billing/reconcile', member, roles(...MANAGE), h(async (req, res) => res.json(await billing.reconcile(req.workspace))));
 
   registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet });
+  registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm });
+  registerPhone(app, { pool, cfg, auth, h, log, llm, ...(aiOverride.phone || {}) });
   app.get('/shared/report/:token', (req, res) => { res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' }); res.sendFile(path.join(root, 'shared.html')); });
 
   app.get('/api/v1/:module/status', member, (req, res) => {
@@ -254,5 +250,5 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     log.error('unhandled error', { req_id: req.id, err: err.message });
     res.status(500).json({ error: 'Server error' });
   });
-  return { app, billing, auth, ai: { worker: aiWorker, llm, meet, directory } };
+  return { app, billing, auth, ai: { phoneWorker, worker: aiWorker, llm, meet, directory } };
 }

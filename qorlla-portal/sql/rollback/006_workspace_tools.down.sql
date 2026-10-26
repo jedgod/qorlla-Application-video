@@ -1,0 +1,23 @@
+-- Reverses sql/006_workspace_tools.sql. DESTROYS assistant threads/messages/tasks, notebooks, documents and their versions. Notes themselves are kept (only the new columns go). Back up first.
+BEGIN;
+DELETE FROM portal.entitlements WHERE feature IN ('ai.assistant_messages_per_month','ai.doc_generations_per_month','documents.max');
+DELETE FROM portal.ai_usage_events WHERE feature IN ('assistant_message','doc_generation');
+ALTER TABLE portal.ai_usage_events DROP CONSTRAINT IF EXISTS ai_usage_events_feature_check;
+ALTER TABLE portal.ai_usage_events ADD CONSTRAINT ai_usage_events_feature_check CHECK (feature IN ('meeting_report','llm_input_tokens','llm_output_tokens','call_summary','phone_minutes'));
+DROP TABLE IF EXISTS portal.assistant_tasks;
+DROP TABLE IF EXISTS portal.assistant_messages;
+DROP TABLE IF EXISTS portal.assistant_threads;
+DROP TABLE IF EXISTS portal.document_permissions;
+DROP TABLE IF EXISTS portal.document_versions;
+DROP TABLE IF EXISTS portal.documents;
+ALTER TABLE portal.notes DROP CONSTRAINT IF EXISTS notes_notebook_fk;
+DROP TABLE IF EXISTS portal.notebooks;
+DROP INDEX IF EXISTS portal.notes_search_idx;
+DROP INDEX IF EXISTS portal.notes_ws_idx;
+ALTER TABLE portal.notes DROP COLUMN IF EXISTS search;
+ALTER TABLE portal.notes DROP COLUMN IF EXISTS notebook_id;
+ALTER TABLE portal.notes DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE portal.notes DROP COLUMN IF EXISTS source;
+ALTER TABLE portal.notes DROP COLUMN IF EXISTS pinned;
+ALTER TABLE portal.notes DROP COLUMN IF EXISTS visibility;
+COMMIT;

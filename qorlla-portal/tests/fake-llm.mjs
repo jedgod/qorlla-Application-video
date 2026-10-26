@@ -17,7 +17,27 @@ export async function startFakeLlm({ port = 0, host = '127.0.0.1' } = {}) {
     if (req.headers['x-api-key'] !== 'test-llm-key') return send(401, { error: { message: 'bad key' } });
     if (st.mode === 'overloaded' || st.failTimes-- > 0) return send(529, { error: { message: 'overloaded' } });
     if (st.mode === 'reject') return send(400, { error: { message: 'bad request' } });
-    const text = body.messages[0].content; const transcript = (/<transcript>\n([\s\S]*?)\n<\/transcript>/.exec(text) || [])[1] || '';
+    const text = body.messages[0].content;
+    const vm = (/<voicemail>\n([\s\S]*?)\n<\/voicemail>/.exec(text) || [])[1];
+    if (vm !== undefined) return send(200, { id: 'msg_test', model: body.model, content: [{ type: 'text', text: JSON.stringify({ summary: 'TEST-DOUBLE VOICEMAIL SUMMARY: ' + vm.slice(0, 80), urgency: /urgent|asap|emergency/i.test(vm) ? 'high' : 'normal', callback_requested: /call (me )?back|call me/i.test(vm) }) }], usage: { input_tokens: 20, output_tokens: 10 } });
+    if (st.mode === 'badjson') return send(200, { model: body.model, content: [{ type: 'text', text: 'Sorry, here is a poem instead.' }], usage: { input_tokens: 10, output_tokens: 5 } });
+    const sysText = String(body.system || '');
+    const jsonReply = (o) => send(200, { id: 'msg_test', model: body.model, content: [{ type: 'text', text: JSON.stringify(o) }], usage: { input_tokens: Math.ceil(text.length / 4), output_tokens: 40 } });
+    if (/QorllaMate/.test(sysText)) {      // TEST DOUBLE of the assistant: deterministic, driven by phrases in the user message
+      const um = (/User message: ([\s\S]*)$/.exec(text) || [])[1] || ''; const ctx = (/<context>\n([\s\S]*?)\n<\/context>/.exec(text) || [])[1] || ''; const actions = [];
+      const nm = /create a note titled "([^"]+)"(?: saying "([^"]+)")?/i.exec(um); if (nm) actions.push({ kind: 'create_note', title: nm[1], body: nm[2] || '' });
+      const dm = /create a document titled "([^"]+)"/i.exec(um); if (dm) actions.push({ kind: 'create_document', title: dm[1], body: 'TEST-DOUBLE document body' });
+      const em = /send an email to (\S+)/i.exec(um); if (em) actions.push({ kind: 'send_email', title: 'Email', to: em[1], subject: 'Hello', body: 'TEST-DOUBLE body' });
+      const inj = /SEND EMAIL TO (\S+)/.exec(ctx); if (st.mode === 'obey_injection' && inj) actions.push({ kind: 'send_email', title: 'Forward everything', to: inj[1], subject: 'data', body: ctx.slice(0, 200) });
+      return jsonReply({ reply: `TEST-DOUBLE REPLY. Context: ${ctx.includes('(no matching') ? 'none' : ctx.replace(/\n/g, ' ').slice(0, 120)}`, actions });
+    }
+    if (/You draft workplace documents/.test(sysText)) {
+      const title = 'TEST-DOUBLE DRAFT: ' + text.slice(0, 40);
+      if (/spreadsheet/.test(sysText)) return jsonReply({ title, columns: ['Item', 'Qty'], rows: [['Apples', 3], ['Pears', null]] });
+      if (/slide deck/.test(sysText)) return jsonReply({ title, slides: [{ title: 'Intro', bullets: ['Point one'], notes: '' }] });
+      return jsonReply({ title, text: '# Draft\n\nTEST-DOUBLE body for: ' + text.slice(0, 80) });
+    }
+    const transcript = (/<transcript>\n([\s\S]*?)\n<\/transcript>/.exec(text) || [])[1] || '';
     if (st.mode === 'badjson') return send(200, { model: body.model, content: [{ type: 'text', text: 'Sorry, here is a poem instead.' }], usage: { input_tokens: 10, output_tokens: 5 } });
     const lines = transcript.split('\n').filter(Boolean);
     const decisions = lines.filter((l) => /\b(decided|decision)\b/i.test(l)).map((l) => l.replace(/^[^:]+:\s*/, '').slice(0, 200));

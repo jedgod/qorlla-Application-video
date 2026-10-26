@@ -1,5 +1,5 @@
-// LLM adapter for meeting summaries (Anthropic Messages API). Disabled until AI_LLM_API_KEY is configured: no key => jobs become
-// `blocked` (never a fake summary). The API base can only be overridden outside production (tests use tests/fake-llm.mjs, a labelled
+// LLM adapter (Anthropic Messages API). Disabled until AI_LLM_API_KEY is configured: no key => jobs become `blocked`
+// (never a fake output). The API base can only be overridden outside production (tests use tests/fake-llm.mjs, a labelled
 // TEST DOUBLE; its output is NOT evidence that the real model integration works).
 import { z } from 'zod';
 
@@ -29,13 +29,11 @@ const SYSTEM = [
 
 export function createLlm({ provider = 'anthropic', apiKey, model, apiBase, maxInputChars = 120_000, fetchImpl = fetch, timeoutMs = 60_000 } = {}) {
   const available = !!(provider === 'anthropic' && apiKey);
-  async function summarize({ title, transcript }) {
+
+  /** Generic: system prompt + user content in, schema-validated JSON out. Every feature shares these retry/validation semantics. */
+  async function generateJson({ system, user, schema, maxTokens = 3000 }) {
     if (!available) throw new LlmError('No AI provider is configured', { code: 'no_ai_provider' });
-    const truncated = transcript.length > maxInputChars;
-    const body = {
-      model, max_tokens: 3000, system: SYSTEM,
-      messages: [{ role: 'user', content: `Meeting title (data): ${JSON.stringify(String(title || '').slice(0, 200))}\n${truncated ? 'NOTE: the transcript was truncated to fit; say so in the summary.\n' : ''}<transcript>\n${truncated ? transcript.slice(0, maxInputChars) : transcript}\n</transcript>` }]
-    };
+    const body = { model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] };
     let res;
     try {
       res = await fetchImpl(apiBase.replace(/\/$/, '') + '/v1/messages', {
@@ -47,10 +45,17 @@ export function createLlm({ provider = 'anthropic', apiKey, model, apiBase, maxI
     const json = await res.json().catch(() => null);
     const text = json?.content?.filter((c) => c.type === 'text').map((c) => c.text).join('') || '';
     let parsed;
-    try { parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)); } catch { throw new LlmError('The AI returned an unreadable report', { retryable: true, code: 'invalid_model_output' }); }
-    const v = ReportSchema.safeParse(parsed);
-    if (!v.success) throw new LlmError('The AI report did not match the required format', { retryable: true, code: 'invalid_model_output' });
-    return { report: v.data, model: json.model || model, inputTokens: Number(json.usage?.input_tokens) || 0, outputTokens: Number(json.usage?.output_tokens) || 0, truncated };
+    try { parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)); } catch { throw new LlmError('The AI returned unreadable output', { retryable: true, code: 'invalid_model_output' }); }
+    const v = schema.safeParse(parsed);
+    if (!v.success) throw new LlmError('The AI output did not match the required format', { retryable: true, code: 'invalid_model_output' });
+    return { data: v.data, model: json.model || model, inputTokens: Number(json.usage?.input_tokens) || 0, outputTokens: Number(json.usage?.output_tokens) || 0 };
   }
-  return { available, provider, model, summarize };
+
+  async function summarize({ title, transcript }) {
+    const truncated = transcript.length > maxInputChars;
+    const user = `Meeting title (data): ${JSON.stringify(String(title || '').slice(0, 200))}\n${truncated ? 'NOTE: the transcript was truncated to fit; say so in the summary.\n' : ''}<transcript>\n${truncated ? transcript.slice(0, maxInputChars) : transcript}\n</transcript>`;
+    const r = await generateJson({ system: SYSTEM, user, schema: ReportSchema });
+    return { report: r.data, model: r.model, inputTokens: r.inputTokens, outputTokens: r.outputTokens, truncated };
+  }
+  return { available, provider, model, summarize, generateJson, maxInputChars };
 }

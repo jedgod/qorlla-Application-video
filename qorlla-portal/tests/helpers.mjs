@@ -27,7 +27,7 @@ export async function freshDatabase({ migrate = true, ai = true } = {}) {
   await pool.query(meetSyncSql('001.sql')); await pool.query(meetSyncSql('006_meeting_directory.sql'));
   await pool.query(sql('001_portal.sql'));
   if (migrate) await pool.query(sql('002_billing.sql'));
-  if (migrate && ai) await pool.query(sql('004_meeting_ai.sql'));
+  if (migrate && ai) { await pool.query(sql('004_meeting_ai.sql')); await pool.query(sql('005_phone.sql')); await pool.query(sql('006_workspace_tools.sql')); }
   return { pool, name, url, sql,
     async drop() { await pool.end(); const a = new pg.Client({ connectionString: ADMIN_URL }); await a.connect(); await a.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`); await a.end(); } };
 }
@@ -80,7 +80,7 @@ export async function startApp({ pool, cfg, jwks, fetchImpl, stripe, ai }) {
         const text = await r.text(); let json; try { json = JSON.parse(text); } catch { json = text; }
         return { status: r.status, body: json, headers: r.headers };
       };
-      return { get: (p, h) => call('GET', p, undefined, h), post: (p, b, h) => call('POST', p, b, h), patch: (p, b, h) => call('PATCH', p, b, h), del: (p, h) => call('DELETE', p, undefined, h) };
+      return { get: (p, h) => call('GET', p, undefined, h), post: (p, b, h) => call('POST', p, b, h), patch: (p, b, h) => call('PATCH', p, b, h), put: (p, b, h) => call('PUT', p, b, h), del: (p, h) => call('DELETE', p, undefined, h) };
     } };
 }
 
