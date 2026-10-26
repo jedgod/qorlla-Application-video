@@ -4,7 +4,7 @@ const { BASE, dbq, signUp, signUpWithWorkspace } = require('./helpers');
 // Real browser, real MAIN sign-in, real PostgreSQL. The language model is the repo's labelled TEST DOUBLE (tests/fake-llm.mjs), so the
 // QorllaMate test proves our workflow (proposal -> approval -> creation) and NOT the quality or behaviour of a real model.
 async function addMember(ownerCtx, ownerCsrf, ws, userId) {
-  const r = await ownerCtx.request.post('/api/v1/members', { data: { user_id: userId, role: 'member' }, headers: { 'x-csrf-token': ownerCsrf, origin: BASE, 'x-workspace-id': ws } });
+  const r = await ownerCtx.request.post('/api/v1/members', { data: { user_id: String(userId).replace(/^u_/, ''), role: 'member' }, headers: { 'x-csrf-token': ownerCsrf, origin: BASE, 'x-workspace-id': ws } });
   if (r.status() !== 201) throw new Error('add member failed ' + r.status() + ' ' + (await r.text()));
 }
 
@@ -17,7 +17,7 @@ test.describe('notes, documents and QorllaMate', () => {
     await page.fill('#note-form [name=title]', 'Pelican roadmap'); await page.fill('#note-form [name=body]', 'Secret pelican launch plan');
     await page.selectOption('#note-form [name=notebook_id]', { label: 'Ideas' }); await page.getByRole('button', { name: 'Save Note' }).click();
     await expect(page.locator('#notes')).toContainText('Pelican roadmap'); await expect(page.locator('#notes')).toContainText('only you');
-    expect(dbq(`SELECT visibility FROM portal.notes WHERE title='Pelican roadmap'`)).toBe('private');
+    expect(dbq(`SELECT visibility FROM portal.notes WHERE title='Pelican roadmap' AND workspace_id='${owner.workspaceId}'`)).toBe('private');
     await page.fill('#note-search', 'pelican'); await page.locator('#note-search').press('Enter'); await expect(page.locator('#notes')).toContainText('Pelican roadmap');
     await page.fill('#note-search', 'zebra'); await page.locator('#note-search').press('Enter'); await expect(page.locator('#notes')).toContainText('No notes yet');
 
@@ -40,11 +40,11 @@ test.describe('notes, documents and QorllaMate', () => {
     await tab2.fill('#doc-text', 'Edited in the second tab'); await tab2.locator('#save-doc').click(); await expect(tab2.locator('#doc-version')).toHaveText('version 3');
     await page.fill('#doc-text', 'Stale overwrite attempt'); await page.locator('#save-doc').click();
     await expect(page.locator('#notice')).toContainText('Someone else saved a newer version');
-    expect(dbq(`SELECT current_version FROM portal.documents WHERE title='Launch brief'`)).toBe('3');
+    expect(dbq(`SELECT current_version FROM portal.documents WHERE title='Launch brief' AND workspace_id='${owner.workspaceId}'`)).toBe('3');
     // restore version 1 as a new version
     await page.reload(); page.once('dialog', (d) => d.accept());
     await page.locator('tr[data-v="1"]').getByRole('button', { name: /Restore/ }).click(); await expect(page.locator('#doc-version')).toHaveText('version 4');
-    expect(dbq(`SELECT source FROM portal.document_versions v JOIN portal.documents d ON d.id=v.document_id WHERE d.title='Launch brief' AND version_no=4`)).toBe('restore');
+    expect(dbq(`SELECT source FROM portal.document_versions v JOIN portal.documents d ON d.id=v.document_id WHERE d.title='Launch brief' AND d.workspace_id='${owner.workspaceId}' AND version_no=4`)).toBe('restore');
     // sharing: a colleague cannot even see it until shared; then sees it read-only
     const ctx2 = await browser.newContext({ ignoreHTTPSErrors: true, baseURL: BASE }); const p2 = await ctx2.newPage();
     const second = await signUp(ctx2, 'reader'); await addMember(context, owner.csrf, owner.workspaceId, second.user.id);
@@ -56,16 +56,16 @@ test.describe('notes, documents and QorllaMate', () => {
   });
 
   test('sheets and slides edit and persist; AI draft is labelled and private (test-double model)', async ({ page, context }) => {
-    await signUpWithWorkspace(context, 'suiteuser');
+    const me = await signUpWithWorkspace(context, 'suiteuser');
     await page.goto('/app/suite'); await page.selectOption('#doc-form [name=kind]', 'sheet'); await page.fill('#doc-form [name=title]', 'Stock'); await page.getByRole('button', { name: 'Create', exact: true }).click();
     await page.waitForURL(/\/app\/suite\?doc=/); await page.locator('#add-row').click(); await page.locator('[data-cell="0:0"]').fill('Giraffes'); await page.locator('[data-cell="0:1"]').fill('12'); await page.locator('#save-doc').click(); await expect(page.locator('#doc-version')).toHaveText('version 2');
     await page.reload(); await expect(page.locator('[data-cell="0:0"]')).toHaveValue('Giraffes'); await expect(page.locator('[data-cell="0:1"]')).toHaveValue('12');
-    expect(dbq(`SELECT content->'rows'->0->>1 FROM portal.document_versions v JOIN portal.documents d ON d.id=v.document_id WHERE d.title='Stock' AND version_no=2`)).toBe('12');
+    expect(dbq(`SELECT content->'rows'->0->>1 FROM portal.document_versions v JOIN portal.documents d ON d.id=v.document_id WHERE d.title='Stock' AND d.workspace_id='${me.workspaceId}' AND version_no=2`)).toBe('12');
     await page.goto('/app/suite'); await page.selectOption('#doc-form [name=kind]', 'slides'); await page.fill('#doc-form [name=title]', 'Pitch'); await page.getByRole('button', { name: 'Create', exact: true }).click();
     await page.waitForURL(/\/app\/suite\?doc=/); await page.locator('[data-slide="0"] [data-f=title]').fill('Why now'); await page.locator('[data-slide="0"] [data-f=bullets]').fill('Market\nTiming'); await page.locator('#save-doc').click(); await expect(page.locator('#doc-version')).toHaveText('version 2');
     await page.goto('/app/suite'); await page.selectOption('#ai-form [name=kind]', 'doc'); await page.fill('#ai-form [name=prompt]', 'A brief about the pelican launch'); await page.getByRole('button', { name: 'Draft', exact: true }).click();
     await page.waitForURL(/\/app\/suite\?doc=/, { timeout: 30000 }); await expect(page.locator('body')).toContainText('drafted by AI'); await expect(page.locator('#doc-text')).toHaveValue(/TEST-DOUBLE/);
-    expect(dbq(`SELECT count(*) FROM portal.ai_usage_events WHERE feature='doc_generation'`)).not.toBe('0');
+    expect(dbq(`SELECT count(*) FROM portal.ai_usage_events WHERE feature='doc_generation' AND workspace_id='${me.workspaceId}'`)).toBe('1');
   });
 
   test('QorllaMate proposes, the user approves, and only then does the note exist; email stays blocked (test-double model)', async ({ page, context }) => {
