@@ -73,7 +73,7 @@ await check('SEC04', 'WebSocket authorization: no/forged/expired/foreign-secret 
   const none = await sockConnect(undefined); assert(!none.ok && /Unauthorized/.test(none.err), 'no token connected: ' + none.err);
   const parts = a.token.split('.'); const forged = parts[0] + '.' + Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(parts[1], 'base64url')), name: 'tampered', role: 'host' })).toString('base64url') + '.' + parts[2];
   assert(!(await sockConnect(forged)).ok, 'tampered claims accepted');
-  const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+  const { iss: _iss, iat: _iat, exp: _exp, ...claims } = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
   assert(!(await sockConnect(jwt.sign({ ...claims, role: 'host' }, 'x'.repeat(40), { issuer: 'qorlla-meet' }))).ok, 'foreign-secret token accepted');
   assert(!(await sockConnect(jwt.sign({ meetingId: claims.meetingId, participantId: claims.participantId, role: 'host', name: 'x' }, ENV.JWT_SECRET, { issuer: 'qorlla-meet', expiresIn: -10 }))).ok, 'expired token accepted');
   assert(!(await sockConnect(jwt.sign({ meetingId: claims.meetingId, participantId: crypto.randomUUID(), role: 'host', name: 'x' }, ENV.JWT_SECRET, { issuer: 'qorlla-meet' }))).ok, 'valid-signature token for a non-participant accepted');
