@@ -1,3 +1,4 @@
+import './threadpool.js';
 import 'dotenv/config';
 import express from 'express';
 import helmet from 'helmet';
@@ -6,7 +7,8 @@ import { createServer } from 'node:http';
 import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import bcrypt from 'bcryptjs';
+// Native bcrypt (libuv thread pool). The pure-JS implementation blocks the event loop: 200 concurrent joins took 15 s p95.
+import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import { Server } from 'socket.io';

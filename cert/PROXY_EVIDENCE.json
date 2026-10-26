@@ -1,6 +1,24 @@
 {
-  "finished": "2026-10-26T19:37:47.818Z",
-  "gitHeadSha": "b1bee58f08861938be8268854d7f2a09ba861530",
+  "finished": "2026-10-26T19:56:17.283Z",
+  "git": {
+    "headSha": "5af3f8e16b4b6b32cad50ebe00e65a864fcfa42c",
+    "branch": "release/qorlla-meet-v3.9.2-production-closure",
+    "sourceTreeClean": false,
+    "dirtySourcePaths": [
+      " M cert/evidence.json",
+      " M cert/screenshots/C12-independent.png",
+      " M cert/screenshots/C12-returned.png",
+      " M cert/screenshots/C13-prefs.png",
+      " M cert/screenshots/C14-passcode.png",
+      " M cert/screenshots/C16-guest.png",
+      " M cert/screenshots/C16-host.png",
+      " M cert/screenshots/C24-pending.png",
+      " M cert/screenshots/P06-proxy-passcode.png",
+      " M cert/screenshots/P07-proxy-guest.png",
+      " M cert/screenshots/P07-proxy-host.png"
+    ]
+  },
+  "gitHeadSha": "5af3f8e16b4b6b32cad50ebe00e65a864fcfa42c",
   "ports": {
     "mainHttp": 18080,
     "meetHttp": 18081,
@@ -17,78 +35,78 @@
       "id": "P01",
       "name": "HTTP routing: MAIN pages, assets and API through nginx",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:35:48.766Z",
+      "startedAt": "2026-10-26T19:54:11.948Z",
       "detail": ""
     },
     {
       "id": "P02",
       "name": "HTTPS routing: MAIN over TLS 1.2+/HSTS; legacy TLS refused",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:35:49.010Z",
+      "startedAt": "2026-10-26T19:54:12.178Z",
       "detail": "negotiated TLSv1.3"
     },
     {
       "id": "P03",
       "name": "Meet reachable through nginx over HTTP and HTTPS",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:35:49.179Z",
+      "startedAt": "2026-10-26T19:54:12.316Z",
       "detail": ""
     },
     {
       "id": "P04",
       "name": "Internal bridge/recovery/readiness endpoints are NOT reachable through the public Meet proxy",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:35:49.332Z",
+      "startedAt": "2026-10-26T19:54:12.521Z",
       "detail": "14 probes blocked; direct private access still works"
     },
     {
       "id": "P06",
       "name": "Scheduled, passcode-protected meeting: join from MAIN through the public proxy routes, then leave back to MAIN",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:35:49.630Z",
+      "startedAt": "2026-10-26T19:54:12.890Z",
       "detail": ""
     },
     {
       "id": "P12",
       "name": "Passcode enforced through the proxy API (wrong/missing 403, correct 200)",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:35:54.325Z",
+      "startedAt": "2026-10-26T19:54:18.329Z",
       "detail": ""
     },
     {
       "id": "P07",
       "name": "Two browsers over HTTPS: WebSocket upgrade, real media both ways, chat both ways",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:35:54.779Z",
+      "startedAt": "2026-10-26T19:54:19.629Z",
       "detail": "wss connections: 2"
     },
     {
       "id": "P11",
       "name": "Persistent connection survives past nginx default 60s idle (3600s proxy timeout) with no reconnect",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:35:59.887Z",
+      "startedAt": "2026-10-26T19:54:24.808Z",
       "detail": ""
     },
     {
       "id": "P08",
       "name": "Session reconnection: network drop, page refresh and meeting rejoin",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:37:15.522Z",
+      "startedAt": "2026-10-26T19:55:40.677Z",
       "detail": ""
     },
     {
       "id": "P09",
       "name": "Authentication cookies through the proxy: HttpOnly, SameSite, Secure on HTTPS",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:37:21.503Z",
+      "startedAt": "2026-10-26T19:55:46.551Z",
       "detail": ""
     },
     {
       "id": "P10",
       "name": "Upstream failures: Meet down -> fast 502; MAIN down -> fast 502; both recover without nginx restart",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:37:21.981Z",
-      "detail": "Meet 502 in 39ms; MAIN 504 in 5011ms"
+      "startedAt": "2026-10-26T19:55:47.050Z",
+      "detail": "Meet 502 in 33ms; MAIN 504 in 5034ms"
     }
   ]
 }
