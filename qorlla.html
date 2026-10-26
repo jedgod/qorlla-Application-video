@@ -553,6 +553,10 @@
       <label class="f" for="mid"><span data-i18n="Meeting ID">Meeting ID</span></label>
       <input type="text" id="mid" inputmode="numeric" placeholder="000 0000 0000" autocomplete="off">
     </div>
+    <div id="titleWrap" style="display:none">
+      <label class="f" for="ttl">Meeting title</label>
+      <input type="text" id="ttl" maxlength="160" placeholder="Qorlla Team Meeting" autocomplete="off">
+    </div>
     <label class="f" for="nm">Your name</label>
     <input type="text" id="nm" placeholder="Your name" autocomplete="name">
     <div class="chk">
@@ -571,7 +575,11 @@
 <script>
 (function () {
   'use strict';
-  var VIDEO_PAGE = 'index.html';
+  // Qorlla Meet (qorlla-meet-video) runs as its own server; override with ?meet=<url> or localStorage zw_meet_url
+  var MEET_PORT = 3000;
+  var VIDEO_PAGE = store('zw_meet_url') || (location.protocol.indexOf('http') === 0
+    ? location.protocol + '//' + location.hostname + ':' + MEET_PORT + '/'
+    : 'http://localhost:' + MEET_PORT + '/');
   var API = '/api/workplace';
   var $ = function (id) { return document.getElementById(id); };
 
@@ -684,8 +692,17 @@
     return d.toLocaleDateString(I18n.locale, { month: 'short', day: 'numeric' });
   }
 
+  // A scheduled meeting is only joinable once Meet has registered it (syncStatus is absent when sync is off)
+  function canJoin(m) { return !m.syncStatus || m.syncStatus === 'synced'; }
+  function syncLabel(m) {
+    return m.syncStatus === 'pending_sync' ? 'Setting up…'
+      : m.syncStatus === 'cancel_pending' || m.syncStatus === 'cancelled' ? 'Cancelled'
+      : m.syncStatus === 'unregistered' ? 'Not available' : 'Unavailable';
+  }
+
   // ---------- video page hand-off ----------
   function go(params) {
+    params.return = location.href.split('#')[0];
     var q = new URLSearchParams(params).toString();
     window.location.href = VIDEO_PAGE + (q ? '?' + q : '');
   }
@@ -696,6 +713,7 @@
     $('dlgSub').textContent = mode === 'new' ? I18n.t('You will be the host of a new room.') : I18n.t('Enter the meeting ID to jump in.');
     $('dlgGo').textContent = mode === 'new' ? I18n.t('Start') : I18n.t('Join');
     $('idWrap').style.display = mode === 'new' ? 'none' : 'block';
+    $('titleWrap').style.display = mode === 'new' ? 'block' : 'none';
     if (meetingId) $('mid').value = meetingId;
     $('nm').value = myName();
     $('joinDialog').showModal();
@@ -706,12 +724,13 @@
     e.preventDefault();
     var name = $('nm').value.trim();
     if (name) store('zw_name', name);
-    var p = { start: dlgMode, mic: $('mic').checked ? '1' : '0', cam: $('cam').checked ? '1' : '0' };
+    var p = { start: dlgMode, mic: $('mic').checked ? 'true' : 'false', camera: $('cam').checked ? 'true' : 'false' };
     if (name) p.name = name;
+    if (dlgMode === 'new' && $('ttl').value.trim()) p.title = $('ttl').value.trim(); // passcodes are set in the Meet lobby, never in URLs
     if (dlgMode === 'join') {
       var id = $('mid').value.trim();
       if (!id) { $('mid').focus(); return; }
-      p.meeting = id;
+      p.meetingId = id; // public 12-digit code (spaces/hyphens accepted) or Meet UUID
     }
     go(p);
   });
@@ -769,7 +788,7 @@
       var items = r[0].map(function (e) {
         return { id: e.id, title: e.title, date: e.date, start: e.start, end: e.end, host: e.host, kind: 'event' };
       }).concat(r[1].map(function (s) {
-        return { id: s.id, title: s.title, date: s.date, start: s.time, end: addMinutes(s.time, s.duration), host: I18n.t('You'), meetingId: s.meetingId, kind: 'meeting' };
+        return { id: s.id, title: s.title, date: s.date, start: s.time, end: addMinutes(s.time, s.duration), host: I18n.t('You'), meetingId: s.meetingId, syncStatus: s.syncStatus, kind: 'meeting' };
       }));
       items.sort(function (a, b) { return (a.date + a.start).localeCompare(b.date + b.start); });
       return items;
@@ -804,7 +823,7 @@
   };
 
   function meetingCard(m) {
-    var joinable = m.kind === 'meeting' && m.meetingId;
+    var joinable = m.kind === 'meeting' && m.meetingId && canJoin(m);
     return h('div', { class: 'meeting', role: 'button', tabindex: '0',
       onclick: function () { openDialog('join', joinable ? m.meetingId : null); },
       onkeydown: function (e) { if (e.key === 'Enter') openDialog('join', joinable ? m.meetingId : null); } }, [
@@ -1110,7 +1129,9 @@
                   h('div', { class: 'muted', text: t12(it.start) + ' – ' + t12(it.end) + (it.kind === 'event' ? ' · ' + (it.host || '') : ' · ID ' + it.meetingId) })
                 ]),
                 h('div', { class: 'row' }, [
-                  it.kind === 'meeting' ? h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Join'), onclick: function () { openDialog('join', it.meetingId); } }) : null,
+                  it.kind === 'meeting' ? (canJoin(it)
+                    ? h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Join'), onclick: function () { openDialog('join', it.meetingId); } })
+                    : h('span', { class: 'muted', text: syncLabel(it) })) : null,
                   it.kind === 'event' ? h('button', { class: 'icon-sm', type: 'button', 'aria-label': 'Delete event', onclick: function () {
                     api('/calendar/' + it.id, { method: 'DELETE' }).then(function () { show('calendar', { month: monthKey, day: selected }); }).catch(fail);
                   } }, [icon(IC.trash)]) : null
@@ -1143,6 +1164,7 @@
       var date = h('input', { type: 'date', value: now });
       var time = h('input', { type: 'time', value: '10:00' });
       var dur = h('input', { type: 'number', min: '1', max: '1440', value: '30' });
+      var pass = h('input', { type: 'password', placeholder: 'Optional passcode (8+ characters)', maxlength: '128', autocomplete: 'new-password' });
 
       viewEl.appendChild(pageHead(I18n.t('Schedule'), 'Each scheduled meeting gets a real meeting ID you can join', []));
       viewEl.appendChild(h('div', { class: 'cal-layout' }, [
@@ -1158,7 +1180,9 @@
                 } }, [icon(IC.copy)])])
             ]),
             h('div', { class: 'row' }, [
-              h('button', { class: 'btn small primary', type: 'button', onclick: function () { openDialog('join', s.meetingId); } }, [icon(IC.video), I18n.t('Join')]),
+              canJoin(s)
+                ? h('button', { class: 'btn small primary', type: 'button', onclick: function () { openDialog('join', s.meetingId); } }, [icon(IC.video), I18n.t('Join')])
+                : h('span', { class: 'muted', text: syncLabel(s) }),
               h('button', { class: 'icon-sm', type: 'button', 'aria-label': 'Delete meeting', onclick: function () {
                 if (!confirm('Remove "' + s.title + '" from your schedule?')) return;
                 api('/schedule/' + s.id, { method: 'DELETE' }).then(function () { show('schedule'); }).catch(fail);
@@ -1168,11 +1192,11 @@
         }) : [emptyState('No meetings scheduled yet. Use the form to create one.')]),
         h('form', { class: 'card', onsubmit: function (e) {
           e.preventDefault();
-          api('/schedule', { method: 'POST', body: { title: title.value, date: date.value, time: time.value, duration: dur.value } })
+          api('/schedule', { method: 'POST', body: { title: title.value, date: date.value, time: time.value, duration: dur.value, passcode: pass.value || undefined } })
             .then(function (s) { toast('Scheduled — meeting ID ' + s.meetingId, 'ok'); show('schedule'); }).catch(fail);
         } }, [
           h('h3', { text: I18n.t('New meeting') }), field(I18n.t('Title'), title), field(I18n.t('Date'), date),
-          h('div', { class: 'two' }, [field(I18n.t('Time'), time), field('Duration (min)', dur)]),
+          h('div', { class: 'two' }, [field(I18n.t('Time'), time), field('Duration (min)', dur)]), field('Passcode', pass),
           h('button', { class: 'btn primary', type: 'submit' }, [icon(IC.plus), I18n.t('Schedule meeting')])
         ])
       ]));

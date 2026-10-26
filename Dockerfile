@@ -15,6 +15,7 @@ COPY locales ./locales
 COPY assets ./assets
 COPY seed ./seed
 COPY scripts ./scripts
+COPY meet-sync ./meet-sync
 
 # Expose internal core signaling port mapping bounds out to bridge configurations
 ENV DATA_DIR=/usr/src/app/data

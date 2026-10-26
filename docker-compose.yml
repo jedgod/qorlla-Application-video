@@ -1,4 +1,4 @@
-﻿services:
+services:
   workspace-signaling-engine:
     container_name: zoom_core_backend_instance
     build:
@@ -17,8 +17,52 @@
       - SMTP_FROM=${SMTP_FROM:-}
       - MAIL_DAILY_LIMIT=${MAIL_DAILY_LIMIT:-20}
       - CHAT_MAX_MESSAGES=${CHAT_MAX_MESSAGES:-500}
+      - DATABASE_URL=postgres://qorlla_main:${MAIN_DB_PASSWORD}@main-db:5432/qorlla_main
+      - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:-}
+      - MEET_BASE_URL=${MEET_BASE_URL:-http://host.docker.internal:3000}
+    depends_on:
+      main-db:
+        condition: service_healthy
     volumes:
       - workspace-data:/usr/src/app/data
+    restart: always
+    networks:
+      - cluster-mesh-network
+
+  main-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: qorlla_main
+      POSTGRES_PASSWORD: ${MAIN_DB_PASSWORD:?set MAIN_DB_PASSWORD in .env}
+      POSTGRES_DB: qorlla_main
+    volumes:
+      - main-db-data:/var/lib/postgresql/data
+      - ./meet-sync/sql/001.sql:/docker-entrypoint-initdb.d/001.sql:ro
+      - ./meet-sync/sql/002_recovery.sql:/docker-entrypoint-initdb.d/002_recovery.sql:ro
+      - ./meet-sync/sql/003_passcode.sql:/docker-entrypoint-initdb.d/003_passcode.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qorlla_main"]
+      interval: 5s
+      retries: 10
+    restart: always
+    networks:
+      - cluster-mesh-network
+
+  meet-sync-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "meet-sync/src/worker.mjs"]
+    healthcheck:
+      disable: true # the image healthcheck probes the web port, which the worker does not serve
+    environment:
+      - DATABASE_URL=postgres://qorlla_main:${MAIN_DB_PASSWORD}@main-db:5432/qorlla_main
+      - MEET_BASE_URL=${MEET_BASE_URL:-http://host.docker.internal:3000}
+      - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:-}
+      - QORLLA_VAULT_KEY=${QORLLA_VAULT_KEY:-}
+    depends_on:
+      main-db:
+        condition: service_healthy
     restart: always
     networks:
       - cluster-mesh-network
@@ -46,6 +90,7 @@
 
 volumes:
   workspace-data:
+  main-db-data:
 
 networks:
   cluster-mesh-network:

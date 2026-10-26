@@ -6,14 +6,18 @@
   "scripts": {
     "start": "node server.js",
     "test": "playwright test",
-    "build:css": "tailwindcss -i assets/tailwind.input.css -o assets/meeting.css --minify"
+    "build:css": "tailwindcss -i assets/tailwind.input.css -o assets/meeting.css --minify",
+    "meet-worker": "node meet-sync/src/worker.mjs",
+    "test:meet-sync": "node --test meet-sync/tests/smoke.test.mjs"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.19.2",
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.10.1",
+    "pg": "^8.23.1",
     "socket.io": "^4.7.5",
     "uuid": "^9.0.1"
   },

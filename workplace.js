@@ -11,6 +11,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const bcrypt = require('bcryptjs');
 const store = require('./store');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -70,14 +71,67 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
     const bad = (res, message) => res.status(400).json({ error: message });
     const missing = (res) => res.status(404).json({ error: 'Not found.' });
 
+    // Passcode from an authenticated request body (never a URL): undefined = leave as is, '' or null = clear, else bcrypt hash
+    function passcodeChange(body) {
+        if (!('passcode' in body)) return {};
+        if (body.passcode === null || body.passcode === '') return { hash: null };
+        if (typeof body.passcode !== 'string' || body.passcode.length < 8 || body.passcode.length > 128) return { error: 'Passcode must be 8-128 characters.' };
+        return { hash: bcrypt.hashSync(body.passcode, 10) };
+    }
+
+    // ---------- Qorlla Meet sync (PostgreSQL outbox) ----------
+    const meetSync = (() => {
+        const enabled = !!(process.env.DATABASE_URL && process.env.QORLLA_BRIDGE_SECRET);
+        if (!enabled) return { enabled: false };
+        const { Pool } = require('pg');
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        const store = () => import('./meet-sync/src/store.mjs');
+        const isoOf = (s) => {
+            const t = new Date(`${s.date}T${s.time}:00`);
+            return isNaN(t) ? null : t.toISOString();
+        };
+        const failed = (err) => { console.error('Meet sync failed:', err.message); return new Error('Could not queue the meeting for Qorlla Meet. Try again shortly.'); };
+        return {
+            enabled: true,
+            async save(s, ownerName, legacyId, passcodeHash) {
+                try {
+                    const { saveSchedule } = await store();
+                    await saveSchedule(pool, {
+                        sourceId: s.id, legacyCode: String(legacyId).replace(/\D/g, ''),
+                        title: s.title, ownerName: ownerName || 'Host', scheduledAt: isoOf(s), passcodeHash
+                    });
+                } catch (err) { throw failed(err); }
+            },
+            async cancel(sourceId) {
+                try {
+                    const { cancelScheduleLocal } = await store();
+                    await cancelScheduleLocal(pool, sourceId);
+                } catch (err) { throw failed(err); }
+            },
+            // Attach sync status; anything MAIN never registered is 'unregistered' (not joinable)
+            async decorate(items) {
+                if (!items.length) return items;
+                const { rows } = await pool.query(
+                    'SELECT source_id, status, meet_code FROM qorlla_schedules WHERE source_id = ANY($1)', [items.map((i) => i.id)]);
+                const byId = new Map(rows.map((r) => [r.source_id, r]));
+                return items.map((i) => {
+                    const r = byId.get(i.id);
+                    return { ...i, syncStatus: r ? r.status : 'unregistered', meetCode: r && r.status === 'synced' ? r.meet_code : undefined };
+                });
+            }
+        };
+    })();
+
     // Generic helpers: each collection supplies sanitize(body, existing) -> {value} | {error}
-    function crud(name, { sanitize, create, update, sort }) {
+    function crud(name, { sanitize, create, update, sort, afterUpdate, beforeDelete, decorate }) {
         const base = '/' + name;
         const mine = (req) => userKey(name, req.user);
 
-        router.get(base, requireUser, (req, res) => {
+        router.get(base, requireUser, async (req, res) => {
             const items = load(mine(req), name);
-            res.json(sort ? items.slice().sort(sort) : items);
+            const sorted = sort ? items.slice().sort(sort) : items;
+            if (!decorate) return res.json(sorted);
+            try { res.json(await decorate(sorted)); } catch (err) { console.error('Decorate failed:', err.message); res.status(502).json({ error: 'Meeting status unavailable.' }); }
         });
 
         if (create) {
@@ -98,13 +152,17 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
         }
 
         if (update) {
-            const handler = (req, res) => {
+            const handler = async (req, res) => {
                 const items = load(mine(req), name);
                 const idx = items.findIndex((i) => i.id === req.params.id);
                 if (idx === -1) return missing(res);
                 const out = sanitize(req.body || {}, items[idx]);
                 if (out.error) return bad(res, out.error);
-                items[idx] = { ...items[idx], ...out.value, updatedAt: nowIso() };
+                const next = { ...items[idx], ...out.value, updatedAt: nowIso() };
+                if (afterUpdate) {
+                    try { await afterUpdate(next, items[idx], req.user, req.body || {}); } catch (err) { return res.status(502).json({ error: err.message }); }
+                }
+                items[idx] = next;
                 save(mine(req), items);
                 res.json(items[idx]);
             };
@@ -112,10 +170,13 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
             router.patch(base + '/:id', requireUser, handler);
         }
 
-        router.delete(base + '/:id', requireUser, (req, res) => {
+        router.delete(base + '/:id', requireUser, async (req, res) => {
             const items = load(mine(req), name);
             const next = items.filter((i) => i.id !== req.params.id);
             if (next.length === items.length) return missing(res);
+            if (beforeDelete) {
+                try { await beforeDelete(items.find((i) => i.id === req.params.id), req.user); } catch (err) { return res.status(502).json({ error: err.message }); }
+            }
             save(mine(req), next);
             res.json({ ok: true });
         });
@@ -263,12 +324,12 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
     // ---------- SCHEDULE (creates a real meeting room) ----------
     crud('schedule', {
         sort: (a, b) => (a.date + a.time).localeCompare(b.date + b.time),
-        sanitize(body) {
+        sanitize(body, existing) {
             const v = {
-                title: str(body.title, 200),
-                date: str(body.date, 10),
-                time: str(body.time, 5),
-                duration: Math.round(Number(body.duration))
+                title: 'title' in body || !existing ? str(body.title, 200) : existing.title,
+                date: 'date' in body || !existing ? str(body.date, 10) : existing.date,
+                time: 'time' in body || !existing ? str(body.time, 5) : existing.time,
+                duration: 'duration' in body || !existing ? Math.round(Number(body.duration)) : existing.duration
             };
             if (!v.title) return { error: 'Meeting title is required.' };
             if (!DATE_RE.test(v.date)) return { error: 'Date must be YYYY-MM-DD.' };
@@ -276,6 +337,22 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
             if (!Number.isFinite(v.duration) || v.duration < 1 || v.duration > 1440) return { error: 'Duration must be 1-1440 minutes.' };
             return { value: v };
         },
+        update: true,
+        // Meet sync (PostgreSQL outbox, see meet-sync/): enabled when DATABASE_URL and QORLLA_BRIDGE_SECRET are set.
+        // Schedules start as pending_sync; a background worker registers them with Meet. Join is only offered once synced.
+        afterUpdate: async (next, prev, user, body) => {
+            if (!meetSync.enabled) return;
+            const pc = passcodeChange(body);
+            if (pc.error) throw new Error(pc.error);
+            if (next.title === prev.title && next.date === prev.date && next.time === prev.time && pc.hash === undefined) return;
+            await meetSync.save(next, prev.ownerName || '', prev.meetingId, pc.hash);
+            if (pc.hash !== undefined) next.hasPasscode = !!pc.hash;
+        },
+        beforeDelete: async (item) => {
+            if (!meetSync.enabled || !item) return;
+            await meetSync.cancel(item.id);
+        },
+        decorate: async (items) => (meetSync.enabled ? meetSync.decorate(items) : items),
         create: async (item, body, user) => {
             const startTime = new Date(`${item.date}T${item.time}:00`);
             const meeting = allocateMeeting({
@@ -284,7 +361,16 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
                 durationMinutes: item.duration,
                 hostId: user.id
             });
-            return { ...item, hostId: user.id, meetingId: meeting.meetingId, createdAt: nowIso() };
+            const out = { ...item, hostId: user.id, ownerName: user.displayName, meetingId: meeting.meetingId, createdAt: nowIso() };
+            const pc = passcodeChange(body);
+            if (pc.error) throw new Error(pc.error);
+            if (pc.hash && !meetSync.enabled) throw new Error('Passcodes need Qorlla Meet sync to be enabled.');
+            if (meetSync.enabled) {
+                await meetSync.save(out, user.displayName, meeting.meetingId, pc.hash);
+                out.syncStatus = 'pending_sync';
+                out.hasPasscode = !!pc.hash;
+            }
+            return out;
         }
     });
 
