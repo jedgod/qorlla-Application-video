@@ -18,9 +18,28 @@ if (!SECRET || SECRET.length < 32) throw Error('Set JWT_SECRET (32+ chars)');
 const db = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const app = express();
 app.disable('x-powered-by');
-app.use(helmet({ contentSecurityPolicy: false }));
+// Behind nginx the client address comes from X-Forwarded-For: set TRUST_PROXY_HOPS=1 (number of trusted proxies).
+// Left at 0 by default so a directly exposed server cannot be spoofed into sharing/evading rate limits.
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 0) || false);
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'], mediaSrc: ["'self'", 'blob:', 'mediastream:'],
+      connectSrc: ["'self'", 'ws:', 'wss:'], fontSrc: ["'self'"], objectSrc: ["'none'"],
+      baseUri: ["'self'"], formAction: ["'self'"], frameAncestors: ["'none'"]
+    }
+  },
+  referrerPolicy: { policy: 'no-referrer' }
+}));
 app.use(express.json({ limit: '32kb' }));
-app.use('/api', rateLimit({ windowMs: 60_000, limit: 90, standardHeaders: 'draft-7', legacyHeaders: false }));
+const rateOpts = { windowMs: 60_000, standardHeaders: 'draft-7', legacyHeaders: false };
+// Private bridge traffic (MAIN's sync worker) has its own, higher budget so scheduling throughput is not starved
+// by the browser-facing limit, but it is still capped to bound bridge-secret guessing.
+const bridgeLimiter = rateLimit({ ...rateOpts, limit: Number(process.env.BRIDGE_RATE_LIMIT || 1200) });
+const apiLimiter = rateLimit({ ...rateOpts, limit: Number(process.env.API_RATE_LIMIT || 90) });
+app.use('/api', (req, res, next) => (req.path.startsWith('/integrations/') ? bridgeLimiter : apiLimiter)(req, res, next));
 const server = createServer(app);
 const io = new Server(server, { cors: { origin: process.env.CORS_ORIGIN || false }, maxHttpBufferSize: 16_384 });
 const directory = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -174,17 +193,26 @@ app.post('/api/meetings', async (req,res) => {
   audit(id,pid,'meeting.created');
  } catch(e) { await client.query('ROLLBACK'); console.error(e); fail(res,500,'Unable to create meeting'); } finally {client.release();}
 });
+// Join-failure throttle: bcrypt makes each passcode guess costly, but a public 12-digit code is guessable-by-design,
+// so failed joins are capped per (client, meeting) and per meeting overall within a sliding window.
+const FAIL_WINDOW_MS=10*60_000, FAIL_PER_CLIENT=Number(process.env.JOIN_FAIL_PER_CLIENT||8), FAIL_PER_MEETING=Number(process.env.JOIN_FAIL_PER_MEETING||60);
+const joinFails=new Map();
+const failKey=k=>{const now=Date.now();const a=(joinFails.get(k)||[]).filter(t=>now-t<FAIL_WINDOW_MS);if(a.length)joinFails.set(k,a);else joinFails.delete(k);return a;};
+const joinBlocked=(ip,mid)=>failKey('c|'+ip+'|'+mid).length>=FAIL_PER_CLIENT||failKey('m|'+mid).length>=FAIL_PER_MEETING;
+const joinFailed=(ip,mid)=>{for(const k of ['c|'+ip+'|'+mid,'m|'+mid]){const a=failKey(k);a.push(Date.now());joinFails.set(k,a);}};
+setInterval(()=>{for(const k of [...joinFails.keys()])failKey(k);},60_000).unref();
 app.post('/api/meetings/:id/join', async(req,res) => {
  const name=clean(req.body.name,70), passcode=clean(req.body.passcode,100), hostSecret=clean(req.body.hostSecret,100);
  if(!name) return fail(res,400,'Display name required');
  try {
   const resolved=await resolveMeeting(req.params.id);
   if(!resolved) return fail(res,404,'Meeting unavailable');
+  if(joinBlocked(req.ip,resolved)){res.set('Retry-After','600');return fail(res,429,'Too many failed attempts. Try again later.');}
   const {rows}=await db.query('SELECT * FROM meetings WHERE id=$1',[resolved]);
   if(!rows.length || rows[0].ended_at) return fail(res,404,'Meeting unavailable');
   const m=rows[0]; const host=!!hostSecret && await bcrypt.compare(hostSecret,m.host_secret_hash);
   if(m.locked && !host) return fail(res,403,'Meeting locked');
-  if(!host && m.passcode_hash && !(await bcrypt.compare(passcode,m.passcode_hash))) return fail(res,403,'Invalid passcode');
+  if(!host && m.passcode_hash && !(await bcrypt.compare(passcode,m.passcode_hash))){joinFailed(req.ip,m.id);return fail(res,403,'Invalid passcode');}
   const pid=randomUUID(), role=host?'host':'guest';
   await db.query('INSERT INTO participants(id,meeting_id,display_name,role) VALUES($1,$2,$3,$4)',[pid,m.id,name,role]);
   res.json({meetingId:m.id,meetingCode:m.meeting_code,participantId:pid,token:sign({meetingId:m.id,participantId:pid,role,name})});
@@ -227,6 +255,14 @@ io.use(async(socket,next)=>{
 });
 io.on('connection',socket=>{
  const u=socket.data.user, id=u.meetingId, pid=u.participantId;
+ // Flood control: signalling is exempt (WebRTC negotiation bursts); every other event shares a sliding budget.
+ const BUDGET=Number(process.env.SOCKET_EVENT_BUDGET||40), BUDGET_MS=10_000; let stamps=[];
+ socket.use(([event,...args],next)=>{
+  if(event==='signal')return next();
+  const now=Date.now();stamps=stamps.filter(t=>now-t<BUDGET_MS);
+  if(stamps.length>=BUDGET){const ack=args.find(a=>typeof a==='function');if(ack)ack({ok:false,error:'Rate limited'});return;}
+  stamps.push(now);next();
+ });
  if(!active.has(id)) active.set(id,new Map());
  const roster=active.get(id);
  const prior=roster.get(pid);

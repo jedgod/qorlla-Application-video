@@ -20,6 +20,7 @@ services:
       - DATABASE_URL=postgres://qorlla_main:${MAIN_DB_PASSWORD}@main-db:5432/qorlla_main
       - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:-}
       - MEET_BASE_URL=${MEET_BASE_URL:-http://host.docker.internal:3000}
+      - MEET_PUBLIC_URL=${MEET_PUBLIC_URL:-}
     depends_on:
       main-db:
         condition: service_healthy
@@ -77,9 +78,19 @@ services:
     depends_on:
       workspace-signaling-engine:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
-      - "8080:80"
+      # Host ports are configurable so the proxy never has to fight for 8080 (PROXY_*_PORT in .env)
+      - "${PROXY_MAIN_PORT:-8080}:80"
+      - "${PROXY_MEET_PORT:-8081}:81"
+      - "${PROXY_MAIN_TLS_PORT:-8443}:443"
+      - "${PROXY_MEET_TLS_PORT:-8444}:444"
     volumes:
+      - ./Qorlla-Logo.jpg:/usr/share/nginx/html/Qorlla-Logo.jpg:ro
+      - ./deploy/nginx/snippets:/etc/nginx/snippets:ro
+      - ${PROXY_TLS_CONF:-./deploy/nginx/tls-disabled.conf}:/etc/nginx/conf.d/tls.conf:ro
+      - ${PROXY_CERT_DIR:-./deploy/certs}:/etc/nginx/certs:ro
       - ./index.html:/usr/share/nginx/html/index.html:ro
       - ./qorlla.html:/usr/share/nginx/html/qorlla.html:ro
       - ./chat.html:/usr/share/nginx/html/chat.html:ro

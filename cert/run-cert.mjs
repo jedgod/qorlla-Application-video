@@ -8,7 +8,9 @@ import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import http from 'node:http';
 import pg from 'pg';
+import { seal } from '../meet-sync/src/store.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('@playwright/test');
@@ -17,6 +19,7 @@ const envFile = process.argv[2];
 if (!envFile) throw new Error('Usage: node cert/run-cert.mjs <cert.env>');
 const ENV = Object.fromEntries(fs.readFileSync(envFile, 'utf8').split(/\r?\n/).filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
 
+process.env.QORLLA_VAULT_KEY = ENV.QORLLA_VAULT_KEY; // so seal() matches the worker's vault key
 const MAIN = 'http://localhost:5000';
 const MEET = 'http://localhost:3000';
 const MEET_DB_URL = 'postgres://qorlla:qorlla_dev_only@127.0.0.1:25501/qorlla_meet';
@@ -60,12 +63,47 @@ const workerStart = () => docker('start', WORKER_CT);
 
 // After every check, put shared services back so one failure cannot cascade into later checks.
 async function restoreStack() {
+  proxy.mode = 'pass';
+  extraWorkers.forEach(wStop);
+  try { docker('unpause', 'cert-meet-db'); } catch {}
   try { if (!meetProc) { startMeet(); await meetReady(); } } catch {}
   try { workerStart(); } catch {}
 }
+// ---------- fault-injecting proxy in front of Meet (real lost responses, stalls) ----------
+const proxy = { mode: 'pass', hits: [], server: null };
+function startProxy() {
+  proxy.server = http.createServer((req, res) => {
+    const chunks = []; req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      proxy.hits.push(req.method + ' ' + req.url);
+      if (proxy.mode === 'stall' && /scheduled-meetings/.test(req.url)) return; // hold the connection open
+      const up = http.request({ host: '127.0.0.1', port: 3000, path: req.url, method: req.method, headers: req.headers }, (ur) => {
+        if (proxy.mode === 'drop-ack-response' && /ack-host/.test(req.url)) { ur.resume(); ur.on('end', () => req.socket.destroy()); return; } // Meet processed it; client never hears
+        res.writeHead(ur.statusCode, ur.headers); ur.pipe(res);
+      });
+      up.on('error', () => { try { res.writeHead(502); res.end(); } catch {} });
+      up.end(Buffer.concat(chunks));
+    });
+  }).listen(3399, '0.0.0.0');
+}
+const ackHits = (sid) => proxy.hits.filter((h) => h.includes(`/${sid}/ack-host`)).length;
+const NET = 'qcert_cluster-mesh-network';
+const IMAGE = 'qcert-meet-sync-worker';
+function wStart(name, { lease = 90, backoff = 5, ack = 5, viaProxy = true } = {}) {
+  try { docker('rm', '-f', name); } catch {}
+  docker('run', '-d', '--name', name, '--network', NET, '--add-host', 'host.docker.internal:host-gateway',
+    '-e', `DATABASE_URL=postgres://qorlla_main:${ENV.MAIN_DB_PASSWORD}@main-db:5432/qorlla_main`,
+    '-e', `MEET_BASE_URL=http://host.docker.internal:${viaProxy ? 3399 : 3000}`,
+    '-e', `QORLLA_BRIDGE_SECRET=${ENV.QORLLA_BRIDGE_SECRET}`, '-e', `QORLLA_VAULT_KEY=${ENV.QORLLA_VAULT_KEY}`,
+    '-e', `MEET_SYNC_LEASE_SECONDS=${lease}`, '-e', `MEET_SYNC_BACKOFF_BASE_SECONDS=${backoff}`, '-e', `MEET_SYNC_ACK_BACKOFF_BASE_SECONDS=${ack}`,
+    IMAGE, 'node', 'meet-sync/src/worker.mjs');
+}
+const wStop = (name) => { try { docker('rm', '-f', name); } catch {} };
+const extraWorkers = ['qcert-w2', 'qcert-w3'];
 // ---------- evidence ----------
 const results = [];
 async function check(id, name, fn) {
+  if (process.env.CERT_ONLY && !process.env.CERT_ONLY.split(',').some((p) => id.startsWith(p))) return; // dev iteration only; evidence runs never set this
   const t0 = new Date().toISOString();
   try { const detail = await fn(); results.push({ id, name, status: 'PASS', startedAt: t0, detail: detail ?? '' }); console.log('PASS', id, name); }
   catch (e) { const d = String(e.message || e) + (e.cause ? ' [cause: ' + (e.cause.code || e.cause.message) + ']' : ''); results.push({ id, name, status: 'FAIL', startedAt: t0, detail: d.slice(0, 600) }); console.log('FAIL', id, name, '-', d.slice(0, 300)); await restoreStack(); }
@@ -109,14 +147,15 @@ function openVault(sourceId) {
 const GIT = process.env.GIT_EXE || (fs.existsSync('C:/Program Files/Git/mingw64/bin/git.exe') ? 'C:/Program Files/Git/mingw64/bin/git.exe' : 'git');
 const git = (...a) => execFileSync(GIT, a, { cwd: root, encoding: 'utf8' }).trim();
 const sha = git('rev-parse', 'HEAD');
-const dirty = git('status', '--porcelain').split('\n').filter(Boolean);
+const isCertOutput = (l) => /^\S+\s+cert\/(EVIDENCE\.md|evidence\.json|meet\.log|bf2?\.jsonl|screenshots\/)/.test(l);
+const dirty = git('status', '--porcelain').split('\n').filter(Boolean).filter((l) => !isCertOutput(l));
 const fileHash = (f) => crypto.createHash('sha256').update(fs.readFileSync(path.join(root, f))).digest('hex').slice(0, 16);
 const fingerprint = ['workplace.js', 'qorlla.html', 'Dockerfile', 'docker-compose.yml', 'meet-sync/src/worker.mjs', 'meet-sync/src/store.mjs', 'qorlla-meet-video/server/index.js', 'qorlla-meet-video/server/recovery-service.mjs'].map((f) => `${f}:${fileHash(f)}`);
 
 // =====================================================================
 const startedAt = new Date().toISOString();
 await meetDb.query('SELECT 1');
-startMeet(); await meetReady();
+startMeet(); await meetReady(); startProxy();
 docker('start', WORKER_CT); // ensure running
 const host = await new Main().register();
 let A = null; // primary synced schedule used by several checks
@@ -226,12 +265,20 @@ await check('C17', 'Meet outage -> schedules stay pending -> automatic recovery'
   await waitFor(async () => mainSql(`SELECT status FROM qorlla_schedules WHERE source_id='${r.data.id}'`) === 'synced', { timeout: 150000, every: 3000, what: 'recovery after outage' });
   return `attempts during outage: ${attempts}`;
 });
-await check('C20', 'Lease expiry: stale leased job is re-claimed and completed (simulated lease state)', async () => {
-  workerStop();
-  const r = await host.schedule({ title: 'Lease' }); const id = r.data.id;
-  mainSql(`UPDATE qorlla_outbox SET status='leased', lease_until=now()-interval '5 minutes', lease_token=gen_random_uuid() WHERE source_id='${id}'`);
-  workerStart();
-  await waitFor(async () => mainSql(`SELECT status FROM qorlla_schedules WHERE source_id='${id}'`) === 'synced', { what: 'synced after stale lease' });
+await check('C20', 'REAL lease expiry: worker killed mid-job; job re-claimed only after its lease expires (6s lease, wall-clock)', async () => {
+  workerStop(); proxy.mode = 'stall';
+  const r = await host.schedule({ title: 'Real lease' }); const id = r.data.id;
+  wStart('qcert-w2', { lease: 6, backoff: 1, ack: 1 });
+  await waitFor(async () => mainSql(`SELECT status FROM qorlla_outbox WHERE source_id='${id}'`) === 'leased', { timeout: 30000, what: 'job leased by w2' });
+  const leaseUntil = Date.parse(mainSql(`SELECT to_char(lease_until AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') FROM qorlla_outbox WHERE source_id='${id}'`));
+  docker('kill', 'qcert-w2'); const killedAt = Date.now(); wStop('qcert-w2'); // crash mid-job
+  assert(mainSql(`SELECT status FROM qorlla_schedules WHERE source_id='${id}'`) === 'pending_sync', 'unexpected state after kill');
+  proxy.mode = 'pass'; wStart('qcert-w3', { lease: 6, backoff: 1, ack: 1 });
+  await waitFor(async () => mainSql(`SELECT status FROM qorlla_schedules WHERE source_id='${id}'`) === 'synced', { timeout: 60000, what: 'synced after lease expiry' });
+  const doneAt = Date.now();
+  assert(doneAt >= leaseUntil - 500, `re-claimed BEFORE lease expiry (done ${doneAt}, lease_until ${leaseUntil})`);
+  wStop('qcert-w3'); workerStart();
+  return `lease_until=${new Date(leaseUntil).toISOString()} killed=${new Date(killedAt).toISOString()} completed=${new Date(doneAt).toISOString()} (waited ${(doneAt - killedAt) / 1000}s after kill)`;
 });
 await check('C18', 'Backfill is idempotent (duplicate apply creates no duplicates)', async () => {
   const lines = [{ sourceId: `legacy-bf-${RUN}`, legacyCode: String(Math.floor(1e10 + Math.random() * 9e10)), title: 'Backfilled', ownerName: 'Legacy Host', scheduledAt: '2026-12-05T15:00:00Z' }].map((o) => JSON.stringify(o)).join('\n') + '\n';
@@ -244,22 +291,22 @@ await check('C18', 'Backfill is idempotent (duplicate apply creates no duplicate
   await waitFor(async () => mainSql(`SELECT status FROM qorlla_schedules WHERE source_id='legacy-bf-${RUN}'`) === 'synced', { what: 'backfill synced' });
   const code = mainSql(`SELECT legacy_code FROM qorlla_schedules WHERE source_id='legacy-bf-${RUN}'`); assert((await resolveCode(code)).status === 200, 'legacy code not resolvable'); fs.unlinkSync(f);
 });
-await check('C19', 'Legacy-code collision in worker -> 409s, ends dead, never mapped to the wrong meeting', async () => {
-  // The code is already registered in Meet by a DIFFERENT source (not known to MAIN's own unique index)
+await check('C19', 'REAL timers: legacy-code collision -> 409s -> exponential backoff -> dead after 12 attempts (no timestamp edits)', async () => {
+  workerStop();
   const taken = String(Math.floor(1e10 + Math.random() * 9e10));
   const pre = await bridge('POST', '/api/integrations/scheduled-meetings', { sourceId: 'ext-owner-' + crypto.randomBytes(3).toString('hex'), title: 'Existing owner', ownerName: 'Other', legacyCode: taken });
   assert(pre.status === 201, 'precondition ' + pre.status);
   const f = path.join(root, 'cert', 'bf2.jsonl');
   fs.writeFileSync(f, JSON.stringify({ sourceId: `legacy-col-${RUN}`, legacyCode: taken, title: 'Collider', ownerName: 'Legacy Host', scheduledAt: null }) + '\n');
-  docker('cp', f, WORKER_CT + ':/tmp/bf2.jsonl'); docker('exec', WORKER_CT, 'node', 'meet-sync/src/backfill.mjs', '/tmp/bf2.jsonl', '--apply');
-  for (let i = 0; i < 16; i++) { // fast-forward exponential backoff (operator-equivalent) until dead
-    const st = mainSql(`SELECT status FROM qorlla_outbox WHERE source_id='legacy-col-${RUN}'`); if (st === 'dead') break;
-    mainSql(`UPDATE qorlla_outbox SET next_attempt_at=now() WHERE source_id='legacy-col-${RUN}' AND status='pending'`); await sleep(2500);
-  }
+  wStart('qcert-w2', { lease: 20, backoff: 0.01, ack: 1, viaProxy: false });
+  docker('cp', f, 'qcert-w2:/tmp/bf2.jsonl'); docker('exec', 'qcert-w2', 'node', 'meet-sync/src/backfill.mjs', '/tmp/bf2.jsonl', '--apply');
+  const t0 = Date.now();
+  await waitFor(async () => mainSql(`SELECT status FROM qorlla_outbox WHERE source_id='legacy-col-${RUN}'`) === 'dead', { timeout: 180000, every: 2000, what: 'job reaches dead via real backoff' });
   const row = mainSql(`SELECT status||'|'||attempts||'|'||coalesce(last_error,'') FROM qorlla_outbox WHERE source_id='legacy-col-${RUN}'`);
-  assert(row.startsWith('dead|'), 'not dead: ' + row);
+  assert(/^dead\|12\|/.test(row) && /409/.test(row), 'dead state wrong: ' + row);
   assert(mainSql(`SELECT status FROM qorlla_schedules WHERE source_id='legacy-col-${RUN}'`) !== 'synced', 'wrongly synced');
-  assert((await resolveCode(taken)).data.meetingId === pre.data.meetingId, 'original mapping altered'); fs.unlinkSync(f); return row;
+  assert((await resolveCode(taken)).data.meetingId === pre.data.meetingId, 'original mapping altered');
+  wStop('qcert-w2'); workerStart(); fs.unlinkSync(f); return `${row} after ${(Date.now() - t0) / 1000}s real time`;
 });
 
 // ---------- host recovery (C21, R01-R05) ----------
@@ -303,6 +350,111 @@ await check('R05', 'After replay + ack, new credential claims host and the previ
   const o = await meetJoin(Rsrc.meetCode, { name: 'H', hostSecret: Rsrc.secret }); assert(o.status !== 200 || claims(o.data.token).role !== 'host', 'old secret still host');
 });
 
+
+// ---------- Phase C: host-recovery acknowledgment worker (RC01-RC08) ----------
+// "In flight" = exactly the state the sync worker leaves behind after vaulting a recovered secret: Meet holds a PENDING
+// encrypted escrow, MAIN has the sealed secret in its vault and an ack_pending row. No schedule job exists for it.
+async function recoveryInFlight(title) {
+  const r = await host.schedule({ title }); const S = await host.untilStatus(r.data.id, 'synced');
+  workerStop(); // the main worker would ack immediately; stage the pending state with it stopped
+  const reqId = 'rc-' + crypto.randomBytes(4).toString('hex');
+  const rec = await bridge('POST', `/api/integrations/scheduled-meetings/${S.id}/recover-host`, { requestId: reqId });
+  assert(rec.status === 200 && rec.data.hostSecret, 'issue ' + rec.status);
+  const sl = seal(rec.data.hostSecret);
+  mainSql(`DELETE FROM qorlla_host_vault WHERE source_id='${S.id}'; INSERT INTO qorlla_host_vault(source_id,ciphertext,iv,tag) VALUES('${S.id}','${sl.ciphertext}','${sl.iv}','${sl.tag}')`);
+  mainSql(`INSERT INTO qorlla_host_recovery(source_id,request_id,generation,ack_pending) VALUES('${S.id}','${reqId}',${rec.data.generation},true) ON CONFLICT(source_id) DO UPDATE SET request_id='${reqId}',generation=${rec.data.generation},ack_pending=true,ack_attempts=0,next_ack_at=now(),ack_lease_until=NULL,ack_last_error=NULL`);
+  return { S, reqId, secret: rec.data.hostSecret, generation: rec.data.generation };
+}
+const escrowOf = async (sid) => (await meetDb.query("SELECT e.state, e.encrypted_secret IS NOT NULL AS has_cipher FROM host_recovery_escrow e JOIN external_meeting_links l ON l.meeting_id=e.meeting_id WHERE l.source_id=$1", [sid])).rows[0];
+const ackRow = (sid) => mainSql(`SELECT ack_pending||'|'||ack_attempts||'|'||coalesce(ack_last_error,'') FROM qorlla_host_recovery WHERE source_id='${sid}'`);
+const ackDone = (sid) => waitFor(async () => mainSql(`SELECT ack_pending FROM qorlla_host_recovery WHERE source_id='${sid}'`) === 'f', { timeout: 90000, every: 1000, what: `ack done for ${sid}` });
+const noJobs = (sid) => Number(mainSql(`SELECT count(*) FROM qorlla_outbox WHERE source_id='${sid}' AND status IN ('pending','leased')`)) === 0;
+const stillHost = async (S, secret) => { const j = await meetJoin(S.meetCode, { name: 'H', hostSecret: secret }); return j.status === 200 && claims(j.data.token).role === 'host'; };
+
+await check('RC01', 'Ack failure retried by its OWN worker (no schedule job), bounded real backoff, escrow retained until Meet confirms', async () => {
+  proxy.mode = 'pass';
+  const F = await recoveryInFlight('RC01'); assert(noJobs(F.S.id), 'a schedule job exists - not an independence test');
+  await stopMeet(); wStart('qcert-w2', { lease: 20, backoff: 1, ack: 1 });
+  await waitFor(async () => Number(mainSql(`SELECT ack_attempts FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`)) >= 3, { timeout: 60000, every: 1000, what: 'three failed ack attempts' });
+  assert(mainSql(`SELECT ack_pending FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`) === 't', 'ack lost while Meet down');
+  const gaps = mainSql(`SELECT next_ack_at > now() FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`); // backoff is scheduled into the future
+  const attemptsDown = Number(mainSql(`SELECT ack_attempts FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`));
+  startMeet(); await meetReady();
+  const e1 = await escrowOf(F.S.id); assert(e1.state === 'pending' && e1.has_cipher, 'escrow not retained while ack unconfirmed');
+  await ackDone(F.S.id);
+  const e2 = await escrowOf(F.S.id); assert(e2.state === 'acknowledged' && !e2.has_cipher, 'escrow not erased after ack');
+  assert(await stillHost(F.S, F.secret), 'vaulted secret does not claim host');
+  wStop('qcert-w2'); workerStart(); return `attempts while Meet down=${attemptsDown}; backoff scheduled=${gaps}`;
+});
+await check('RC02', 'Worker restart mid-retry: ack state is durable and the ack still completes', async () => {
+    const F = await recoveryInFlight('RC02'); await stopMeet(); wStart('qcert-w2', { lease: 20, backoff: 1, ack: 1 });
+  await waitFor(async () => Number(mainSql(`SELECT ack_attempts FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`)) >= 1, { timeout: 40000, every: 1000, what: 'first failed attempt' });
+  const before = Number(mainSql(`SELECT ack_attempts FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`));
+  docker('restart', 'qcert-w2');
+  assert(Number(mainSql(`SELECT ack_attempts FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`)) >= before, 'attempt counter lost across restart');
+  startMeet(); await meetReady(); await ackDone(F.S.id);
+  assert((await escrowOf(F.S.id)).state === 'acknowledged', 'escrow not acknowledged'); wStop('qcert-w2'); workerStart();
+});
+await check('RC03', 'Lost ack RESPONSE (Meet processed it): retry gets "not pending" and finishes idempotently; host credential intact', async () => {
+  proxy.mode = 'drop-ack-response'; proxy.hits.length = 0;
+  const F = await recoveryInFlight('RC03'); wStart('qcert-w2', { lease: 20, backoff: 1, ack: 1 });
+  await waitFor(async () => ackHits(F.S.id) >= 1, { timeout: 30000, what: 'first ack attempt reaches Meet' });
+  await waitFor(async () => (await escrowOf(F.S.id)).state === 'acknowledged', { timeout: 30000, what: 'Meet acknowledged despite lost response' });
+  proxy.mode = 'pass'; await ackDone(F.S.id);
+  assert(ackHits(F.S.id) >= 2, 'worker did not retry after the lost response: hits=' + ackHits(F.S.id));
+  assert(await stillHost(F.S, F.secret), 'host credential broken'); wStop('qcert-w2'); workerStart();
+  return `ack requests seen by Meet: ${ackHits(F.S.id)}`;
+});
+await check('RC04', 'Repeated acknowledgment is rejected (409) and changes nothing', async () => {
+  const F = await recoveryInFlight('RC04');
+  const a = await bridge('POST', `/api/integrations/scheduled-meetings/${F.S.id}/ack-host`, { requestId: F.reqId, generation: F.generation, hostSecret: F.secret });
+  const b = await bridge('POST', `/api/integrations/scheduled-meetings/${F.S.id}/ack-host`, { requestId: F.reqId, generation: F.generation, hostSecret: F.secret });
+  assert(a.status === 200 && b.status === 409, `${a.status}/${b.status}`); assert(await stillHost(F.S, F.secret), 'host credential changed');
+  mainSql(`UPDATE qorlla_host_recovery SET ack_pending=false WHERE source_id='${F.S.id}'`); workerStart();
+});
+await check('RC05', 'Concurrent workers: exactly one ack request is issued for a pending recovery', async () => {
+  proxy.mode = 'pass'; proxy.hits.length = 0;
+  const F = await recoveryInFlight('RC05');
+  wStart('qcert-w2', { lease: 20, backoff: 1, ack: 1 }); wStart('qcert-w3', { lease: 20, backoff: 1, ack: 1 });
+  await ackDone(F.S.id); await sleep(3000);
+  const n = ackHits(F.S.id); assert(n === 1, 'ack requests seen: ' + n);
+  wStop('qcert-w2'); wStop('qcert-w3'); workerStart(); return 'ack requests: 1 with two live workers';
+});
+await check('RC06', 'REAL lease expiry on ack: worker killed mid-ack; another worker acks only after the lease expires', async () => {
+  proxy.mode = 'stall'; proxy.hits.length = 0;
+  const F = await recoveryInFlight('RC06'); wStart('qcert-w2', { lease: 6, backoff: 1, ack: 1 });
+  await waitFor(async () => ackHits(F.S.id) >= 1 && mainSql(`SELECT ack_lease_until IS NOT NULL FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`) === 't', { timeout: 30000, what: 'ack in flight with a lease' });
+  const leaseUntil = Date.parse(mainSql(`SELECT to_char(ack_lease_until AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`));
+  docker('kill', 'qcert-w2'); wStop('qcert-w2'); proxy.mode = 'pass';
+  wStart('qcert-w3', { lease: 6, backoff: 1, ack: 1 });
+  await ackDone(F.S.id); const done = Date.now();
+  assert(done >= leaseUntil - 500, 'ack re-claimed before lease expiry');
+  assert((await escrowOf(F.S.id)).state === 'acknowledged', 'escrow not acknowledged'); wStop('qcert-w3'); workerStart();
+  return `lease_until=${new Date(leaseUntil).toISOString()} completed=${new Date(done).toISOString()}`;
+});
+await check('RC07', 'Cancellation during recovery: pending ack still completes; recovery of the cancelled meeting is refused', async () => {
+    const F = await recoveryInFlight('RC07');
+  const d = await host.req('DELETE', '/api/workplace/schedule/' + F.S.id); assert(d.status === 200, 'delete ' + d.status);
+  workerStart();
+  await waitFor(async () => mainSql(`SELECT status FROM qorlla_schedules WHERE source_id='${F.S.id}'`) === 'cancelled', { timeout: 60000, what: 'cancelled' });
+  await ackDone(F.S.id);
+  const refused = await bridge('POST', `/api/integrations/scheduled-meetings/${F.S.id}/recover-host`, { requestId: 'after-cancel-' + RUN });
+  assert(refused.status === 404, 'recovery on cancelled meeting returned ' + refused.status);
+  const e = await escrowOf(F.S.id); assert(e.state === 'acknowledged' && !e.has_cipher, 'escrow state after cancel: ' + JSON.stringify(e));
+});
+await check('RC08', 'Meet database interruption during ack: escrow retained, ack completes after the database returns', async () => {
+  proxy.mode = 'pass';
+  const F = await recoveryInFlight('RC08'); docker('pause', 'cert-meet-db');
+  try {
+    wStart('qcert-w2', { lease: 25, backoff: 1, ack: 1 });
+    await waitFor(async () => Number(mainSql(`SELECT ack_attempts FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`)) >= 1 && mainSql(`SELECT ack_lease_until IS NULL FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`) === 't', { timeout: 45000, every: 1000, what: 'failed attempt while DB paused' });
+    assert(mainSql(`SELECT ack_pending FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`) === 't', 'ack lost during DB outage');
+  } finally { docker('unpause', 'cert-meet-db'); }
+  const e1 = await escrowOf(F.S.id); assert(e1.state === 'pending' && e1.has_cipher, 'escrow not retained through DB interruption');
+  await ackDone(F.S.id); assert((await escrowOf(F.S.id)).state === 'acknowledged', 'not acknowledged after DB returned');
+  assert(await stillHost(F.S, F.secret), 'host credential broken'); wStop('qcert-w2'); workerStart();
+});
+
 // ---------- C15 + browser checks ----------
 await check('C15', '/index.html repaired (served by MAIN), /qorlla.html preserved, 1index.html untouched', async () => {
   const idx = await fetch(MAIN + '/index.html'); const q = await fetch(MAIN + '/qorlla.html'); const root_ = await fetch(MAIN + '/');
@@ -338,7 +490,17 @@ await check('C13', 'Camera/mic preferences from MAIN dialog are honoured in Meet
   await page.screenshot({ path: path.join(shots, 'C12-returned.png') }); await ctx.close();
   return 'left Meet and landed at ' + 'localhost:5000';
 });
-results.push({ ...results.find((r) => r.id === 'C13'), id: 'C12', name: 'Leave returns to the originating MAIN page (same host)' });
+await check('C12', 'Leave returns to the originating MAIN page on the same host (independent session)', async () => {
+  const ctx = await newCtx(false); const page = await ctx.newPage();
+  await page.goto('/'); await page.locator('.action-btn[data-act="meet"]').click();
+  await page.fill('#nm', 'Return Host'); await page.click('#dlgGo'); await page.waitForURL(/localhost:3000/);
+  const url = new URL(page.url()); assert(new URL(url.searchParams.get('return')).origin === MAIN, 'return param: ' + url.searchParams.get('return'));
+  await page.waitForSelector('#app:not(.hidden)', { timeout: 20000 });
+  await page.click('#leaveBtn'); await page.waitForURL(/localhost:5000/, { timeout: 15000 });
+  assert(new URL(page.url()).origin === MAIN, 'landed at ' + page.url());
+  assert(await page.locator('#greeting').isVisible(), 'MAIN page did not render');
+  await page.screenshot({ path: path.join(shots, 'C12-independent.png') }); await ctx.close(); return 'returned to ' + page.url();
+});
 
 await check('C14', 'Browser: scheduled meeting with passcode prompts in the Meet lobby (wrong -> error, right -> enters)', async () => {
   const ctx = await newCtx(true); const page = await ctx.newPage();
@@ -385,7 +547,7 @@ await browser.close();
 // =====================================================================
 const finished = new Date().toISOString();
 await stopMeet(); await meetDb.end();
-const order = ['C01','C02','C03','C04','C05','C06','C07','C08','C09','C10','C11','C12','C13','C14','C14a','C15','C16','C17','C18','C19','C20','C21','C22','C23','C24','R01','R02','R03','R04','R05'];
+const order = ['C01','C02','C03','C04','C05','C06','C07','C08','C09','C10','C11','C12','C13','C14','C14a','C15','C16','C17','C18','C19','C20','C21','C22','C23','C24','R01','R02','R03','R04','R05','RC01','RC02','RC03','RC04','RC05','RC06','RC07','RC08'].filter((x, i, a) => a.indexOf(x) === i);
 results.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 const summary = { pass: results.filter((r) => r.status === 'PASS').length, fail: results.filter((r) => r.status === 'FAIL').length, notRun: results.filter((r) => r.status === 'NOT RUN').length };
 const evidence = { startedAt, finished, git: { headSha: sha, workingTreeDirty: dirty.length > 0, dirtyFileCount: dirty.length, fingerprint }, stack: { main: 'Docker :5000', worker: 'Docker', mainDb: 'Docker postgres:16', meet: 'node :3000', meetDb: 'Docker postgres:16 :25501' }, summary, results };

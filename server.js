@@ -17,6 +17,16 @@ const cors = require('cors');
 const app = express();
 // Behind nginx (private network) so req.ip reflects the real client for sign-in throttling
 app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+// Baseline response hardening. (A strict script CSP is not possible yet: the pages use inline scripts.)
+app.use((req, res, next) => {
+    res.set({
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'no-referrer',
+        'X-Frame-Options': 'SAMEORIGIN',
+        'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=(), payment=()'
+    });
+    next();
+});
 app.use(cors());
 // Accounts and sessions
 const DATA_ROOT = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -454,6 +464,12 @@ app.get('/locales/fr.js', (req, res) => res.sendFile(path.join(__dirname, 'local
 app.get('/locales/pt-PT.js', (req, res) => res.sendFile(path.join(__dirname, 'locales', 'pt-PT.js')));
 
 // Public product assets only; the source and account data remain private.
+// Where the public Meet site lives (MEET_PUBLIC_URL, e.g. https://meet.example.com). Empty = qorlla.html derives it.
+app.get('/meet-config.js', (req, res) => {
+    let url = '';
+    try { const u = new URL(process.env.MEET_PUBLIC_URL || ''); if (/^https?:$/.test(u.protocol)) url = u.origin + '/'; } catch (e) { /* unset */ }
+    res.set('Cache-Control', 'no-store').type('application/javascript').send('window.QORLLA_MEET_URL=' + JSON.stringify(url) + ';');
+});
 // Brand logo used by login.html
 app.get('/Qorlla-Logo.jpg', (req, res) => res.sendFile(path.join(__dirname, 'Qorlla-Logo.jpg')));
 // Browsers request /favicon.ico implicitly; answer with the brand icon instead of a 404

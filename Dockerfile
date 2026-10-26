@@ -19,6 +19,9 @@ COPY meet-sync ./meet-sync
 
 # Expose internal core signaling port mapping bounds out to bridge configurations
 ENV DATA_DIR=/usr/src/app/data
+# Run unprivileged: the app only needs to write its data directory
+RUN mkdir -p /usr/src/app/data && chown -R node:node /usr/src/app
+USER node
 VOLUME ["/usr/src/app/data"]
 
 EXPOSE 5000

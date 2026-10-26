@@ -572,12 +572,13 @@
 
 <div id="toast" role="status" aria-live="polite"></div>
 
+<script src="meet-config.js"></script>
 <script>
 (function () {
   'use strict';
   // Qorlla Meet (qorlla-meet-video) runs as its own server; override with ?meet=<url> or localStorage zw_meet_url
   var MEET_PORT = 3000;
-  var VIDEO_PAGE = store('zw_meet_url') || (location.protocol.indexOf('http') === 0
+  var VIDEO_PAGE = store('zw_meet_url') || window.QORLLA_MEET_URL || (location.protocol.indexOf('http') === 0
     ? location.protocol + '//' + location.hostname + ':' + MEET_PORT + '/'
     : 'http://localhost:' + MEET_PORT + '/');
   var API = '/api/workplace';
