@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const GIT = process.env.GIT_EXE || (fs.existsSync('C:/Program Files/Git/mingw64/bin/git.exe') ? 'C:/Program Files/Git/mingw64/bin/git.exe' : 'git');
 // Evidence/log/screenshot outputs written by the runners themselves are not "source".
-const isCertOutput = (line) => /^\S+\s+"?cert\/(([A-Z_]*EVIDENCE|V3_9_2_[A-Z_]+)\.(md|json)|[^/]+\.(log|jsonl)|screenshots\/)/.test(line);
+const isCertOutput = (line) => /^\S+\s+"?cert\/(([A-Za-z0-9_]*EVIDENCE|V3_9_2_[A-Z_]+|WORKPLACE_V[0-9_]+_REPORT)\.(md|json)|(e2e-output\.txt|e2e-results\.json|portal-unit\.tap|npm-audit\.json)|[^/]+\.(log|jsonl)|screenshots\/)/i.test(line);
 export function gitState(root) {
   const g = (...a) => execFileSync(GIT, a, { cwd: root, encoding: 'utf8' }).trim();
   const dirty = g('status', '--porcelain').split('\n').filter(Boolean).filter((l) => !isCertOutput(l));

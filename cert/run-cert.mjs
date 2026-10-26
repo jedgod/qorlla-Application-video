@@ -450,8 +450,8 @@ await check('RC08', 'Meet database interruption during ack: escrow retained, ack
     wStart('qcert-w2', { lease: 25, backoff: 1, ack: 1 });
     await waitFor(async () => Number(mainSql(`SELECT ack_attempts FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`)) >= 1 && mainSql(`SELECT ack_lease_until IS NULL FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`) === 't', { timeout: 45000, every: 1000, what: 'failed attempt while DB paused' });
     assert(mainSql(`SELECT ack_pending FROM qorlla_host_recovery WHERE source_id='${F.S.id}'`) === 't', 'ack lost during DB outage');
+    const e1 = await escrowOf(F.S.id); assert(e1.state === 'pending' && e1.has_cipher, 'escrow not retained through DB interruption');   // read WHILE Meet's database is paused
   } finally { docker('unpause', 'cert-meet-db'); }
-  const e1 = await escrowOf(F.S.id); assert(e1.state === 'pending' && e1.has_cipher, 'escrow not retained through DB interruption');
   await ackDone(F.S.id); assert((await escrowOf(F.S.id)).state === 'acknowledged', 'not acknowledged after DB returned');
   assert(await stillHost(F.S, F.secret), 'host credential broken'); wStop('qcert-w2'); workerStart();
 });
