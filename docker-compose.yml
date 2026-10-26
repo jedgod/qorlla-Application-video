@@ -17,7 +17,7 @@ services:
       - SMTP_FROM=${SMTP_FROM:-}
       - MAIL_DAILY_LIMIT=${MAIL_DAILY_LIMIT:-20}
       - CHAT_MAX_MESSAGES=${CHAT_MAX_MESSAGES:-500}
-      - DATABASE_URL=postgres://qorlla_main:${MAIN_DB_PASSWORD}@main-db:5432/qorlla_main
+      - DATABASE_URL=postgres://qorlla_app:${QORLLA_APP_DB_PASSWORD}@main-db:5432/qorlla_main
       - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:-}
       - MEET_BASE_URL=${MEET_BASE_URL:-http://host.docker.internal:3000}
       - MEET_PUBLIC_URL=${MEET_PUBLIC_URL:-}
@@ -36,12 +36,14 @@ services:
       POSTGRES_USER: qorlla_main
       POSTGRES_PASSWORD: ${MAIN_DB_PASSWORD:?set MAIN_DB_PASSWORD in .env}
       POSTGRES_DB: qorlla_main
+      QORLLA_APP_DB_PASSWORD: ${QORLLA_APP_DB_PASSWORD:?set QORLLA_APP_DB_PASSWORD in .env}
     volumes:
       - main-db-data:/var/lib/postgresql/data
       - ./meet-sync/sql/001.sql:/docker-entrypoint-initdb.d/001.sql:ro
       - ./meet-sync/sql/002_recovery.sql:/docker-entrypoint-initdb.d/002_recovery.sql:ro
       - ./meet-sync/sql/003_passcode.sql:/docker-entrypoint-initdb.d/003_passcode.sql:ro
       - ./meet-sync/sql/004_ack_retry.sql:/docker-entrypoint-initdb.d/004_ack_retry.sql:ro
+      - ./meet-sync/sql/005_roles.sh:/docker-entrypoint-initdb.d/005_roles.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qorlla_main"]
       interval: 5s
@@ -58,7 +60,7 @@ services:
     healthcheck:
       disable: true # the image healthcheck probes the web port, which the worker does not serve
     environment:
-      - DATABASE_URL=postgres://qorlla_main:${MAIN_DB_PASSWORD}@main-db:5432/qorlla_main
+      - DATABASE_URL=postgres://qorlla_app:${QORLLA_APP_DB_PASSWORD}@main-db:5432/qorlla_main
       - MEET_BASE_URL=${MEET_BASE_URL:-http://host.docker.internal:3000}
       - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:-}
       - QORLLA_VAULT_KEY=${QORLLA_VAULT_KEY:-}

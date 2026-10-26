@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { gitState } from './lib-git.mjs';
 import http from 'node:http';
 import pg from 'pg';
 import { seal } from '../meet-sync/src/store.mjs';
@@ -44,7 +45,7 @@ function startMeet() {
   const log = fs.openSync(path.join(root, 'cert', 'meet.log'), 'a');
   meetProc = spawn('node', ['server/index.js'], {
     cwd: path.join(root, 'qorlla-meet-video'), stdio: ['ignore', log, log],
-    env: { ...process.env, PORT: '3000', DATABASE_URL: MEET_DB_URL, CORS_ORIGIN: 'http://localhost:3000', JWT_SECRET: ENV.JWT_SECRET, QORLLA_BRIDGE_SECRET: ENV.QORLLA_BRIDGE_SECRET, RECOVERY_ESCROW_KEY: ENV.RECOVERY_ESCROW_KEY }
+    env: { ...process.env, PORT: '3000', DATABASE_URL: ENV.MEET_APP_DB_URL, CORS_ORIGIN: 'http://localhost:3000', JWT_SECRET: ENV.JWT_SECRET, QORLLA_BRIDGE_SECRET: ENV.QORLLA_BRIDGE_SECRET, RECOVERY_ESCROW_KEY: ENV.RECOVERY_ESCROW_KEY }
   });
 }
 async function stopMeet() {
@@ -92,7 +93,7 @@ const IMAGE = 'qcert-meet-sync-worker';
 function wStart(name, { lease = 90, backoff = 5, ack = 5, viaProxy = true } = {}) {
   try { docker('rm', '-f', name); } catch {}
   docker('run', '-d', '--name', name, '--network', NET, '--add-host', 'host.docker.internal:host-gateway',
-    '-e', `DATABASE_URL=postgres://qorlla_main:${ENV.MAIN_DB_PASSWORD}@main-db:5432/qorlla_main`,
+    '-e', `DATABASE_URL=postgres://qorlla_app:${ENV.QORLLA_APP_DB_PASSWORD}@main-db:5432/qorlla_main`,
     '-e', `MEET_BASE_URL=http://host.docker.internal:${viaProxy ? 3399 : 3000}`,
     '-e', `QORLLA_BRIDGE_SECRET=${ENV.QORLLA_BRIDGE_SECRET}`, '-e', `QORLLA_VAULT_KEY=${ENV.QORLLA_VAULT_KEY}`,
     '-e', `MEET_SYNC_LEASE_SECONDS=${lease}`, '-e', `MEET_SYNC_BACKOFF_BASE_SECONDS=${backoff}`, '-e', `MEET_SYNC_ACK_BACKOFF_BASE_SECONDS=${ack}`,
@@ -147,8 +148,8 @@ function openVault(sourceId) {
 const GIT = process.env.GIT_EXE || (fs.existsSync('C:/Program Files/Git/mingw64/bin/git.exe') ? 'C:/Program Files/Git/mingw64/bin/git.exe' : 'git');
 const git = (...a) => execFileSync(GIT, a, { cwd: root, encoding: 'utf8' }).trim();
 const sha = git('rev-parse', 'HEAD');
-const isCertOutput = (l) => /^\S+\s+cert\/(EVIDENCE\.md|evidence\.json|meet\.log|bf2?\.jsonl|screenshots\/)/.test(l);
-const dirty = git('status', '--porcelain').split('\n').filter(Boolean).filter((l) => !isCertOutput(l));
+const gs = gitState(root);
+const dirty = gs.dirtySourcePaths;
 const fileHash = (f) => crypto.createHash('sha256').update(fs.readFileSync(path.join(root, f))).digest('hex').slice(0, 16);
 const fingerprint = ['workplace.js', 'qorlla.html', 'Dockerfile', 'docker-compose.yml', 'meet-sync/src/worker.mjs', 'meet-sync/src/store.mjs', 'qorlla-meet-video/server/index.js', 'qorlla-meet-video/server/recovery-service.mjs'].map((f) => `${f}:${fileHash(f)}`);
 
@@ -550,7 +551,7 @@ await stopMeet(); await meetDb.end();
 const order = ['C01','C02','C03','C04','C05','C06','C07','C08','C09','C10','C11','C12','C13','C14','C14a','C15','C16','C17','C18','C19','C20','C21','C22','C23','C24','R01','R02','R03','R04','R05','RC01','RC02','RC03','RC04','RC05','RC06','RC07','RC08'].filter((x, i, a) => a.indexOf(x) === i);
 results.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 const summary = { pass: results.filter((r) => r.status === 'PASS').length, fail: results.filter((r) => r.status === 'FAIL').length, notRun: results.filter((r) => r.status === 'NOT RUN').length };
-const evidence = { startedAt, finished, git: { headSha: sha, workingTreeDirty: dirty.length > 0, dirtyFileCount: dirty.length, fingerprint }, stack: { main: 'Docker :5000', worker: 'Docker', mainDb: 'Docker postgres:16', meet: 'node :3000', meetDb: 'Docker postgres:16 :25501' }, summary, results };
+const evidence = { startedAt, finished, git: { ...gs, workingTreeDirty: dirty.length > 0, dirtyFileCount: dirty.length, fingerprint }, stack: { main: 'Docker :5000', worker: 'Docker', mainDb: 'Docker postgres:16', meet: 'node :3000', meetDb: 'Docker postgres:16 :25501' }, summary, results };
 fs.writeFileSync(path.join(root, 'cert', 'evidence.json'), JSON.stringify(evidence, null, 2));
 const md = [`# Certification evidence`, ``, `- Started: ${startedAt}`, `- Finished: ${finished}`, `- Git HEAD: \`${sha}\` (working tree ${dirty.length ? 'DIRTY: ' + dirty.length + ' changed/untracked paths — commit before treating this SHA as the tested build' : 'clean'})`, `- Tested-file fingerprints (sha256/16): ${fingerprint.join(', ')}`, `- Result: **${summary.pass} passed, ${summary.fail} failed, ${summary.notRun} not run**`, ``, `| ID | Result | Check | Detail |`, `|---|---|---|---|`, ...results.map((r) => `| ${r.id} | ${r.status} | ${r.name} | ${String(r.detail).replace(/\|/g, '\\|').replace(/\n/g, ' ')} |`)].join('\n');
 fs.writeFileSync(path.join(root, 'cert', 'EVIDENCE.md'), md + '\n');

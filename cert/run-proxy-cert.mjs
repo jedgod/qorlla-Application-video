@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { gitState } from './lib-git.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('@playwright/test');
@@ -57,7 +58,7 @@ function startMeet() {
   if (meetProc) return;
   const log = fs.openSync(path.join(root, 'cert', 'meet-proxy.log'), 'a');
   meetProc = spawn('node', ['server/index.js'], { cwd: path.join(root, 'qorlla-meet-video'), stdio: ['ignore', log, log],
-    env: { ...process.env, PORT: '3000', DATABASE_URL: 'postgres://qorlla:qorlla_dev_only@127.0.0.1:25501/qorlla_meet', CORS_ORIGIN: MEET_S, JWT_SECRET: ENV.JWT_SECRET, QORLLA_BRIDGE_SECRET: ENV.QORLLA_BRIDGE_SECRET, RECOVERY_ESCROW_KEY: ENV.RECOVERY_ESCROW_KEY } });
+    env: { ...process.env, PORT: '3000', DATABASE_URL: ENV.MEET_APP_DB_URL, CORS_ORIGIN: MEET_S, JWT_SECRET: ENV.JWT_SECRET, QORLLA_BRIDGE_SECRET: ENV.QORLLA_BRIDGE_SECRET, RECOVERY_ESCROW_KEY: ENV.RECOVERY_ESCROW_KEY } });
 }
 async function stopMeet() { if (!meetProc) return; const p = meetProc; meetProc = null; await new Promise((r) => { p.once('exit', r); p.kill(); setTimeout(r, 3000); }); }
 startMeet(); await waitFor(async () => (await fetch(`${MEET_DIRECT}/api/health`)).ok, { what: 'Meet up' });
@@ -178,6 +179,6 @@ await browser.close(); await stopMeet();
 const finished = new Date().toISOString();
 const summary = { pass: results.filter((r) => r.status === 'PASS').length, fail: results.filter((r) => r.status === 'FAIL').length };
 const sha = sh(GIT, ['rev-parse', 'HEAD']).trim();
-fs.writeFileSync(path.join(root, 'cert', 'PROXY_EVIDENCE.json'), JSON.stringify({ finished, gitHeadSha: sha, ports: P, nginx: 'nginx:alpine via docker compose (nginx.conf + deploy/nginx/*)', summary, results }, null, 2));
-fs.writeFileSync(path.join(root, 'cert', 'PROXY_EVIDENCE.md'), [`# nginx proxy certification`, ``, `- Finished: ${finished}`, `- Git HEAD: \`${sha}\``, `- Ports (host): MAIN http ${P.mainHttp} / tls ${P.mainTls}; Meet http ${P.meetHttp} / tls ${P.meetTls}`, `- Result: **${summary.pass} passed, ${summary.fail} failed**`, ``, `| ID | Result | Check | Detail |`, `|---|---|---|---|`, ...results.map((r) => `| ${r.id} | ${r.status} | ${r.name} | ${String(r.detail).replace(/\|/g, '\\|').replace(/\n/g, ' ')} |`)].join('\n') + '\n');
+fs.writeFileSync(path.join(root, 'cert', 'PROXY_EVIDENCE.json'), JSON.stringify({ finished, git: gitState(root), gitHeadSha: sha, ports: P, nginx: 'nginx:alpine via docker compose (nginx.conf + deploy/nginx/*)', summary, results }, null, 2));
+fs.writeFileSync(path.join(root, 'cert', 'PROXY_EVIDENCE.md'), [`# nginx proxy certification`, ``, `- Finished: ${finished}`, `- Git HEAD: \`${sha}\` (branch ${gitState(root).branch}; source tree ${gitState(root).sourceTreeClean ? 'clean' : 'DIRTY: ' + gitState(root).dirtySourcePaths.join(', ')})`, `- Ports (host): MAIN http ${P.mainHttp} / tls ${P.mainTls}; Meet http ${P.meetHttp} / tls ${P.meetTls}`, `- Result: **${summary.pass} passed, ${summary.fail} failed**`, ``, `| ID | Result | Check | Detail |`, `|---|---|---|---|`, ...results.map((r) => `| ${r.id} | ${r.status} | ${r.name} | ${String(r.detail).replace(/\|/g, '\\|').replace(/\n/g, ' ')} |`)].join('\n') + '\n');
 console.log(JSON.stringify(summary)); process.exit(summary.fail ? 1 : 0);

@@ -16,10 +16,10 @@
     "dotenv": "^16.6.1",
     "express": "^4.19.2",
     "multer": "^1.4.5-lts.1",
-    "nodemailer": "^6.10.1",
+    "nodemailer": "^10.2.1",
     "pg": "^8.23.1",
     "socket.io": "^4.7.5",
-    "uuid": "^9.0.1"
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.47.0",
