@@ -81,7 +81,7 @@ export async function renderReport(root, id) {
     const iid = tr.dataset.item; const send = async (body) => { try { await api('/meeting-ai/action-items/' + iid, { method: 'PATCH', body: JSON.stringify(body) }); notice('Saved.'); } catch (e) { notice(describe(e)); await reload(); } };
     tr.querySelector('[data-f=done]')?.addEventListener('change', (e) => send({ status: e.target.checked ? 'done' : 'open' }));
     tr.querySelector('[data-f=owner]')?.addEventListener('change', (e) => send({ owner_id: e.target.value || null }));
-    tr.querySelector('[data-f=due]')?.addEventListener('change', (e) => send({ due_at: e.target.value ? new Date(e.target.value + 'T23:59:00').toISOString() : null }));
+    tr.querySelector('[data-f=due]')?.addEventListener('change', (e) => send({ due_at: e.target.value ? e.target.value + 'T12:00:00.000Z' : null }));
   });
   $('#item-form')?.addEventListener('submit', async (e) => { e.preventDefault(); const f = new FormData(e.target); try { await api(`/meeting-ai/reports/${id}/action-items`, { method: 'POST', body: JSON.stringify({ title: f.get('title'), owner_id: f.get('owner') || null, due_at: f.get('due') ? new Date(f.get('due') + 'T23:59:00').toISOString() : null }) }); await reload(); } catch (err) { notice(describe(err)); } });
   $('#exp-tr')?.addEventListener('change', (e) => root.querySelectorAll('a[download]').forEach((a) => { a.href = a.href.split('?')[0] + (e.target.checked ? '?transcript=1' : ''); }));

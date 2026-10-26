@@ -83,7 +83,8 @@ test.describe('pricing page - prices come only from the server catalogue', () =>
     await expect(page.locator('#salesMsg')).toContainText('Thank you');
     expect(dbq("SELECT count(*) FROM portal.sales_inquiries WHERE email='buyer@example.test' AND message LIKE '%e2e inquiry%' AND plan_interest='enterprise'")).toBe('1');
     // Esc closes the dialog and focus returns to the page
-    await page.locator('#btn-ent').click(); await page.keyboard.press('Escape'); await expect(page.locator('#salesDialog')).toBeHidden();
+    await page.keyboard.press('Escape'); await expect(page.locator('#salesDialog')).toBeHidden();
+    await page.locator('#btn-ent').click(); await expect(page.locator('#salesDialog')).toBeVisible(); await page.keyboard.press('Escape'); await expect(page.locator('#salesDialog')).toBeHidden();
   });
 
   test('signed-out visitors who click Buy are sent to sign in and come back to pricing', async ({ page }) => {

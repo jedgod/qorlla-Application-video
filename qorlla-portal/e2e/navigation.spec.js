@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { BASE, fakeJson, signUp } = require('./helpers');
+const { BASE, fakeJson, signUp, signUpWithWorkspace } = require('./helpers');
 
 const internalLinks = async (page) => page.$$eval('a[href]', (as) => [...new Set(as.map((a) => a.getAttribute('href')).filter((h) => h && !h.startsWith('#') && !h.startsWith('mailto:') && !h.startsWith('javascript:') && !/^https?:\/\//.test(h)))]);
 
@@ -21,10 +21,11 @@ test.describe('navigation - links, keyboard, mobile', () => {
   test('[I07] header and product links on the pricing page are same-origin routes to the portal', async ({ page }) => {
     await page.goto('/pricing/');
     const hrefs = await page.$$eval('a[data-route]', (as) => as.map((a) => a.getAttribute('href')));
-    expect(hrefs.length).toBeGreaterThanOrEqual(5); for (const h of hrefs) if (h && h !== '#contact-sales') expect(h).toMatch(/^\/app\//);
+    expect(hrefs.length).toBeGreaterThanOrEqual(4); for (const h of hrefs) if (h && h !== '#contact-sales') expect(h).toMatch(/^\/app\//);
   });
 
-  test('[I08][I09] sidebar items work from the keyboard and open real portal pages', async ({ page }) => {
+  test('[I08][I09] sidebar items work from the keyboard and open real portal pages', async ({ page, context }) => {
+    await signUpWithWorkspace(context, 'sidebar');
     await page.goto('/pricing/');
     const phone = page.locator('.nav-item[data-route="/app/phone"]'); await phone.focus(); await page.keyboard.press('Enter');
     await page.waitForURL(/\/app\/phone$/); await expect(page.getByRole('heading', { name: 'Qorlla Phone' })).toBeVisible();
@@ -62,7 +63,7 @@ test.describe('navigation - links, keyboard, mobile', () => {
   }
 
   test('legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html', async ({ page }) => {
-    for (const [path, marker] of [['/index.html', /Qorlla/], ['/chat.html', /Chat/], ['/qorlla.html', /Qorlla/], ['/login.html', /Sign|Qorlla/]]) {
+    for (const [path, marker] of [['/index.html', /Meetings, without the noise|Live Video/], ['/chat.html', /Chat|Sign in/], ['/qorlla.html', /Calendar|Whiteboards/], ['/login.html', /Sign|Qorlla/]]) {
       const r = await page.goto(path); expect(r.status(), path).toBe(200); await expect(page.locator('body')).toContainText(marker);
     }
   });

@@ -241,7 +241,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   });
   app.use('/api/v1', (req, res) => res.status(404).json({ error: 'Not found' }));
 
-  app.get('/app', (req, res) => res.redirect(301, '/app/'));
+  app.get(/^\/app$/, (req, res) => res.redirect(301, '/app/'));   // regex: Express routing is not strict, so the string '/app' would also match '/app/' and redirect forever
   app.get('/app/*', (req, res) => res.sendFile(path.join(root, 'index.html')));
 
   app.use((err, req, res, next) => {

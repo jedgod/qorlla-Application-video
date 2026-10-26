@@ -19,6 +19,7 @@ const record = (id, name, status, detail = '') => { results.push({ id, name, sta
 async function waitFor(fn, { timeout = 120000, every = 1000, what = 'condition' } = {}) { const end = Date.now() + timeout; let last; while (Date.now() < end) { try { const v = await fn(); if (v) return v; last = v; } catch (e) { last = e.message; } await sleep(every); } throw new Error(`Timed out: ${what} (${JSON.stringify(last)})`); }
 async function check(id, name, fn) { try { record(id, name, 'PASS', (await fn()) ?? ''); } catch (e) { record(id, name, 'FAIL', e.message); } }
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // self-signed test certificate only
 const P = { http: 28080, meet: 28081, tls: 28443, meetTls: 28444, main: 25000, meetHost: 23000, fake: 19500, pg: 25611 };
 const ORIGIN = `https://localhost:${P.tls}`;
 const PROJECT = 'qv41';
@@ -99,7 +100,7 @@ await check('D06', 'portal fails closed (503) while authentication is not operat
   const r = await fetch(`${ORIGIN}/api/v1/notes`); if (r.status !== 401) throw new Error('expected 401 got ' + r.status);
   // configuration check on a throwaway process: no issuer/JWKS => 503
   const out = spawnSync('node', ['-e', `import('./qorlla-portal/server/config.mjs').then(async ({loadConfig})=>{const {createApp}=await import('./qorlla-portal/server/app.mjs');const cfg=loadConfig({NODE_ENV:'production',DATABASE_URL:'x'});const {app}=createApp({pool:{query:async()=>({rows:[]})},cfg,jwks:null});const s=app.listen(0,async()=>{const r=await fetch('http://127.0.0.1:'+s.address().port+'/api/v1/notes',{headers:{cookie:'qorlla_portal_session=x'}});console.log(r.status+' '+JSON.stringify(cfg.authProblems));s.close()})})`], { cwd: root, encoding: 'utf8' });
-  if (!out.stdout.startsWith('503')) throw new Error('unconfigured portal answered ' + out.stdout + out.stderr); return out.stdout.trim();
+  const last = out.stdout.trim().split(/\r?\n/).pop(); if (!last.startsWith('503')) throw new Error('unconfigured portal answered ' + out.stdout.slice(-300) + out.stderr.slice(-300)); return last;
 });
 
 // ------------------------------------------------------------------ 3. browser E2E against the unified origin

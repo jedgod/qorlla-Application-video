@@ -4,7 +4,7 @@ const { BASE, dbq, signUp, signUpWithWorkspace } = require('./helpers');
 test.describe('portal - real MAIN sign-in, workspaces, authorization', () => {
   test('signed-out visitors get a sign-in prompt on private pages and the API answers 401', async ({ page, request }) => {
     await page.goto('/app/notes');
-    await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible(); await expect(page.getByRole('link', { name: 'Sign in' }).first()).toHaveAttribute('href', /login\.html\?next=%2Fapp%2Fnotes/);
+    await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible(); await expect(page.getByRole('link', { name: 'Sign in' }).first()).toHaveAttribute('href', /login\.html\?next=%2Fapp%2Fnotes/);
     expect((await request.get('/api/v1/notes')).status()).toBe(401); expect((await request.get('/api/v1/billing')).status()).toBe(401);
     expect(await page.locator('body').innerText()).not.toMatch(/E2E .* note/);
   });
@@ -42,14 +42,14 @@ test.describe('portal - real MAIN sign-in, workspaces, authorization', () => {
     await page.goto('/app/notes'); await expect(page.locator('#note-quota')).toContainText('of 20');     // renewed automatically
     await page.locator('#signout').click(); await page.waitForURL(/login\.html/);
     const cookies = await context.cookies(); expect(cookies.find((c) => c.name === 'qorlla_portal_session' && c.value)).toBeUndefined();
-    await page.goto('/app/notes'); await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+    await page.goto('/app/notes'); await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
     expect((await context.request.get('/api/v1/notes')).status()).toBe(401);
   });
 
   test('tampered / garbage portal cookies are refused (and MAIN has no session to renew from)', async ({ page, context }) => {
     await context.addCookies([{ name: 'qorlla_portal_session', value: 'eyJhbGciOiJub25lIn0.e30.', url: BASE }]);
     expect((await context.request.get('/api/v1/notes')).status()).toBe(401);
-    await page.goto('/app/support'); await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+    await page.goto('/app/support'); await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
   });
 
   test('billing page: owner sees plan and invoices area; billing details stay hidden from plain members', async ({ page, context }) => {
