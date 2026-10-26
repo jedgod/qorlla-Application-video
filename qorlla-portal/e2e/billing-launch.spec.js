@@ -62,7 +62,7 @@ test.describe('plan changes, usage and the platform console', () => {
 
     // sales workflow
     await ap.goto('/app/admin?tab=sales'); const leadRow = ap.locator('tr[data-lead]').filter({ hasText: 'Grace Hopper' }).first(); await expect(leadRow).toContainText('new'); await leadRow.getByRole('link', { name: /Open/ }).click();
-    await ap.getByRole('button', { name: 'Mark contacted' }).click(); await expect(ap.locator('#lead-detail')).toContainText('contacted'); await ap.fill('#note-add [name=note]', 'Called - demo booked'); await ap.getByRole('button', { name: 'Add', exact: true }).click(); await expect(ap.locator('#lead-detail')).toContainText('demo booked');
+    await ap.getByRole('button', { name: 'Mark contacted' }).click(); await expect(ap.locator('#lead-detail .pill.contacted')).toBeVisible(); await ap.fill('#note-add [name=note]', 'Called - demo booked'); await ap.getByRole('button', { name: 'Add', exact: true }).click(); await expect(ap.locator('#lead-detail')).toContainText('demo booked');
     expect(dbq(`SELECT status FROM portal.sales_inquiries WHERE email='grace@navy.example.test' ORDER BY created_at DESC LIMIT 1`)).toBe('contacted');
 
     // kill switch: checkout off -> customers get a clear refusal; back on -> works
