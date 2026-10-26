@@ -87,15 +87,31 @@
   .warning { display: none; background: #fff8e6; border: 1px solid #f5d7a1; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
   .footer-links { font-size: 13px; color: #0e72ed; margin-top: 10px; }
   .footer-links span { margin-right: 12px; cursor: pointer; }
+  .price-sub { font-size: 12px; color: #555; min-height: 16px; margin-bottom: 4px; }
+  .plan-note { font-size: 12px; color: #8a5a00; min-height: 14px; margin: 0 0 6px; }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .seats { font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .seats input { width: 64px; padding: 4px 6px; border: 1px solid #ccd; border-radius: 6px; }
+  .switch:focus-visible, .more:focus-visible, .footer-links span:focus-visible, .nav-item:focus-visible, a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #0e72ed; outline-offset: 2px; }
+  dialog#salesDialog { border: 0; border-radius: 14px; padding: 24px; width: min(480px, 92vw); box-shadow: 0 20px 60px #0004; }
+  dialog#salesDialog::backdrop { background: #0008; }
+  dialog#salesDialog label { display: block; font-size: 13px; font-weight: 600; margin-top: 10px; }
+  dialog#salesDialog input, dialog#salesDialog textarea { width: 100%; padding: 10px; border: 1px solid #ccd; border-radius: 8px; font: inherit; margin-top: 4px; box-sizing: border-box; }
+  dialog#salesDialog .actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
+  dialog#salesDialog .actions .btn { width: auto; margin: 0; padding: 10px 18px; }
+  .hp { position: absolute; left: -9999px; }
+  #pricingStatus { margin: 0 0 12px; font-size: 14px; }
+  #pricingStatus.err { background: #fff0f0; border: 1px solid #f0b8b8; padding: 10px 14px; border-radius: 8px; }
+  @media (max-width: 760px) { .plans { flex-direction: column; min-width: 0; } .plan { min-width: 0; } .controls { flex-wrap: wrap; } }
 </style>
 </head>
 <body>
   <header class="site-header">
     <a class="site-logo" href="../qorlla.html" aria-label="Qorlla home"><img src="../Qorlla-Logo.jpg" alt="Qorlla"></a>
     <nav class="site-nav" aria-label="Main">
-      <a href="#">Products <span class="caret">&#9660;</span></a>
-      <a href="#">&#10022; AI <span class="caret">&#9660;</span></a>
-      <a href="#">Solutions <span class="caret">&#9660;</span></a>
+      <a href="/app/products" data-route="/app/products">Products <span class="caret">&#9660;</span></a>
+      <a href="/app/ai" data-route="/app/ai">&#10022; AI <span class="caret">&#9660;</span></a>
+      <a href="/app/solutions" data-route="/app/solutions">Solutions <span class="caret">&#9660;</span></a>
       <a href="#" class="current">Pricing</a>
     </nav>
     <div class="site-actions">
@@ -103,8 +119,8 @@
       <a class="icon-link hide-sm" href="#" aria-label="Language"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg></a>
       <a class="hide-md" href="../index.html">Meet <span class="caret">&#9660;</span></a>
       <a href="../login.html">Sign In</a>
-      <a class="hide-md" href="#">Support</a>
-      <a class="hbtn hide-sm" href="#">Contact Sales</a>
+      <a class="hide-md" href="/app/support" data-route="/app/support">Support</a>
+      <a class="hbtn hide-sm" href="#contact-sales" data-action="sales">Contact Sales</a>
       <a class="hbtn primary" href="../login.html">Sign Up Free</a>
       <div class="apps-wrap">
         <button class="apps-btn" id="appsBtn" type="button" aria-label="Qorlla apps" aria-haspopup="true" aria-expanded="false" aria-controls="appsMenu"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></button>
@@ -130,7 +146,7 @@
               <a href="../index.html" role="menuitem"><span class="apps-tile"><svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg></span>Join</a>
               <a href="../qorlla.html" role="menuitem"><span class="apps-tile"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4M16 3v4M4 11h16"/></svg></span>Schedule</a>
             </div>
-            <a class="apps-cta" href="#">Contact Sales</a>
+            <a class="apps-cta" href="#contact-sales" data-action="sales">Contact Sales</a>
           </div>
         </div>
       </div>
@@ -139,15 +155,15 @@
   <div class="layout">
   <aside class="sidebar">
     <h3>Popular</h3>
-    <div class="nav-item active">
+    <div data-route="/app/meet" role="link" tabindex="0" class="nav-item active">
       <span>🏢</span> Workplace<br><span style="font-size:11px">Meetings, Chat and more</span>
     </div>
-    <div class="nav-item">📞 Phone</div>
-    <div class="nav-item">🤖 AI Receptionist</div>
+    <div data-route="/app/phone" role="link" tabindex="0" class="nav-item">📞 Phone</div>
+    <div data-route="/app/receptionist" role="link" tabindex="0" class="nav-item">🤖 AI Receptionist</div>
     <div class="nav-item">🎥 Webinars & Events</div>
-    <div class="nav-item">👥 QorllaMate</div>
-    <div class="nav-item">📝 My Notes</div>
-    <div class="nav-item">📊 AI Productivity Suite<br><span class="nav-sub">Slides, Sheets, Paper, Canvas</span></div>
+    <div data-route="/app/mate" role="link" tabindex="0" class="nav-item">👥 QorllaMate</div>
+    <div data-route="/app/notes" role="link" tabindex="0" class="nav-item">📝 My Notes</div>
+    <div data-route="/app/suite" role="link" tabindex="0" class="nav-item">📊 AI Productivity Suite<br><span class="nav-sub">Slides, Sheets, Paper, Canvas</span></div>
     <h3>Explore more</h3>
     <div style="font-size:12px;color:#888;margin:4px 8px">Productivity</div>
     <div class="nav-item">📅 Scheduler</div>
@@ -166,14 +182,16 @@
       </div>
       <div class="controls">
         <div class="toggle">
-          <div class="switch" id="annualToggle" onclick="toggleAnnual()"></div>
-          <span>Annually <span style="color:#1a9f4a">(Save up to 16%)</span></span>
+          <div class="switch" id="annualToggle" role="switch" tabindex="0" aria-checked="false" aria-label="Bill annually"></div>
+          <span id="annualLabel">Annually <span id="saveText" style="color:#1a9f4a"></span></span>
+          <label class="seats">Seats <input id="seats" type="number" min="1" max="1000" value="1" inputmode="numeric" aria-label="Number of seats"></label>
         </div>
         <select class="currency"><option>US Dollars $</option></select>
       </div>
     </div>
 
     <!-- Warning only shown when 40-min limit expires -->
+    <div id="pricingStatus" role="status" aria-live="polite"></div>
     <div class="warning" id="limitWarning">⚠️ You’ve reached your 40-minute meeting limit. Upgrade your plan to get more.</div>
 
     <div class="plans">
@@ -183,7 +201,7 @@
         <div class="plan-type">Workplace</div>
         <div class="plan-name">Basic</div>
         <div class="price">Free</div>
-        <button class="btn secondary" onclick="buy('Basic')">Sign up free</button>
+        <button class="btn secondary" id="btn-basic" data-action="signup">Sign up free</button>
         <div class="highlights">
           <h4>Highlights:</h4>
           <div class="section">
@@ -239,7 +257,7 @@
             <div class="feature-row"><span class="check">✓</span> One place for your Qorlla files</div>
           </div>
           </div>
-          <div class="footer-links"><span onclick="toggle('basic-more', this, 'See all features', 'See fewer features')">See all features</span></div>
+          <div class="footer-links"><span role="button" tabindex="0" data-toggle="basic-more" data-more="See all features" data-less="See fewer features">See all features</span></div>
         </div>
       </div>
 
@@ -250,8 +268,8 @@
         <div class="plan-type">Workplace</div>
         <div class="plan-name">Pro</div>
         <div class="plan-desc">Best for personal use or small teams.</div>
-        <div class="price" id="proPrice">$16.99 <span>/user/month · billed monthly*</span></div>
-        <button class="btn primary" onclick="buy('Pro')">Buy now</button>
+        <div class="price" id="price-pro" aria-live="polite">Loading price…</div><div class="price-sub" id="sub-pro"></div>
+        <button class="btn primary" id="btn-pro" data-action="buy" data-plan="pro" disabled>Buy now</button><p class="plan-note" id="note-pro" role="status"></p>
         <div class="highlights">
           <h4>All of Workplace Basic, and:</h4>
           <div class="section">
@@ -305,7 +323,7 @@
               <div class="section-title">💬 Live Chat Support</div>
             </div>
           </div>
-          <div class="more" onclick="toggle('pro-more', this)">▸ See more highlights</div>
+          <div class="more" role="button" tabindex="0" data-toggle="pro-more">▸ See more highlights</div>
           <div class="footer-links"><span>See all features</span> <span>See add-ons</span></div>
         </div>
       </div>
@@ -316,8 +334,8 @@
         <div class="plan-type">Workplace</div>
         <div class="plan-name">Business</div>
         <div class="plan-desc">Best for larger teams.</div>
-        <div class="price" id="bizPrice">$21.99 <span>/user/month · billed monthly*</span></div>
-        <button class="btn secondary" onclick="buy('Business')">Buy now</button>
+        <div class="price" id="price-business" aria-live="polite">Loading price…</div><div class="price-sub" id="sub-business"></div>
+        <button class="btn secondary" id="btn-business" data-action="buy" data-plan="business" disabled>Buy now</button><p class="plan-note" id="note-business" role="status"></p>
         <div class="highlights">
           <h4>All of Workplace Pro, and:</h4>
           <div class="section">
@@ -347,7 +365,7 @@
               <div class="feature-row"><span class="check">✓</span> Device management</div>
             </div>
           </div>
-          <div class="more" onclick="toggle('biz-more', this)">▸ See more highlights</div>
+          <div class="more" role="button" tabindex="0" data-toggle="biz-more">▸ See more highlights</div>
           <div class="footer-links"><span>See all features</span> <span>See add-ons</span></div>
           <div style="font-size:12px;color:#888;margin-top:8px">*Available in US and UK only</div>
         </div>
@@ -359,7 +377,7 @@
         <div class="plan-type">Workplace</div>
         <div class="plan-name">Enterprise</div>
         <div class="price" style="font-size:18px">Talk to us</div>
-        <button class="btn outline" onclick="buy('Enterprise')">Contact sales</button>
+        <button class="btn outline" id="btn-ent" data-action="sales">Contact sales</button>
         <div class="highlights">
           <h4>All of Workplace Business, and:</h4>
           <div class="section">
@@ -404,75 +422,20 @@
   </div>
   </div>
 
-<script>
-let annual = false;
-const prices = {
-  pro: { monthly: '$16.99', annual: '$14.99' },
-  biz: { monthly: '$21.99', annual: '$18.33' }
-};
-function toggleAnnual() {
-  annual = !annual;
-  document.getElementById('annualToggle').classList.toggle('on', annual);
-  document.getElementById('proPrice').innerHTML = (annual ? prices.pro.annual : prices.pro.monthly) + ' <span>/user/month · billed ' + (annual ? 'annually' : 'monthly*') + '</span>';
-  document.getElementById('bizPrice').innerHTML = (annual ? prices.biz.annual : prices.biz.monthly) + ' <span>/user/month · billed ' + (annual ? 'annually' : 'monthly*') + '</span>';
-}
-function toggle(id, el, moreLabel = '▸ See more highlights', lessLabel = '▾ See less highlights') {
-  const box = document.getElementById(id);
-  const isHidden = box.classList.toggle('hidden');
-  el.textContent = isHidden ? moreLabel : lessLabel;
-}
-
-const APP_SECTIONS = [
-  { title: 'Qorlla AI', items: [
-    ['QorllaMate', 'M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z'],
-    ['My Notes', 'M4 20l1-4L16 5l3 3L8 19zM14 7l3 3'],
-    ['Virtual Agent', 'M5 12a7 7 0 0 1 14 0v3a4 4 0 0 1-4 4H9l-4 2zM9.500 13.500c1.500 1.500 3.500 1.500 5 0'],
-    ['AI Services', 'M5 4h10v4H5zM7 8v8h5M16 14a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'],
-    ['AI On-Prem', 'M5 4h14v6H5zM5 14h14v6H5zM8 7h.01M8 17h.01'],
-    ['AI Productivity Suite', 'M4 4h16v16H4zM12 8l1 3 3 1-3 1-1 3-1-3-3-1 3-1z'],
-    ['Canvas', 'M7 3h7l4 4v14H7zM10 12h5M10 16h5', '#1a63f5'],
-    ['Slides', 'M5 4h14v12H5zM12 16v4M8 20h8M9 8h6', '#ff4081'],
-    ['Sheets', 'M5 4h14v16H5zM5 10h14M5 15h14M11 4v16', '#2da44e']
-  ] },
-  { title: 'Qorlla CX', items: [
-    ['Contact Center', 'M4 14v-2a8 8 0 0 1 16 0v2M4 14h3v4H4zM17 14h3v4h-3zM17 18c0 2-2 3-5 3'],
-    ['AI Expert Assist', 'M4 14v-2a8 8 0 0 1 16 0v2M4 14h3v4H4zM17 14h3v4h-3zM12 8l1 2 2 1-2 1-1 2-1-2-2-1 2-1z'],
-    ['Workforce Management', 'M6 3h9l4 4v14H6zM9 11h6M9 15h4'],
-    ['Quality Management', 'M3 5h18v13H3zM7 11l2 2 3-4M14 10h4M14 14h4'],
-    ['CX Insights', 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 3v6M12 15v6M4 7.500l5 3M15 13.500l5 3M4 16.500l5-3M15 10.500l5-3']
-  ] },
-  { title: 'Business Services', items: [
-    ['Revenue Accelerator', 'M4 18a8 8 0 1 1 16 0M12 18l4-6M7 18h.01M17 18h.01'],
-    ['Webinars & Events', 'M3 7h18v4a2 2 0 0 0 0 4v4H3v-4a2 2 0 0 0 0-4zM12 9l1 2 2 .3-1.500 1.500.4 2.200-1.900-1-1.900 1 .4-2.200L9 11.300 11 11z'],
-    ['Contracts', 'M6 3h9l4 4v14H6zM9 12h6M9 16h6M9 8h3'],
-    ['Hiring', 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20c0-3 3-5 6-5s6 2 6 5M17 8h4M19 6v4']
-  ] }
-];
-(function renderApps() {
-  const esc = (t) => t.replace(/&/g, '&amp;');
-  document.getElementById('appsMore').innerHTML = APP_SECTIONS.map((sec) =>
-    '<div class="apps-sec"><div class="apps-sec-head"><h4>' + sec.title + '</h4></div><div class="apps-grid">' +
-    sec.items.map(([name, path, bg]) => {
-      const svg = '<svg viewBox="0 0 24 24"><path d="' + path + '"/></svg>';
-      const icon = bg ? '<span class="apps-ico" style="background:' + bg + '">' + svg + '</span>' : svg;
-      return '<a href="#" role="menuitem">' + icon + esc(name) + '</a>';
-    }).join('') + '</div></div>'
-  ).join('');
-})();
-const appsBtn = document.getElementById('appsBtn');
-const appsMenu = document.getElementById('appsMenu');
-function setApps(open) {
-  appsMenu.classList.toggle('open', open);
-  appsBtn.setAttribute('aria-expanded', String(open));
-}
-appsBtn.addEventListener('click', (e) => { e.stopPropagation(); setApps(!appsMenu.classList.contains('open')); });
-document.addEventListener('click', (e) => { if (!appsMenu.contains(e.target)) setApps(false); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { setApps(false); appsBtn.focus(); } });
-function buy(plan) {
-  alert('Selected: ' + plan + (annual ? ' (annual)' : ' (monthly)'));
-}
-// Demo: show warning only when simulating 40-min expiry
-// document.getElementById('limitWarning').style.display = 'flex';
-</script>
+<dialog id="salesDialog" aria-labelledby="salesTitle">
+  <form method="dialog" id="salesForm">
+    <h2 id="salesTitle" style="margin:0 0 4px">Contact sales</h2>
+    <p style="margin:0;color:#555;font-size:14px">Tell us about your team. A Qorlla representative will reply to your email.</p>
+    <label>Your name <input name="name" required maxlength="120" autocomplete="name"></label>
+    <label>Work email <input name="email" type="email" required maxlength="200" autocomplete="email"></label>
+    <label>Company <input name="company" maxlength="160" autocomplete="organization"></label>
+    <label>How can we help? <textarea name="message" rows="4" required minlength="5" maxlength="4000"></textarea></label>
+    <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <p id="salesMsg" role="status" style="font-size:13px;min-height:18px"></p>
+    <div class="actions"><button type="button" class="btn outline" id="salesCancel">Close</button><button type="submit" class="btn primary" id="salesSend">Send</button></div>
+  </form>
+</dialog>
+<noscript><p style="padding:16px">Prices and checkout need JavaScript. Please enable it or contact sales.</p></noscript>
+<script src="pricing.js"></script>
 </body>
 </html>

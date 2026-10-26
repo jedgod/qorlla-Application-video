@@ -48,6 +48,8 @@ console.log('[Config] Email service: ' + (mailer.enabled ? 'ON (links use ' + ma
     : mailer.configured ? 'OFF - SMTP is set but PUBLIC_URL is missing (required in production)'
     : 'OFF (set SMTP_URL, SMTP_FROM and PUBLIC_URL to enable reset links and outside mail)'));
 const auth = require('./auth')({ dataDir: DATA_ROOT, mailer });
+// Public keys the Workplace Portal uses to verify identity tokens issued by this server
+app.get('/.well-known/jwks.json', (req, res) => res.set('Cache-Control', 'public, max-age=300').json(auth.portalTokens.jwks()));
 app.use('/api/auth', auth.router);
 
 // Workplace carries whiteboard images, so it parses its own (larger) JSON bodies

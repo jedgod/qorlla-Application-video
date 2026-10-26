@@ -12,8 +12,11 @@ const crypto = require('crypto');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const store = require('./store');
+const createPortalTokens = require('./portal-token');
 
 const COOKIE = 'qs';
+const PORTAL_COOKIE = 'qorlla_portal_session';
+const CSRF_COOKIE = 'qorlla_csrf';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 60 * 60 * 1000;
@@ -28,6 +31,14 @@ module.exports = function createAuth({ dataDir, mailer }) {
     const tokensFile = path.join(dir, 'tokens.json');
     const router = express.Router();
     router.use(express.json({ limit: '10kb' }));
+
+    // Identity for the Workplace Portal (JWT in a cookie, verified by the portal via our JWKS). See portal-token.js.
+    const originOf = (u) => { try { return new URL(u).origin; } catch (e) { return ''; } };
+    const portalTokens = createPortalTokens({
+        dataDir,
+        issuer: process.env.MAIN_AUTH_ISSUER || originOf(process.env.PUBLIC_URL) || 'http://localhost:' + (process.env.PORT || 5000),
+        audience: process.env.PORTAL_AUTH_AUDIENCE || 'qorlla-workplace'
+    });
 
     const loadUsers = () => store.readJson(usersFile, []);
     const saveUsers = (u) => store.writeJson(usersFile, u);
@@ -101,6 +112,20 @@ module.exports = function createAuth({ dataDir, mailer }) {
         const secure = ((process.env.PUBLIC_URL || '').startsWith('https://') || req.secure) ? ['Secure'] : [];
         res.setHeader('Set-Cookie', [`${COOKIE}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${Math.floor(maxAgeMs / 1000)}`, ...secure].join('; '));
     }
+    function addCookie(req, res, name, value, maxAgeSec, httpOnly) {
+        const secure = ((process.env.PUBLIC_URL || '').startsWith('https://') || req.secure) ? ['Secure'] : [];
+        res.append('Set-Cookie', [`${name}=${value}`, 'Path=/', ...(httpOnly ? ['HttpOnly'] : []), 'SameSite=Lax', `Max-Age=${maxAgeSec}`, ...secure].join('; '));
+    }
+    function issuePortalCookies(req, res, userId, sid) {
+        if (!portalTokens.subjectFor(userId)) return; // only real account ids get portal access
+        const { jwt, csrf } = portalTokens.issue({ userId, sid });
+        addCookie(req, res, PORTAL_COOKIE, jwt, portalTokens.TOKEN_TTL_S, true);
+        addCookie(req, res, CSRF_COOKIE, csrf, portalTokens.TOKEN_TTL_S, false); // readable by page script on purpose (double-submit)
+    }
+    function clearPortalCookies(req, res) {
+        addCookie(req, res, PORTAL_COOKIE, '', 0, true);
+        addCookie(req, res, CSRF_COOKIE, '', 0, false);
+    }
     function loadSessions() {
         const now = Date.now();
         const all = store.readJson(sessionsFile, {});
@@ -112,6 +137,7 @@ module.exports = function createAuth({ dataDir, mailer }) {
         sessions[sha(token)] = { userId, exp: Date.now() + SESSION_MS };
         store.writeJson(sessionsFile, sessions);
         setCookie(req, res, token, SESSION_MS);
+        issuePortalCookies(req, res, userId, sha(token));
     }
     function dropSessions(userId, keepHash) {
         const sessions = loadSessions();
@@ -269,7 +295,30 @@ module.exports = function createAuth({ dataDir, mailer }) {
             store.writeJson(sessionsFile, sessions);
         }
         setCookie(req, res, '', 0);
+        clearPortalCookies(req, res);
         res.json({ ok: true });
+    });
+
+    // Renew the 15-minute portal token while the MAIN session is alive (same-origin XHR from the portal / pricing page).
+    router.post('/portal-token', (req, res) => {
+        const origin = req.get('origin');
+        if (origin && new URL(origin).host !== req.get('host')) return res.status(403).json({ error: 'Origin rejected.' });
+        const user = getUser(req);
+        const token = parseCookies(req)[COOKIE];
+        if (!user || !token) { clearPortalCookies(req, res); return res.status(401).json({ error: 'Sign in required.' }); }
+        issuePortalCookies(req, res, user.id, sha(token));
+        res.set('Cache-Control', 'no-store').json({ ok: true, expiresIn: portalTokens.TOKEN_TTL_S });
+    });
+
+    // Server-to-server: lets the portal confirm a session is still alive (logout / password change revoke at once).
+    // Authenticated with PORTAL_INTROSPECTION_SECRET; the reverse proxy must NOT expose /api/auth/internal/ publicly.
+    router.get('/internal/session/:sid', (req, res) => {
+        const expected = process.env.PORTAL_INTROSPECTION_SECRET || '';
+        const given = (req.get('authorization') || '').replace(/^Bearer /, '');
+        const ok = expected.length >= 32 && given.length === expected.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+        if (!ok) return res.status(401).json({ error: 'Unauthorized' });
+        const s = loadSessions()[String(req.params.sid)];
+        res.set('Cache-Control', 'no-store').json({ active: !!s, sub: s ? portalTokens.subjectFor(s.userId) : null });
     });
 
     router.get('/me', (req, res) => {
@@ -445,5 +494,5 @@ module.exports = function createAuth({ dataDir, mailer }) {
         res.status(500).json({ error: 'Server error.' });
     });
 
-    return { router, getUser, requireUser, listUsers: () => loadUsers().map(publicUser) };
+    return { router, portalTokens, getUser, requireUser, listUsers: () => loadUsers().map(publicUser) };
 };
