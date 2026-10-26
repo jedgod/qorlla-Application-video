@@ -454,4 +454,8 @@ app.get('/locales/fr.js', (req, res) => res.sendFile(path.join(__dirname, 'local
 app.get('/locales/pt-PT.js', (req, res) => res.sendFile(path.join(__dirname, 'locales', 'pt-PT.js')));
 
 // Public product assets only; the source and account data remain private.
+// Brand logo used by login.html
+app.get('/Qorlla-Logo.jpg', (req, res) => res.sendFile(path.join(__dirname, 'Qorlla-Logo.jpg')));
+// Browsers request /favicon.ico implicitly; answer with the brand icon instead of a 404
+app.get('/favicon.ico', (req, res) => res.type('image/svg+xml').sendFile(path.join(__dirname, 'assets', 'favicon.svg')));
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { dotfiles: 'deny', index: false }));

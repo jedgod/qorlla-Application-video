@@ -10,7 +10,7 @@ RUN npm ci --omit=dev
 
 # Pull down localized structural service models
 COPY server.js appointments.js docs.js post-meeting.js notifications.js workplace.js auth.js store.js mailer.js index.html qorlla.html chat.html login.html ./
-COPY i18n.js ./
+COPY i18n.js Qorlla-Logo.jpg ./
 COPY locales ./locales
 COPY assets ./assets
 COPY seed ./seed
