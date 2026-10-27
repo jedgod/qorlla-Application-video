@@ -11,20 +11,92 @@ function tile(id,name,isLocal=false){let el=document.getElementById('tile-'+id);
 function setVideo(id,stream,muted=false){const el=tile(id,state.names.get(id)||id,id===state.participantId);let v=el.querySelector('video');if(!v){v=document.createElement('video');v.autoplay=true;v.playsInline=true;v.muted=muted;el.prepend(v);}v.srcObject=stream;el.querySelector('.avatar').style.display=stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')?'none':'grid';v.play().catch(()=>{});if(id!==state.participantId)recAddAudio(id,stream);}
 function renderPeople(){const root=$('peopleList');root.replaceChildren();for(const id of state.roster){const p=document.createElement('div');p.className='person';p.textContent=(state.names.get(id)||id.slice(0,8))+(id===state.participantId?' (You)':'');root.append(p);}}
 function openTab(tab){document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));document.querySelectorAll('.tab-view').forEach(v=>v.classList.toggle('hidden',v.id!=='tab-'+tab));}
-async function startMeeting(payload){Object.assign(state,{token:payload.token,meetingId:payload.meetingId,participantId:payload.participantId});const claims=JSON.parse(atob(payload.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));state.role=claims.role;$('recordBtn').classList.toggle('hidden',claims.role!=='host');state.name=claims.name;state.names.set(state.participantId,state.name);state.start=Date.now();sessionStorage.setItem('qorlla-session',JSON.stringify({token:state.token,meetingId:state.meetingId,participantId:state.participantId}));const data=await api('/meetings/'+state.meetingId);$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=data.meeting_code||state.meetingId.slice(0,8);$('meetingDetails').textContent='Meeting ID: '+(data.meeting_code||state.meetingId);$('notes').value=data.notes;$('notes').readOnly=state.role!=='host';$('saveNotes').classList.toggle('hidden',state.role!=='host');$('pollForm').classList.toggle('hidden',state.role!=='host');$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);data.polls.forEach(addPoll);try{state.iceServers=(await api('/config')).iceServers;}catch{}await startMedia();connect();}
+async function startMeeting(payload){Object.assign(state,{token:payload.token,meetingId:payload.meetingId,participantId:payload.participantId});const claims=JSON.parse(atob(payload.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));state.role=claims.role;$('recordBtn').classList.toggle('hidden',claims.role!=='host');state.name=claims.name;state.names.set(state.participantId,state.name);state.start=Date.now();sessionStorage.setItem('qorlla-session',JSON.stringify({token:state.token,meetingId:state.meetingId,participantId:state.participantId}));const data=await api('/meetings/'+state.meetingId);$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=data.meeting_code||state.meetingId.slice(0,8);$('meetingDetails').textContent='Meeting ID: '+(data.meeting_code||state.meetingId);$('notes').value=data.notes;$('notes').readOnly=state.role!=='host';$('saveNotes').classList.toggle('hidden',state.role!=='host');$('pollForm').classList.toggle('hidden',state.role!=='host');$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);data.polls.forEach(addPoll);try{const cfg=await api('/config');state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];}catch{}await startMedia();connect();}
 async function startMedia(){try{state.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:{width:{ideal:1280},height:{ideal:720}}});}catch(e){notify('Media unavailable: '+e.message);state.stream=new MediaStream();state.mic=false;state.cam=false;}setVideo(state.participantId,state.stream,true);updateControls();}
 function updateControls(){
   const set=(id,label,off,pressed)=>{const b=$(id);b.querySelector('span').textContent=label;b.classList.toggle('off',!!off);b.setAttribute('aria-pressed',String(!!pressed));};
   set('micBtn',state.mic?'Mute':'Unmute',!state.mic,!state.mic);set('camBtn',state.cam?'Stop video':'Start video',!state.cam,!state.cam);
   $('handBtn').querySelector('span').textContent=state.hand?'Lower hand':'Raise hand';$('handBtn').classList.toggle('on',state.hand);$('handBtn').setAttribute('aria-pressed',String(state.hand));
   const local=$('tile-'+state.participantId);if(local)local.querySelector('.avatar').style.display=(state.cam&&state.stream?.getVideoTracks().length)||local.classList.contains('sharing-local')?'none':'grid';}
-function connect(){state.socket=io({path:BASE+'socket.io',auth:{token:state.token},transports:['websocket','polling']});const s=state.socket;s.on('connect',()=>{$('status').textContent='Connected';s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});});s.on('connect_error',e=>notify('Connection error: '+e.message));s.on('disconnect',()=>{$('status').textContent='Reconnecting…';});s.on('roster',ids=>{state.roster=new Set([...ids,state.participantId]);renderPeople();for(const id of ids)if(id!==state.participantId)createPeer(id,true);});s.on('participant-online',p=>{state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('media-state',({participantId,sharing})=>{const t=$('tile-'+participantId);if(t&&participantId!==state.participantId)t.classList.toggle('sharing-remote',!!sharing);});s.on('hand',({participantId,raised})=>{const t=$('tile-'+participantId);if(t)t.querySelector('.hand').textContent=raised?'✋':'';});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));s.on('notes',text=>$('notes').value=text);s.on('poll-created',addPoll);s.on('poll-results',updatePollResults);s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
-function createPeer(id,initiator=false){if(state.peers.has(id))return state.peers.get(id);const pc=new RTCPeerConnection({iceServers:state.iceServers});state.peers.set(id,pc);for(const track of state.stream.getTracks())pc.addTrack(track,state.stream);pc.onicecandidate=e=>{if(e.candidate)state.socket.emit('signal',{to:id,data:{type:'candidate',candidate:e.candidate}});};pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);setVideo(id,stream);};pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed')notify('Connection to participant interrupted');};if(initiator)pc.createOffer().then(o=>pc.setLocalDescription(o).then(()=>state.socket.emit('signal',{to:id,data:{type:'offer',sdp:pc.localDescription}}))).catch(console.error);return pc;}
-async function onSignal(id,data){let pc=state.peers.get(id);if(!pc)pc=createPeer(id);if(data.type==='offer'){await pc.setRemoteDescription(data.sdp);const answer=await pc.createAnswer();await pc.setLocalDescription(answer);state.socket.emit('signal',{to:id,data:{type:'answer',sdp:pc.localDescription}});}else if(data.type==='answer'){await pc.setRemoteDescription(data.sdp);}else if(data.type==='candidate'){try{await pc.addIceCandidate(data.candidate);}catch(e){console.warn('ICE candidate deferred/failed',e);}}}
-function removePeer(id){state.peers.get(id)?.close();state.peers.delete(id);$('tile-'+id)?.remove();}
+function connect(){state.socket=io({path:BASE+'socket.io',auth:{token:state.token},transports:['websocket','polling']});const s=state.socket;s.on('connect',()=>{state.reconnected=!!state.everConnected;state.everConnected=true;net.signaling='connected';net.lostAt=0;renderNet();s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});});s.on('connect_error',e=>{if(!net.lostAt)net.lostAt=Date.now();net.signaling=!s.active||!s.io.reconnection()?'disconnected':(state.everConnected?'reconnecting':'connecting');renderNet();if(!state.everConnected)notify('Connection error: '+e.message);});s.on('disconnect',reason=>{net.lostAt=Date.now();net.signaling=s.active&&s.io.reconnection()?'reconnecting':'disconnected';renderNet();if(reason==='io server disconnect')notify('You were disconnected from the meeting (another session may have joined as you).');});s.on('roster',ids=>{state.roster=new Set([...ids,state.participantId]);renderPeople();
+  for(const id of [...state.peers.keys()])if(!state.roster.has(id))removePeer(id);                                  // people who left while we were offline
+  for(const id of ids)if(id!==state.participantId){if(state.reconnected)dropPeer(id);createPeer(id,true);}          // after a reconnect every peer connection is rebuilt (the tile stays: no duplicates)
+  state.reconnected=false;renderNet();});s.on('participant-online',p=>{state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();renderNet();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('media-state',({participantId,sharing})=>{const t=$('tile-'+participantId);if(t&&participantId!==state.participantId)t.classList.toggle('sharing-remote',!!sharing);});s.on('hand',({participantId,raised})=>{const t=$('tile-'+participantId);if(t)t.querySelector('.hand').textContent=raised?'✋':'';});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));s.on('notes',text=>$('notes').value=text);s.on('poll-created',addPoll);s.on('poll-results',updatePollResults);s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
+// One RTCPeerConnection per remote participant. The side that makes the offer owns the pair's "epoch"; every signal carries it, so messages from an
+// older connection (before a reconnect) are ignored instead of corrupting the new one. ICE restarts reuse the epoch; a rebuilt connection gets a new one.
+const ICE_GRACE_MS=4000,MAX_RESTARTS=3;
+const newEpoch=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
+const sendSignal=(to,data)=>{if(state.socket?.connected)state.socket.emit('signal',{to,data});};
+function createPeer(id,initiator=false){
+  if(state.peers.has(id))return state.peers.get(id);
+  const pc=new RTCPeerConnection({iceServers:state.iceServers});state.peers.set(id,pc);pc._queue=[];pc._restarts=0;if(initiator)pc._epoch=newEpoch();
+  for(const track of state.stream.getTracks())pc.addTrack(track,state.stream);
+  pc.onicecandidate=e=>{if(e.candidate)sendSignal(id,{type:'candidate',candidate:e.candidate,epoch:pc._epoch||pc._remoteEpoch});};
+  pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);setVideo(id,stream);};
+  pc.onconnectionstatechange=()=>{
+    clearTimeout(pc._grace);renderNet();
+    if(pc.connectionState==='connected'){pc._restarts=0;}
+    else if(pc.connectionState==='failed')recoverPeer(id,pc);
+    else if(pc.connectionState==='disconnected')pc._grace=setTimeout(()=>{if(state.peers.get(id)===pc&&pc.connectionState!=='connected')recoverPeer(id,pc);},ICE_GRACE_MS);
+  };
+  if(initiator)offerTo(id,pc,false);
+  return pc;
+}
+async function offerTo(id,pc,iceRestart){
+  try{const o=await pc.createOffer(iceRestart?{iceRestart:true}:undefined);await pc.setLocalDescription(o);sendSignal(id,{type:'offer',sdp:pc.localDescription,epoch:pc._epoch});}catch(e){console.error('offer failed',e);}
+}
+// A connection that is down: restart ICE (the offering side does it; the answering side asks); after repeated failures rebuild from scratch.
+function recoverPeer(id,pc){
+  if(state.peers.get(id)!==pc||!state.roster.has(id))return;
+  if(!state.socket?.connected)return;                                                   // signalling is down: the roster handler rebuilds everything when it returns
+  if(++pc._restarts>MAX_RESTARTS){if(pc._epoch){dropPeer(id);createPeer(id,true);}else sendSignal(id,{type:'rebuild',epoch:pc._remoteEpoch});return;}
+  if(pc._epoch&&pc.signalingState==='stable')offerTo(id,pc,true);else if(!pc._epoch)sendSignal(id,{type:'restart',epoch:pc._remoteEpoch});
+}
+async function onSignal(id,data){
+  let pc=state.peers.get(id);
+  if(data.type==='offer'){
+    if(pc&&pc._epoch){                                                                  // both sides offered at once: the lower id yields, the other keeps its offer
+      if(state.participantId<id){dropPeer(id);pc=null;}else return;
+    }else if(pc&&pc._remoteEpoch&&pc._remoteEpoch!==data.epoch){dropPeer(id);pc=null;}   // the other side rebuilt its connection
+    if(!pc)pc=createPeer(id,false);
+    pc._remoteEpoch=data.epoch;await pc.setRemoteDescription(data.sdp);await flushCandidates(pc);
+    const answer=await pc.createAnswer();await pc.setLocalDescription(answer);sendSignal(id,{type:'answer',sdp:pc.localDescription,epoch:data.epoch});return;
+  }
+  if(!pc||(data.epoch&&data.epoch!==(pc._epoch||pc._remoteEpoch)))return;               // stale message from a connection that no longer exists
+  if(data.type==='answer'){if(pc.signalingState==='have-local-offer'){await pc.setRemoteDescription(data.sdp);await flushCandidates(pc);}}
+  else if(data.type==='candidate'){if(pc.remoteDescription)try{await pc.addIceCandidate(data.candidate);}catch(e){console.warn('ICE candidate rejected',e);}else pc._queue.push(data.candidate);}
+  else if(data.type==='restart'){if(pc._epoch)recoverPeer(id,pc);}
+  else if(data.type==='rebuild'){if(pc._epoch){dropPeer(id);createPeer(id,true);}}
+}
+async function flushCandidates(pc){const q=pc._queue.splice(0);for(const c of q)try{await pc.addIceCandidate(c);}catch(e){console.warn('queued ICE candidate rejected',e);}}
+function dropPeer(id){const pc=state.peers.get(id);if(!pc)return;clearTimeout(pc._grace);pc.onconnectionstatechange=pc.ontrack=pc.onicecandidate=null;try{pc.close();}catch{}state.peers.delete(id);}
+function removePeer(id){dropPeer(id);$('tile-'+id)?.remove();}
+
+// ---- what the header and status line say: meeting, signalling and media are reported separately, and a lost connection never looks healthy -------
+const net={signaling:'connecting',lostAt:0,online:navigator.onLine!==false};
+function mediaHealth(){
+  if(state.stream&&!state.stream.getTracks().some(t=>t.readyState==='live'))return 'unavailable';
+  const st=[...state.peers.values()].map(p=>p.connectionState);
+  return st.some(s=>s==='failed'||s==='disconnected')?'interrupted':st.some(s=>s==='new'||s==='connecting')?'connecting':'ok';
+}
+function renderNet(){
+  const b=$('liveBadge'),t=$('liveText'),status=$('status');if(!b||!status)return;
+  const media=mediaHealth(),lost=net.lostAt?Date.now()-net.lostAt:0;let key,label,line;
+  if(!net.online){key='offline';label='No network';line='No network connection';}
+  else if(net.signaling==='disconnected'){key='offline';label='Disconnected';line='Disconnected';}
+  else if(net.signaling==='reconnecting'){key=lost>30000?'offline':'reconnecting';label=lost>30000?'Connection lost':'Reconnecting…';line=lost>30000?'Connection lost — still trying to reconnect':'Reconnecting…';}
+  else if(net.signaling==='connecting'){key='reconnecting';label='Connecting…';line='Connecting…';}
+  else if(media==='interrupted'){key='media';label='Media interrupted';line='Connected · media interrupted, recovering';}
+  else if(media==='unavailable'){key='media';label='No camera/mic';line='Connected · camera and microphone are not available';}
+  else{key='live';label='Live';line='Connected';}
+  b.dataset.state=key;t.textContent=label;status.textContent=line;
+}
+setInterval(renderNet,1000);
+window.addEventListener('offline',()=>{net.online=false;renderNet();});
+window.addEventListener('online',()=>{net.online=true;if(state.socket&&!state.socket.connected&&state.socket.active===false)state.socket.connect();for(const [id,pc] of state.peers)if(pc.connectionState!=='connected')recoverPeer(id,pc);renderNet();});
 function addPoll(p){if($('poll-'+p.id))return;const d=document.createElement('div');d.className='poll';d.id='poll-'+p.id;const h=document.createElement('h4');h.textContent=p.question;d.append(h);p.options.forEach((o,i)=>{const b=document.createElement('button');b.textContent=o;b.onclick=()=>state.socket.emit('poll-vote',{pollId:p.id,choice:i},r=>{if(!r?.ok)notify(r?.error||'Vote failed');else notify('Vote saved');});d.append(b);});const result=document.createElement('p');result.className='muted';result.dataset.results='true';d.append(result);$('pollsList').prepend(d);}
 function updatePollResults({pollId,counts}){const el=$('poll-'+pollId)?.querySelector('[data-results]');if(el)el.textContent='Votes: '+counts.map(x=>`Option ${x.choice+1}: ${x.count}`).join(' · ');}
-async function leave(){if(state.recording)await stopRecording();state.socket?.disconnect();state.peers.forEach(pc=>pc.close());state.stream?.getTracks().forEach(t=>t.stop());state.screen?.getTracks().forEach(t=>t.stop());sessionStorage.removeItem('qorlla-session');location.href=returnTo||BASE;}
+async function leave(){if(state.recording)await stopRecording();state.socket?.disconnect();state.peers.forEach(pc=>pc.close());state.stream?.getTracks().forEach(t=>t.stop());state.screen?.getTracks().forEach(t=>t.stop());sessionStorage.removeItem('qorlla-session');location.href=safeReturn(returnRaw)||BASE;}
 $('createBtn').onclick=async()=>{try{const p=await api('/meetings','POST',{title:$('meetingTitle').value,name:$('displayName').value,passcode:$('newPasscode').value});await startMeeting(p);}catch(e){error(e);}};
 $('joinBtn').onclick=async()=>{try{const p=await api('/meetings/'+encodeURIComponent($('meetingId').value.trim())+'/join','POST',{name:$('displayName').value,passcode:$('joinPasscode').value});await startMeeting(p);}catch(e){error(e);}};
 $('chatForm').onsubmit=e=>{e.preventDefault();const input=$('chatText');if(!input.value.trim())return;state.socket.emit('chat',input.value,r=>{if(r?.ok)input.value='';else notify(r?.error||'Chat failed');});};
@@ -62,8 +134,9 @@ $('leaveBtn').onclick=leave;$('endBtn').onclick=async()=>{if(!confirm('End meeti
 $('peopleBtn').onclick=()=>openTab('people');$('chatBtn').onclick=()=>openTab('chat');document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>openTab(b.dataset.tab));document.querySelectorAll('[data-layout]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-layout]').forEach(x=>x.classList.toggle('selected',x===b));$('videos').className='video-grid '+b.dataset.layout;});document.querySelectorAll('[data-emoji]').forEach(b=>b.onclick=()=>state.socket.emit('reaction',b.dataset.emoji));
 setInterval(()=>{if(!state.token)return;const seconds=Math.floor((Date.now()-state.start)/1000);$('timer').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');},1000);
 const query=new URLSearchParams(location.search);
-const safeReturn = value => {try {const u=new URL(value,location.href);return u.hostname===location.hostname && ['http:','https:'].includes(u.protocol)?u.href:null;}catch{return null;}};
-const returnTo=safeReturn(query.get('return')||query.get('returnUrl'));
+// Where Leave sends you: this site, or an origin the operator listed in RETURN_ORIGINS (same hostname on another port is NOT enough). No parameter = the landing page.
+const safeReturn = value => {if(!value)return null;try {const u=new URL(value,location.href);return ['http:','https:'].includes(u.protocol)&&(u.origin===location.origin||(state.returnOrigins||[]).includes(u.origin))?u.href:null;}catch{return null;}};
+const returnRaw=query.get('return')||query.get('returnUrl');
 const originalLeave=leave;
 // The handoff return destination is constrained to the same hostname.
 if(query.has('meeting'))$('meetingId').value=query.get('meeting');
@@ -81,6 +154,8 @@ const desiredCam=query.get('camera')!=='false' && query.get('cam')!=='false' && 
 const originalStartMedia=startMedia;
 startMedia=async()=>{await originalStartMedia();state.mic=desiredMic&&state.mic;state.cam=desiredCam&&state.cam;state.stream.getAudioTracks().forEach(t=>t.enabled=state.mic);state.stream.getVideoTracks().forEach(t=>t.enabled=state.cam);updateControls();};
 if(initialName){if(query.get('start')==='new')$('createBtn').click();else if(query.get('start')==='join' && $('meetingId').value)$('joinBtn').click();}
+// launch parameters (name, passcode, mic/camera, start) have been consumed: do not leave them in the address bar, history or screenshots
+try{history.replaceState(null,'',location.pathname+(returnRaw?'?return='+encodeURIComponent(returnRaw):''));}catch{}
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // Screen-share placeholder, meeting recording
@@ -293,3 +368,5 @@ async function rcHostPanel(){
   });
   box.parentElement.dataset.panel='1';return box;
 }
+// Debug/test hook (read access to the page state for the browser tests; exposes nothing the page does not already hold).
+window.__qorlla={state,recoverPeer};

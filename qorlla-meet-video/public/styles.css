@@ -11,3 +11,4 @@
 .rc-primary,.rc-secondary,.rc-withdraw{font:inherit;padding:7px 14px;border-radius:8px;border:1px solid #30384a;cursor:pointer;color:#edf2fa;background:#232b3d}.rc-primary{background:#2563eb;border-color:#2563eb}.rc-primary:disabled,.rc-secondary:disabled{opacity:.5;cursor:not-allowed}
 .rc-withdraw{position:fixed;right:12px;bottom:72px;z-index:20;font-size:12px;padding:5px 10px}
 .rc-list{list-style:none;margin:0;padding:0}.rc-list li{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #232b3d}.rc-agree b{color:#4ade80}.rc-decline b,.rc-withdraw b{color:#f87171}.rc-pending b{color:#fbbf24}
+.live[data-state=reconnecting],.live[data-state=media]{color:#fbbf24}.live[data-state=offline]{color:#f87171}

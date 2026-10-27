@@ -201,7 +201,7 @@ app.get('/api/ready',async(_req,res)=>{
  res.status(bridgeConfigured?200:503).json({ready:bridgeConfigured,database:'ok',bridgeConfigured});
  }catch{res.status(503).json({ready:false,database:'unavailable'});}
 });
-app.get('/api/config', (_req,res) => { let iceServers=[]; try { iceServers=JSON.parse(process.env.ICE_SERVERS_JSON||'[]'); } catch {} res.json({iceServers}); });
+app.get('/api/config', (_req,res) => { let iceServers=[]; try { iceServers=JSON.parse(process.env.ICE_SERVERS_JSON||'[]'); } catch {} res.json({iceServers,returnOrigins:(process.env.RETURN_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean)}); });
 app.post('/api/meetings', async (req,res) => {
  const title=clean(req.body.title,160), name=clean(req.body.name,70), passcode=clean(req.body.passcode,100);
  if (!title || !name) return fail(res,400,'Title and display name required');
