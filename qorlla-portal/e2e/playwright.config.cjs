@@ -12,6 +12,6 @@ module.exports = defineConfig({
   expect: { timeout: 15000 },
   reporter: [['list'], ['json', { outputFile: process.env.E2E_JSON || 'e2e-results.json' }]],
   use: { baseURL: base, ignoreHTTPSErrors: true, headless: true, trace: 'off', screenshot: 'only-on-failure', permissions: ['camera', 'microphone'],
-    launchOptions: { args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--ignore-certificate-errors'] } },
+    launchOptions: { args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--auto-select-desktop-capture-source=Entire screen', '--ignore-certificate-errors'] } },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]
 });

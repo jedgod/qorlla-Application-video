@@ -70,6 +70,7 @@ const resolveMeeting = async value => {
 const createCode = () => { const bytes = randomBytes(6); return Array.from(bytes, b => String(b % 100).padStart(2,'0')).join(''); };
 
 const active = new Map(); // meetingId -> Map(participantId -> socketId); single active socket per participant
+const recorders = new Map(); // meetingId -> Map(participantId -> display name) currently recording locally; shown to everyone so nobody is recorded unknowingly
 const activeList = id => [...(active.get(id)?.keys() || [])];
 const auth = (req,res,next) => { try { req.user=verify((req.headers.authorization||'').replace(/^Bearer /,'')); next(); } catch { fail(res,401,'Authentication required'); } };
 const member = async (req,res,next) => {
@@ -291,6 +292,7 @@ io.on('connection',socket=>{
  if(prior && prior!==socket.id) io.sockets.sockets.get(prior)?.disconnect(true);
  roster.set(pid,socket.id); socket.join(room(id));
  socket.emit('roster',activeList(id));
+ socket.emit('recorders',[...(recorders.get(id)||new Map())].map(([participantId,name])=>({participantId,name})));
  socket.to(room(id)).emit('participant-online',{participantId:pid,name:u.name,role:u.role});
  const isOnline=(target)=>roster.get(target);
  socket.on('signal',({to,data}={},ack)=>{
@@ -306,6 +308,7 @@ io.on('connection',socket=>{
  });
  socket.on('hand',raised=>{socket.to(room(id)).emit('hand',{participantId:pid,raised:!!raised});});
  socket.on('media-state',state=>{socket.to(room(id)).emit('media-state',{participantId:pid,mic:!!state?.mic,cam:!!state?.cam,sharing:!!state?.sharing});});
+ socket.on('recording',on=>{if(!recorders.has(id))recorders.set(id,new Map());const set=recorders.get(id);if(on)set.set(pid,u.name);else set.delete(pid);if(!set.size)recorders.delete(id);io.to(room(id)).emit('recording',{participantId:pid,name:u.name,recording:!!on});});
  socket.on('reaction',emoji=>{if(['👍','👏','❤️','🎉','😂'].includes(emoji))io.to(room(id)).emit('reaction',{name:u.name,emoji});});
  socket.on('notes',async(text,ack)=>{
   if(u.role!=='host')return ackError(ack,'Host only');
@@ -325,6 +328,6 @@ io.on('connection',socket=>{
    const {rows}=await db.query('SELECT choice,count(*)::int AS count FROM poll_votes WHERE poll_id=$1 GROUP BY choice',[pollId]);io.to(room(id)).emit('poll-results',{pollId,counts:rows});ack?.({ok:true});
   }catch{ackError(ack,'Vote failed');}
  });
- socket.on('disconnect',()=>{if(roster.get(pid)!==socket.id)return;roster.delete(pid);socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
+ socket.on('disconnect',()=>{if(roster.get(pid)!==socket.id)return;roster.delete(pid);if(recorders.get(id)?.delete(pid)){io.to(room(id)).emit('recording',{participantId:pid,name:u.name,recording:false});if(!recorders.get(id).size)recorders.delete(id);}socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 server.listen(PORT,()=>console.log(`Qorlla Meet listening on http://localhost:${PORT}`));
