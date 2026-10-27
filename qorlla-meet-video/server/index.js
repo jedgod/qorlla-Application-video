@@ -296,6 +296,7 @@ io.on('connection',socket=>{
  if(prior && prior!==socket.id) io.sockets.sockets.get(prior)?.disconnect(true);
  roster.set(pid,socket.id); socket.join(room(id));
  socket.emit('roster',activeList(id));
+ socket.emit('names',Object.fromEntries(activeList(id).map(p=>[p,names.get(id)?.get(p)||'']).filter(([,n])=>n)));   // who is who, for people already in the meeting
  if(!names.has(id)) names.set(id,new Map()); names.get(id).set(pid,u.name);
  recording.publicState(id).then(s=>socket.emit('recording-state',s)).catch(()=>{});
  recording.reevaluate(id,'joined',pid,u.role).catch(e=>console.error('[recording] join check failed:',e.message));   // a late joiner pauses a running recording until they answer

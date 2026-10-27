@@ -67,7 +67,7 @@ test.describe('Qorlla Meet G1 connection reliability', () => {
     await a.page.click('#leaveBtn'); await expect(b.page.locator('.tile')).toHaveCount(1); expect(await b.page.evaluate(() => __qorlla.state.peers.size)).toBe(0);
     const h = await open(browser, 'Hanna'); const g = await open(browser, 'Gus', h.code);
     await g.page.evaluate(() => { addEventListener('pagehide', () => sessionStorage.setItem('__closed', JSON.stringify({ ended: __qorlla.state.stream.getTracks().every((t) => t.readyState === 'ended'), peers: __qorlla.state.peers.size, connected: __qorlla.state.socket.connected }))); });
-    await h.page.click('#endBtn');
+    await h.page.click('#endBtn'); await h.page.locator('#rcModal').getByRole('button', { name: 'End for all' }).click();
     await expect(g.page.locator('#landing')).toBeVisible({ timeout: 15000 });
     expect(JSON.parse(await g.page.evaluate(() => sessionStorage.getItem('__closed')))).toEqual({ ended: true, peers: 0, connected: false });
     for (const p of [a, b, h, g]) await p.ctx.close().catch(() => {});

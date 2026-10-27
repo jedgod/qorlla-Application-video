@@ -10,18 +10,18 @@ function addMessage(msg){const d=document.createElement('div');d.className='mess
 function tile(id,name,isLocal=false){let el=document.getElementById('tile-'+id);if(el)return el;el=document.createElement('div');el.id='tile-'+id;el.className='tile';const avatar=document.createElement('div');avatar.className='avatar';avatar.textContent=(name||'?').split(/\s+/).map(s=>s[0]).join('').slice(0,2).toUpperCase();const plate=document.createElement('div');plate.className='nameplate';plate.textContent=name+(isLocal?' (You)':'');const hand=document.createElement('span');hand.className='hand';el.append(avatar,plate,hand);$('videos').append(el);return el;}
 function setVideo(id,stream,muted=false){const el=tile(id,state.names.get(id)||id,id===state.participantId);let v=el.querySelector('video');if(!v){v=document.createElement('video');v.autoplay=true;v.playsInline=true;v.muted=muted;el.prepend(v);}v.srcObject=stream;el.querySelector('.avatar').style.display=stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')?'none':'grid';v.play().catch(()=>{});if(id!==state.participantId)recAddAudio(id,stream);}
 function renderPeople(){const root=$('peopleList');root.replaceChildren();for(const id of state.roster){const p=document.createElement('div');p.className='person';p.textContent=(state.names.get(id)||id.slice(0,8))+(id===state.participantId?' (You)':'');root.append(p);}}
-function openTab(tab){document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));document.querySelectorAll('.tab-view').forEach(v=>v.classList.toggle('hidden',v.id!=='tab-'+tab));}
+function openTab(tab){shell.tab=tab;document.querySelectorAll('[data-tab]').forEach(b=>{const on=b.dataset.tab===tab;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1;});document.querySelectorAll('.tab-view').forEach(v=>v.classList.toggle('hidden',v.id!=='tab-'+tab));}
 async function startMeeting(payload){Object.assign(state,{token:payload.token,meetingId:payload.meetingId,participantId:payload.participantId});const claims=JSON.parse(atob(payload.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));state.role=claims.role;$('recordBtn').classList.toggle('hidden',claims.role!=='host');state.name=claims.name;state.names.set(state.participantId,state.name);state.start=Date.now();sessionStorage.setItem('qorlla-session',JSON.stringify({token:state.token,meetingId:state.meetingId,participantId:state.participantId}));const data=await api('/meetings/'+state.meetingId);$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=data.meeting_code||state.meetingId.slice(0,8);$('meetingDetails').textContent='Meeting ID: '+(data.meeting_code||state.meetingId);$('notes').value=data.notes;$('notes').readOnly=state.role!=='host';$('saveNotes').classList.toggle('hidden',state.role!=='host');$('pollForm').classList.toggle('hidden',state.role!=='host');$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);data.polls.forEach(addPoll);try{const cfg=await api('/config');state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];}catch{}await startMedia();connect();}
 async function startMedia(){try{state.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:{width:{ideal:1280},height:{ideal:720}}});}catch(e){notify('Media unavailable: '+e.message);state.stream=new MediaStream();state.mic=false;state.cam=false;}setVideo(state.participantId,state.stream,true);updateControls();}
 function updateControls(){
   const set=(id,label,off,pressed)=>{const b=$(id);b.querySelector('span').textContent=label;b.classList.toggle('off',!!off);b.setAttribute('aria-pressed',String(!!pressed));};
   set('micBtn',state.mic?'Mute':'Unmute',!state.mic,!state.mic);set('camBtn',state.cam?'Stop video':'Start video',!state.cam,!state.cam);
   $('handBtn').querySelector('span').textContent=state.hand?'Lower hand':'Raise hand';$('handBtn').classList.toggle('on',state.hand);$('handBtn').setAttribute('aria-pressed',String(state.hand));
-  const local=$('tile-'+state.participantId);if(local)local.querySelector('.avatar').style.display=(state.cam&&state.stream?.getVideoTracks().length)||local.classList.contains('sharing-local')?'none':'grid';}
+  const local=$('tile-'+state.participantId);if(local)local.querySelector('.avatar').style.display=(state.cam&&state.stream?.getVideoTracks().length)||local.classList.contains('sharing-local')?'none':'grid';setTileMedia(state.participantId,state.mic,state.cam);}
 function connect(){state.socket=io({path:BASE+'socket.io',auth:{token:state.token},transports:['websocket','polling']});const s=state.socket;s.on('connect',()=>{state.reconnected=!!state.everConnected;state.everConnected=true;net.signaling='connected';net.lostAt=0;renderNet();s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});});s.on('connect_error',e=>{if(!net.lostAt)net.lostAt=Date.now();net.signaling=!s.active||!s.io.reconnection()?'disconnected':(state.everConnected?'reconnecting':'connecting');renderNet();if(!state.everConnected)notify('Connection error: '+e.message);});s.on('disconnect',reason=>{net.lostAt=Date.now();net.signaling=s.active&&s.io.reconnection()?'reconnecting':'disconnected';renderNet();if(reason==='io server disconnect')notify('You were disconnected from the meeting (another session may have joined as you).');});s.on('roster',ids=>{state.roster=new Set([...ids,state.participantId]);renderPeople();
   for(const id of [...state.peers.keys()])if(!state.roster.has(id))removePeer(id);                                  // people who left while we were offline
   for(const id of ids)if(id!==state.participantId){if(state.reconnected)dropPeer(id);createPeer(id,true);}          // after a reconnect every peer connection is rebuilt (the tile stays: no duplicates)
-  state.reconnected=false;renderNet();});s.on('participant-online',p=>{state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();renderNet();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('media-state',({participantId,sharing})=>{const t=$('tile-'+participantId);if(t&&participantId!==state.participantId)t.classList.toggle('sharing-remote',!!sharing);});s.on('hand',({participantId,raised})=>{const t=$('tile-'+participantId);if(t)t.querySelector('.hand').textContent=raised?'✋':'';});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));s.on('notes',text=>$('notes').value=text);s.on('poll-created',addPoll);s.on('poll-results',updatePollResults);s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
+  state.reconnected=false;renderNet();});s.on('participant-online',p=>{s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});announce(p.name+' joined');state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{announce((state.names.get(p.participantId)||'A participant')+' left');state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();renderNet();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('names',map=>{for(const [pid,n] of Object.entries(map)){state.names.set(pid,n);const t=$('tile-'+pid);if(t&&pid!==state.participantId){t.querySelector('.nameplate').textContent=n;t.querySelector('.avatar').textContent=n.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();}}renderPeople();});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('media-state',({participantId,sharing,mic,cam})=>{const t=$('tile-'+participantId);if(t&&participantId!==state.participantId){t.classList.toggle('sharing-remote',!!sharing);setTileMedia(participantId,mic,cam);}});s.on('hand',({participantId,raised})=>{setHand(participantId,raised);if(raised)announce((state.names.get(participantId)||'Someone')+' raised their hand');});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));s.on('notes',text=>$('notes').value=text);s.on('poll-created',addPoll);s.on('poll-results',updatePollResults);s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
 // One RTCPeerConnection per remote participant. The side that makes the offer owns the pair's "epoch"; every signal carries it, so messages from an
 // older connection (before a reconnect) are ignored instead of corrupting the new one. ICE restarts reuse the epoch; a rebuilt connection gets a new one.
 const ICE_GRACE_MS=4000,MAX_RESTARTS=3;
@@ -89,6 +89,7 @@ function renderNet(){
   else if(media==='interrupted'){key='media';label='Media interrupted';line='Connected · media interrupted, recovering';}
   else if(media==='unavailable'){key='media';label='No camera/mic';line='Connected · camera and microphone are not available';}
   else{key='live';label='Live';line='Connected';}
+  if(renderNet.k!==key){if(renderNet.k)announce(key==='live'?'Connection restored. The meeting is live.':line);renderNet.k=key;}
   b.dataset.state=key;t.textContent=label;status.textContent=line;
 }
 setInterval(renderNet,1000);
@@ -102,7 +103,7 @@ $('joinBtn').onclick=async()=>{try{const p=await api('/meetings/'+encodeURICompo
 $('chatForm').onsubmit=e=>{e.preventDefault();const input=$('chatText');if(!input.value.trim())return;state.socket.emit('chat',input.value,r=>{if(r?.ok)input.value='';else notify(r?.error||'Chat failed');});};
 $('micBtn').onclick=async()=>{const tracks=state.stream?.getAudioTracks()||[];if(!tracks.length){notify('No microphone track. Rejoin with permission.');return;}state.mic=!state.mic;tracks.forEach(t=>t.enabled=state.mic);state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});updateControls();};
 $('camBtn').onclick=()=>{const tracks=state.stream?.getVideoTracks()||[];if(!tracks.length){notify('No camera track. Rejoin with permission.');return;}state.cam=!state.cam;tracks.forEach(t=>t.enabled=state.cam);state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});updateControls();};
-$('handBtn').onclick=()=>{state.hand=!state.hand;state.socket.emit('hand',state.hand);$('tile-'+state.participantId).querySelector('.hand').textContent=state.hand?'✋':'';updateControls();};
+$('handBtn').onclick=()=>{state.hand=!state.hand;state.socket.emit('hand',state.hand);setHand(state.participantId,state.hand);updateControls();};
 // Ending a share must reset the page whether the browser ended it ("Stop sharing" in the browser bar) or the person clicked Stop here: calling track.stop()
 // yourself does NOT fire the track's "ended" event, so both paths run the same cleanup.
 async function endShare(){
@@ -128,10 +129,10 @@ $('shareBtn').onclick=async()=>{
 $('saveNotes').onclick=()=>state.socket.emit('notes',$('notes').value,r=>notify(r?.ok?'Notes saved':r?.error||'Save failed'));
 $('pollForm').onsubmit=e=>{e.preventDefault();state.socket.emit('poll-create',{question:$('pollQuestion').value,options:$('pollOptions').value.split('|')},r=>{if(r?.ok){$('pollQuestion').value='';$('pollOptions').value='';}else notify(r?.error||'Poll failed');});};
 $('copyLink').onclick=()=>navigator.clipboard.writeText(location.origin+BASE+'?meeting='+($('roomId').textContent||state.meetingId)).then(()=>notify('Meeting link copied')).catch(()=>notify('Copy unavailable'));
-$('settingsBtn').onclick=()=>notify('Use your browser site settings to manage microphone and camera permissions.');
+$('settingsBtn').onclick=()=>openSettings();
 $('recordBtn').onclick=()=>recButton();window.addEventListener('beforeunload',e=>{if(state.recording){e.preventDefault();e.returnValue='';}});
-$('leaveBtn').onclick=leave;$('endBtn').onclick=async()=>{if(!confirm('End meeting for everyone?'))return;try{await api('/meetings/'+state.meetingId+'/end','POST');leave();}catch(e){notify(e.message);}};
-$('peopleBtn').onclick=()=>openTab('people');$('chatBtn').onclick=()=>openTab('chat');document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>openTab(b.dataset.tab));document.querySelectorAll('[data-layout]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-layout]').forEach(x=>x.classList.toggle('selected',x===b));$('videos').className='video-grid '+b.dataset.layout;});document.querySelectorAll('[data-emoji]').forEach(b=>b.onclick=()=>state.socket.emit('reaction',b.dataset.emoji));
+$('leaveBtn').onclick=leave;$('endBtn').onclick=async()=>{if(!(await askConfirm('End the meeting for everyone?','Everyone is disconnected and the meeting closes. A recording in progress stops.','End for all',true)))return;try{await api('/meetings/'+state.meetingId+'/end','POST');leave();}catch(e){notify(e.message);}};
+$('peopleBtn').onclick=()=>toggleTab('people');$('chatBtn').onclick=()=>toggleTab('chat');document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>openTab(b.dataset.tab));document.querySelectorAll('[data-layout]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-layout]').forEach(x=>{x.classList.toggle('selected',x===b);x.setAttribute('aria-pressed',String(x===b));});$('videos').className='video-grid '+b.dataset.layout;});document.querySelectorAll('[data-emoji]').forEach(b=>b.onclick=()=>state.socket.emit('reaction',b.dataset.emoji));
 setInterval(()=>{if(!state.token)return;const seconds=Math.floor((Date.now()-state.start)/1000);$('timer').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');},1000);
 const query=new URLSearchParams(location.search);
 // Where Leave sends you: this site, or an origin the operator listed in RETURN_ORIGINS (same hostname on another port is NOT enough). No parameter = the landing page.
@@ -264,8 +265,20 @@ new ResizeObserver(fitGrid).observe($('videos'));window.addEventListener('resize
 const rcState={st:{status:'disabled'},answeredFor:null,mine:null};
 const rcApi=async(path,method,body)=>{const r=await fetch(BASE+'api/v1/meetings/'+state.meetingId+'/recording'+path,{method:method||'GET',headers:{'Content-Type':'application/json',Authorization:'Bearer '+state.token},body:body===undefined?undefined:JSON.stringify(body)});const d=await r.json().catch(()=>({}));if(!r.ok){const e=Error(d.error||'Request failed');e.data=d;throw e;}return d;};
 function rcEl(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
-function rcClose(){document.getElementById('rcModal')?.remove();}
-function rcModal(title,build){rcClose();const wrap=rcEl('div','rc-modal');wrap.id='rcModal';const box=rcEl('div','rc-box');box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-label',title);box.append(rcEl('h2','',title));build(box);wrap.append(box);document.body.append(wrap);box.querySelector('input,button')?.focus();return box;}
+function rcClose(keepFocus){const m=document.getElementById('rcModal');if(!m)return;m.remove();if(!keepFocus){const o=shell.dlgOpener;shell.dlgOpener=null;if(o&&document.contains(o))o.focus();}}
+function rcModal(title,build,opts={}){
+  const critical=!!rcState.critical;rcState.critical=false;
+  if(!document.getElementById('rcModal'))shell.dlgOpener=document.activeElement;rcClose(true);
+  const wrap=rcEl('div','rc-modal');wrap.id='rcModal';const box=rcEl('div','rc-box');box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');
+  const h=rcEl('h2','',title);h.id='rcTitle';box.setAttribute('aria-labelledby','rcTitle');box.append(h);build(box);wrap.append(box);document.body.append(wrap);
+  wrap.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&!critical){e.stopPropagation();e.preventDefault();rcClose();opts.onClose?.();return;}
+    if(e.key==='Tab'){const f=[...box.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),textarea,select,[tabindex]:not([tabindex="-1"])')].filter(x=>x.offsetParent!==null);if(!f.length)return;const first=f[0],last=f[f.length-1];
+      if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}else if(!box.contains(document.activeElement)){e.preventDefault();first.focus();}}
+  });
+  (opts.focus?box.querySelector(opts.focus):box.querySelector('input,button'))?.focus();return box;
+}
+function askConfirm(title,message,okLabel,danger){return new Promise(res=>{rcModal(title,box=>{box.append(rcEl('p','',message));const row=rcEl('div','rc-row'),ok=rcEl('button',danger?'rc-danger':'rc-primary',okLabel),no=rcEl('button','rc-secondary','Cancel');ok.onclick=()=>{rcClose();res(true);};no.onclick=()=>{rcClose();res(false);};row.append(ok,no);box.append(row);},{focus:'.rc-secondary',onClose:()=>res(false)});});}
 function rcScopeText(n){return [n.video&&'video',n.audio&&'audio'].filter(Boolean).join(' and ');}
 function rcNotice(box,n){const dl=rcEl('dl','rc-notice');for(const [k,v] of [['Who is recording',n.requestedBy||'Host'],['Data controller',n.controller],['What is recorded',rcScopeText(n)+' of this meeting'],['Why',n.purpose],['Who will receive it',n.recipients],['How long it is kept',n.retention],['Privacy contact',n.privacyContact]]){dl.append(rcEl('dt','',k),rcEl('dd','',v||'—'));}
   const dd=rcEl('dd');if(n.privacyUrl){const a=rcEl('a','','View Privacy Policy');a.href=n.privacyUrl;a.target='_blank';a.rel='noopener noreferrer';dd.append(a);}else dd.textContent='Not provided — ask the privacy contact';dl.append(rcEl('dt','','Privacy policy'),dd);box.append(dl);box.append(rcEl('p','rc-note','AI transcription and summaries are NOT part of this request and are not offered by this version. Declining never stops you attending the meeting.'));}
@@ -280,7 +293,7 @@ function renderRecBanner(){
     ready:'Everyone has agreed. Waiting for the host to start. NOTHING is being recorded yet.',
     recording:who+' recording this meeting ('+rcScopeText(st)+')'+(me&&state.recording?' '+recLabel():''),
     paused:'Recording PAUSED — waiting for a new participant to answer. Nothing is recorded while paused.'}[s];
-  b.classList.remove('hidden');b.classList.toggle('pending',s!=='recording');b.textContent=txt;applyRecBadge();
+  b.classList.remove('hidden');b.classList.toggle('pending',s!=='recording');if(b.textContent!==txt)b.textContent=txt;applyRecBadge();
 }
 function applyRecBadge(){
   const st=rcState.st,live=st.status==='recording'&&st.recorder;
@@ -306,7 +319,7 @@ async function recState(st){
 
 // ---- participant: the blocking consent dialog ----------------------------------------------------------------------------------------------
 function rcAskParticipant(){
-  const n=rcState.st;
+  const n=rcState.st;rcState.critical=true;
   rcModal('Recording consent',box=>{
     box.append(rcEl('p','rc-lead',(n.requestedBy||'The host')+' wants to record this meeting. Nothing is recorded unless everyone agrees.'));rcNotice(box,n);
     const mk=(id,label,disabled)=>{const l=rcEl('label','rc-check');const i=rcEl('input');i.type='checkbox';i.id=id;i.disabled=!!disabled;l.append(i,document.createTextNode(' '+label));box.append(l);return i;};
@@ -335,7 +348,7 @@ function recButton(){
   if(state.role!=='host')return;
   const s=rcState.st.status;
   if(s==='disabled'||!s)return rcRequestForm();
-  if(s==='recording'||s==='paused'){if(!confirm('Stop recording and save the file?'))return;return rcApi('/stop','POST').catch(e=>notify(e.message));}
+  if(s==='recording'||s==='paused'){return askConfirm('Stop recording?','Recording stops for everyone and the file is saved to this computer.','Stop recording',true).then(ok=>ok?rcApi('/stop','POST').catch(e=>notify(e.message)):undefined);}
   rcHostPanel();
 }
 function rcRequestForm(){
@@ -370,3 +383,96 @@ async function rcHostPanel(){
 }
 // Debug/test hook (read access to the page state for the browser tests; exposes nothing the page does not already hold).
 window.__qorlla={state,recoverPeer};
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// v4.0.2 shell: responsive layouts (desktop panel / tablet drawer / mobile sheet), adaptive toolbar, keyboard, announcements, accessible dialogs
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+var shell={open:null,tab:'chat',dlgOpener:null,trigger:null};
+const mqDesktop=matchMedia('(min-width:1200px)'),mqNarrow=matchMedia('(max-width:639px)');
+const lsGet=(k,d)=>{try{return localStorage.getItem(k)??d;}catch{return d;}},lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch{}};
+function announce(msg){const a=$('announcer');if(!a||!msg)return;if(announce.last===msg&&Date.now()-announce.at<2500)return;announce.last=msg;announce.at=Date.now();a.textContent='';setTimeout(()=>{a.textContent=msg;},60);}
+function setTileMedia(pid,mic,cam){
+  const t=document.getElementById('tile-'+pid);if(!t)return;
+  let c=t.querySelector('.chips');if(!c){c=rcEl('div','chips');t.append(c);}c.textContent='';
+  if(mic===false)c.append(rcEl('span','chip','🔇 Muted'));if(cam===false)c.append(rcEl('span','chip','📷 Camera off'));
+  t.classList.toggle('micoff',mic===false);t.classList.toggle('camoff',cam===false);
+  if(pid!==state.participantId){const av=t.querySelector('.avatar');if(av&&t.querySelector('video'))av.style.display=cam===false?'grid':'none';}
+}
+function setHand(pid,raised){const t=document.getElementById('tile-'+pid);const h=t&&t.querySelector('.hand');if(h)h.textContent=raised?'✋ Hand raised':'';}
+
+// ---- panel ----
+const overlayMode=()=>!mqDesktop.matches;
+function setPanel(open,{tab,focus=true}={}){
+  const app=$('app'),p=$('panel');if(tab)openTab(tab);
+  const wasOpen=shell.open;shell.open=open;app.classList.toggle('panel-open',open);p.toggleAttribute('inert',!open);
+  const tg=$('panelToggle');tg.setAttribute('aria-expanded',String(open));tg.textContent=open?'Hide panel':'Show panel';
+  $('chatBtn').setAttribute('aria-pressed',String(open&&shell.tab==='chat'));$('peopleBtn').setAttribute('aria-pressed',String(open&&shell.tab==='people'));
+  $('panelScrim').classList.toggle('hidden',!(open&&overlayMode()));
+  if(open&&!wasOpen&&focus&&overlayMode())p.querySelector('[role=tab][aria-selected=true]')?.focus();
+  if(!open&&wasOpen&&focus){const t=shell.trigger;shell.trigger=null;if(t&&document.contains(t)&&t.offsetParent!==null)t.focus();}
+}
+function toggleTab(tab){
+  if(shell.open&&shell.tab===tab)return setPanel(false);
+  if(!shell.open)shell.trigger=document.activeElement;
+  setPanel(true,{tab});
+}
+$('panelToggle').onclick=()=>{if(!shell.open)shell.trigger=document.activeElement;setPanel(!shell.open);};
+$('panelClose').onclick=()=>setPanel(false);$('panelScrim').onclick=()=>setPanel(false);
+document.querySelectorAll('[data-tab]').forEach(b=>{b.setAttribute('role','tab');b.id='tabbtn-'+b.dataset.tab;b.setAttribute('aria-controls','tab-'+b.dataset.tab);});
+document.querySelectorAll('.tab-view').forEach(v=>{v.setAttribute('role','tabpanel');v.setAttribute('aria-labelledby','tabbtn-'+v.id.slice(4));});
+document.querySelector('.tabs').addEventListener('keydown',e=>{
+  const tabs=[...document.querySelectorAll('[data-tab]')],i=tabs.indexOf(document.activeElement);if(i<0)return;
+  const to={ArrowRight:(i+1)%tabs.length,ArrowLeft:(i+tabs.length-1)%tabs.length,Home:0,End:tabs.length-1}[e.key];if(to===undefined)return;
+  e.preventDefault();openTab(tabs[to].dataset.tab);tabs[to].focus();
+});
+openTab('chat');
+{ // resizable panel (desktop): drag or arrow keys
+  const r=$('panelResizer'),clamp=w=>Math.max(280,Math.min(560,Math.round(w)));
+  const apply=w=>{w=clamp(w);document.documentElement.style.setProperty('--panel-w',w+'px');r.setAttribute('aria-valuenow',String(w));return w;};
+  apply(Number(lsGet('qorlla-panel-w','340'))||340);
+  r.addEventListener('pointerdown',e=>{r.setPointerCapture(e.pointerId);const mv=ev=>apply(innerWidth-ev.clientX),up=()=>{r.removeEventListener('pointermove',mv);r.removeEventListener('pointerup',up);lsSet('qorlla-panel-w',r.getAttribute('aria-valuenow'));};r.addEventListener('pointermove',mv);r.addEventListener('pointerup',up);});
+  r.addEventListener('keydown',e=>{const cur=Number(r.getAttribute('aria-valuenow')),to={ArrowLeft:cur+20,ArrowRight:cur-20,Home:280,End:560}[e.key];if(to===undefined)return;e.preventDefault();lsSet('qorlla-panel-w',String(apply(to)));});
+}
+const defaultPanel=()=>setPanel(mqDesktop.matches,{focus:false});
+mqDesktop.addEventListener('change',defaultPanel);defaultPanel();
+
+// ---- adaptive toolbar: below 640px Share / Record / Raise hand move into a More menu ----
+const OVERFLOW=['shareBtn','recordBtn','handBtn'];
+function closeOverflow(focusMore){const m=$('overflowMenu'),b=$('moreCtl');if(m.classList.contains('hidden'))return;m.classList.add('hidden');b.setAttribute('aria-expanded','false');if(focusMore)b.focus();}
+function placeOverflow(){
+  const menu=$('overflowMenu'),more=$('moreCtl');
+  if(mqNarrow.matches){for(const id of OVERFLOW)if($(id).parentElement!==menu)menu.append($(id));more.classList.remove('hidden');}
+  else{closeOverflow(false);for(const id of OVERFLOW)if($(id).parentElement===menu)$('peopleBtn').before($(id));more.classList.add('hidden');}
+}
+$('moreCtl').onclick=()=>{const m=$('overflowMenu');if(m.classList.contains('hidden')){m.classList.remove('hidden');$('moreCtl').setAttribute('aria-expanded','true');[...m.querySelectorAll('button')].find(b=>b.offsetParent!==null)?.focus();}else closeOverflow(true);};
+$('overflowMenu').addEventListener('click',e=>{if(e.target.closest('button'))setTimeout(()=>closeOverflow(true),0);});
+document.addEventListener('pointerdown',e=>{if(!e.target.closest('#overflowMenu,#moreCtl'))closeOverflow(false);});
+mqNarrow.addEventListener('change',placeOverflow);placeOverflow();
+
+// ---- keyboard ----
+const SHORTCUTS=[['M','Mute or unmute',()=>$('micBtn').click()],['V','Start or stop video',()=>$('camBtn').click()],['H','Raise or lower hand',()=>$('handBtn').click()],['C','Show or hide chat',()=>toggleTab('chat')],['P','Show or hide people',()=>toggleTab('people')],['S','Start or stop sharing',()=>$('shareBtn').click()],['?','This help',()=>openSettings()],['Esc','Close a panel, menu or dialog',null]];
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&!document.getElementById('rcModal')){
+    if(!$('overflowMenu').classList.contains('hidden')){e.preventDefault();return closeOverflow(true);}
+    if(shell.open&&overlayMode()){e.preventDefault();setPanel(false);}
+    return;
+  }
+  if(e.ctrlKey||e.metaKey||e.altKey||e.isComposing||e.repeat||$('app').classList.contains('hidden')||document.getElementById('rcModal'))return;
+  if(e.target.closest?.('input,textarea,select,[contenteditable="true"]'))return;
+  if(e.key==='?'){e.preventDefault();return openSettings();}
+  if(lsGet('qorlla-shortcuts','on')==='off')return;                                   // WCAG 2.1.4: single-key shortcuts can be turned off
+  const s=SHORTCUTS.find(x=>x[2]&&x[0].length===1&&x[0].toLowerCase()===e.key.toLowerCase()&&x[0]!=='?');if(s){e.preventDefault();s[2]();}
+});
+function openSettings(){
+  rcModal('Settings and keyboard shortcuts',box=>{
+    const live=$('liveText').textContent,media=mediaHealth(),tracks=state.stream?state.stream.getTracks().map(t=>t.kind+(t.readyState==='live'?(t.enabled?'':' (off)'):' (stopped)')).join(', '):'none';
+    const dl=rcEl('dl','rc-notice');for(const [k,v] of [['Connection',live],['Media',media],['Your devices',tracks||'none'],['Connected people',String(Math.max(0,state.roster.size-1))]])dl.append(rcEl('dt','',k),rcEl('dd','',v));box.append(dl);
+    box.append(rcEl('p','rc-note','To change camera or microphone permission, use your browser’s site settings for this page.'));
+    const l=rcEl('label','rc-check'),cb=rcEl('input');cb.type='checkbox';cb.checked=lsGet('qorlla-shortcuts','on')!=='off';cb.onchange=()=>{lsSet('qorlla-shortcuts',cb.checked?'on':'off');announce(cb.checked?'Single-key shortcuts on':'Single-key shortcuts off');};l.append(cb,document.createTextNode(' Single-key shortcuts (M, V, H, C, P, S)'));box.append(l);
+    const tb=rcEl('table','kbd-table');for(const [k,d] of SHORTCUTS){const tr=rcEl('tr');const td=rcEl('td');td.append(rcEl('kbd','',k));tr.append(td,rcEl('td','',d));tb.append(tr);}box.append(tb);
+    const row=rcEl('div','rc-row'),x=rcEl('button','rc-primary','Close');x.onclick=()=>rcClose();row.append(x);box.append(row);
+  });
+}
+// labels for controls that only had placeholders or icons
+document.querySelectorAll('[data-emoji]').forEach(b=>b.setAttribute('aria-label','React with '+b.dataset.emoji));
+for(const [id,l] of [['notes','Shared meeting notes'],['pollQuestion','Poll question'],['pollOptions','Poll options separated by a vertical bar']])$(id)?.setAttribute('aria-label',l);

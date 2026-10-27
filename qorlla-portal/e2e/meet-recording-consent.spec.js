@@ -54,7 +54,7 @@ test.describe('Qorlla Meet recording consent', () => {
     const c = await open(browser, 'Carol', a.code); await expect(c.page.locator('#rcModal')).toContainText('Recording consent'); await expect(a.page.locator('#recBanner')).toContainText('PAUSED'); await expect(b.page.locator('#recBanner')).toContainText('PAUSED');
     await agree(c); await expect(a.page.locator('#recBanner')).toContainText('You are recording this meeting');
     await a.page.waitForTimeout(3000);
-    const [dl] = await Promise.all([a.page.waitForEvent('download'), a.page.click('#recordBtn')]);
+    const [dl] = await Promise.all([a.page.waitForEvent('download'), (async () => { await a.page.click('#recordBtn'); await a.page.locator('#rcModal').getByRole('button', { name: 'Stop recording' }).click(); })()]);
     expect(dl.suggestedFilename()).toMatch(/^qorlla-\d+-\d{8}-\d{4}\.webm$/); const buf = fs.readFileSync(await dl.path()); expect(buf.length).toBeGreaterThan(15000); expect(buf.subarray(0, 4).toString('hex')).toBe('1a45dfa3');
     await expect(b.page.locator('#recBanner')).toBeHidden(); await expect(b.page.locator('.tile .rec-badge')).toHaveCount(0);
     // old consent does not carry over: a second request asks everyone again
