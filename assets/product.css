@@ -225,3 +225,21 @@ body[data-page=auth] #guestNote { margin-top:10px; color:#667189; }
 @media (max-width:1023px) { body[data-page=auth] { grid-template-columns:1fr; } .auth-story { min-height:0; padding:24px 28px; } .auth-story-main { padding:20px 0 4px; max-width:none; } .auth-story h1 { font-size:30px; margin:10px 0; letter-spacing:-1px; } .auth-story-main > p, .auth-feature, .auth-story-footer, .ai-card ul, .ai-card .ai-fine { display:none; } .ai-card { margin-top:14px; } .auth-form-area { padding:36px 24px; } }
 @media (max-width:767px) { .auth-story-main, .auth-story-footer { display:none; } .auth-story { padding:16px 20px; } .auth-form-area { padding:28px 20px; } }
 @media (max-width:1023px) { .auth-form-area > .language-control { position:static; align-self:flex-end; margin:0 0 14px; } .auth-form-area { justify-content:flex-start; } }
+/* Fit the whole sign-in screen inside the visible inner page: sizes follow the available height */
+@media (min-width:1024px) {
+  html.embed body[data-page=auth], body[data-page=auth] { height:100vh; overflow:hidden; }
+  html.embed .auth-story, body[data-page=auth] .auth-story { min-height:0; height:100%; padding:clamp(20px,4vh,44px) clamp(24px,3.4vw,52px); }
+  .auth-story-main { padding:clamp(8px,2vh,24px) 0; }
+  .auth-story h1 { font-size:clamp(26px,5vh,44px); margin:clamp(8px,1.6vh,16px) 0; letter-spacing:-1.2px; }
+  .auth-story p { font-size:clamp(12px,1.7vh,14px); line-height:1.6; }
+  .auth-feature { margin-top:clamp(8px,2vh,18px); padding-top:clamp(8px,2vh,16px); }
+  .ai-card { margin-top:clamp(10px,2.4vh,20px); padding:clamp(10px,1.8vh,16px) 16px; } .ai-card ul { font-size:clamp(11px,1.6vh,12.5px); line-height:1.5; } .ai-card li { margin:2px 0; }
+  .auth-form-area { padding:clamp(16px,4vh,40px) 24px; justify-content:center; }
+  .auth-welcome { margin-bottom:clamp(10px,2.4vh,20px); } .auth-welcome h2 { font-size:clamp(20px,3.6vh,27px); } .auth-welcome p { margin-top:4px; font-size:12.5px; }
+  body[data-page=auth] .tabs { margin-bottom:clamp(8px,2vh,16px); } body[data-page=auth] .tab { padding:clamp(6px,1.2vh,9px); font-size:12.5px; }
+  body[data-page=auth] label { margin:clamp(8px,1.8vh,14px) 0 4px; font-size:11.5px; }
+  body[data-page=auth] input[type=text], body[data-page=auth] input[type=password], body[data-page=auth] input[type=email] { height:clamp(36px,5.2vh,44px); font-size:14px; }
+  body[data-page=auth] .go { height:clamp(38px,5.4vh,44px); margin-top:clamp(12px,2.4vh,20px); font-size:13.5px; }
+  body[data-page=auth] .links { margin-top:clamp(8px,1.8vh,14px); font-size:12.5px; } body[data-page=auth] #guestNote { font-size:10.5px; margin-top:6px; }
+  .auth-footer { margin-top:clamp(10px,2.4vh,24px); padding-top:clamp(8px,1.6vh,14px); font-size:10.5px; }
+}
