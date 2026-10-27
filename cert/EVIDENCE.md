@@ -1,16 +1,16 @@
 # Certification evidence
 
-- Started: 2026-10-26T19:46:31.148Z
-- Finished: 2026-10-26T19:52:16.916Z
-- Git HEAD: `5af3f8e16b4b6b32cad50ebe00e65a864fcfa42c` (working tree clean)
-- Tested-file fingerprints (sha256/16): workplace.js:de23499937889b83, qorlla.html:681d3df95d85e6d5, Dockerfile:1563dfe34338afd4, docker-compose.yml:7c1f081c4770d7ed, meet-sync/src/worker.mjs:16fbabb5c760393a, meet-sync/src/store.mjs:5cc42fe5f6f5fb17, qorlla-meet-video/server/index.js:35e80ec30484577a, qorlla-meet-video/server/recovery-service.mjs:d55003d9abb539f4
+- Started: 2026-10-27T00:52:45.278Z
+- Finished: 2026-10-27T00:58:33.277Z
+- Git HEAD: `e9878003952817b2216c251506e639b34bbe1238` (working tree clean)
+- Tested-file fingerprints (sha256/16): workplace.js:c8acede0c6670eb3, qorlla.html:681d3df95d85e6d5, Dockerfile:b67855d0307081b3, docker-compose.yml:1395e0d85b3eafa8, meet-sync/src/worker.mjs:16fbabb5c760393a, meet-sync/src/store.mjs:71d58434a747c855, qorlla-meet-video/server/index.js:d0eda8d55a1d48ac, qorlla-meet-video/server/recovery-service.mjs:e83daf387847648f
 - Result: **38 passed, 0 failed, 0 not run**
 
 | ID | Result | Check | Detail |
 |---|---|---|---|
-| C01 | PASS | New schedule creates a Meet mapping (pending_sync -> synced, DB rows) | source=3390cf92-4502-4cfb-8533-756e9ae1fd56 code=166976445535 uuid=17eec4dc-cb5d-4be1-9a00-1acd89779508 |
+| C01 | PASS | New schedule creates a Meet mapping (pending_sync -> synced, DB rows) | source=259819ca-5f45-4c13-9697-9d1931e3eb65 code=095841040137 uuid=b4f903f8-b797-49b3-b581-1a27e012846f |
 | C02 | PASS | Retry/idempotency: re-registering same sourceId returns same mapping |  |
-| C03 | PASS | Legacy (formatted) code resolves to the registered meeting | 660 3814 8496 |
+| C03 | PASS | Legacy (formatted) code resolves to the registered meeting | 758 3126 2623 |
 | C04 | PASS | Join via UUID and via numeric public code |  |
 | C05 | PASS | Title/time update propagates to Meet |  |
 | C06 | PASS | Cancellation (delete in MAIN) ends the meeting and prevents joining |  |
@@ -27,8 +27,8 @@
 | C16 | PASS | Two browsers: real (fake-device) media between peers, chat, and recovery after network disruption | video tiles flowing on host after disruption: 2 |
 | C17 | PASS | Meet outage -> schedules stay pending -> automatic recovery | attempts during outage: 2 |
 | C18 | PASS | Backfill is idempotent (duplicate apply creates no duplicates) |  |
-| C19 | PASS | REAL timers: legacy-code collision -> 409s -> exponential backoff -> dead after 12 attempts (no timestamp edits) | dead\|12\|Meet bridge 409: Legacy code already in use after 39.665s real time |
-| C20 | PASS | REAL lease expiry: worker killed mid-job; job re-claimed only after its lease expires (6s lease, wall-clock) | lease_until=2026-10-26T19:47:55.743Z killed=2026-10-26T19:47:51.966Z completed=2026-10-26T19:47:56.918Z (waited 4.952s after kill) |
+| C19 | PASS | REAL timers: legacy-code collision -> 409s -> exponential backoff -> dead after 12 attempts (no timestamp edits) | dead\|12\|Meet bridge 409: Legacy code already in use after 39.038s real time |
+| C20 | PASS | REAL lease expiry: worker killed mid-job; job re-claimed only after its lease expires (6s lease, wall-clock) | lease_until=2026-10-27T00:54:14.910Z killed=2026-10-27T00:54:11.477Z completed=2026-10-27T00:54:15.753Z (waited 4.276s after kill) |
 | C21 | PASS | Crash after Meet commit, before vault write: recovery rotates once, vaults, acks, host login works |  |
 | C22 | PASS | Cancel wins over a queued (unprocessed) upsert | meet link rows after cancel race: 0 |
 | C23 | PASS | Concurrent edits apply in version order (last edit wins) |  |
@@ -43,6 +43,6 @@
 | RC03 | PASS | Lost ack RESPONSE (Meet processed it): retry gets "not pending" and finishes idempotently; host credential intact | ack requests seen by Meet: 2 |
 | RC04 | PASS | Repeated acknowledgment is rejected (409) and changes nothing |  |
 | RC05 | PASS | Concurrent workers: exactly one ack request is issued for a pending recovery | ack requests: 1 with two live workers |
-| RC06 | PASS | REAL lease expiry on ack: worker killed mid-ack; another worker acks only after the lease expires | lease_until=2026-10-26T19:51:05.023Z completed=2026-10-26T19:51:06.278Z |
+| RC06 | PASS | REAL lease expiry on ack: worker killed mid-ack; another worker acks only after the lease expires | lease_until=2026-10-27T00:57:24.774Z completed=2026-10-27T00:57:26.507Z |
 | RC07 | PASS | Cancellation during recovery: pending ack still completes; recovery of the cancelled meeting is refused |  |
 | RC08 | PASS | Meet database interruption during ack: escrow retained, ack completes after the database returns |  |

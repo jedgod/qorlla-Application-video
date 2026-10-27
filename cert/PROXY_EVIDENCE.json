@@ -1,20 +1,26 @@
 {
-  "finished": "2026-10-26T20:16:36.980Z",
+  "finished": "2026-10-27T01:02:09.481Z",
   "git": {
-    "headSha": "f3e5ef721c45cb724ab2c6387562f69e3fbc5283",
-    "branch": "release/qorlla-meet-v3.9.2-production-closure",
+    "headSha": "e9878003952817b2216c251506e639b34bbe1238",
+    "branch": "feature/qorlla-workplace-v4.5",
     "sourceTreeClean": false,
     "dirtySourcePaths": [
-      " M cert/BACKUP_RESTORE_EVIDENCE.md",
       " M cert/SECURITY_EVIDENCE.json",
       " M cert/SECURITY_EVIDENCE.md",
+      " M cert/evidence.json",
+      " M cert/screenshots/C12-independent.png",
+      " M cert/screenshots/C12-returned.png",
+      " M cert/screenshots/C13-prefs.png",
+      " M cert/screenshots/C14-passcode.png",
+      " M cert/screenshots/C16-guest.png",
+      " M cert/screenshots/C16-host.png",
+      " M cert/screenshots/C24-pending.png",
       " M cert/screenshots/P06-proxy-passcode.png",
       " M cert/screenshots/P07-proxy-guest.png",
-      " M cert/screenshots/P07-proxy-host.png",
-      "?? qorlla-meet-video/qorlla-portal-v4/Qorlla_Workplace_v4_2_to_v4_5_Extension/"
+      " M cert/screenshots/P07-proxy-host.png"
     ]
   },
-  "gitHeadSha": "f3e5ef721c45cb724ab2c6387562f69e3fbc5283",
+  "gitHeadSha": "e9878003952817b2216c251506e639b34bbe1238",
   "ports": {
     "mainHttp": 18080,
     "meetHttp": 18081,
@@ -23,86 +29,86 @@
   },
   "nginx": "nginx:alpine via docker compose (nginx.conf + deploy/nginx/*)",
   "summary": {
-    "pass": 7,
-    "fail": 4
+    "pass": 11,
+    "fail": 0
   },
   "results": [
     {
       "id": "P01",
       "name": "HTTP routing: MAIN pages, assets and API through nginx",
       "status": "PASS",
-      "startedAt": "2026-10-26T20:14:10.741Z",
+      "startedAt": "2026-10-27T01:00:03.140Z",
       "detail": ""
     },
     {
       "id": "P02",
       "name": "HTTPS routing: MAIN over TLS 1.2+/HSTS; legacy TLS refused",
       "status": "PASS",
-      "startedAt": "2026-10-26T20:14:10.968Z",
+      "startedAt": "2026-10-27T01:00:03.559Z",
       "detail": "negotiated TLSv1.3"
     },
     {
       "id": "P03",
       "name": "Meet reachable through nginx over HTTP and HTTPS",
       "status": "PASS",
-      "startedAt": "2026-10-26T20:14:11.175Z",
+      "startedAt": "2026-10-27T01:00:03.783Z",
       "detail": ""
     },
     {
       "id": "P04",
       "name": "Internal bridge/recovery/readiness endpoints are NOT reachable through the public Meet proxy",
       "status": "PASS",
-      "startedAt": "2026-10-26T20:14:11.466Z",
+      "startedAt": "2026-10-27T01:00:04.007Z",
       "detail": "14 probes blocked; direct private access still works"
     },
     {
       "id": "P06",
       "name": "Scheduled, passcode-protected meeting: join from MAIN through the public proxy routes, then leave back to MAIN",
       "status": "PASS",
-      "startedAt": "2026-10-26T20:14:11.838Z",
+      "startedAt": "2026-10-27T01:00:04.420Z",
       "detail": ""
     },
     {
       "id": "P12",
       "name": "Passcode enforced through the proxy API (wrong/missing 403, correct 200)",
       "status": "PASS",
-      "startedAt": "2026-10-26T20:14:16.799Z",
+      "startedAt": "2026-10-27T01:00:07.833Z",
       "detail": ""
     },
     {
       "id": "P07",
       "name": "Two browsers over HTTPS: WebSocket upgrade, real media both ways, chat both ways",
       "status": "PASS",
-      "startedAt": "2026-10-26T20:14:17.278Z",
+      "startedAt": "2026-10-27T01:00:08.274Z",
       "detail": "wss connections: 2"
     },
     {
       "id": "P11",
       "name": "Persistent connection survives past nginx default 60s idle (3600s proxy timeout) with no reconnect",
-      "status": "FAIL",
-      "startedAt": "2026-10-26T20:14:24.096Z",
-      "detail": "a websocket closed during idle"
+      "status": "PASS",
+      "startedAt": "2026-10-27T01:00:12.654Z",
+      "detail": ""
     },
     {
       "id": "P08",
       "name": "Session reconnection: network drop, page refresh and meeting rejoin",
-      "status": "FAIL",
-      "startedAt": "2026-10-26T20:15:39.099Z",
-      "detail": "Timed out waiting for chat after reconnect (last: false)"
+      "status": "PASS",
+      "startedAt": "2026-10-27T01:01:28.253Z",
+      "detail": ""
     },
     {
       "id": "P09",
       "name": "Authentication cookies through the proxy: HttpOnly, SameSite, Secure on HTTPS",
-      "status": "FAIL",
-      "startedAt": "2026-10-26T20:16:24.203Z",
-      "detail": "fetch failed [cause: ECONNREFUSED]"
+      "status": "PASS",
+      "startedAt": "2026-10-27T01:01:34.119Z",
+      "detail": ""
     },
     {
       "id": "P10",
       "name": "Upstream failures: Meet down -> fast 502; MAIN down -> fast 502; both recover without nginx restart",
-      "status": "FAIL",
-      "startedAt": "2026-10-26T20:16:24.211Z",
-      "detail": "fetch failed [cause: ECONNREFUSED]"
+      "status": "PASS",
+      "startedAt": "2026-10-27T01:01:34.686Z",
+      "detail": "Meet 502 in 33ms; MAIN 504 in 5012ms"
     }
   ]
 }

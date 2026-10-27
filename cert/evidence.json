@@ -1,22 +1,22 @@
 {
-  "startedAt": "2026-10-26T19:46:31.148Z",
-  "finished": "2026-10-26T19:52:16.916Z",
+  "startedAt": "2026-10-27T00:52:45.278Z",
+  "finished": "2026-10-27T00:58:33.277Z",
   "git": {
-    "headSha": "5af3f8e16b4b6b32cad50ebe00e65a864fcfa42c",
-    "branch": "release/qorlla-meet-v3.9.2-production-closure",
+    "headSha": "e9878003952817b2216c251506e639b34bbe1238",
+    "branch": "feature/qorlla-workplace-v4.5",
     "sourceTreeClean": true,
     "dirtySourcePaths": [],
     "workingTreeDirty": false,
     "dirtyFileCount": 0,
     "fingerprint": [
-      "workplace.js:de23499937889b83",
+      "workplace.js:c8acede0c6670eb3",
       "qorlla.html:681d3df95d85e6d5",
-      "Dockerfile:1563dfe34338afd4",
-      "docker-compose.yml:7c1f081c4770d7ed",
+      "Dockerfile:b67855d0307081b3",
+      "docker-compose.yml:1395e0d85b3eafa8",
       "meet-sync/src/worker.mjs:16fbabb5c760393a",
-      "meet-sync/src/store.mjs:5cc42fe5f6f5fb17",
-      "qorlla-meet-video/server/index.js:35e80ec30484577a",
-      "qorlla-meet-video/server/recovery-service.mjs:d55003d9abb539f4"
+      "meet-sync/src/store.mjs:71d58434a747c855",
+      "qorlla-meet-video/server/index.js:d0eda8d55a1d48ac",
+      "qorlla-meet-video/server/recovery-service.mjs:e83daf387847648f"
     ]
   },
   "stack": {
@@ -36,266 +36,266 @@
       "id": "C01",
       "name": "New schedule creates a Meet mapping (pending_sync -> synced, DB rows)",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:32.774Z",
-      "detail": "source=3390cf92-4502-4cfb-8533-756e9ae1fd56 code=166976445535 uuid=17eec4dc-cb5d-4be1-9a00-1acd89779508"
+      "startedAt": "2026-10-27T00:52:47.094Z",
+      "detail": "source=259819ca-5f45-4c13-9697-9d1931e3eb65 code=095841040137 uuid=b4f903f8-b797-49b3-b581-1a27e012846f"
     },
     {
       "id": "C02",
       "name": "Retry/idempotency: re-registering same sourceId returns same mapping",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:34.122Z",
+      "startedAt": "2026-10-27T00:52:49.260Z",
       "detail": ""
     },
     {
       "id": "C03",
       "name": "Legacy (formatted) code resolves to the registered meeting",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:34.187Z",
-      "detail": "660 3814 8496"
+      "startedAt": "2026-10-27T00:52:49.313Z",
+      "detail": "758 3126 2623"
     },
     {
       "id": "C04",
       "name": "Join via UUID and via numeric public code",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:34.212Z",
+      "startedAt": "2026-10-27T00:52:49.349Z",
       "detail": ""
     },
     {
       "id": "C05",
       "name": "Title/time update propagates to Meet",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:34.787Z",
+      "startedAt": "2026-10-27T00:52:49.915Z",
       "detail": ""
     },
     {
       "id": "C06",
       "name": "Cancellation (delete in MAIN) ends the meeting and prevents joining",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:37.953Z",
+      "startedAt": "2026-10-27T00:52:53.018Z",
       "detail": ""
     },
     {
       "id": "C07",
       "name": "Bridge rejects missing/wrong secret (401)",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:35.836Z",
+      "startedAt": "2026-10-27T00:52:51.044Z",
       "detail": ""
     },
     {
       "id": "C08",
       "name": "Legacy-code collision returns 409 and does not remap",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:35.846Z",
+      "startedAt": "2026-10-27T00:52:51.055Z",
       "detail": ""
     },
     {
       "id": "C09",
       "name": "MAIN restart while pending: retry completes with same sourceId",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:56.592Z",
+      "startedAt": "2026-10-27T00:53:12.771Z",
       "detail": ""
     },
     {
       "id": "C10",
       "name": "Meet restart keeps persisted mapping",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:36.445Z",
+      "startedAt": "2026-10-27T00:52:51.845Z",
       "detail": ""
     },
     {
       "id": "C11",
       "name": "Simultaneous registration of one sourceId creates exactly one meeting",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:35.870Z",
+      "startedAt": "2026-10-27T00:52:51.125Z",
       "detail": ""
     },
     {
       "id": "C12",
       "name": "Leave returns to the originating MAIN page on the same host (independent session)",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:51:49.836Z",
+      "startedAt": "2026-10-27T00:58:07.743Z",
       "detail": "returned to http://localhost:5000/#home"
     },
     {
       "id": "C13",
       "name": "Camera/mic preferences from MAIN dialog are honoured in Meet",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:51:46.539Z",
+      "startedAt": "2026-10-27T00:58:04.939Z",
       "detail": "left Meet and landed at localhost:5000"
     },
     {
       "id": "C14",
       "name": "Browser: scheduled meeting with passcode prompts in the Meet lobby (wrong -> error, right -> enters)",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:51:52.107Z",
+      "startedAt": "2026-10-27T00:58:09.646Z",
       "detail": ""
     },
     {
       "id": "C14a",
       "name": "Passcode enforced server-side (wrong/missing -> 403, correct -> 200)",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:34.589Z",
+      "startedAt": "2026-10-27T00:52:49.713Z",
       "detail": ""
     },
     {
       "id": "C15",
       "name": "/index.html repaired (served by MAIN), /qorlla.html preserved, 1index.html untouched",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:51:46.014Z",
+      "startedAt": "2026-10-27T00:58:04.423Z",
       "detail": ""
     },
     {
       "id": "C16",
       "name": "Two browsers: real (fake-device) media between peers, chat, and recovery after network disruption",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:52:02.074Z",
+      "startedAt": "2026-10-27T00:58:17.626Z",
       "detail": "video tiles flowing on host after disruption: 2"
     },
     {
       "id": "C17",
       "name": "Meet outage -> schedules stay pending -> automatic recovery",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:47:11.208Z",
+      "startedAt": "2026-10-27T00:53:27.085Z",
       "detail": "attempts during outage: 2"
     },
     {
       "id": "C18",
       "name": "Backfill is idempotent (duplicate apply creates no duplicates)",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:47:59.918Z",
+      "startedAt": "2026-10-27T00:54:18.294Z",
       "detail": ""
     },
     {
       "id": "C19",
       "name": "REAL timers: legacy-code collision -> 409s -> exponential backoff -> dead after 12 attempts (no timestamp edits)",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:48:04.591Z",
-      "detail": "dead|12|Meet bridge 409: Legacy code already in use after 39.665s real time"
+      "startedAt": "2026-10-27T00:54:22.910Z",
+      "detail": "dead|12|Meet bridge 409: Legacy code already in use after 39.038s real time"
     },
     {
       "id": "C20",
       "name": "REAL lease expiry: worker killed mid-job; job re-claimed only after its lease expires (6s lease, wall-clock)",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:47:42.878Z",
-      "detail": "lease_until=2026-10-26T19:47:55.743Z killed=2026-10-26T19:47:51.966Z completed=2026-10-26T19:47:56.918Z (waited 4.952s after kill)"
+      "startedAt": "2026-10-27T00:54:02.360Z",
+      "detail": "lease_until=2026-10-27T00:54:14.910Z killed=2026-10-27T00:54:11.477Z completed=2026-10-27T00:54:15.753Z (waited 4.276s after kill)"
     },
     {
       "id": "C21",
       "name": "Crash after Meet commit, before vault write: recovery rotates once, vaults, acks, host login works",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:48:52.948Z",
+      "startedAt": "2026-10-27T00:55:09.819Z",
       "detail": ""
     },
     {
       "id": "C22",
       "name": "Cancel wins over a queued (unprocessed) upsert",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:41.060Z",
+      "startedAt": "2026-10-27T00:52:56.223Z",
       "detail": "meet link rows after cancel race: 0"
     },
     {
       "id": "C23",
       "name": "Concurrent edits apply in version order (last edit wins)",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:46:49.110Z",
+      "startedAt": "2026-10-27T00:53:04.486Z",
       "detail": ""
     },
     {
       "id": "C24",
       "name": "Browser: pending/unregistered meetings show no Join; cancelled meetings are not joinable",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:51:54.350Z",
+      "startedAt": "2026-10-27T00:58:11.527Z",
       "detail": ""
     },
     {
       "id": "R01",
       "name": "Lost response replays the SAME generation and secret (no second rotation)",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:48:57.728Z",
+      "startedAt": "2026-10-27T00:55:14.551Z",
       "detail": ""
     },
     {
       "id": "R02",
       "name": "Unvaulted/unacknowledged recovery leaves escrow PENDING with encrypted secret",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:48:58.535Z",
+      "startedAt": "2026-10-27T00:55:15.081Z",
       "detail": ""
     },
     {
       "id": "R03",
       "name": "Ack failure (wrong secret) is rejected and retryable; correct ack succeeds",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:48:58.563Z",
+      "startedAt": "2026-10-27T00:55:15.100Z",
       "detail": ""
     },
     {
       "id": "R04",
       "name": "Different request ID while pending -> 409",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:48:58.543Z",
+      "startedAt": "2026-10-27T00:55:15.087Z",
       "detail": ""
     },
     {
       "id": "R05",
       "name": "After replay + ack, new credential claims host and the previous credential fails",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:48:58.915Z",
+      "startedAt": "2026-10-27T00:55:15.166Z",
       "detail": ""
     },
     {
       "id": "RC01",
       "name": "Ack failure retried by its OWN worker (no schedule job), bounded real backoff, escrow retained until Meet confirms",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:48:59.133Z",
+      "startedAt": "2026-10-27T00:55:15.206Z",
       "detail": "attempts while Meet down=3; backoff scheduled=t"
     },
     {
       "id": "RC02",
       "name": "Worker restart mid-retry: ack state is durable and the ack still completes",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:49:28.838Z",
+      "startedAt": "2026-10-27T00:55:42.835Z",
       "detail": ""
     },
     {
       "id": "RC03",
       "name": "Lost ack RESPONSE (Meet processed it): retry gets \"not pending\" and finishes idempotently; host credential intact",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:50:03.661Z",
+      "startedAt": "2026-10-27T00:56:18.677Z",
       "detail": "ack requests seen by Meet: 2"
     },
     {
       "id": "RC04",
       "name": "Repeated acknowledgment is rejected (409) and changes nothing",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:50:21.358Z",
+      "startedAt": "2026-10-27T00:56:35.336Z",
       "detail": ""
     },
     {
       "id": "RC05",
       "name": "Concurrent workers: exactly one ack request is issued for a pending recovery",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:50:30.925Z",
+      "startedAt": "2026-10-27T00:56:45.977Z",
       "detail": "ack requests: 1 with two live workers"
     },
     {
       "id": "RC06",
       "name": "REAL lease expiry on ack: worker killed mid-ack; another worker acks only after the lease expires",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:50:50.318Z",
-      "detail": "lease_until=2026-10-26T19:51:05.023Z completed=2026-10-26T19:51:06.278Z"
+      "startedAt": "2026-10-27T00:57:09.960Z",
+      "detail": "lease_until=2026-10-27T00:57:24.774Z completed=2026-10-27T00:57:26.507Z"
     },
     {
       "id": "RC07",
       "name": "Cancellation during recovery: pending ack still completes; recovery of the cancelled meeting is refused",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:51:09.108Z",
+      "startedAt": "2026-10-27T00:57:29.211Z",
       "detail": ""
     },
     {
       "id": "RC08",
       "name": "Meet database interruption during ack: escrow retained, ack completes after the database returns",
       "status": "PASS",
-      "startedAt": "2026-10-26T19:51:19.781Z",
+      "startedAt": "2026-10-27T00:57:39.053Z",
       "detail": ""
     }
   ]

@@ -1,0 +1,150 @@
+{
+  "sha": "e9878003952817b2216c251506e639b34bbe1238",
+  "branch": "feature/qorlla-workplace-v4.5",
+  "gates": [
+    {
+      "release": "v4.2 AI Meeting Intelligence",
+      "code": true,
+      "production": "BLOCKED"
+    },
+    {
+      "release": "v4.3 AI Receptionist and Phone",
+      "code": true,
+      "production": "BLOCKED"
+    },
+    {
+      "release": "v4.4 QorllaMate, Notes and Productivity",
+      "code": true,
+      "production": "BLOCKED"
+    },
+    {
+      "release": "v4.5 Billing and Enterprise Launch",
+      "code": true,
+      "production": "BLOCKED"
+    }
+  ],
+  "unit": {
+    "total": 168,
+    "failed": 0,
+    "suites": [
+      {
+        "name": "authentication & authorization",
+        "ok": true,
+        "leaves": 13,
+        "failed": 0
+      },
+      {
+        "name": "billing launch: plan changes, refunds, usage billing, admin console",
+        "ok": true,
+        "leaves": 20,
+        "failed": 0
+      },
+      {
+        "name": "subscription lifecycle",
+        "ok": true,
+        "leaves": 19,
+        "failed": 0
+      },
+      {
+        "name": "MAIN <-> portal identity contract (real MAIN auth module)",
+        "ok": true,
+        "leaves": 7,
+        "failed": 0
+      },
+      {
+        "name": "backend entitlement enforcement, sales inquiries",
+        "ok": true,
+        "leaves": 5,
+        "failed": 0
+      },
+      {
+        "name": "abuse limits: per-user rate limits on costly endpoints and request sizes that match the schemas",
+        "ok": true,
+        "leaves": 3,
+        "failed": 0
+      },
+      {
+        "name": "AI meeting intelligence",
+        "ok": true,
+        "leaves": 27,
+        "failed": 0
+      },
+      {
+        "name": "PostgreSQL migration and rollback",
+        "ok": true,
+        "leaves": 8,
+        "failed": 0
+      },
+      {
+        "name": "telephony routing (pure logic)",
+        "ok": true,
+        "leaves": 7,
+        "failed": 0
+      },
+      {
+        "name": "AI receptionist and phone (API + webhooks against PostgreSQL)",
+        "ok": true,
+        "leaves": 33,
+        "failed": 0
+      },
+      {
+        "name": "document content (pure)",
+        "ok": true,
+        "leaves": 2,
+        "failed": 0
+      },
+      {
+        "name": "notes, documents and QorllaMate (API against PostgreSQL)",
+        "ok": true,
+        "leaves": 24,
+        "failed": 0
+      }
+    ]
+  },
+  "deployment": [
+    {
+      "id": "D01",
+      "status": "PASS"
+    },
+    {
+      "id": "D02",
+      "status": "PASS"
+    },
+    {
+      "id": "D03",
+      "status": "PASS"
+    },
+    {
+      "id": "D04",
+      "status": "PASS"
+    },
+    {
+      "id": "D05",
+      "status": "PASS"
+    },
+    {
+      "id": "D06",
+      "status": "PASS"
+    },
+    {
+      "id": "D07",
+      "status": "PASS"
+    },
+    {
+      "id": "D08",
+      "status": "PASS"
+    },
+    {
+      "id": "D09",
+      "status": "PASS"
+    }
+  ],
+  "e2e": {
+    "total": 39,
+    "passed": 39
+  },
+  "meet": {
+    "pass": 38,
+    "fail": 0
+  }
+}

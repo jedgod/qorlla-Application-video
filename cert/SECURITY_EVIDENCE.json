@@ -1,15 +1,24 @@
 {
-  "finished": "2026-10-26T20:09:53.683Z",
+  "finished": "2026-10-27T00:59:32.453Z",
   "git": {
-    "headSha": "16cfdc45038ed5de1f5a2da945fe4bfcaa6f8ec5",
-    "branch": "release/qorlla-meet-v3.9.2-production-closure",
-    "sourceTreeClean": true,
-    "dirtySourcePaths": []
+    "headSha": "e9878003952817b2216c251506e639b34bbe1238",
+    "branch": "feature/qorlla-workplace-v4.5",
+    "sourceTreeClean": false,
+    "dirtySourcePaths": [
+      " M cert/evidence.json",
+      " M cert/screenshots/C12-independent.png",
+      " M cert/screenshots/C12-returned.png",
+      " M cert/screenshots/C13-prefs.png",
+      " M cert/screenshots/C14-passcode.png",
+      " M cert/screenshots/C16-guest.png",
+      " M cert/screenshots/C16-host.png",
+      " M cert/screenshots/C24-pending.png"
+    ]
   },
-  "gitHeadSha": "16cfdc45038ed5de1f5a2da945fe4bfcaa6f8ec5",
+  "gitHeadSha": "e9878003952817b2216c251506e639b34bbe1238",
   "summary": {
-    "pass": 14,
-    "fail": 1
+    "pass": 15,
+    "fail": 0
   },
   "results": [
     {
@@ -33,8 +42,8 @@
     {
       "id": "SEC04",
       "name": "WebSocket authorization: no/forged/expired/foreign-secret tokens are refused; cross-meeting REST access is refused",
-      "status": "FAIL",
-      "detail": "Bad \"options.issuer\" option. The payload already has an \"iss\" property."
+      "status": "PASS",
+      "detail": ""
     },
     {
       "id": "SEC05",
@@ -70,7 +79,7 @@
       "id": "SEC10",
       "name": "Logs contain no secrets (bridge secret, vault/escrow keys, JWT secret, host secrets)",
       "status": "PASS",
-      "detail": "scanned 9 KiB of logs"
+      "detail": "scanned 13 KiB of logs"
     },
     {
       "id": "SEC11",

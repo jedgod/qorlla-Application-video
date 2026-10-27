@@ -1,0 +1,133 @@
+{
+  "finished": "2026-10-27T00:51:50.041Z",
+  "git": {
+    "headSha": "e9878003952817b2216c251506e639b34bbe1238",
+    "branch": "feature/qorlla-workplace-v4.5",
+    "sourceTreeClean": true,
+    "dirtySourcePaths": []
+  },
+  "ports": {
+    "http": 28080,
+    "meet": 28081,
+    "tls": 28443,
+    "meetTls": 28444,
+    "main": 25000,
+    "meetHost": 23000,
+    "fake": 19500,
+    "pg": 25611
+  },
+  "note": "Payment provider = local TEST DOUBLE; real-provider verification is BLOCKED (no account/keys, no authorization to collect payments).",
+  "summary": {
+    "pass": 11,
+    "fail": 0
+  },
+  "results": [
+    {
+      "id": "U-ALL",
+      "name": "portal node:test suites (auth, billing lifecycle, entitlements, sales, migrations/rollback, real-MAIN contract)",
+      "status": "PASS",
+      "detail": "168 passed, 0 failed"
+    },
+    {
+      "id": "D01",
+      "name": "docker compose config is valid and every long-running service has a restart policy",
+      "status": "PASS",
+      "detail": "7 services: dashboard-client-proxy, main-db, meet, meet-db, meet-sync-worker, qorlla-portal, workspace-signaling-engine"
+    },
+    {
+      "id": "D02",
+      "name": "unified stack builds and every service becomes healthy (main, portal, meet, databases, nginx)",
+      "status": "PASS",
+      "detail": "main-db=healthy meet=healthy meet-db=healthy meet-sync-worker=running qorlla-portal=healthy workspace-signaling-engine=healthy dashboard-client-proxy=healthy"
+    },
+    {
+      "id": "D03",
+      "name": "single HTTPS entry point: only nginx listens on public interfaces; app services bind loopback or nothing",
+      "status": "PASS",
+      "detail": "only dashboard-client-proxy (nginx) is published on 0.0.0.0"
+    },
+    {
+      "id": "D04",
+      "name": "containers run unprivileged; structured JSON logs from portal and nginx; no secrets in logs",
+      "status": "PASS",
+      "detail": "4 portal and 1 nginx JSON lines parsed"
+    },
+    {
+      "id": "D05",
+      "name": "least-privilege roles: portal role can only touch the portal schema",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "D06",
+      "name": "portal fails closed (503) while authentication is not operational, and answers 401 once configured",
+      "status": "PASS",
+      "detail": "503 [\"MAIN_AUTH_ISSUER\",\"MAIN_AUTH_JWKS_URL\",\"PORTAL_ALLOWED_ORIGIN\",\"MAIN_INTROSPECTION_URL + PORTAL_INTROSPECTION_SECRET (>=32 chars)\"]"
+    },
+    {
+      "id": "D08",
+      "name": "a platform admin can be provisioned (configuration only) and the console + metrics are not reachable by anyone else",
+      "status": "PASS",
+      "detail": "admin id configured; /internal/metrics is not routed publicly"
+    },
+    {
+      "id": "D09",
+      "name": "metrics are served inside the private network only, with the bearer token, as Prometheus text with no secrets",
+      "status": "PASS",
+      "detail": "9 gauges"
+    },
+    {
+      "id": "E2E",
+      "name": "browser E2E: pricing, checkout/webhook, portal auth, navigation, mobile, Meet under /meet/, meeting-to-report",
+      "status": "PASS",
+      "detail": "39 passed, 0 failed",
+      "titles": [
+        "ok upgrade now, schedule a downgrade, cancel it; usage panel says no pay-as-you-go prices exist",
+        "ok the platform console is invisible to ordinary users and works for the configured admin: overview, health, refund, sales workflow, kill switch",
+        "ok Meet UI loads under /meet/, redirects /meet, and its assets and API are prefix-aware",
+        "ok internal bridge, recovery and readiness endpoints are not reachable even with the right secret header",
+        "ok two browsers meet under /meet/: websocket upgrade on the prefixed path, chat both ways, passcode, refresh and rejoin",
+        "ok host consents, builds a report from the real Meet chat, assigns work, shares, exports, and revokes - with permissions enforced throughout",
+        "ok plan limit: the Basic plan allows 3 AI reports a month and the dashboard explains it",
+        "ok every internal link on the pricing page, the portal and the apps menu resolves (no dead product/sidebar links)",
+        "ok [I07] header and product links on the pricing page are same-origin routes to the portal",
+        "ok [I08][I09] sidebar items work from the keyboard and open real portal pages",
+        "ok apps menu opens, items are reachable by Tab, and Escape closes it and restores focus",
+        "ok highlights expand/collapse by mouse and keyboard",
+        "ok phone layout: pricing and portal pages do not overflow horizontally and purchase controls stay reachable",
+        "ok tablet layout: pricing and portal pages do not overflow horizontally and purchase controls stay reachable",
+        "ok legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html",
+        "ok [I01][I02][I03] the catalogue is same-origin only: no CORS grants, GET-only, private endpoints closed",
+        "ok the phone page states that telephony is off, shows an empty history, and public webhooks refuse to run",
+        "ok receptionist: create a profile, set business hours, enable it, add rules, and book an appointment against the hours",
+        "ok the workspace owner sees the manager-only phone sections",
+        "ok signed-out visitors get a sign-in prompt on private pages and the API answers 401",
+        "ok sign up in MAIN -> portal onboarding -> workspace -> notes with plan quota; second user cannot see the data",
+        "ok plan limit is enforced and explained in the UI",
+        "ok an expired portal token is renewed silently from the live MAIN session; sign-out ends access at once",
+        "ok tampered / garbage portal cookies are refused (and MAIN has no session to renew from)",
+        "ok billing page: owner sees plan and invoices area; billing details stay hidden from plain members",
+        "ok [I04][I05] displayed prices equal the database-backed API (monthly and annual), with computed saving",
+        "ok [I06] annual/monthly switch works with the mouse and the keyboard and exposes its state",
+        "ok seat count changes the displayed total",
+        "ok [I13] a price change in PostgreSQL shows on the page after reload; nothing is cached or hard-coded",
+        "ok [I14] annual billing is disabled (not invented) when a plan has no annual price row",
+        "ok [I15] catalogue unavailable => explicit \"unavailable\" state, buying disabled, NO fallback prices; Retry recovers",
+        "ok when the server says checkout is not available, purchase buttons are disabled with an explanation",
+        "ok [I12] Enterprise \"Contact sales\" creates a real inquiry in PostgreSQL (and the honeypot does not)",
+        "ok signed-out visitors who click Buy are sent to sign in and come back to pricing",
+        "ok [I10] signed-in Buy creates a SERVER-SIDE checkout with the database price; the redirect alone activates nothing; a verified webhook does",
+        "ok notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it",
+        "ok documents: create, edit with version history and restore, optimistic-concurrency conflict, and sharing as read-only",
+        "ok sheets and slides edit and persist; AI draft is labelled and private (test-double model)",
+        "ok QorllaMate proposes, the user approves, and only then does the note exist; email stays blocked (test-double model)"
+      ]
+    },
+    {
+      "id": "D07",
+      "name": "restart resilience: portal and nginx restart cleanly and the site keeps serving",
+      "status": "PASS",
+      "detail": ""
+    }
+  ]
+}
