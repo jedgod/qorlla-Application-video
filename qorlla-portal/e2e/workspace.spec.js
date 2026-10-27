@@ -18,8 +18,15 @@ test.describe('notes, documents and QorllaMate', () => {
     await page.selectOption('#note-form [name=notebook_id]', { label: 'Ideas' }); await page.getByRole('button', { name: 'Save Note' }).click();
     await expect(page.locator('#notes')).toContainText('Pelican roadmap'); await expect(page.locator('#notes')).toContainText('only you');
     expect(dbq(`SELECT visibility FROM portal.notes WHERE title='Pelican roadmap' AND workspace_id='${owner.workspaceId}'`)).toBe('private');
-    await page.fill('#note-search', 'pelican'); await page.locator('#note-search').press('Enter'); await expect(page.locator('#notes')).toContainText('Pelican roadmap');
-    await page.fill('#note-search', 'zebra'); await page.locator('#note-search').press('Enter'); await expect(page.locator('#notes')).toContainText('No notes yet');
+    // The page re-renders the whole panel (including the search input) after every search. Mark the current input, search, and wait until that node has
+    // been replaced before typing again; otherwise the next fill() can land on an input that is about to disappear and the search never fires.
+    const search = async (q) => {
+      await page.evaluate(() => { document.querySelector('#note-search').dataset.stale = '1'; });
+      await page.fill('#note-search', q); await page.locator('#note-search').press('Enter');
+      await expect(page.locator('#note-search')).not.toHaveAttribute('data-stale', '1');
+    };
+    await search('pelican'); await expect(page.locator('#notes')).toContainText('Pelican roadmap');
+    await search('zebra'); await expect(page.locator('#notes')).toContainText('No notes yet');
 
     const ctx2 = await browser.newContext({ ignoreHTTPSErrors: true, baseURL: BASE }); const p2 = await ctx2.newPage();
     const second = await signUp(ctx2, 'colleague'); await addMember(context, owner.csrf, owner.workspaceId, second.user.id);

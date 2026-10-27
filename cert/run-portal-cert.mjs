@@ -44,11 +44,11 @@ await waitFor(() => { try { docker('exec', pgName, 'pg_isready', '-U', 'postgres
 }
 {
   const metrics = path.join(root, 'cert', 'LOCKOUT_PG_STRESS.json');
-  const r = spawnSync('node', ['--test', '--test-reporter=tap', 'tests/lockout-pg.test.mjs'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, TEST_DATABASE_ADMIN_URL: `postgres://postgres:postgres@127.0.0.1:${P.pg}/postgres`, LOCKOUT_METRICS_FILE: metrics } });
+  const r = spawnSync('node', ['--test', '--test-reporter=tap', 'tests/lockout-pg.test.mjs', 'tests/lockout-pg-security.test.mjs'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, TEST_DATABASE_ADMIN_URL: `postgres://postgres:postgres@127.0.0.1:${P.pg}/postgres`, LOCKOUT_METRICS_FILE: metrics } });
   fs.writeFileSync(path.join(root, 'cert', 'lockout-pg.tap'), r.stdout);
   const pass = Number((/^# pass (\d+)/m.exec(r.stdout) || [])[1] || 0), fail = Number((/^# fail (\d+)/m.exec(r.stdout) || [])[1] || 0);
   let detail = `${pass} passed, ${fail} failed`; try { const m = JSON.parse(fs.readFileSync(metrics, 'utf8')); detail += `; stress: ${m.attempted} attempts, ${m.comparisons} comparisons (budget ${m.budget}), outcomes ${JSON.stringify(m.outcomes)}, p95 ${m.p95Ms} ms, p99 ${m.p99Ms} ms, max pool wait ${m.maxPoolWaitMs} ms`; } catch (e) { detail += '; stress metrics missing'; }
-  record('U-LOCKOUT-PG', 'PostgreSQL lockout adapter: persistence, concurrency, release, durable recovery, fail-closed, audit permissions, stress metrics', fail === 0 && pass >= 8 ? 'PASS' : 'FAIL', detail);
+  record('U-LOCKOUT-PG', 'PostgreSQL lockout adapter: persistence, concurrency, release, durable recovery, fail-closed, stress metrics; migration upgrade, inherited-grant guard, append-only application role, owner-only retention', fail === 0 && pass >= 13 ? 'PASS' : 'FAIL', detail);
 }
 try { docker('rm', '-f', pgName); } catch {}
 
