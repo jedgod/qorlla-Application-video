@@ -1,6 +1,6 @@
 # Workplace v4.1 certification evidence
 
-- Git HEAD: `e9878003952817b2216c251506e639b34bbe1238` (branch feature/qorlla-workplace-v4.5; source tree clean)
+- Git HEAD: `4b59cfb2bc65835ade016937c4da7baa13dfae77` (branch feature/qorlla-workplace-v4.6-provider-certification; source tree DIRTY:  M cert/e2e-results.json,  M cert/portal-unit.tap)
 - Result: **11 passed, 0 failed**
 - Payment provider = local TEST DOUBLE; real-provider verification is BLOCKED (no account/keys, no authorization to collect payments).
 

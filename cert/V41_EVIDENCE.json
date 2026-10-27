@@ -1,10 +1,13 @@
 {
-  "finished": "2026-10-27T00:51:50.041Z",
+  "finished": "2026-10-27T03:28:08.273Z",
   "git": {
-    "headSha": "e9878003952817b2216c251506e639b34bbe1238",
-    "branch": "feature/qorlla-workplace-v4.5",
-    "sourceTreeClean": true,
-    "dirtySourcePaths": []
+    "headSha": "4b59cfb2bc65835ade016937c4da7baa13dfae77",
+    "branch": "feature/qorlla-workplace-v4.6-provider-certification",
+    "sourceTreeClean": false,
+    "dirtySourcePaths": [
+      " M cert/e2e-results.json",
+      " M cert/portal-unit.tap"
+    ]
   },
   "ports": {
     "http": 28080,

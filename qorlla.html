@@ -370,6 +370,13 @@
   @media (max-width: 900px) {
     .mail-grid, .notes-grid, .cal-layout, .board-grid { grid-template-columns: 1fr; }
   }
+  /* signed out: the whole app is the sign-in screen with the short sidebar */
+  body.signed-out .topbar, body.signed-out .ai-panel, body.signed-out .nav-item[data-view=mail], body.signed-out .nav-item[data-view=calendar], body.signed-out .nav-item[data-view=schedule], body.signed-out .nav-item[data-view=notes] { display: none; }
+  body.signed-out .center { padding: 0; background: transparent; box-shadow: none; overflow: hidden; }
+  body.signed-out .login-embed { height: calc(100vh - 76px); min-height: 0; }
+  body.signed-out .sidebar { display: flex; flex-direction: column; }
+  body.signed-out .nav-item[data-view=home] { order: 1; } body.signed-out .nav-item[data-act=chat] { order: 2; } body.signed-out .nav-item[data-href='/app/phone'] { order: 3; } body.signed-out .nav-item[data-href='/app/suite'] { order: 4; } body.signed-out .nav-item[data-view=whiteboard] { order: 5; } body.signed-out .nav-item[data-href='/app/meet'] { order: 6; }
+  body.signed-out .spacer { order: 7; flex: 1; } body.signed-out .nav-item[data-view=more] { order: 8; } body.signed-out .nav-item[data-view=settings] { order: 9; }
   .login-embed { width:100%; height:calc(100vh - 170px); min-height:560px; border:0; border-radius:16px; background:#fff; display:block; }
 </style>
   <script src="locales/es.js"></script>
@@ -405,6 +412,10 @@
       <svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 8 8 5.5L20 8"/></svg>
       <span data-i18n="Mail">Mail</span>
       <span class="count" id="mailBadge" style="display:none">0</span>
+    </div>
+    <div class="nav-item" data-href="/app/meet" role="link" tabindex="0">
+      <svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 9 5 3-5 3Z"/></svg>
+      <span data-i18n="Clips">Clips</span>
     </div>
     <div class="nav-item" data-view="whiteboard" role="button" tabindex="0">
       <svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="3"/><path d="M8 21h8M12 17v4"/><path d="m7.5 12 2.5-3 2 2 3-3"/></svg>
@@ -791,7 +802,9 @@
   }
   // Signed-out visitors get the real sign-in page inside the app shell (same origin, so a successful sign-in reloads the shell itself)
   function embedLogin(view) {
-    var f = h('iframe', { class: 'login-embed', title: 'Sign in to Qorlla', src: 'login.html?embed=1&next=' + encodeURIComponent('qorlla.html#' + view) });
+    document.body.classList.add('signed-out');
+    var q = new URLSearchParams(location.search); var pass = new URLSearchParams(); ['reset', 'verify'].forEach(function (k) { if (q.get(k)) pass.set(k, q.get(k)); });
+    var f = h('iframe', { class: 'login-embed', title: 'Sign in to Qorlla', src: 'login.html?embed=1&next=' + encodeURIComponent(q.get('next') || ('qorlla.html#' + view)) + (pass.toString() ? '&' + pass.toString() : '') });
     viewEl.appendChild(f);
   }
   function field(label, input) { return h('label', { class: 'fld' }, [h('span', { text: label }), input]); }
@@ -818,9 +831,7 @@
     applyBillingTimer();
     var meetingBox = viewEl.querySelector('#homeMeetings');
     if (!state.user) {
-      // keep the greeting and the quick actions (joining a meeting needs no account); the account panels give way to the sign-in page
-      var keep = viewEl.querySelector('.actions');
-      while (keep && keep.nextSibling) keep.parentNode.removeChild(keep.nextSibling);
+      viewEl.textContent = '';
       embedLogin('home');
       return;
     }
@@ -1835,6 +1846,7 @@
   // initial unread badge, then first view
   function applyAccount(user) {
     state.user = user;
+    document.body.classList.remove('signed-out');
     uid = user.id;
     sessionStorage.setItem('zw_uid', user.id);
     store('zw_name', user.displayName);

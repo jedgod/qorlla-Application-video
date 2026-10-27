@@ -1,20 +1,18 @@
 ﻿const { test, expect } = require('@playwright/test');
 
-test('workspace navigation and join dialog work from the keyboard', async ({ page }) => {
+test('signed-out visitors see the sign-in screen inside the app shell; old sign-in URL hands over to it', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('#greeting')).toBeVisible();
+  const frame = page.frameLocator('iframe.login-embed');
+  await expect(frame.getByRole('heading', { name: 'Welcome to your workspace' })).toBeVisible();
+  await expect(page.locator('.topbar')).toBeHidden();
+  await expect(page.locator('.nav-item[data-view="mail"]')).toBeHidden();
   const notes = page.locator('.sidebar [data-view="notes"]');
-  await notes.focus();
-  await page.keyboard.press('Enter');
-  await expect(notes).toHaveAttribute('aria-current', 'page');
-  // signed out: the sign-in page is shown inside the app shell
-  await expect(page.frameLocator('iframe.login-embed').getByRole('heading', { name: 'Welcome to your workspace' })).toBeVisible();
-  await page.locator('[data-view="home"]').click();
-  await page.locator('.action-btn[data-act="join"]').click();
-  await expect(page.locator('#joinDialog')).toBeVisible();
-  await expect(page.locator('#mid')).toHaveValue('');
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#joinDialog')).toBeHidden();
+  await page.evaluate(() => { location.hash = '#notes'; });
+  await expect(frame.getByRole('heading', { name: 'Welcome to your workspace' })).toBeVisible();
+  await page.goto('/login.html?next=qorlla.html');
+  await expect(page).toHaveURL(/qorlla.html/);
+  await expect(page.frameLocator('iframe.login-embed').locator('#username')).toBeVisible();
+  void notes;
 });
 
 test('meeting chat manages focus and removes hidden controls from keyboard navigation', async ({ page }) => {
