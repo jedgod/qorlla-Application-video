@@ -86,7 +86,7 @@
     </form>
     <div class="links">
       <button class="linkbtn" id="toForgot" type="button"><span data-i18n="Forgot password?">Forgot password?</span></button>
-      <a href="index.html" target="_top" aria-describedby="guestNote">Continue as guest</a>
+      <a href="/guest/welcome" target="_top" aria-describedby="guestNote">Continue without signing in</a>
     </div>
     <p class="hint" id="guestNote">Guests can only join a meeting they are invited to. Messages, documents and your workspace stay private until you sign in.</p>
   </section>
@@ -176,7 +176,9 @@
   if (EMBED) { document.documentElement.classList.add('embed'); document.querySelectorAll('a[href="qorlla.html"]').forEach(function (a) { a.target = '_top'; }); }
   var ALLOWED = ['chat.html', 'qorlla.html', 'index.html'];
   var next = params.get('next') || 'qorlla.html';
-  if (ALLOWED.indexOf(next) === -1) next = 'qorlla.html';
+  // a guest who needs to sign in returns to the meeting pre-join screen they came from
+  if (ALLOWED.indexOf(next) === -1 && !/^\/guest\/meeting\/[0-9%20 ]+\/prejoin$/.test(next)) next = 'qorlla.html';
+  if (params.get('tab') === 'up') setTimeout(function () { var t = document.getElementById('tabUp'); if (t) t.click(); }, 0);
   var resetToken = params.get('reset'), verifyToken = params.get('verify');
   // Tokens must not linger in the address bar, history or screenshots
   if (resetToken || verifyToken) history.replaceState(null, '', location.pathname + (params.get('next') ? '?next=' + encodeURIComponent(next) : ''));

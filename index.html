@@ -1197,6 +1197,8 @@
     });
     $('startMeetingBtn').addEventListener('click', () => enterMeeting(true));
     $('joinMeetingBtn').addEventListener('click', () => enterMeeting(false));
+    // opened from the guest pre-join screen or an invitation link: the meeting ID is filled in, the guest still presses Join
+    if (params.get('meeting')) $('meetingIdInput').value = params.get('meeting');
     $('meetingIdInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') enterMeeting(false); });
     $('copyIdBtn').addEventListener('click', () => copyText(room && room.id, 'Meeting ID copied'));
     $('copyInviteBtn').addEventListener('click', () => {

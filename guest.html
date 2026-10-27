@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="no-referrer">
+<title>Qorlla - Guest</title>
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<style>
+  :root { --brand:#2563ff; --ink:#131a2a; --muted:#667189; --line:#d5dbe8; }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:Inter,"Segoe UI",system-ui,sans-serif; color:var(--ink); background:radial-gradient(900px 500px at 10% -10%,#2563ff1f,transparent 60%),#eef2f9; min-height:100vh; }
+  header { display:flex; align-items:center; gap:14px; padding:16px 28px; }
+  header img { height:34px; } .pill { font-size:12px; font-weight:650; color:#2446cb; background:#e4ebff; padding:5px 11px; border-radius:999px; }
+  header .sp { flex:1; }
+  main { max-width:980px; margin:0 auto; padding:12px 24px 48px; }
+  h1 { font-size:clamp(26px,4vw,38px); letter-spacing:-1px; margin:18px 0 8px; } .lead { color:var(--muted); font-size:15px; line-height:1.6; max-width:560px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin-top:28px; }
+  .tile { display:block; text-decoration:none; color:inherit; background:#fff; border:1.5px solid var(--line); border-radius:16px; padding:20px; }
+  a.tile:hover, a.tile:focus-visible { border-color:var(--brand); box-shadow:0 8px 24px #2563ff1f; outline:none; } .tile.primary { border-color:var(--brand); }
+  .tile h2 { font-size:16px; margin-bottom:6px; } .tile p { font-size:13px; color:var(--muted); line-height:1.5; }
+  .btn { display:inline-block; border:0; border-radius:10px; padding:11px 18px; font:600 14px inherit; background:var(--brand); color:#fff; cursor:pointer; text-decoration:none; }
+  .btn.ghost { background:#fff; color:var(--brand); border:1.5px solid var(--brand); } .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .panel { background:#fff; border:1.5px solid var(--line); border-radius:16px; padding:24px; margin-top:22px; max-width:560px; }
+  label { display:block; font-size:12px; font-weight:650; margin:14px 0 6px; color:#394762; }
+  input { width:100%; height:44px; border:1.5px solid #b9c3d6; border-radius:9px; padding:0 12px; font:15px inherit; }
+  input:focus-visible, button:focus-visible, a:focus-visible { outline:3px solid #2563ff55; outline-offset:2px; }
+  .msg { margin-top:12px; font-size:13px; min-height:18px; } .msg.err { color:#b42318; } .msg.ok { color:#116b3a; }
+  video { width:100%; max-height:240px; background:#101b39; border-radius:12px; margin-top:12px; } .meter { height:8px; background:#e5e9f2; border-radius:6px; margin-top:8px; overflow:hidden; } .meter i { display:block; height:100%; width:0; background:#22a06b; transition:width .1s; }
+  .note { font-size:12px; color:var(--muted); margin-top:18px; line-height:1.6; } .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
+  ul.help { margin:12px 0 0 18px; line-height:1.9; font-size:14px; } .hidden { display:none; }
+</style>
+</head>
+<body>
+<header><a href="/guest/welcome" aria-label="Qorlla guest home"><img src="/Qorlla-Logo.jpg" alt="Qorlla"></a><span class="pill">Guest Mode</span><span class="sp"></span><a class="btn ghost" href="/auth/login">Sign in</a></header>
+<main>
+  <section id="v-welcome" class="hidden">
+    <h1>Welcome to Qorlla</h1>
+    <p class="lead">Connect, explore and collaborate. Sign in to unlock your complete workspace.</p>
+    <div class="grid">
+      <a class="tile primary" href="/guest/join-meeting"><h2>Join Meeting</h2><p>Enter a meeting ID or invitation link.</p></a>
+      <a class="tile" href="/guest/explore"><h2>Explore Qorlla</h2><p>See what the workspace offers, no account needed.</p></a>
+      <a class="tile" href="/guest/help"><h2>Help &amp; Tutorials</h2><p>Learn about Chat, Phone, Docs and Clips.</p></a>
+      <a class="tile" href="/auth/register"><h2>Create Account</h2><p>Create your personal or organization workspace.</p></a>
+    </div>
+    <p class="row"><a class="btn" href="/auth/login">Sign in to Qorlla Workspace</a></p>
+    <p class="note">Guests can only join meetings they are invited to. Chats, calls, documents, clips, the directory and AI features are private to signed-in members.</p>
+  </section>
+
+  <section id="v-join" class="hidden">
+    <h1>Join a meeting</h1><p class="lead">Paste the meeting ID or the invitation link you received.</p>
+    <form class="panel" id="joinForm" novalidate>
+      <label for="mid">Meeting ID or invitation link</label><input id="mid" autocomplete="off" placeholder="858 9833 3712">
+      <div class="msg err" id="joinMsg" role="alert"></div>
+      <div class="row"><button class="btn" type="submit">Continue</button><a class="btn ghost" href="/guest/welcome">Back</a></div>
+    </form>
+  </section>
+
+  <section id="v-prejoin" class="hidden">
+    <h1>Ready to join?</h1><p class="lead" id="pjTopic">Checking the invitation...</p>
+    <form class="panel" id="pjForm" novalidate>
+      <label for="pjName">Your display name</label><input id="pjName" maxlength="60" autocomplete="name">
+      <video id="pjVideo" autoplay muted playsinline aria-label="Camera preview" class="hidden"></video>
+      <div class="meter hidden" id="pjMeterWrap" aria-hidden="true"><i id="pjMeter"></i></div>
+      <div class="row"><button class="btn ghost" type="button" id="pjTest">Test microphone and camera</button></div>
+      <div class="msg" id="pjMsg" role="status"></div>
+      <div class="row"><button class="btn" type="submit" id="pjGo" disabled>Join meeting</button><a class="btn ghost" href="/guest/join-meeting">Use another meeting</a></div>
+      <p class="note">If the host requires it, you will be admitted after you join. Want your own workspace? <a href="/auth/login" id="pjSignIn">Sign in</a> and you will come back here.</p>
+    </form>
+  </section>
+
+  <section id="v-explore" class="hidden">
+    <h1>Explore Qorlla</h1><p class="lead">One workspace for conversations, calls, documents and short videos.</p>
+    <div class="grid">
+      <div class="tile"><h2>Chat</h2><p>Direct and group conversations with your team.</p></div>
+      <div class="tile"><h2>Phone</h2><p>Business calling, voicemail and an AI receptionist.</p></div>
+      <div class="tile"><h2>Docs</h2><p>Documents, sheets and slides with sharing and version history.</p></div>
+      <div class="tile"><h2>Meet</h2><p>Video meetings with chat, notes and AI summaries.</p></div>
+    </div>
+    <p class="note">This overview is informational. Which features are active depends on your workspace and plan; sign in to see yours.</p>
+    <p class="row"><a class="btn" href="/auth/register">Create Account</a><a class="btn ghost" href="/guest/welcome">Back</a></p>
+  </section>
+
+  <section id="v-help" class="hidden">
+    <h1>Help &amp; Tutorials</h1><p class="lead">Short guides to get started.</p>
+    <div class="panel"><ul class="help"><li><b>Joining a meeting</b> - use Join Meeting, enter the ID or link, check your camera and microphone, then join.</li><li><b>Chat</b> - create a conversation, add people, share files.</li><li><b>Phone</b> - place and receive calls once your workspace has telephony enabled.</li><li><b>Docs</b> - create documents and share them with specific people.</li><li><b>Clips</b> - record short videos to share.</li><li><b>Privacy</b> - your account keeps your mail, notes and calendar private.</li></ul></div>
+    <p class="row"><a class="btn ghost" href="/guest/welcome">Back</a></p>
+  </section>
+</main>
+<script src="/guest.js"></script>
+</body>
+</html>

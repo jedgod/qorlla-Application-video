@@ -805,7 +805,7 @@
   // Signed-out visitors get the real sign-in page inside the app shell (same origin, so a successful sign-in reloads the shell itself)
   function embedLogin(view) {
     document.body.classList.add('signed-out');
-    var q = new URLSearchParams(location.search); var pass = new URLSearchParams(); ['reset', 'verify'].forEach(function (k) { if (q.get(k)) pass.set(k, q.get(k)); });
+    var q = new URLSearchParams(location.search); var pass = new URLSearchParams(); ['reset', 'verify', 'tab'].forEach(function (k) { if (q.get(k)) pass.set(k, q.get(k)); });
     var f = h('iframe', { class: 'login-embed', title: 'Sign in to Qorlla', src: 'login.html?embed=1&next=' + encodeURIComponent(q.get('next') || ('qorlla.html#' + view)) + (pass.toString() ? '&' + pass.toString() : '') });
     viewEl.appendChild(f);
   }

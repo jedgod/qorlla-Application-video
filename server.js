@@ -163,6 +163,14 @@ app.get('/qorlla.html', (req, res) => {
 app.get('/login.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'login.html'));
 });
+// Guest area: a landing page of its own; the video page opens only when a guest chooses a meeting (or follows an invitation)
+const sendGuest = (req, res) => { res.set('Cache-Control', 'no-store'); res.sendFile(path.join(__dirname, 'guest.html')); };
+app.get(['/guest', '/guest/welcome', '/guest/join-meeting', '/guest/explore', '/guest/help'], sendGuest);
+app.get('/guest/meeting/:id/prejoin', sendGuest);
+app.get('/guest.js', (req, res) => res.sendFile(path.join(__dirname, 'guest.js')));
+// Canonical auth entry points: sign-in and registration live in the home page shell; a ?next= destination is preserved.
+app.get('/auth/login', (req, res) => { const q = new URLSearchParams(); if (req.query.next) q.set('next', String(req.query.next)); res.redirect(302, '/qorlla.html' + (q.toString() ? '?' + q : '')); });
+app.get('/auth/register', (req, res) => { const q = new URLSearchParams({ tab: 'up' }); if (req.query.next) q.set('next', String(req.query.next)); res.redirect(302, '/qorlla.html?' + q); });
 app.get('/chat.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'chat.html'));
 });
