@@ -335,6 +335,24 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
             if (!DATE_RE.test(v.date)) return { error: 'Date must be YYYY-MM-DD.' };
             if (!TIME_RE.test(v.time)) return { error: 'Time must be HH:MM.' };
             if (!Number.isFinite(v.duration) || v.duration < 1 || v.duration > 1440) return { error: 'Duration must be 1-1440 minutes.' };
+            // Event details (v4.7 scheduler). Each is optional and only changes when the request sends it.
+            const has = (k) => k in body || !existing;
+            v.description = has('description') ? str(body.description, 2000) : (existing.description || '');
+            v.location = has('location') ? str(body.location, 200) : (existing.location || '');
+            v.room = has('room') ? str(body.room, 120) : (existing.room || '');
+            v.timezone = has('timezone') ? str(body.timezone, 64) : (existing.timezone || '');
+            if (v.timezone && !/^[A-Za-z0-9_+\-\/]+$/.test(v.timezone)) return { error: 'Time zone is not valid.' };
+            v.busy = has('busy') ? body.busy !== false : existing.busy !== false;
+            v.allDay = has('allDay') ? body.allDay === true : existing.allDay === true;
+            if ('seriesId' in body || !existing) { v.seriesId = str(body.seriesId, 40); if (v.seriesId && !/^[A-Za-z0-9_-]+$/.test(v.seriesId)) return { error: 'Series id is not valid.' }; } else v.seriesId = existing.seriesId || '';
+            if (has('invitees')) {
+                const raw = Array.isArray(body.invitees) ? body.invitees : String(body.invitees || '').split(/[,;\s]+/);
+                const list = [...new Set(raw.map((x) => String(x).trim().toLowerCase()).filter(Boolean))];
+                if (list.length > 50) return { error: 'At most 50 invitees per meeting.' };
+                const badAddr = list.find((a) => !mailer.isValidAddress(a));
+                if (badAddr) return { error: 'Invitee "' + badAddr.slice(0, 60) + '" is not a valid email address.' };
+                v.invitees = list;
+            } else v.invitees = existing.invitees || [];
             return { value: v };
         },
         update: true,
@@ -362,6 +380,15 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
                 hostId: user.id
             });
             const out = { ...item, hostId: user.id, ownerName: user.displayName, meetingId: meeting.meetingId, createdAt: nowIso() };
+            // Invitation emails go through the same guarded path as Mail (verified sender, daily limit, Reply-To the host). The outcome is stored so
+            // the page can say plainly whether anything was sent; nothing is ever reported as sent when it was not.
+            if (item.invitees && item.invitees.length && body.notify !== false) {
+                const base = (mailer.baseUrl || '').replace(/\/+$/, '');
+                const when = item.date + ' ' + item.time + (item.timezone ? ' (' + item.timezone + ')' : '') + ', ' + item.duration + ' min';
+                const text = user.displayName + ' invited you to a Qorlla meeting.\n\nTitle: ' + item.title + '\nWhen: ' + when + (item.location ? '\nWhere: ' + item.location : '') + '\nMeeting ID: ' + meeting.meetingId + (base ? '\nJoin: ' + base + '/guest/meeting/' + encodeURIComponent(meeting.meetingId) + '/prejoin' : '') + (body.passcode ? '\n\nThis meeting needs a passcode. Ask the host for it.' : '') + (item.description ? '\n\n' + item.description.slice(0, 600) : '') + '\n\nYou do not need an account to join.';
+                try { out.inviteResults = await sendExternal(item.invitees, { subject: user.displayName + ' invited you: ' + item.title, body: text }, user); }
+                catch (err) { out.inviteResults = item.invitees.map((to) => ({ to, status: 'failed' })); }
+            }
             const pc = passcodeChange(body);
             if (pc.error) throw new Error(pc.error);
             if (pc.hash && !meetSync.enabled) throw new Error('Passcodes need Qorlla Meet sync to be enabled.');

@@ -308,6 +308,49 @@
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
   #toast.ok { background: #15803d; }
   #toast.err { background: #be123c; }
+/* Scheduler: compact quick card first, full event dialog behind "More Options" */
+  dialog.sq, dialog.sf { padding: 0; border-radius: 18px; max-height: 94vh; overflow: auto; color: var(--ink, #131a2a); }
+  dialog.sq { width: min(470px, 94vw); } dialog.sf { width: min(1000px, 96vw); }
+  dialog.sq form, dialog.sf form { padding: 16px 22px 18px; }
+  dialog.sf form { padding: 10px 26px 14px; }
+  .sq .hidden, .sf .hidden { display: none !important; }
+  .sq-top { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px; }
+  dialog .sq-title { width: 100%; height: 46px; border: 2px solid transparent; background: #eef2f7; border-radius: 12px; padding: 0 14px; font-size: 18px; font-weight: 700; outline: none; }
+  dialog .sq-title:focus { border-color: #4a90ff; background: #eef3fb; box-shadow: 0 0 0 3px rgba(74,144,255,.25); }
+  dialog .sq-title.big { height: 46px; font-size: 20px; }
+  .sq-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line); margin: 8px 0 6px; }
+  .sq-tabs span { padding: 8px 2px; font-size: 14px; font-weight: 650; color: var(--muted); border-bottom: 2px solid transparent; }
+  .sq-tabs span.on { color: var(--ink, #131a2a); border-bottom-color: var(--ink, #131a2a); }
+  .sq-row, .sf-row { display: flex; align-items: center; gap: 12px; padding: 7px 0; font-size: 14px; }
+  .sf-row { align-items: flex-start; padding: 6px 0; border-bottom: 1px solid #eef1f6; }
+  .sq-ic { width: 22px; color: #5b667c; flex: none; display: grid; place-items: center; } .sq-ic svg.i { width: 20px; height: 20px; }
+  .sq-row input[type=text], .sf-row input[type=text], .sf-row textarea, .sf-side input[type=text] { flex: 1; width: 100%; min-width: 0; border: 0; border-bottom: 1px solid transparent; background: transparent; padding: 8px 4px; font: inherit; outline: none; border-radius: 8px; }
+  .sq-row input[type=text]:hover, .sf-row input[type=text]:hover, .sf-row textarea:hover { background: #f4f6fa; }
+  .sq-row input[type=text]:focus, .sf-row input[type=text]:focus, .sf-row textarea:focus, .sf-side input[type=text]:focus { background: #f4f6fa; box-shadow: 0 0 0 2px rgba(37,99,255,.25); }
+  .sf-row textarea { resize: vertical; width: 100%; } .sf-row input[type=password] { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font: inherit; outline: none; } .sf-row input[type=password]:focus { box-shadow: 0 0 0 2px rgba(37,99,255,.25); }
+  .sq-when { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; min-width: 0; } .sq-when input[type=date] { width: 138px; flex: none; } .sq-when select { width: 96px; flex: none; padding-left: 4px; padding-right: 2px; } .check.inline { margin: 0 0 0 12px; white-space: nowrap; font-size: 13px; }
+  .sf-small.grow { flex: 1; min-width: 200px; } .sf-small.grow select { width: 100%; } .sf-small.narrow input { width: 88px; }
+  .sq-when input[type=date], .sq-when select, .sf-small select, .sf-small input { border: 1px solid transparent; background: transparent; border-radius: 10px; padding: 7px 8px; font: inherit; color: inherit; cursor: pointer; }
+  .sq-when input[type=date]:hover, .sq-when select:hover, .sf-small select:hover { background: #f1f4f9; }
+  .sq-when input:focus-visible, .sq-when select:focus-visible, .sf-small select:focus-visible, .sf-small input:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+  .sq-arrow { color: #5b667c; }
+  .sq-sub { font-size: 12.5px; color: #6b7487; margin: 0 0 4px 34px; } .sq-sub.inline { margin: 0 0 0 8px; }
+  .sf .sq-sub { margin-left: 0; }
+  .sq-static { color: #2b3342; } .sq-sep { width: 1px; height: 16px; background: var(--line); margin: 0 6px; }
+  .linkbtn { border: 0 !important; background: none !important; color: #0b6bde !important; font-weight: 600; padding: 4px 2px !important; cursor: pointer; box-shadow: none !important; } .linkbtn:hover { text-decoration: underline; } .linkbtn.left { align-self: flex-start; padding-left: 4px !important; }
+  .sq-err { color: #b42318; font-size: 13px; min-height: 18px; margin-top: 6px; }
+  .sq-foot, .sf-foot { display: flex; justify-content: flex-end; align-items: center; gap: 14px; margin-top: 8px; }
+  .sf-foot { position: sticky; bottom: 0; background: #fff; padding: 8px 0 2px; }
+  .sf-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; } .sf-label { font-size: 13px; font-weight: 700; color: var(--muted); }
+  .sf-grid { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 26px; }
+  .sf-col { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; } .sf-inline { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
+  .sf-small { display: flex; flex-direction: column; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; gap: 2px; } .sf-small select, .sf-small input { text-transform: none; letter-spacing: 0; font-size: 14px; font-weight: 400; color: #131a2a; border-color: var(--line); background: #fff; }
+  .sf-side { border-left: 1px solid var(--line); padding-left: 22px; } .sf-side h3 { font-size: 15px; margin: 6px 0 10px; }
+  .sf-side input[type=text] { border: 1px solid var(--line); border-radius: 22px; padding: 10px 14px; background: #fff; }
+  .sf-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; } .chip-x { display: inline-flex; align-items: center; gap: 4px; background: #eef2f7; border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 13px; } .chip-x button { border: 0; background: none; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 6px; border-radius: 50%; color: #5b667c; padding: 2px 6px; }
+  .sf-meeting .sf-row { border-top: 1px solid #eef1f6; }
+  @media (max-width: 820px) { .sf-grid { grid-template-columns: 1fr; } .sf-side { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 10px; } dialog.sf form, dialog.sq form { padding: 14px 16px; } }
+
   dialog.sheet { width: min(520px, 94vw); }
   dialog.sheet .fld input, dialog.sheet .fld textarea { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font: inherit; }
   dialog button svg.i { width: 16px; height: 16px; vertical-align: -3px; margin-right: 5px; }
@@ -656,6 +699,11 @@
     eraser: '<path d="m7 21-4-4 11-11 7 7-8 8Z"/><path d="M12 21h9"/>',
     save: '<path d="M5 3h11l4 4v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M8 3v5h7M8 21v-7h8v7"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    expand: '<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>',
+    x: '<path d="M6 6l12 12M18 6 6 18"/>',
+    users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14c3 0 4.5 2 4.5 5"/>',
+    lines: '<path d="M4 7h16M4 12h16M4 17h10"/>',
+    cal: '<rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
     send: '<path d="m22 2-11 11M22 2l-7 20-4-9-9-4Z"/>',
     chevL: '<path d="m15 18-6-6 6-6"/>', chevR: '<path d="m9 18 6-6-6-6"/>',
     undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>'
@@ -688,7 +736,7 @@
     t.textContent = msg;
     t.className = 'show ' + (kind || '');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { t.className = ''; }, 3200);
+    toastTimer = setTimeout(function () { t.className = ''; }, Math.min(9000, Math.max(3200, String(msg).length * 55)));   // longer messages stay long enough to read
   }
   function fail(e) { toast(e.message || 'Something went wrong', 'err'); }
 
@@ -1184,52 +1232,224 @@
   };
 
   // =====================================================================
-  // SCHEDULE
+  // SCHEDULE: a compact quick-create card first; "More Options" opens the full event dialog
   // =====================================================================
-  VIEWS.schedule = function () {
+  var TZ_LIST = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Toronto', 'America/Sao_Paulo', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Lisbon', 'Africa/Lagos', 'Africa/Johannesburg', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Tokyo', 'Australia/Sydney', 'UTC'];
+  function localTz() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) { return 'UTC'; } }
+  function tzLabel(tz) {
+    try {
+      var pick = function (style) { return new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: style }).formatToParts(new Date()).filter(function (x) { return x.type === 'timeZoneName'; })[0].value; };
+      var off = pick('longOffset'), name = pick('longGeneric');
+      return '(' + off + ') ' + name + (name.indexOf('Time') === -1 ? '' : ' - ' + tz.split('/').pop().replace(/_/g, ' '));
+    } catch (e) { return tz; }
+  }
+  function hm(total) { return pad(Math.floor(total / 60)) + ':' + pad(total % 60); }
+  function toMin(t) { var p = t.split(':'); return +p[0] * 60 + +p[1]; }
+  function timeSelect(value) {
+    var s = h('select', { 'aria-label': 'Time' });
+    for (var m = 0; m < 24 * 60; m += 15) s.appendChild(h('option', { value: hm(m), text: t12(hm(m)) }));
+    s.value = value; return s;
+  }
+  function newSchedModel() {
+    var d = new Date(), mins = d.getHours() * 60 + d.getMinutes(), start = Math.ceil((mins + 1) / 15) * 15;
+    if (start > 23 * 60 + 30) { start = 9 * 60; d.setDate(d.getDate() + 1); }                  // too late today: tomorrow morning
+    return { title: ((state.user && state.user.displayName) || 'My') + "'s " + I18n.t('Qorlla Meeting'), date: ymd(d), start: hm(start), end: hm(start + 30), allDay: false,
+      tz: localTz(), repeat: 'never', count: 4, invitees: [], room: '', location: '', agenda: '', description: '', passcode: '', busy: true, showAgenda: false };
+  }
+  function parseInvitees(text) { return text.split(/[,;\s]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean); }
+  function addPeriod(date, repeat, i) {
+    var d = parseYmd(date);
+    if (repeat === 'daily') d.setDate(d.getDate() + i); else if (repeat === 'weekly') d.setDate(d.getDate() + 7 * i);
+    else if (repeat === 'monthly') { var day = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + i); d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); }
+    return ymd(d);
+  }
+  var INVITE_TEXT = { not_configured: 'email is not set up on this server', verify_email_first: 'verify your own email in Settings first', limit_reached: 'the daily email limit was reached', invalid_address: 'not a valid address', failed: 'the mail server did not accept it' };
+  function inviteSummary(first) {
+    var r = (first && first.inviteResults) || []; if (!r.length) return '';
+    var sent = r.filter(function (x) { return x.status === 'sent'; }).length;
+    if (sent === r.length) return ' ' + I18n.t('Invitations sent: {n}', { n: sent });
+    var why = r.filter(function (x) { return x.status !== 'sent'; })[0].status;
+    return ' ' + I18n.t('Invitations not sent') + ' (' + (INVITE_TEXT[why] || why) + '). ' + I18n.t('Share the meeting ID instead.');
+  }
+
+  /** Validates the model and creates the meeting (or the series). Resolves to the created schedule items; rejects with a readable message. */
+  function saveSchedule(m) {
+    if (!m.title.trim()) return Promise.reject(new Error(I18n.t('Meeting title is required.')));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(m.date)) return Promise.reject(new Error(I18n.t('Pick a date.')));
+    var duration = m.allDay ? 1440 : toMin(m.end) - toMin(m.start);
+    if (duration < 1) return Promise.reject(new Error(I18n.t('The end time must be after the start time.')));
+    var bad = m.invitees.filter(function (a) { return !/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(a); });
+    if (bad.length) return Promise.reject(new Error(I18n.t('Not a valid email address') + ': ' + bad[0]));
+    var n = m.repeat === 'never' ? 1 : Math.max(2, Math.min(12, parseInt(m.count, 10) || 4));
+    var seriesId = n > 1 ? 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) : '';
+    var made = [];
+    var next = function (i) {
+      if (i >= n) return Promise.resolve(made);
+      return api('/schedule', { method: 'POST', body: {
+        title: m.title.trim(), date: addPeriod(m.date, m.repeat, i), time: m.allDay ? '00:00' : m.start, duration: duration, timezone: m.tz, allDay: m.allDay, busy: m.busy,
+        location: m.location, room: m.room, description: [m.agenda, m.description].filter(Boolean).join('\n\n'), invitees: m.invitees, notify: i === 0,   // one invitation email per person, for the first occurrence
+        seriesId: seriesId || undefined, passcode: m.passcode || undefined } })
+        .then(function (s) { made.push(s); return next(i + 1); })
+        .catch(function (e) { e.message = (made.length ? I18n.t('Created {n} of {total} before this error', { n: made.length, total: n }) + ': ' : '') + e.message; throw e; });
+    };
+    return next(0);
+  }
+  function afterSaved(items) {
+    var first = items[0];
+    toast(items.length > 1 ? I18n.t('Scheduled {n} meetings, first meeting ID {id}', { n: items.length, id: first.meetingId }) + '.' + inviteSummary(first) : I18n.t('Scheduled') + ' — ID ' + first.meetingId + '.' + inviteSummary(first), 'ok');
+    show('schedule', { list: true });
+  }
+
+  function openSchedQuick(model) {
+    var m = model || newSchedModel(); var closed = false;
+    var title = h('input', { type: 'text', class: 'sq-title', value: m.title, maxlength: '200', 'aria-label': I18n.t('Meeting title') });
+    var date = h('input', { type: 'date', value: m.date, 'aria-label': I18n.t('Date') });
+    var start = timeSelect(m.start), end = timeSelect(m.end);
+    start.addEventListener('change', function () { var len = Math.max(15, toMin(end.value) - toMin(m.start)); m.start = start.value; end.value = hm(Math.min(toMin(start.value) + len, 23 * 60 + 45)); });   // keep the length when the start moves
+    var invitees = h('input', { type: 'text', placeholder: I18n.t('Add invitees'), 'aria-label': I18n.t('Add invitees'), value: m.invitees.join(', ') });
+    var location = h('input', { type: 'text', placeholder: I18n.t('Add rooms or locations'), 'aria-label': I18n.t('Add rooms or locations'), value: m.location, maxlength: '200' });
+    var notes = h('input', { type: 'text', placeholder: I18n.t('Add meeting agenda or description'), 'aria-label': I18n.t('Add meeting agenda or description'), value: m.description, maxlength: '2000' });
+    var err = h('div', { class: 'sq-err', role: 'alert' });
+    var dlg;
+    function collect() { m.title = title.value; m.date = date.value; m.start = start.value; m.end = end.value; m.invitees = parseInvitees(invitees.value); m.location = location.value; m.description = notes.value; }
+    function close() { if (closed) return; closed = true; try { dlg.close(); } catch (e) {} dlg.remove(); }
+    var row = function (ic, kids) { return h('div', { class: 'sq-row' }, [h('span', { class: 'sq-ic', 'aria-hidden': 'true' }, [icon(ic)])].concat(kids)); };
+    dlg = h('dialog', { class: 'sq', 'aria-label': I18n.t('New meeting') }, [
+      h('form', { method: 'dialog', onsubmit: function (e) {
+        e.preventDefault(); collect(); err.textContent = '';
+        saveSchedule(m).then(function (items) { close(); afterSaved(items); }).catch(function (x) { err.textContent = x.message; });
+      } }, [
+        h('div', { class: 'sq-top' }, [
+          h('button', { type: 'button', class: 'icon-sm', 'aria-label': I18n.t('More Options'), onclick: function () { collect(); close(); openSchedFull(m); } }, [icon(IC.expand)]),
+          h('button', { type: 'button', class: 'icon-sm', 'aria-label': I18n.t('Close'), onclick: close }, [icon(IC.x)])
+        ]),
+        title,
+        h('div', { class: 'sq-tabs' }, [h('span', { class: 'on', text: I18n.t('Event') })]),
+        row(IC.clock, [h('div', { class: 'sq-when' }, [date, start, h('span', { class: 'sq-arrow', 'aria-hidden': 'true', text: '→' }), end])]),
+        h('div', { class: 'sq-sub', text: I18n.t('Does not repeat') + ' • ' + tzLabel(m.tz) }),
+        row(IC.users, [invitees]),
+        row(IC.video, [h('span', { class: 'sq-static', text: I18n.t('Qorlla Meeting') }), h('span', { class: 'sq-sep', 'aria-hidden': 'true' }), h('button', { type: 'button', class: 'linkbtn', text: I18n.t('Settings'), onclick: function () { collect(); close(); openSchedFull(m, 'meeting'); } })]),
+        row(IC.pin, [location]),
+        row(IC.lines, [notes]),
+        row(IC.cal, [h('span', { class: 'sq-static', text: I18n.t('Calendar') }), h('span', { class: 'sq-sub inline', text: I18n.t('Busy') + ' • ' + I18n.t('Default visibility') })]),
+        err,
+        h('div', { class: 'sq-foot' }, [
+          h('button', { type: 'button', class: 'linkbtn', text: I18n.t('More Options'), onclick: function () { collect(); close(); openSchedFull(m); } }),
+          h('button', { type: 'submit', class: 'btn primary', text: I18n.t('Save') })
+        ])
+      ])
+    ]);
+    dlg.addEventListener('close', function () { closed = true; dlg.remove(); });
+    document.body.appendChild(dlg); dlg.showModal(); title.focus(); title.select();
+  }
+
+  function openSchedFull(model, focusSection) {
+    var m = model || newSchedModel(); var closed = false;
+    var title = h('input', { type: 'text', class: 'sq-title big', value: m.title, maxlength: '200', 'aria-label': I18n.t('Meeting title') });
+    var date = h('input', { type: 'date', value: m.date, 'aria-label': I18n.t('Date') });
+    var start = timeSelect(m.start), end = timeSelect(m.end);
+    start.addEventListener('change', function () { var len = Math.max(15, toMin(end.value) - toMin(m.start)); m.start = start.value; end.value = hm(Math.min(toMin(start.value) + len, 23 * 60 + 45)); });
+    var allDay = h('input', { type: 'checkbox' }); allDay.checked = m.allDay;
+    var tz = h('select', { 'aria-label': I18n.t('Time zone') });
+    (TZ_LIST.indexOf(m.tz) === -1 ? [m.tz].concat(TZ_LIST) : TZ_LIST).forEach(function (z) { tz.appendChild(h('option', { value: z, text: tzLabel(z) })); }); tz.value = m.tz;
+    var repeat = h('select', { 'aria-label': I18n.t('Repeat') }, [['never', 'Never'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly']].map(function (o) { return h('option', { value: o[0], text: I18n.t(o[1]) }); })); repeat.value = m.repeat;
+    var count = h('input', { type: 'number', min: '2', max: '12', value: String(m.count), 'aria-label': I18n.t('Occurrences') });
+    var repNote = h('p', { class: 'sq-sub', role: 'status' });
+    var passcode = h('input', { type: 'password', placeholder: I18n.t('Optional passcode (8+ characters)'), maxlength: '128', autocomplete: 'new-password', value: m.passcode, 'aria-label': I18n.t('Passcode') });
+    var room = h('input', { type: 'text', placeholder: I18n.t('Add a room'), value: m.room, maxlength: '120', 'aria-label': I18n.t('Add a room') });
+    var location = h('input', { type: 'text', placeholder: I18n.t('Add a location'), value: m.location, maxlength: '200', 'aria-label': I18n.t('Add a location') });
+    var agenda = h('textarea', { rows: '3', placeholder: I18n.t('Create agenda'), maxlength: '1900', 'aria-label': I18n.t('Agenda') }); agenda.value = m.agenda;
+    var agendaWrap = h('div', { class: m.agenda || m.showAgenda ? '' : 'hidden' }, [agenda]);
+    var desc = h('textarea', { rows: '2', placeholder: I18n.t('Add description'), maxlength: '1900', 'aria-label': I18n.t('Add description') }); desc.value = m.description;
+    var busy = h('select', { 'aria-label': I18n.t('Show as') }, [h('option', { value: 'busy', text: I18n.t('Busy') }), h('option', { value: 'free', text: I18n.t('Free') })]); busy.value = m.busy ? 'busy' : 'free';
+    var chips = h('div', { class: 'sf-chips', 'aria-live': 'polite' });
+    var inviteBox = h('input', { type: 'text', placeholder: I18n.t('Add invitees'), 'aria-label': I18n.t('Add invitees') });
+    var inviteNote = h('p', { class: 'sq-sub', text: I18n.t('Invitations are emailed from your own verified address when email is set up on this server. Otherwise share the meeting ID.') });
+    var err = h('div', { class: 'sq-err', role: 'alert' });
+    var dlg;
+    function drawChips() {
+      chips.textContent = '';
+      m.invitees.forEach(function (a) { chips.appendChild(h('span', { class: 'chip-x' }, [a, h('button', { type: 'button', 'aria-label': I18n.t('Remove') + ' ' + a, onclick: function () { m.invitees = m.invitees.filter(function (x) { return x !== a; }); drawChips(); } }, ['×'])])); });
+    }
+    function addInvitees() { parseInvitees(inviteBox.value).forEach(function (a) { if (m.invitees.indexOf(a) === -1) m.invitees.push(a); }); inviteBox.value = ''; drawChips(); }
+    inviteBox.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addInvitees(); } });
+    inviteBox.addEventListener('blur', addInvitees);
+    function refresh() {
+      var allD = allDay.checked; start.disabled = end.disabled = allD; count.disabled = repeat.value === 'never';
+      repNote.textContent = repeat.value === 'never' ? '' : I18n.t('This creates {n} separate meetings, each with its own meeting ID.', { n: Math.max(2, Math.min(12, parseInt(count.value, 10) || 4)) });
+    }
+    [allDay, repeat, count].forEach(function (el) { el.addEventListener('change', refresh); el.addEventListener('input', refresh); });
+    function collect() {
+      addInvitees(); m.title = title.value; m.date = date.value; m.start = start.value; m.end = end.value; m.allDay = allDay.checked; m.tz = tz.value; m.repeat = repeat.value; m.count = count.value;
+      m.passcode = passcode.value; m.room = room.value; m.location = location.value; m.agenda = agenda.value; m.description = desc.value; m.busy = busy.value !== 'free';
+    }
+    function close() { if (closed) return; closed = true; try { dlg.close(); } catch (e) {} dlg.remove(); }
+    var row = function (ic, kids, cls) { return h('div', { class: 'sf-row ' + (cls || '') }, [h('span', { class: 'sq-ic', 'aria-hidden': 'true' }, [icon(ic)])].concat(kids)); };
+    var meetingSection = h('div', { class: 'sf-meeting', id: 'sfMeeting' }, [
+      row(IC.video, [h('div', { class: 'sf-col' }, [h('strong', { text: I18n.t('Qorlla Meeting') }), passcode, h('p', { class: 'sq-sub', text: I18n.t('A passcode needs Qorlla Meet sync to be enabled on this server.') })])])
+    ]);
+    dlg = h('dialog', { class: 'sf', 'aria-label': I18n.t('New event') }, [
+      h('form', { method: 'dialog', onsubmit: function (e) {
+        e.preventDefault(); collect(); err.textContent = '';
+        saveSchedule(m).then(function (items) { close(); afterSaved(items); }).catch(function (x) { err.textContent = x.message; });
+      } }, [
+        h('div', { class: 'sf-head' }, [h('span', { class: 'sf-label', text: I18n.t('New event') }), h('button', { type: 'button', class: 'icon-sm', 'aria-label': I18n.t('Close'), onclick: close }, [icon(IC.x)])]),
+        title,
+        h('div', { class: 'sq-tabs' }, [h('span', { class: 'on', text: I18n.t('Event') })]),
+        h('div', { class: 'sf-grid' }, [
+          h('div', { class: 'sf-main' }, [
+            row(IC.clock, [h('div', { class: 'sf-col' }, [
+              h('div', { class: 'sq-when' }, [date, start, h('span', { class: 'sq-arrow', 'aria-hidden': 'true', text: '→' }), end, h('label', { class: 'check inline' }, [allDay, h('span', { text: I18n.t('All Day') })])]),
+              h('div', { class: 'sf-inline' }, [h('label', { class: 'sf-small grow' }, [h('span', { text: I18n.t('Time zone') }), tz]), h('label', { class: 'sf-small' }, [h('span', { text: I18n.t('Repeat') }), repeat]), h('label', { class: 'sf-small narrow' }, [h('span', { text: I18n.t('Occurrences') }), count])]), repNote
+            ])]),
+            meetingSection,
+            row(IC.users, [room]),
+            row(IC.pin, [location]),
+            row(IC.lines, [h('div', { class: 'sf-col' }, [h('button', { type: 'button', class: 'linkbtn left', text: I18n.t('Create agenda'), onclick: function () { agendaWrap.classList.toggle('hidden'); agenda.focus(); } }), agendaWrap, desc])]),
+            row(IC.cal, [h('div', { class: 'sf-inline' }, [h('label', { class: 'sf-small' }, [h('span', { text: I18n.t('Calendar') }), h('select', { 'aria-label': I18n.t('Calendar') }, [h('option', { text: I18n.t('My calendar') })])]), h('label', { class: 'sf-small' }, [h('span', { text: I18n.t('Show as') }), busy])])])
+          ]),
+          h('aside', { class: 'sf-side', 'aria-label': I18n.t('Invitees') }, [h('h3', { text: I18n.t('Invitees') }), inviteBox, chips, inviteNote])
+        ]),
+        err,
+        h('div', { class: 'sf-foot' }, [h('button', { type: 'button', class: 'btn', text: I18n.t('Cancel'), onclick: close }), h('button', { type: 'submit', class: 'btn primary', text: I18n.t('Save') })])
+      ])
+    ]);
+    dlg.addEventListener('close', function () { closed = true; dlg.remove(); });
+    document.body.appendChild(dlg); drawChips(); refresh(); dlg.showModal();
+    if (focusSection === 'meeting') { document.getElementById('sfMeeting').scrollIntoView({ block: 'center' }); passcode.focus(); } else { title.focus(); title.select(); }
+  }
+
+  VIEWS.schedule = function (opts) {
     if (!state.user) return gate(I18n.t('Schedule'), 'scheduling');
     return api('/schedule').then(function (list) {
-      var now = ymd(new Date());
-      var title = h('input', { type: 'text', placeholder: 'Meeting title', maxlength: '200' });
-      var date = h('input', { type: 'date', value: now });
-      var time = h('input', { type: 'time', value: '10:00' });
-      var dur = h('input', { type: 'number', min: '1', max: '1440', value: '30' });
-      var pass = h('input', { type: 'password', placeholder: 'Optional passcode (8+ characters)', maxlength: '128', autocomplete: 'new-password' });
-
-      viewEl.appendChild(pageHead(I18n.t('Schedule'), 'Each scheduled meeting gets a real meeting ID you can join', []));
-      viewEl.appendChild(h('div', { class: 'cal-layout' }, [
-        h('div', {}, list.length ? list.map(function (s) {
-          return h('div', { class: 'card ev' }, [
-            h('div', {}, [
-              h('strong', { text: s.title }),
-              h('div', { class: 'muted', text: prettyDate(s.date) + ' · ' + t12(s.time) + ' · ' + s.duration + ' min' }),
-              h('div', { class: 'mid' }, [h('span', { text: 'ID ' + s.meetingId }),
-                h('button', { class: 'icon-sm', type: 'button', 'aria-label': 'Copy meeting ID', onclick: function () {
-                  if (navigator.clipboard) navigator.clipboard.writeText(s.meetingId).then(function () { toast('Meeting ID copied', 'ok'); }, function () { toast(s.meetingId); });
-                  else toast(s.meetingId);
-                } }, [icon(IC.copy)])])
-            ]),
-            h('div', { class: 'row' }, [
-              canJoin(s)
-                ? h('button', { class: 'btn small primary', type: 'button', onclick: function () { openDialog('join', s.meetingId); } }, [icon(IC.video), I18n.t('Join')])
-                : h('span', { class: 'muted', text: syncLabel(s) }),
-              h('button', { class: 'icon-sm', type: 'button', 'aria-label': 'Delete meeting', onclick: function () {
-                if (!confirm('Remove "' + s.title + '" from your schedule?')) return;
-                api('/schedule/' + s.id, { method: 'DELETE' }).then(function () { show('schedule'); }).catch(fail);
-              } }, [icon(IC.trash)])
-            ])
-          ]);
-        }) : [emptyState('No meetings scheduled yet. Use the form to create one.')]),
-        h('form', { class: 'card', onsubmit: function (e) {
-          e.preventDefault();
-          api('/schedule', { method: 'POST', body: { title: title.value, date: date.value, time: time.value, duration: dur.value, passcode: pass.value || undefined } })
-            .then(function (s) { toast('Scheduled — meeting ID ' + s.meetingId, 'ok'); show('schedule'); }).catch(fail);
-        } }, [
-          h('h3', { text: I18n.t('New meeting') }), field(I18n.t('Title'), title), field(I18n.t('Date'), date),
-          h('div', { class: 'two' }, [field(I18n.t('Time'), time), field('Duration (min)', dur)]), field('Passcode', pass),
-          h('button', { class: 'btn primary', type: 'submit' }, [icon(IC.plus), I18n.t('Schedule meeting')])
-        ])
+      viewEl.appendChild(pageHead(I18n.t('Schedule'), 'Each scheduled meeting gets a real meeting ID you can join', [
+        h('button', { class: 'btn primary small', type: 'button', id: 'newMeetingBtn', onclick: function () { openSchedQuick(); } }, [icon(IC.plus), I18n.t('New meeting')])
       ]));
+      viewEl.appendChild(h('div', {}, list.length ? list.map(function (s) {
+        return h('div', { class: 'card ev' }, [
+          h('div', {}, [
+            h('strong', { text: s.title }),
+            h('div', { class: 'muted', text: prettyDate(s.date) + ' · ' + (s.allDay ? I18n.t('All Day') : t12(s.time) + ' · ' + s.duration + ' min') + (s.timezone ? ' · ' + s.timezone.replace(/_/g, ' ') : '') }),
+            (s.location || s.room) ? h('div', { class: 'muted', text: [s.room, s.location].filter(Boolean).join(' · ') }) : null,
+            (s.invitees && s.invitees.length) ? h('div', { class: 'muted', text: I18n.t('Invitees') + ': ' + s.invitees.length + (s.inviteResults && s.inviteResults.every(function (x) { return x.status === 'sent'; }) ? ' · ' + I18n.t('invited by email') : ' · ' + I18n.t('not emailed')) }) : null,
+            h('div', { class: 'mid' }, [h('span', { text: 'ID ' + s.meetingId }),
+              h('button', { class: 'icon-sm', type: 'button', 'aria-label': 'Copy meeting ID', onclick: function () {
+                if (navigator.clipboard) navigator.clipboard.writeText(s.meetingId).then(function () { toast('Meeting ID copied', 'ok'); }, function () { toast(s.meetingId); });
+                else toast(s.meetingId);
+              } }, [icon(IC.copy)])])
+          ]),
+          h('div', { class: 'row' }, [
+            canJoin(s)
+              ? h('button', { class: 'btn small primary', type: 'button', onclick: function () { openDialog('join', s.meetingId); } }, [icon(IC.video), I18n.t('Join')])
+              : h('span', { class: 'muted', text: syncLabel(s) }),
+            h('button', { class: 'icon-sm', type: 'button', 'aria-label': 'Delete meeting', onclick: function () {
+              if (!confirm('Remove "' + s.title + '" from your schedule?')) return;
+              api('/schedule/' + s.id, { method: 'DELETE' }).then(function () { show('schedule', { list: true }); }).catch(fail);
+            } }, [icon(IC.trash)])
+          ])
+        ]);
+      }) : [emptyState('No meetings scheduled yet. Use New meeting to create one.')]));
+      if (!(opts && opts.list)) setTimeout(function () { openSchedQuick(); }, 0);   // arriving via Schedule: the quick card comes up first
     });
   };
 
