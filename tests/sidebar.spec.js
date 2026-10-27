@@ -24,3 +24,14 @@ test('the sidebar still navigates: Schedule, Notes and Home work from it', async
   await page.goto('/qorlla.html#home'); await page.click('.nav-item[data-view="notes"]'); await expect(page).toHaveURL(/#notes$/);
   await page.click('.nav-item[data-view="home"]'); await expect(page).toHaveURL(/#home$/);
 });
+
+test('the home workspace has no "Billing / 30-minute session" card or charge buttons, and the old local billing state is cleared', async ({ page, context }) => {
+  const username = 'nb' + Math.random().toString(36).slice(2, 8);
+  await context.request.post('/api/auth/register', { data: { username, displayName: 'Side', password: 'Side-bar-9917!x' } });
+  await page.addInitScript(() => { try { localStorage.setItem('qorllaBillingState', '{"startedAt":1}'); } catch (e) { /* ignore */ } });
+  await page.goto('/qorlla.html#home'); await expect(page.getByText('Good', { exact: false }).first()).toBeVisible();
+  await expect(page.locator('#billingCard')).toHaveCount(0);
+  for (const t of ['30-minute session', 'Charge now', 'Skip charge', 'Session active']) await expect(page.getByText(t)).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem('qorllaBillingState'))).toBeNull();
+  await expect(page.locator('.calendar-card')).toBeVisible();                                   // the calendar card below it is unchanged
+});
