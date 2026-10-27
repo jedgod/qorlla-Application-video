@@ -57,6 +57,20 @@ app.use('/api/auth', auth.router);
 app.use('/api/workplace', require('./workplace')({
     dataDir: DATA_ROOT,
     allocateMeeting: (m) => allocateMeeting(m),
+    // Keep the live meeting record in step with an edited/deleted scheduled meeting (so a moved meeting stays joinable and a deleted one stops working)
+    updateMeeting: (id, f) => {
+        const m = meetingsState.get(normalizeId(id)); if (!m) return;
+        if (f.topic) m.topic = String(f.topic).slice(0, 200);
+        if (f.startTime) m.startTime = f.startTime;
+        if (f.durationMinutes) m.durationMinutes = f.durationMinutes;
+        saveSnapshotSoon();
+    },
+    closeMeeting: (id) => {
+        const m = meetingsState.get(normalizeId(id)); if (!m || m.status === 'completed') return;
+        m.status = 'completed'; saveSnapshotSoon();
+        io.to(m.meetingId).emit('meeting_terminated_by_host', { summaryMessage: 'The host deleted this scheduled meeting.' });
+        guestSessions.revokeMeeting(m.meetingId, 'meeting_ended');
+    },
     auth,
     mailer,
     // io is created further down; this only runs while serving requests, after start-up

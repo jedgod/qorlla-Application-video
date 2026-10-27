@@ -21,7 +21,7 @@ const MAX_IMAGE_CHARS = 6 * 1024 * 1024;
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const nowIso = () => new Date().toISOString();
 
-module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth, mailer, notify }) {
+module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, updateMeeting, closeMeeting, auth, mailer, notify }) {
     const dir = path.join(dataDir, 'workplace');
     const seedDir = path.join(__dirname, 'seed');
     const router = express.Router();
@@ -344,6 +344,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
             if (v.timezone && !/^[A-Za-z0-9_+\-\/]+$/.test(v.timezone)) return { error: 'Time zone is not valid.' };
             v.busy = has('busy') ? body.busy !== false : existing.busy !== false;
             v.allDay = has('allDay') ? body.allDay === true : existing.allDay === true;
+            if (has('chatId')) { v.chatId = str(body.chatId, 40); if (v.chatId && !/^[A-Za-z0-9-]+$/.test(v.chatId)) return { error: 'Chat id is not valid.' }; } else v.chatId = existing.chatId || '';
             if ('seriesId' in body || !existing) { v.seriesId = str(body.seriesId, 40); if (v.seriesId && !/^[A-Za-z0-9_-]+$/.test(v.seriesId)) return { error: 'Series id is not valid.' }; } else v.seriesId = existing.seriesId || '';
             if (has('invitees')) {
                 const raw = Array.isArray(body.invitees) ? body.invitees : String(body.invitees || '').split(/[,;\s]+/);
@@ -359,6 +360,10 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
         // Meet sync (PostgreSQL outbox, see meet-sync/): enabled when DATABASE_URL and QORLLA_BRIDGE_SECRET are set.
         // Schedules start as pending_sync; a background worker registers them with Meet. Join is only offered once synced.
         afterUpdate: async (next, prev, user, body) => {
+            if (typeof updateMeeting === 'function' && prev.meetingId && (next.title !== prev.title || next.date !== prev.date || next.time !== prev.time || next.duration !== prev.duration)) {
+                const st = new Date(`${next.date}T${next.time}:00`);
+                updateMeeting(prev.meetingId, { topic: next.title, startTime: isNaN(st) ? undefined : st.toISOString(), durationMinutes: next.duration });
+            }
             if (!meetSync.enabled) return;
             const pc = passcodeChange(body);
             if (pc.error) throw new Error(pc.error);
@@ -367,6 +372,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, auth
             if (pc.hash !== undefined) next.hasPasscode = !!pc.hash;
         },
         beforeDelete: async (item) => {
+            if (item && item.meetingId && typeof closeMeeting === 'function') closeMeeting(item.meetingId);   // a deleted scheduled meeting stops being joinable
             if (!meetSync.enabled || !item) return;
             await meetSync.cancel(item.id);
         },

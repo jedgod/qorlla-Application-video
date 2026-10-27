@@ -338,6 +338,17 @@
   .sf-meeting .sf-row { border-top: 1px solid #eef1f6; }
   @media (max-width: 820px) { .sf-grid { grid-template-columns: 1fr; } .sf-side { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 10px; } dialog.sf form, dialog.sq form { padding: 14px 16px; } }
 
+  /* Scheduled-meeting actions: chat button and the "..." menu */
+  .mtg-acts { display: flex; align-items: center; gap: 2px; flex: none; }
+  .mtg-act { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; }
+  .mtg-act svg.i { width: 19px; height: 19px; }
+  .mtg-menu { position: fixed; z-index: 90; min-width: 230px; background: #fff; border-radius: 18px; padding: 8px 0; box-shadow: 0 12px 40px rgba(10,20,40,.22), 0 0 0 1px rgba(10,20,40,.06); }
+  .mtg-menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 11px 24px; font: inherit; font-size: 15px; color: #131a2a; cursor: pointer; }
+  .mtg-menu button:hover, .mtg-menu button:focus-visible { background: #f2f5fa; outline: none; }
+  .mtg-menu button[disabled] { color: #9aa3b5; cursor: not-allowed; background: none; }
+  .mtg-menu button.danger { color: #e11d48; }
+  .mtg-menu hr { border: 0; border-top: 1px solid #e6e9f0; margin: 6px 20px; }
+  .meeting .mtg-acts { margin-right: 6px; }
   dialog.sheet { width: min(520px, 94vw); }
   dialog.sheet .fld input, dialog.sheet .fld textarea { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font: inherit; }
   dialog button svg.i { width: 16px; height: 16px; vertical-align: -3px; margin-right: 5px; }
@@ -670,6 +681,8 @@
     eraser: '<path d="m7 21-4-4 11-11 7 7-8 8Z"/><path d="M12 21h9"/>',
     save: '<path d="M5 3h11l4 4v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M8 3v5h7M8 21v-7h8v7"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12Z"/><path d="M9 11h6M9 14h3"/>',
+    dots: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
     expand: '<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>',
     x: '<path d="M6 6l12 12M18 6 6 18"/>',
     users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14c3 0 4.5 2 4.5 5"/>',
@@ -875,13 +888,14 @@
     var joinable = m.kind === 'meeting' && m.meetingId && canJoin(m);
     return h('div', { class: 'meeting', role: 'button', tabindex: '0',
       onclick: function () { openDialog('join', joinable ? m.meetingId : null); },
-      onkeydown: function (e) { if (e.key === 'Enter') openDialog('join', joinable ? m.meetingId : null); } }, [
+      onkeydown: function (e) { if (e.key === 'Enter' && e.target === e.currentTarget) openDialog('join', joinable ? m.meetingId : null); } }, [
       h('div', { class: 'meeting-bar' }),
       h('div', { class: 'meeting-info' }, [
         h('div', { class: 'meeting-title', text: m.title }),
         h('div', { class: 'meeting-meta' }, [icon(IC.clock), prettyDate(m.date) + ' · ' + t12(m.start) + ' – ' + t12(m.end)]),
         h('div', { class: 'meeting-meta' }, ['Host: ' + (m.host || I18n.t('You')) + (joinable ? ' · ID ' + m.meetingId : '')])
       ]),
+      m.kind === 'meeting' ? meetingActions(m, function () { show('home'); }) : null,
       h('div', { class: 'join-pill' }, [icon(IC.video), I18n.t('Join')])
     ]);
   }
@@ -1243,14 +1257,27 @@
     return ' ' + I18n.t('Invitations not sent') + ' (' + (INVITE_TEXT[why] || why) + '). ' + I18n.t('Share the meeting ID instead.');
   }
 
+  /** Throws a readable error, or returns the duration in minutes. */
+  function validateSched(m) {
+    if (!m.title.trim()) throw new Error(I18n.t('Meeting title is required.'));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(m.date)) throw new Error(I18n.t('Pick a date.'));
+    var duration = m.allDay ? 1440 : toMin(m.end) - toMin(m.start);
+    if (duration < 1) throw new Error(I18n.t('The end time must be after the start time.'));
+    var bad = m.invitees.filter(function (a) { return !/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(a); });
+    if (bad.length) throw new Error(I18n.t('Not a valid email address') + ': ' + bad[0]);
+    return duration;
+  }
+  /** Edits one existing scheduled meeting. Invitations are NOT re-sent on edit. */
+  function updateSchedule(id, m) {
+    var duration; try { duration = validateSched(m); } catch (e) { return Promise.reject(e); }
+    return api('/schedule/' + encodeURIComponent(id), { method: 'PATCH', body: {
+      title: m.title.trim(), date: m.date, time: m.allDay ? '00:00' : m.start, duration: duration, timezone: m.tz, allDay: m.allDay, busy: m.busy,
+      location: m.location, room: m.room, description: [m.agenda, m.description].filter(Boolean).join('\n\n'), invitees: m.invitees, passcode: m.passcode || undefined } });
+  }
+
   /** Validates the model and creates the meeting (or the series). Resolves to the created schedule items; rejects with a readable message. */
   function saveSchedule(m) {
-    if (!m.title.trim()) return Promise.reject(new Error(I18n.t('Meeting title is required.')));
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(m.date)) return Promise.reject(new Error(I18n.t('Pick a date.')));
-    var duration = m.allDay ? 1440 : toMin(m.end) - toMin(m.start);
-    if (duration < 1) return Promise.reject(new Error(I18n.t('The end time must be after the start time.')));
-    var bad = m.invitees.filter(function (a) { return !/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(a); });
-    if (bad.length) return Promise.reject(new Error(I18n.t('Not a valid email address') + ': ' + bad[0]));
+    var duration; try { duration = validateSched(m); } catch (e) { return Promise.reject(e); }
     var n = m.repeat === 'never' ? 1 : Math.max(2, Math.min(12, parseInt(m.count, 10) || 4));
     var seriesId = n > 1 ? 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) : '';
     var made = [];
@@ -1314,7 +1341,7 @@
     document.body.appendChild(dlg); dlg.showModal(); title.focus(); title.select();
   }
 
-  function openSchedFull(model, focusSection) {
+  function openSchedFull(model, focusSection, edit) {
     var m = model || newSchedModel(); var closed = false;
     var title = h('input', { type: 'text', class: 'sq-title big', value: m.title, maxlength: '200', 'aria-label': I18n.t('Meeting title') });
     var date = h('input', { type: 'date', value: m.date, 'aria-label': I18n.t('Date') });
@@ -1326,7 +1353,7 @@
     var repeat = h('select', { 'aria-label': I18n.t('Repeat') }, [['never', 'Never'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly']].map(function (o) { return h('option', { value: o[0], text: I18n.t(o[1]) }); })); repeat.value = m.repeat;
     var count = h('input', { type: 'number', min: '2', max: '12', value: String(m.count), 'aria-label': I18n.t('Occurrences') });
     var repNote = h('p', { class: 'sq-sub', role: 'status' });
-    var passcode = h('input', { type: 'password', placeholder: I18n.t('Optional passcode (8+ characters)'), maxlength: '128', autocomplete: 'new-password', value: m.passcode, 'aria-label': I18n.t('Passcode') });
+    var passcode = h('input', { type: 'password', placeholder: edit ? I18n.t('Leave empty to keep the current passcode') : I18n.t('Optional passcode (8+ characters)'), maxlength: '128', autocomplete: 'new-password', value: m.passcode, 'aria-label': I18n.t('Passcode') });
     var room = h('input', { type: 'text', placeholder: I18n.t('Add a room'), value: m.room, maxlength: '120', 'aria-label': I18n.t('Add a room') });
     var location = h('input', { type: 'text', placeholder: I18n.t('Add a location'), value: m.location, maxlength: '200', 'aria-label': I18n.t('Add a location') });
     var agenda = h('textarea', { rows: '3', placeholder: I18n.t('Create agenda'), maxlength: '1900', 'aria-label': I18n.t('Agenda') }); agenda.value = m.agenda;
@@ -1335,7 +1362,7 @@
     var busy = h('select', { 'aria-label': I18n.t('Show as') }, [h('option', { value: 'busy', text: I18n.t('Busy') }), h('option', { value: 'free', text: I18n.t('Free') })]); busy.value = m.busy ? 'busy' : 'free';
     var chips = h('div', { class: 'sf-chips', 'aria-live': 'polite' });
     var inviteBox = h('input', { type: 'text', placeholder: I18n.t('Add invitees'), 'aria-label': I18n.t('Add invitees') });
-    var inviteNote = h('p', { class: 'sq-sub', text: I18n.t('Invitations are emailed from your own verified address when email is set up on this server. Otherwise share the meeting ID.') });
+    var inviteNote = h('p', { class: 'sq-sub', text: edit ? I18n.t('Edits do not re-send invitations.') : I18n.t('Invitations are emailed from your own verified address when email is set up on this server. Otherwise share the meeting ID.') });
     var err = h('div', { class: 'sq-err', role: 'alert' });
     var dlg;
     function drawChips() {
@@ -1359,19 +1386,20 @@
     var meetingSection = h('div', { class: 'sf-meeting', id: 'sfMeeting' }, [
       row(IC.video, [h('div', { class: 'sf-col' }, [h('strong', { text: I18n.t('Qorlla Meeting') }), passcode, h('p', { class: 'sq-sub', text: I18n.t('A passcode needs Qorlla Meet sync to be enabled on this server.') })])])
     ]);
-    dlg = h('dialog', { class: 'sf', 'aria-label': I18n.t('New event') }, [
+    dlg = h('dialog', { class: 'sf', 'aria-label': I18n.t(edit ? 'Edit event' : 'New event') }, [
       h('form', { method: 'dialog', onsubmit: function (e) {
         e.preventDefault(); collect(); err.textContent = '';
-        saveSchedule(m).then(function (items) { close(); afterSaved(items); }).catch(function (x) { err.textContent = x.message; });
+        if (edit) updateSchedule(edit.id, m).then(function () { close(); toast(I18n.t('Meeting updated'), 'ok'); if (edit.after) edit.after(); }).catch(function (x) { err.textContent = x.message; });
+        else saveSchedule(m).then(function (items) { close(); afterSaved(items); }).catch(function (x) { err.textContent = x.message; });
       } }, [
-        h('div', { class: 'sf-head' }, [h('span', { class: 'sf-label', text: I18n.t('New event') }), h('button', { type: 'button', class: 'icon-sm', 'aria-label': I18n.t('Close'), onclick: close }, [icon(IC.x)])]),
+        h('div', { class: 'sf-head' }, [h('span', { class: 'sf-label', text: I18n.t(edit ? 'Edit event' : 'New event') }), h('button', { type: 'button', class: 'icon-sm', 'aria-label': I18n.t('Close'), onclick: close }, [icon(IC.x)])]),
         title,
         h('div', { class: 'sq-tabs' }, [h('span', { class: 'on', text: I18n.t('Event') })]),
         h('div', { class: 'sf-grid' }, [
           h('div', { class: 'sf-main' }, [
             row(IC.clock, [h('div', { class: 'sf-col' }, [
               h('div', { class: 'sq-when' }, [date, start, h('span', { class: 'sq-arrow', 'aria-hidden': 'true', text: '→' }), end, h('label', { class: 'check inline' }, [allDay, h('span', { text: I18n.t('All Day') })])]),
-              h('div', { class: 'sf-inline' }, [h('label', { class: 'sf-small grow' }, [h('span', { text: I18n.t('Time zone') }), tz]), h('label', { class: 'sf-small' }, [h('span', { text: I18n.t('Repeat') }), repeat]), h('label', { class: 'sf-small narrow' }, [h('span', { text: I18n.t('Occurrences') }), count])]), repNote
+              h('div', { class: 'sf-inline' }, [h('label', { class: 'sf-small grow' }, [h('span', { text: I18n.t('Time zone') }), tz]), h('label', { class: edit ? 'sf-small hidden' : 'sf-small' }, [h('span', { text: I18n.t('Repeat') }), repeat]), h('label', { class: edit ? 'sf-small narrow hidden' : 'sf-small narrow' }, [h('span', { text: I18n.t('Occurrences') }), count])]), repNote
             ])]),
             meetingSection,
             row(IC.users, [room]),
@@ -1388,6 +1416,99 @@
     dlg.addEventListener('close', function () { closed = true; dlg.remove(); });
     document.body.appendChild(dlg); drawChips(); refresh(); dlg.showModal();
     if (focusSection === 'meeting') { document.getElementById('sfMeeting').scrollIntoView({ block: 'center' }); passcode.focus(); } else { title.focus(); title.select(); }
+  }
+
+  // =====================================================================
+  // Scheduled-meeting actions: a chat button and a "..." menu (Start meeting / Copy meeting link / Edit / Delete)
+  // Used on the Home "today" list and on the Schedule page.
+  // =====================================================================
+  function meetingLink(id) { return location.origin + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin'; }   // works without an account; passcode (if any) is asked on the pre-join page
+  function startScheduled(m) {
+    var p = { start: 'join', mic: $('mic').checked ? 'true' : 'false', camera: $('cam').checked ? 'true' : 'false', meetingId: m.meetingId };
+    if (myName()) p.name = myName();
+    go(p);
+  }
+  function copyMeetingLink(m) {
+    var url = meetingLink(m.meetingId);
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { toast(I18n.t('Meeting link copied'), 'ok'); }, function () { toast(url); });
+    else toast(url);
+  }
+  /** Opens (creating it the first time) a chat space named after the meeting; the link is remembered on the meeting. */
+  function openMeetingChat(m) {
+    api('/schedule').then(function (all) {
+      var s = all.filter(function (x) { return x.id === m.id; })[0];
+      if (!s) throw new Error(I18n.t('Could not open the chat'));
+      var go2 = function (chatId) { window.location.href = 'chat.html#' + encodeURIComponent(chatId); };
+      if (!s.chatId) return create(s);
+      return api('/chat').then(function (r) { if ((r.chats || []).some(function (c) { return c.id === s.chatId; })) go2(s.chatId); else return create(s); });
+      function create(item) {
+        return api('/chat', { method: 'POST', body: { type: 'space', name: (item.title + ' - ' + prettyDate(item.date)).slice(0, 100) } })
+          .then(function (c) { return api('/schedule/' + encodeURIComponent(item.id), { method: 'PATCH', body: { chatId: c.id } }).then(function () { go2(c.id); }); });
+      }
+    }).catch(function (e) { toast(e.message || I18n.t('Could not open the chat'), 'err'); });
+  }
+  function modelFromItem(s) {
+    var base = newSchedModel();
+    return Object.assign(base, { title: s.title, date: s.date, start: s.allDay ? '00:00' : s.time, end: s.allDay ? '23:45' : addMinutes(s.time, s.duration), allDay: !!s.allDay, tz: s.timezone || localTz(),
+      repeat: 'never', invitees: (s.invitees || []).slice(), room: s.room || '', location: s.location || '', agenda: '', description: s.description || '', passcode: '', busy: s.busy !== false });
+  }
+  function editScheduled(m, after) {
+    api('/schedule').then(function (all) {
+      var s = all.filter(function (x) { return x.id === m.id; })[0];
+      if (!s) throw new Error(I18n.t('Could not open the chat'));
+      openSchedFull(modelFromItem(s), null, { id: s.id, after: after });
+    }).catch(fail);
+  }
+  function deleteScheduled(m, after) {
+    if (!confirm('"' + m.title + '"\n' + I18n.t('Delete this meeting? Its meeting ID stops working.'))) return;
+    api('/schedule/' + encodeURIComponent(m.id), { method: 'DELETE' }).then(function () { toast(I18n.t('Meeting deleted'), 'ok'); if (after) after(); }).catch(fail);
+  }
+
+  var openMenu = null;
+  function closeMenu(restoreFocus) {
+    if (!openMenu) return; var o = openMenu; openMenu = null;
+    o.menu.remove(); o.btn.setAttribute('aria-expanded', 'false'); if (restoreFocus) o.btn.focus();
+  }
+  document.addEventListener('click', function (e) { if (openMenu && !openMenu.menu.contains(e.target) && !openMenu.btn.contains(e.target)) closeMenu(false); }, true);
+  window.addEventListener('scroll', function () { closeMenu(false); }, true);
+  window.addEventListener('resize', function () { closeMenu(false); });
+
+  function meetingActions(m, after) {
+    var canStart = !!m.meetingId && canJoin(m);
+    var btn = h('button', { type: 'button', class: 'icon-sm mtg-act', 'aria-label': I18n.t('More actions'), title: I18n.t('More actions'), 'aria-haspopup': 'menu', 'aria-expanded': 'false', onclick: function (e) {
+      e.stopPropagation(); if (openMenu && openMenu.btn === btn) { closeMenu(false); return; } closeMenu(false); openIt();
+    } }, [icon(IC.dots)]);
+    function openIt() {
+      var items = [];
+      var item = function (label, fn, cls, disabled, hint) {
+        var b = h('button', { type: 'button', role: 'menuitem', class: cls || '', disabled: disabled ? true : false, title: hint || false, text: label, onclick: function (e) { e.stopPropagation(); closeMenu(false); fn(); } });
+        items.push(b); return b;
+      };
+      var menu = h('div', { class: 'mtg-menu', role: 'menu', 'aria-label': m.title }, [
+        item(I18n.t('Start meeting'), function () { startScheduled(m); }, '', !canStart, canStart ? '' : syncLabel(m) || I18n.t('Waiting for Meet sync')),
+        h('hr', { role: 'separator' }),
+        item(I18n.t('Copy meeting link'), function () { copyMeetingLink(m); }, '', !m.meetingId),
+        h('hr', { role: 'separator' }),
+        item(I18n.t('Edit'), function () { editScheduled(m, after); }),
+        item(I18n.t('Delete'), function () { deleteScheduled(m, after); }, 'danger')
+      ]);
+      document.body.appendChild(menu);
+      var r = btn.getBoundingClientRect(), w = menu.offsetWidth, hgt = menu.offsetHeight;
+      var left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)), top = r.bottom + 6;
+      if (top + hgt > window.innerHeight - 8) top = Math.max(8, r.top - hgt - 6);                  // flip above when there is no room below
+      menu.style.left = left + 'px'; menu.style.top = top + 'px';
+      btn.setAttribute('aria-expanded', 'true'); openMenu = { menu: menu, btn: btn };
+      var enabled = items.filter(function (b) { return !b.disabled; }); if (enabled[0]) enabled[0].focus();
+      menu.addEventListener('keydown', function (e) {
+        var i = enabled.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown') { e.preventDefault(); enabled[(i + 1) % enabled.length].focus(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); enabled[(i - 1 + enabled.length) % enabled.length].focus(); }
+        else if (e.key === 'Home') { e.preventDefault(); enabled[0].focus(); } else if (e.key === 'End') { e.preventDefault(); enabled[enabled.length - 1].focus(); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(true); } else if (e.key === 'Tab') closeMenu(false);
+      });
+    }
+    var chat = h('button', { type: 'button', class: 'icon-sm mtg-act', 'aria-label': I18n.t('Meeting chat'), title: I18n.t('Meeting chat'), onclick: function (e) { e.stopPropagation(); openMeetingChat(m); } }, [icon(IC.chat)]);
+    return h('div', { class: 'mtg-acts', onclick: function (e) { e.stopPropagation(); } }, [chat, btn]);
   }
 
   VIEWS.schedule = function (opts) {
@@ -1413,10 +1534,7 @@
             canJoin(s)
               ? h('button', { class: 'btn small primary', type: 'button', onclick: function () { openDialog('join', s.meetingId); } }, [icon(IC.video), I18n.t('Join')])
               : h('span', { class: 'muted', text: syncLabel(s) }),
-            h('button', { class: 'icon-sm', type: 'button', 'aria-label': 'Delete meeting', onclick: function () {
-              if (!confirm('Remove "' + s.title + '" from your schedule?')) return;
-              api('/schedule/' + s.id, { method: 'DELETE' }).then(function () { show('schedule', { list: true }); }).catch(fail);
-            } }, [icon(IC.trash)])
+            meetingActions({ id: s.id, title: s.title, meetingId: s.meetingId, syncStatus: s.syncStatus, chatId: s.chatId }, function () { show('schedule', { list: true }); })
           ])
         ]);
       }) : [emptyState('No meetings scheduled yet. Use New meeting to create one.')]));

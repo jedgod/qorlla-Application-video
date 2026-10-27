@@ -365,5 +365,17 @@ window.QorllaLocales["es"] = {
   "Invitations not sent": "Invitaciones no enviadas",
   "Share the meeting ID instead.": "Comparte en su lugar el ID de la reunión.",
   "invited by email": "invitados por correo",
-  "not emailed": "sin correo enviado"
+  "not emailed": "sin correo enviado",
+  "Copy meeting link": "Copiar enlace de la reunión",
+  "Meeting chat": "Chat de la reunión",
+  "More actions": "Más acciones",
+  "Edit event": "Editar evento",
+  "Meeting link copied": "Enlace de la reunión copiado",
+  "Meeting deleted": "Reunión eliminada",
+  "Meeting updated": "Reunión actualizada",
+  "Leave empty to keep the current passcode": "Déjalo vacío para conservar el código actual",
+  "Edits do not re-send invitations.": "Las ediciones no reenvían las invitaciones.",
+  "Delete this meeting? Its meeting ID stops working.": "¿Eliminar esta reunión? Su ID dejará de funcionar.",
+  "Waiting for Meet sync": "Esperando la sincronización con Meet",
+  "Could not open the chat": "No se pudo abrir el chat"
 };
