@@ -10,7 +10,8 @@ async function boot(sink) {
   const env = { ...process.env, PORT: String(port), DATA_DIR: dir, SMTP_URL: `smtp://127.0.0.1:${sink.port}`, SMTP_FROM: 'Qorlla <no-reply@test.local>', PUBLIC_URL: `http://127.0.0.1:${port}` };
   delete env.GUEST_RATE_LIMIT_MAX; delete env.DATABASE_URL;
   const child = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '..'), env, stdio: 'ignore' }); const base = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 80; i++) { try { if ((await fetch(base + '/api/health')).ok) break; } catch (e) { /* starting */ } await new Promise((r) => setTimeout(r, 150)); }
+  let up = false; for (let i = 0; i < 300 && !up; i++) { try { up = (await fetch(base + '/api/health')).ok; } catch (e) { /* not up yet */ } if (!up) await new Promise((r) => setTimeout(r, 150)); }
+  if (!up) throw new Error('test server did not start within 45 s: ' + base);   // fail loudly, never continue against a server that is not there
   return { dir, base, stop: () => new Promise((r) => { child.once('exit', r); child.kill(); }) };
 }
 const ctx = (base) => pwRequest.newContext({ baseURL: base, extraHTTPHeaders: { origin: base } });

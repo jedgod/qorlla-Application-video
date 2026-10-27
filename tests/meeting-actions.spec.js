@@ -14,7 +14,7 @@ const card = (page, title) => page.locator('.meeting', { hasText: title });
 const menu = (page) => page.locator('.mtg-menu');
 const items = (page) => menu(page).getByRole('menuitem');
 
-test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
+test.use({ permissions: ['clipboard-read', 'clipboard-write', 'camera', 'microphone'], launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } });
 
 test.describe('menu and chat button', () => {
   test('Home shows a chat button and a "..." menu with the four actions in order; Delete is red', async ({ page, context }) => {
@@ -63,11 +63,11 @@ test.describe('actions', () => {
     const g = await context.newPage(); await g.goto(link); await expect(g.locator('#pjTopic')).toContainText('Weekly sync');
   });
 
-  test('Start meeting opens the meeting with the meeting ID; it is disabled while Meet has not synced the meeting', async ({ page, context }) => {
+  test('Start meeting enters the meeting with its ID in the built-in room; it is disabled while Meet has not synced the meeting', async ({ page, context }) => {
     await signedIn(context); const s = await schedule(context);
-    const seen = []; await page.route(/start=join/, (route) => { seen.push(route.request().url()); route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>meeting</h1>' }); });
     await page.goto('/qorlla.html#home'); await card(page, 'Weekly sync').getByRole('button', { name: 'More actions' }).click(); await items(page).first().click();
-    await expect(page.getByRole('heading', { name: 'meeting' })).toBeVisible(); const u = new URL(seen[0]); expect(u.searchParams.get('start')).toBe('join'); expect(u.searchParams.get('meetingId')).toBe(s.meetingId); expect(u.searchParams.get('name')).toBe('Stryker');
+    await expect(page).toHaveURL(/\/index\.html\?start=join/); const u = new URL(page.url()); expect(u.searchParams.get('meeting')).toBe(s.meetingId); expect(u.searchParams.get('name')).toBe('Stryker');
+    await expect(page.locator('#meetingBar')).toBeVisible(); await expect(page.locator('#meetingIdLabel')).toHaveText(s.meetingId); await expect(page.locator('#endCallBtn')).toHaveText('End for Everyone');   // the owner is the host
     // pending sync: the item is disabled and says why
     await page.route('**/api/workplace/schedule', async (route) => { const r = await route.fetch(); const j = await r.json(); await route.fulfill({ response: r, json: j.map((x) => ({ ...x, syncStatus: 'pending_sync' })) }); });
     await page.goto('/qorlla.html#home'); await card(page, 'Weekly sync').getByRole('button', { name: 'More actions' }).click();
@@ -137,4 +137,32 @@ test('on a phone the menu stays on screen and the actions are reachable', async 
   await page.goto('/qorlla.html#home'); const c = card(page, 'Phone check'); await expect(c).toBeVisible(); await c.getByRole('button', { name: 'More actions' }).click();
   expect(await menu(page).evaluate((m) => { const r = m.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; })).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test.describe('starting and joining from Home', () => {
+  test('a registered user clicks New meeting, presses Start, and is in a new meeting as host with an 11-digit ID', async ({ page, context }) => {
+    await signedIn(context, 'nm'); await page.goto('/qorlla.html#home');
+    await page.locator('.action-btn[data-act="meet"]').click(); await expect(page.locator('#joinDialog[open]')).toBeVisible(); await page.click('#dlgGo');
+    await expect(page).toHaveURL(/\/index\.html\?start=new/); await expect(page.locator('#meetingBar')).toBeVisible();
+    const id = (await page.locator('#meetingIdLabel').textContent()).trim(); expect(id).toMatch(/^\d{3} \d{4} \d{4}$/); await expect(page.locator('#endCallBtn')).toHaveText('End for Everyone');
+    expect((await context.request.get('/api/meetings/validate/' + encodeURIComponent(id))).status()).toBe(200);
+    expect(page.url()).not.toContain(':3000');                                                          // never a guessed Meet port
+  });
+
+  test('Join from Home with a meeting ID enters that meeting; the camera and microphone choices carry over', async ({ page, context, browser, baseURL }) => {
+    await signedIn(context, 'jn'); const host = await browser.newContext({ baseURL }); const hp = await host.newPage();
+    await hp.goto('/index.html'); await hp.fill('#displayName', 'Host Hal'); await hp.click('#startMeetingBtn'); await expect(hp.locator('#meetingBar')).toBeVisible(); const id = (await hp.locator('#meetingIdLabel').textContent()).trim();
+    await page.goto('/qorlla.html#home'); await page.locator('.action-btn[data-act="join"]').click(); await page.fill('#mid', id); await page.uncheck('#cam'); await page.click('#dlgGo');
+    await expect(page).toHaveURL(/\/index\.html\?start=join/); expect(new URL(page.url()).searchParams.get('cam')).toBe('0');
+    await expect(page.locator('#meetingBar')).toBeVisible(); await expect(page.locator('#meetingIdLabel')).toHaveText(id); await expect(hp.locator('#videoGrid .tile')).toHaveCount(2);
+    await host.close();
+  });
+
+  test('when a Meet service IS configured, New meeting goes there instead (with the parameters Meet expects)', async ({ page, context }) => {
+    await signedIn(context, 'mc'); const seen = [];
+    await page.route('http://meet.test.invalid/**', (route) => { seen.push(route.request().url()); route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>meet service</h1>' }); });
+    await page.addInitScript(() => { try { localStorage.setItem('zw_meet_url', 'http://meet.test.invalid/'); } catch (e) { /* ignore */ } });
+    await page.goto('/qorlla.html#home'); await page.locator('.action-btn[data-act="meet"]').click(); await page.click('#dlgGo');
+    await expect(page.getByRole('heading', { name: 'meet service' })).toBeVisible(); const u = new URL(seen[0]); expect(u.searchParams.get('start')).toBe('new'); expect(u.searchParams.get('name')).toBe('Stryker'); expect(u.searchParams.get('return')).toContain('/qorlla.html');
+  });
 });

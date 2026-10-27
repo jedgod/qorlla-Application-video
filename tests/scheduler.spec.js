@@ -126,7 +126,8 @@ test.describe('invitation email (local SMTP sink)', () => {
     const sink = await startSmtpSink(); const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qorlla-sched-')); const port = nextPort++;
     const env = { ...process.env, PORT: String(port), DATA_DIR: dir, SMTP_URL: `smtp://127.0.0.1:${sink.port}`, SMTP_FROM: 'Qorlla <no-reply@test.local>', PUBLIC_URL: `http://127.0.0.1:${port}` }; delete env.DATABASE_URL;
     const child = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '..'), env, stdio: 'ignore' }); const base = `http://127.0.0.1:${port}`;
-    for (let i = 0; i < 80; i++) { try { if ((await fetch(base + '/api/health')).ok) break; } catch (e) { /* starting */ } await new Promise((r) => setTimeout(r, 150)); }
+    let up = false; for (let i = 0; i < 300 && !up; i++) { try { up = (await fetch(base + '/api/health')).ok; } catch (e) { /* not up yet */ } if (!up) await new Promise((r) => setTimeout(r, 150)); }
+  if (!up) throw new Error('test server did not start within 45 s: ' + base);   // fail loudly, never continue against a server that is not there
     try {
       const ctx = await browser.newContext({ baseURL: base }); const page = await ctx.newPage();
       const username = 'host' + Math.random().toString(36).slice(2, 7); const email = username + '@example.test';

@@ -9,7 +9,8 @@ async function start(dir, extraEnv = {}) {
   const logPath = path.join(dir, 'server.log'); const fd = fs.openSync(logPath, 'a');
   const child = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '..'), env, stdio: ['ignore', fd, fd] });
   const base = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 80; i++) { try { if ((await fetch(base + '/api/health')).ok) break; } catch (e) { /* not up yet */ } await new Promise((r) => setTimeout(r, 150)); }
+  let up = false; for (let i = 0; i < 300 && !up; i++) { try { up = (await fetch(base + '/api/health')).ok; } catch (e) { /* not up yet */ } if (!up) await new Promise((r) => setTimeout(r, 150)); }
+  if (!up) throw new Error('test server did not start within 45 s: ' + base);   // fail loudly, never continue against a server that is not there
   return { base, port, logPath, log: () => fs.readFileSync(logPath, 'utf8'), stop: () => new Promise((r) => { child.once('exit', r); child.kill(); }) };
 }
 const ctx = (base, extra = {}) => pwRequest.newContext({ baseURL: base, extraHTTPHeaders: { origin: base, ...extra } });

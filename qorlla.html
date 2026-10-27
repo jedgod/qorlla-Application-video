@@ -623,11 +623,10 @@
 <script>
 (function () {
   'use strict';
-  // Qorlla Meet (qorlla-meet-video) runs as its own server; override with ?meet=<url> or localStorage zw_meet_url
-  var MEET_PORT = 3000;
-  var VIDEO_PAGE = store('zw_meet_url') || window.QORLLA_MEET_URL || (location.protocol.indexOf('http') === 0
-    ? location.protocol + '//' + location.hostname + ':' + MEET_PORT + '/'
-    : 'http://localhost:' + MEET_PORT + '/');
+  // Qorlla Meet (qorlla-meet-video) runs as its own server and is used when it is CONFIGURED (MEET_PUBLIC_URL on the server, or localStorage zw_meet_url).
+  // When it is not, meetings start in this server's built-in meeting room (/index.html). It used to fall back to a guessed port (3000), which
+  // opened whatever else happened to be running there instead of a meeting.
+  var VIDEO_PAGE = store('zw_meet_url') || window.QORLLA_MEET_URL || '';
   var API = '/api/workplace';
   var $ = function (id) { return document.getElementById(id); };
 
@@ -757,6 +756,13 @@
 
   // ---------- video page hand-off ----------
   function go(params) {
+    if (!VIDEO_PAGE) {                                   // built-in meeting room of this server
+      var b = new URLSearchParams({ start: params.start, mic: params.mic === 'false' ? '0' : '1', cam: params.camera === 'false' ? '0' : '1' });
+      if (params.name) b.set('name', params.name);
+      if (params.meetingId) b.set('meeting', params.meetingId);
+      window.location.href = '/index.html?' + b.toString();
+      return;
+    }
     params.return = location.href.split('#')[0];
     var q = new URLSearchParams(params).toString();
     window.location.href = VIDEO_PAGE + (q ? '?' + q : '');
