@@ -371,7 +371,9 @@
     .mail-grid, .notes-grid, .cal-layout, .board-grid { grid-template-columns: 1fr; }
   }
   /* signed out: the whole app is the sign-in screen with the short sidebar */
-  body.signed-out .topbar, body.signed-out .ai-panel, body.signed-out .nav-item[data-view=mail], body.signed-out .nav-item[data-view=calendar], body.signed-out .nav-item[data-view=schedule], body.signed-out .nav-item[data-view=notes] { display: none; }
+  @media (max-width: 900px) { body.signed-out .topbar { display: flex; } }   /* small screens keep the bar: it carries the language picker */
+  body.signed-out .ai-panel, body.signed-out .nav-item[data-view=mail], body.signed-out .nav-item[data-view=calendar], body.signed-out .nav-item[data-view=schedule], body.signed-out .nav-item[data-view=notes] { display: none; }
+  @media (min-width: 901px) { body.signed-out .topbar { display: none; } }
   body.signed-out .center { padding: 0; background: transparent; box-shadow: none; overflow: hidden; }
   body.signed-out .login-embed { height: calc(100vh - 76px); min-height: 0; }
   body.signed-out .sidebar { display: flex; flex-direction: column; }

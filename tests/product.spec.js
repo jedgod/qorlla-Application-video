@@ -1,7 +1,7 @@
 ﻿const { test, expect } = require('@playwright/test');
 
 test('account tabs expose selection and support arrow-key navigation', async ({ page }) => {
-  await page.goto('/login.html');
+  await page.goto('/login.html?standalone=1');
   await page.locator('#tabIn').focus();
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('#tabUp')).toHaveAttribute('aria-selected', 'true');
@@ -14,7 +14,7 @@ test('account tabs expose selection and support arrow-key navigation', async ({ 
 });
 
 test('account creation, recovery-code acknowledgement, and authenticated chat work', async ({ page }) => {
-  await page.goto('/login.html');
+  await page.goto('/login.html?standalone=1');
   await page.locator('#tabUp').click();
   await page.locator('#username').fill('qa_'+Date.now().toString().slice(-10));
   await page.locator('#displayName').fill('Alex Morgan');
@@ -36,7 +36,7 @@ for (const locale of ['en','fr','pt-PT']) {
   test('phone layouts remain usable in '+locale, async ({ page }) => {
     await page.setViewportSize({ width:390, height:844 });
     await page.addInitScript(value => localStorage.setItem('qorlla.locale',value),locale);
-    for (const url of ['/login.html','/','/index.html']) {
+    for (const url of ['/login.html?standalone=1','/','/index.html']) {
       await page.goto(url);
       await expect(page.locator('html')).toHaveAttribute('lang',locale);
       await expect(page.locator('[data-language-select]')).toBeVisible();

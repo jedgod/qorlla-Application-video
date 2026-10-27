@@ -175,7 +175,7 @@
   var params = new URLSearchParams(location.search);
   var EMBED = params.get('embed') === '1' && window.top !== window;
   // one official page: the standalone sign-in page hands over to the home page (reset/verify links and ?next= are carried along)
-  if (!EMBED) { location.replace('qorlla.html' + location.search); return; }
+  if (!EMBED && params.get('standalone') !== '1') { location.replace('qorlla.html' + location.search); return; }
   if (EMBED) { document.documentElement.classList.add('embed'); document.querySelectorAll('a[href="qorlla.html"]').forEach(function (a) { a.target = '_top'; }); }
   var ALLOWED = ['chat.html', 'qorlla.html', 'index.html'];
   var next = params.get('next') || 'qorlla.html';

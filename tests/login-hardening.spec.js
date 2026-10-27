@@ -7,14 +7,14 @@ test('login page loads without JavaScript errors or failed same-origin requests'
   page.on('pageerror', (e) => problems.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') problems.push('console: ' + m.text()); });
   page.on('response', (r) => { if (r.url().startsWith('http://localhost') && r.status() >= 400 && !r.url().includes('/api/auth/me')) problems.push(r.status() + ' ' + r.url()); });
-  await page.goto('/login.html');
+  await page.goto('/login.html?standalone=1');
   await expect(page.locator('#tabIn')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#form')).toBeVisible();
   expect(problems).toEqual([]);
 });
 
 test('sign-in and sign-up navigation, required fields and minimum password length are enforced', async ({ page }) => {
-  await page.goto('/login.html');
+  await page.goto('/login.html?standalone=1');
   await expect(page.locator('#username')).toHaveAttribute('required', '');
   await expect(page.locator('#password')).toHaveAttribute('required', '');
   await page.locator('#tabUp').click();
@@ -30,7 +30,7 @@ test('sign-in and sign-up navigation, required fields and minimum password lengt
 });
 
 test('failed sign-in shows a safe, non-enumerating message', async ({ page }) => {
-  await page.goto('/login.html');
+  await page.goto('/login.html?standalone=1');
   await page.locator('#username').fill('no_such_user_' + Date.now());
   await page.locator('#password').fill('Wrong-password-123!');
   await page.locator('#go').click();
@@ -42,7 +42,7 @@ test('failed sign-in shows a safe, non-enumerating message', async ({ page }) =>
 });
 
 test('language switching updates the login page and persists', async ({ page }) => {
-  await page.goto('/login.html');
+  await page.goto('/login.html?standalone=1');
   await page.locator('[data-language-select]').selectOption('fr');
   await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
   await expect(page.locator('#tabIn')).toHaveText('Se connecter');

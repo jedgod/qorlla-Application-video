@@ -6,7 +6,7 @@ for (const language of [
   { locale: 'pt-PT', signIn: 'Iniciar sessão', create: 'Criar conta', placeholder: 'Como o seu nome aparece na conversa' }
 ]) {
   test(language.locale + ' selection persists across pages and translates dynamic account labels', async ({ page }) => {
-    await page.goto('/login.html');
+    await page.goto('/login.html?standalone=1');
     await page.evaluate(() => localStorage.removeItem('qorlla.locale'));
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
@@ -27,7 +27,7 @@ for (const language of [
 }
 
 test('translation falls back, interpolates, and never translates unmarked content', async ({ page }) => {
-  await page.goto('/login.html');
+  await page.goto('/login.html?standalone=1');
   const result = await page.evaluate(() => {
     I18n.setLocale('es');
     const node = document.createElement('p');
@@ -49,7 +49,7 @@ for (const preference of [
     const context = await browser.newContext({ locale: preference.browser, baseURL });
     try {
       const page = await context.newPage();
-      await page.goto('/login.html');
+      await page.goto('/login.html?standalone=1');
       await expect(page.locator('html')).toHaveAttribute('lang', preference.expected);
       await expect(page.locator('#tabIn')).toHaveText(preference.signIn);
     } finally { await context.close(); }
