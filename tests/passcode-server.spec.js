@@ -3,7 +3,7 @@ const { io } = require('socket.io-client');
 const { spawn } = require('child_process'); const fs = require('fs'); const os = require('os'); const path = require('path');
 
 // Real MAIN processes (own data directory, own port) so restarts are real. Default rate limits are in force (no test override).
-let nextPort = 5310 + Math.floor(Math.random() * 400);
+let nextPort = 5310 + Math.floor(Math.random() * 140);   // 5310-5449 (+ a few); ranges of the spec files that start servers never overlap
 async function start(dir, extraEnv = {}) {
   const port = nextPort++; const env = { ...process.env, PORT: String(port), DATA_DIR: dir, ...extraEnv }; delete env.GUEST_RATE_LIMIT_MAX; delete env.DATABASE_URL;
   const logPath = path.join(dir, 'server.log'); const fd = fs.openSync(logPath, 'a');

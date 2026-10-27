@@ -28,6 +28,18 @@ body[data-page=workspace] .logo-word { font-size:13px; letter-spacing:-.4px; }
 body[data-page=workspace] .nav-item { border:0; padding:12px 3px; font-size:10.5px; line-height:1.4; border-radius:12px; min-height:64px; text-align:center; }
 body[data-page=workspace] .nav-item.active { background:#eef1ff; color:#3157e8; }
 body[data-page=workspace] .nav-item.active::before { content:""; position:absolute; width:3px; height:24px; background:#3157e8; left:-10px; top:50%; transform:translateY(-50%); border-radius:0 3px 3px 0; }
+/* Compact sidebar: spacing, icons and labels follow the window HEIGHT so every item (Home ... Settings) fits in the same left column without scrolling.
+   Same column width, same order, same active marker; below ~560px of height the column scrolls as before. */
+@media (min-width:761px) {
+  body[data-page=workspace] .sidebar { padding:clamp(8px,1.8vh,22px) 8px clamp(6px,1.2vh,14px); gap:clamp(0px,.3vh,3px); }
+  body[data-page=workspace] .logo { margin-bottom:clamp(4px,1.4vh,16px); gap:clamp(3px,.8vh,8px); }
+  body[data-page=workspace] .logo-mark { width:clamp(30px,4.6vh,40px); height:clamp(30px,4.6vh,40px); font-size:clamp(16px,2.6vh,21px); border-radius:11px; }
+  body[data-page=workspace] .logo-word { font-size:clamp(11px,1.7vh,13px); }
+  body[data-page=workspace] .nav-item { padding:clamp(3px,.8vh,9px) 3px; min-height:clamp(42px,6.8vh,64px); gap:clamp(1px,.4vh,4px); font-size:clamp(9.5px,1.4vh,10.5px); line-height:1.2; justify-content:center; border-radius:11px; }
+  body[data-page=workspace] .nav-item svg.i { width:clamp(16px,2.7vh,22px); height:clamp(16px,2.7vh,22px); }
+  body[data-page=workspace] .nav-item .count { top:2px; right:14px; }
+  body[data-page=workspace] .nav-item.active::before { height:clamp(16px,3vh,24px); }
+}
 body[data-page=workspace] .main { gap:0; }
 body[data-page=workspace] .topbar { height:80px; min-height:80px; gap:20px; padding:0 30px; background:#fff; border-bottom:1px solid var(--line); }
 .workspace-wordmark { font-size:14px; font-weight:650; color:var(--muted); margin-right:auto; white-space:nowrap; }

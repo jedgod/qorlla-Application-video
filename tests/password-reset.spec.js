@@ -4,7 +4,7 @@ const { startSmtpSink } = require('./support/smtp-sink');
 
 // Application-level password-reset checks through the REAL endpoints, with a local SMTP sink standing in for a mail server. This validates token
 // expiry, single use, concurrent redemption and session invalidation. It does NOT certify delivery through a real email provider.
-let nextPort = 5750 + Math.floor(Math.random() * 200);
+let nextPort = 5750 + Math.floor(Math.random() * 140);   // 5750-5889
 async function boot(sink) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qorlla-reset-')); const port = nextPort++;
   const env = { ...process.env, PORT: String(port), DATA_DIR: dir, SMTP_URL: `smtp://127.0.0.1:${sink.port}`, SMTP_FROM: 'Qorlla <no-reply@test.local>', PUBLIC_URL: `http://127.0.0.1:${port}` };

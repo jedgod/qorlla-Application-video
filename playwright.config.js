@@ -10,6 +10,7 @@ const testData = path.join(os.tmpdir(), 'qorlla-playwright-' + process.pid + '-'
 
 module.exports = defineConfig({
   testDir: './tests',
+  testMatch: /.*.spec.js$/,          // *.test.mjs files are node:test suites (PostgreSQL lockout) run with `node --test`, never by Playwright
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

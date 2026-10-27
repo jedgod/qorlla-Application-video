@@ -120,7 +120,7 @@ test.describe('layout', () => {
 });
 
 test.describe('invitation email (local SMTP sink)', () => {
-  let nextPort = 5700 + Math.floor(Math.random() * 150);   // avoids ports Chromium blocks (e.g. 6000)
+  let nextPort = 5500 + Math.floor(Math.random() * 140);   // 5500-5639; avoids ports Chromium blocks (e.g. 6000) and the other spec files' ranges
   test('a verified host\'s invitees get one email with the ID and a guest join link; a series sends invitations once', async ({ browser }) => {
     test.setTimeout(120000);
     const sink = await startSmtpSink(); const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qorlla-sched-')); const port = nextPort++;
