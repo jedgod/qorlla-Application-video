@@ -1,6 +1,8 @@
 // One command for local development: Qorlla Meet (its own PostgreSQL in Docker) + the main app, wired together.
 //   npm run dev:stack            main app http://localhost:3200   Meet http://localhost:3300
 //   MAIN_PORT=3100 MEET_PORT=3000 npm run dev:stack     (use other ports)
+//   DEV_SEED_FROM=<folder> npm run dev:stack            first start only: copy an existing data folder (e.g. the project's data/) so those accounts exist here.
+//                                                       The ORIGINAL folder is never written to; the stack works on its own copy in .dev-stack/data.
 // Needs Docker (for Meet's PostgreSQL) and the dependencies installed in this folder and in qorlla-meet-video/. State lives in .dev-stack/ (git-ignored).
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -11,6 +13,12 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAIN_PORT = Number(process.env.MAIN_PORT || 3200), MEET_PORT = Number(process.env.MEET_PORT || 3300), DB_PORT = Number(process.env.MEET_DB_PORT || 35432);
 const DB = 'qorlla-meet-dev-db', state = path.join(root, '.dev-stack'); fs.mkdirSync(path.join(state, 'data'), { recursive: true });
+if (process.env.DEV_SEED_FROM && !fs.existsSync(path.join(state, 'data', 'auth', 'users.json'))) {
+  const from = path.resolve(process.env.DEV_SEED_FROM);
+  if (!fs.existsSync(path.join(from, 'auth', 'users.json'))) { console.error('DEV_SEED_FROM has no auth/users.json: ' + from); process.exit(1); }
+  fs.cpSync(from, path.join(state, 'data'), { recursive: true, filter: (src) => !/passcode-lockout|limits.json$/.test(src) });   // copy accounts and content; start with clean sign-in throttles
+  console.log('Seeded .dev-stack/data from a copy of ' + from);
+}
 const docker = (...a) => spawnSync('docker', a, { encoding: 'utf8' });
 
 // secrets are generated once and kept, so restarts keep working (Meet encrypts host-recovery material with the escrow key)
