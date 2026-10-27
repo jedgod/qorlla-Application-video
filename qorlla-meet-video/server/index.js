@@ -1,3 +1,4 @@
+import './threadpool.js';
 import 'dotenv/config';
 import express from 'express';
 import helmet from 'helmet';
@@ -6,7 +7,11 @@ import { createServer } from 'node:http';
 import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import bcrypt from 'bcryptjs';
+// Native bcrypt (libuv thread pool). The pure-JS implementation blocks the event loop: 200 concurrent joins took 15 s p95.
+import bcrypt from 'bcrypt';
+// Host secrets are random 122-256 bit values, so brute force is infeasible whatever the cost; a low bcrypt cost keeps meeting
+// creation cheap. Human-chosen PASSCODES keep cost 10. (Verification of any existing hash is unaffected: the cost is inside the hash.)
+const HOST_SECRET_COST = 6;
 import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import { Server } from 'socket.io';
@@ -122,7 +127,7 @@ app.post('/api/integrations/scheduled-meetings',bridgeAuth,async(req,res)=>{
    if(!found.rows.length&&candidate!==legacyCode){meetingCode=candidate;break;}
   }
   if(!meetingCode)throw Error('Unable to allocate meeting code');
-  await client.query('INSERT INTO meetings(id,title,host_secret_hash,meeting_code,passcode_hash) VALUES($1,$2,$3,$4,$5)',[id,title,await bcrypt.hash(hostSecret,10),meetingCode,req.body?.passcodeHash??null]);
+  await client.query('INSERT INTO meetings(id,title,host_secret_hash,meeting_code,passcode_hash) VALUES($1,$2,$3,$4,$5)',[id,title,await bcrypt.hash(hostSecret,HOST_SECRET_COST),meetingCode,req.body?.passcodeHash??null]);
   await client.query('INSERT INTO external_meeting_links(source_system,source_id,meeting_id,scheduled_at) VALUES($1,$2,$3,$4)',['qorlla-main',sourceId,id,scheduledAt]);
   if(legacyCode)await client.query('INSERT INTO meeting_code_aliases(alias_code,meeting_id) VALUES($1,$2)',[legacyCode,id]);
   await client.query('COMMIT');
@@ -150,7 +155,7 @@ app.get('/api/integrations/meetings/:id/chat',readAuth,async(req,res)=>{
 });
 // v3.9: host credential recovery with stable request ID + acknowledgment (replaces v3.8 blind rotation).
 // Bridge-only; the caller must authorize the schedule. Responses are never cached or logged.
-const recovery=process.env.RECOVERY_ESCROW_KEY?recoveryService(db,Buffer.from(process.env.RECOVERY_ESCROW_KEY,'base64'),{hashSecret:s=>bcrypt.hash(s,10),verifySecret:(s,h)=>bcrypt.compare(s,h)}):null;
+const recovery=process.env.RECOVERY_ESCROW_KEY?recoveryService(db,Buffer.from(process.env.RECOVERY_ESCROW_KEY,'base64'),{hashSecret:s=>bcrypt.hash(s,HOST_SECRET_COST),verifySecret:(s,h)=>bcrypt.compare(s,h)}):null;
 const recoveryRoute=(name,run)=>app.post('/api/integrations/scheduled-meetings/:sourceId/'+name,bridgeAuth,async(req,res)=>{
  res.set('Cache-Control','no-store');
  if(!recovery)return fail(res,503,'Host recovery not configured');
@@ -203,7 +208,7 @@ app.post('/api/meetings', async (req,res) => {
  if(!client) return fail(res,503,'Database unavailable');
  try {
   await client.query('BEGIN');
-  await client.query('INSERT INTO meetings(id,title,host_secret_hash,passcode_hash,meeting_code) VALUES($1,$2,$3,$4,$5)',[id,title,await bcrypt.hash(hostSecret,10),passcode?await bcrypt.hash(passcode,10):null,meetingCode]);
+  await client.query('INSERT INTO meetings(id,title,host_secret_hash,passcode_hash,meeting_code) VALUES($1,$2,$3,$4,$5)',[id,title,await bcrypt.hash(hostSecret,HOST_SECRET_COST),passcode?await bcrypt.hash(passcode,10):null,meetingCode]);
   await client.query('INSERT INTO participants(id,meeting_id,display_name,role) VALUES($1,$2,$3,$4)',[pid,id,name,'host']);
   await client.query('COMMIT');
   res.status(201).json({meetingId:id, meetingCode, participantId:pid, token:sign({meetingId:id,participantId:pid,role:'host',name}),hostSecret});

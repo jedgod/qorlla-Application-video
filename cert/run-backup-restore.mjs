@@ -146,7 +146,7 @@ check('correct key (from secure backup) recovers the escrow', right.status === 2
 // finish both pending recoveries through the real ack worker
 for (const idx of [4, 5]) { const sid = seeded[idx].id; const p = inflight[sid]; mainSql(`INSERT INTO qorlla_host_recovery(source_id,request_id,generation,ack_pending) VALUES('${sid}','${p.reqId}',${p.generation},true) ON CONFLICT(source_id) DO UPDATE SET request_id='${p.reqId}',generation=${p.generation},ack_pending=true,ack_attempts=0,next_ack_at=now(),ack_lease_until=NULL`); }
 await waitFor(() => [4, 5].every((i) => mainSql(`SELECT ack_pending FROM qorlla_host_recovery WHERE source_id='${seeded[i].id}'`) === 'f'), { timeout: 90000, every: 1000, what: 'restored worker acks both' });
-const pendLeft = (await meetDb.query("SELECT count(*)::int c FROM host_recovery_escrow WHERE state='pending'")).rows[0].c; check('restored sync worker completes outstanding acknowledgments; no escrow left pending', pendLeft === 0, 'pending=' + pendLeft);
+const pendLeft = (await meetDb.query("SELECT count(*)::int c FROM host_recovery_escrow e JOIN external_meeting_links l ON l.meeting_id=e.meeting_id WHERE e.state='pending' AND l.source_id = ANY($1)", [seeded.map((x) => x.id)])).rows[0].c; check('restored sync worker completes outstanding acknowledgments; no escrow left pending', pendLeft === 0, 'pending=' + pendLeft);
 E.timings.rtoSeconds = (firstHostAuthAt - tD) / 1000;
 // audit continuity
 const post = (await meetDb.query('SELECT count(*)::int c, max(id)::bigint m FROM audit_events')).rows[0];

@@ -1,0 +1,10 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+const api=fs.readFileSync(new URL('../server/extensions.mjs',import.meta.url),'utf8');
+const sql=fs.readFileSync(new URL('../sql/002_workplace_extensions.sql',import.meta.url),'utf8');
+const ui=fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
+test('four release domains have persisted schema',()=>{for(const name of ['meeting_ai_jobs','receptionist_profiles','assistant_threads','documents','billing_invoices'])assert.match(sql,new RegExp('portal\.'+name))});
+test('AI consent required',()=>assert.match(api,/consent_reference:short/));
+test('phone calls fail closed',()=>assert.match(api,/Telephony provider not configured/));
+test('checkout fails closed',()=>assert.match(api,/Payment provider not configured/));
+test('document revisions reject conflicts',()=>assert.match(api,/Revision conflict/));
+test('portal extension has working forms',()=>{for(const name of ['ai-job','receptionist-form','thread-form','task-form','document-form'])assert.ok(ui.includes(name))});

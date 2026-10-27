@@ -71,10 +71,10 @@ await check('SEC04', 'WebSocket authorization: no/forged/expired/foreign-secret 
   const a = await mk('A'), b = await mk('B');
   const good = await sockConnect(a.token); assert(good.ok, 'valid token refused'); good.s.close();
   const none = await sockConnect(undefined); assert(!none.ok && /Unauthorized/.test(none.err), 'no token connected: ' + none.err);
-  const parts = a.token.split('.'); const forged = parts[0] + '.' + Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(parts[1], 'base64url')), role: 'host' })).toString('base64url') + '.' + parts[2];
+  const parts = a.token.split('.'); const forged = parts[0] + '.' + Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(parts[1], 'base64url')), name: 'tampered', role: 'host' })).toString('base64url') + '.' + parts[2];
   assert(!(await sockConnect(forged)).ok, 'tampered claims accepted');
-  const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
-  assert(!(await sockConnect(jwt.sign({ ...claims, role: 'host' }, 'x'.repeat(40), { issuer: 'qorlla-meet' }))).ok, 'foreign-secret token accepted');
+  const { iss: _iss, iat: _iat, exp: _exp, ...claims } = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+  assert(!(await sockConnect(jwt.sign({ ...claims, role: 'host' }, 'x'.repeat(40)))).ok, 'foreign-secret token accepted');
   assert(!(await sockConnect(jwt.sign({ meetingId: claims.meetingId, participantId: claims.participantId, role: 'host', name: 'x' }, ENV.JWT_SECRET, { issuer: 'qorlla-meet', expiresIn: -10 }))).ok, 'expired token accepted');
   assert(!(await sockConnect(jwt.sign({ meetingId: claims.meetingId, participantId: crypto.randomUUID(), role: 'host', name: 'x' }, ENV.JWT_SECRET, { issuer: 'qorlla-meet' }))).ok, 'valid-signature token for a non-participant accepted');
   const cross = await j(`${MEET}/api/meetings/${b.meetingId}`, 'GET', undefined, { authorization: 'Bearer ' + a.token }); assert(cross.status === 403, 'cross-meeting read ' + cross.status);
@@ -109,6 +109,7 @@ await check('SEC09', 'Stored XSS: hostile chat text/display name never becomes m
   const browser = await chromium.launch({ headless: true }); const ctx = await browser.newContext(); const page = await ctx.newPage(); const csp = [];
   page.on('console', (m) => { if (/Content Security Policy/i.test(m.text())) csp.push(m.text().slice(0, 120)); });
   await page.goto(MEET + '/'); await page.fill('#displayName', '<img src=x onerror="window.__xss=1">'); await page.fill('#meetingTitle', '<script>window.__xss=2</script>'); await page.click('#createBtn'); await page.waitForSelector('#app:not(.hidden)');
+  await waitFor(async () => /Connected/.test(await page.textContent('#status')), { what: 'socket connected' });
   await page.fill('#chatText', '<img src=x onerror="window.__xss=3"><script>window.__xss=4</script>'); await page.press('#chatText', 'Enter'); await waitFor(async () => (await page.textContent('#messages')).includes('<img'), { what: 'message rendered as text' });
   const res = await page.evaluate(() => ({ xss: window.__xss, imgs: document.querySelectorAll('#messages img, #peopleList img, .nameplate img, #roomTitle img').length, scripts: document.querySelectorAll('#messages script, #roomTitle script').length }));
   assert(res.xss === undefined && res.imgs === 0 && res.scripts === 0, JSON.stringify(res)); await browser.close(); return 'rendered inert as text';

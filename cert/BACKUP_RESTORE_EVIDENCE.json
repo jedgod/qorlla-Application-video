@@ -1,0 +1,135 @@
+{
+  "finished": "2026-10-26T20:13:33.799Z",
+  "git": {
+    "headSha": "16cfdc45038ed5de1f5a2da945fe4bfcaa6f8ec5",
+    "branch": "release/qorlla-meet-v3.9.2-production-closure",
+    "sourceTreeClean": false,
+    "dirtySourcePaths": [
+      " M cert/SECURITY_EVIDENCE.md"
+    ]
+  },
+  "gitHeadSha": "16cfdc45038ed5de1f5a2da945fe4bfcaa6f8ec5",
+  "steps": [
+    {
+      "at": "2026-10-26T20:11:56.267Z",
+      "step": "seed: user, 5 synced schedules (1 passcode), 1 completed recovery, 2 pending recoveries (escrow pending)"
+    },
+    {
+      "at": "2026-10-26T20:12:20.514Z",
+      "step": "pre-backup state: {\"auditEvents\":657,\"escrow\":[{\"state\":\"acknowledged\",\"c\":48},{\"state\":\"pending\",\"c\":4}],\"schedules\":6}"
+    },
+    {
+      "at": "2026-10-26T20:12:20.515Z",
+      "step": "backup: quiesce MAIN + worker + Meet, dump both databases, archive MAIN data volume"
+    },
+    {
+      "at": "2026-10-26T20:12:38.234Z",
+      "step": "DISASTER: destroy MAIN stack + volumes and Meet database container"
+    },
+    {
+      "at": "2026-10-26T20:12:47.297Z",
+      "step": "restore: fresh Meet PostgreSQL, fresh MAIN PostgreSQL, MAIN data volume, services"
+    },
+    {
+      "at": "2026-10-26T20:13:22.220Z",
+      "step": "verify"
+    }
+  ],
+  "checks": [
+    {
+      "name": "backup artifacts contain no key material or secrets",
+      "status": "PASS",
+      "detail": "checked 4 secrets against all artifacts"
+    },
+    {
+      "name": "restored MAIN data volume: pre-disaster session still valid",
+      "status": "PASS",
+      "detail": "{\"u\":\"bkeaee7d25\"}"
+    },
+    {
+      "name": "schedules restored consistently (JSON volume and PostgreSQL agree)",
+      "status": "PASS",
+      "detail": "restored=6, marker absent in both stores"
+    },
+    {
+      "name": "legacy codes still resolve to the same meetings",
+      "status": "PASS",
+      "detail": "6 schedules"
+    },
+    {
+      "name": "post-restore host authentication with vaulted secrets",
+      "status": "PASS",
+      "detail": "schedules 0-2"
+    },
+    {
+      "name": "completed recovery (acked pre-backup) host secret still valid",
+      "status": "PASS",
+      "detail": "200"
+    },
+    {
+      "name": "pending encrypted escrow recoverable after restore (same request replays same secret)",
+      "status": "PASS",
+      "detail": "200"
+    },
+    {
+      "name": "wrong RECOVERY_ESCROW_KEY cannot decrypt escrow (fails closed, no secret leaked)",
+      "status": "PASS",
+      "detail": "status 503"
+    },
+    {
+      "name": "correct key (from secure backup) recovers the escrow",
+      "status": "PASS",
+      "detail": "200"
+    },
+    {
+      "name": "restored sync worker completes outstanding acknowledgments; no escrow left pending",
+      "status": "PASS",
+      "detail": "pending=0"
+    },
+    {
+      "name": "audit log preserved and sequence continues (no id reuse)",
+      "status": "PASS",
+      "detail": "before=657/657 after=665/665"
+    },
+    {
+      "name": "schedule reconciliation works after restore (edit + new schedule sync)",
+      "status": "PASS",
+      "detail": "ok"
+    },
+    {
+      "name": "measured RTO within target (900 s)",
+      "status": "PASS",
+      "detail": "RTO 45.355s"
+    }
+  ],
+  "timings": {
+    "backupSeconds": 9.983,
+    "rpoSeconds": 7.736,
+    "rtoSeconds": 45.355,
+    "restoreCompletedSeconds": 55.49
+  },
+  "backupArtifacts": [
+    {
+      "file": "main.dump",
+      "bytes": 74337,
+      "sha256": "323aa95fa53806b32784e3f06c10a99d65a2cb636e1dfa51a986e04b17fe9467"
+    },
+    {
+      "file": "meet.dump",
+      "bytes": 136101,
+      "sha256": "1e695125118734ad16f2077da2a5d63bb56a2633af591102ce003537563f6240"
+    },
+    {
+      "file": "workspace.tgz",
+      "bytes": 22862,
+      "sha256": "e00e41fe4e55b9b8278c024c4fc4656d05e758715df6cc66380d36563d4df278"
+    }
+  ],
+  "objectives": {
+    "rtoTargetSeconds": 900,
+    "rpoTargetSeconds": 900,
+    "rtoMeasuredSeconds": 45.355,
+    "rpoMeasuredSeconds": 7.736,
+    "note": "RPO measured here is only the gap between this drill's backup and the simulated disaster. No automated backup schedule exists yet, so the RPO the product can actually guarantee is undefined until one is configured."
+  }
+}
