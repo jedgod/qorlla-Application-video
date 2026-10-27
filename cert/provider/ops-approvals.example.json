@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy to ops-approvals.json and fill in ONLY with real, signed-off results. The builder treats this file as human input; an absent or incomplete section keeps its gate BLOCKED.",
+  "portalRestore": { "testedAt": "YYYY-MM-DD", "result": "PASS", "evidence": "path or ticket", "keyRecoveryTested": true },
+  "rpoRto": { "rpoMinutes": 15, "rtoMinutes": 60, "approvedBy": "name, role", "approvedAt": "YYYY-MM-DD", "backupMonitoring": true, "monitoringEvidence": "alert rule / dashboard link" },
+  "devices": { "results": [ { "device": "iPhone model", "os": "iOS x", "browser": "Safari", "audioVideo": "ok", "responsiveUi": "ok", "result": "PASS" }, { "device": "Android model", "os": "Android x", "browser": "Chrome", "result": "PASS" }, { "device": "laptop", "os": "Windows/macOS", "browser": "Chrome/Firefox", "result": "PASS" } ] },
+  "securityReview": { "reviewer": "firm or person", "independentOfAuthor": true, "signedAt": "YYYY-MM-DD", "reportRef": "document id", "openReleaseBlockingFindings": 0 }
+}

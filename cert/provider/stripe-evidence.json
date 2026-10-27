@@ -1,0 +1,7 @@
+{
+  "phase": "P3",
+  "finished": "2026-10-27T01:49:40.164Z",
+  "status": "BLOCKED",
+  "reason": "missing inputs: STRIPE_TEST_SECRET_KEY, STRIPE_WEBHOOK_SECRET, PORTAL_PUBLIC_URL, PORTAL_OWNER_COOKIE, PORTAL_OWNER_CSRF, PORTAL_WORKSPACE_ID, PORTAL_ADMIN_COOKIE, PORTAL_ADMIN_CSRF, DATABASE_URL",
+  "requires": "a Stripe account in TEST mode (test secret key + webhook endpoint secret), a publicly reachable HTTPS portal URL, and test sessions for a workspace owner and a platform admin"
+}
