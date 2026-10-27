@@ -23,6 +23,15 @@ test.describe('quick card first, full dialog on More Options', () => {
     await page.keyboard.press('Escape'); await expect(page.locator('dialog.sq')).toHaveCount(0);
   });
 
+  test('a refresh, a direct #schedule link and back/forward show the list and do NOT open the card; clicking Schedule or New meeting does', async ({ page, context }) => {
+    await signedIn(context); await open(page); await page.keyboard.press('Escape'); await expect(page.locator('dialog.sq')).toHaveCount(0);
+    await page.reload(); await expect(page.locator('#newMeetingBtn')).toBeVisible(); await page.waitForTimeout(600); await expect(page.locator('dialog.sq')).toHaveCount(0);
+    await page.goto('/qorlla.html#schedule'); await page.waitForTimeout(600); await expect(page.locator('#newMeetingBtn')).toBeVisible(); await expect(page.locator('dialog.sq')).toHaveCount(0);
+    await page.goto('/qorlla.html#notes'); await page.goBack(); await page.waitForTimeout(600); await expect(page.locator('dialog.sq')).toHaveCount(0);
+    await page.click('#newMeetingBtn'); await expect(quick(page)).toBeVisible(); await page.keyboard.press('Escape');
+    await page.goto('/qorlla.html'); await page.focus('.nav-item[data-view="schedule"]'); await page.keyboard.press('Enter'); await expect(quick(page)).toBeVisible();   // keyboard counts as an explicit action
+  });
+
   test('Save on the quick card creates a real meeting with an 11-digit ID that validates', async ({ page, context }) => {
     await signedIn(context); await open(page);
     await page.fill('dialog.sq .sq-title', 'Design review'); await page.getByRole('button', { name: 'Save' }).click();

@@ -1449,7 +1449,8 @@
           ])
         ]);
       }) : [emptyState('No meetings scheduled yet. Use New meeting to create one.')]));
-      if (!(opts && opts.list)) setTimeout(function () { openSchedQuick(); }, 0);   // arriving via Schedule: the quick card comes up first
+      // The quick card comes up first ONLY when the person clicked Schedule. A refresh, a bookmark or the browser's back button (#schedule) just shows the list.
+      if (opts && opts.open) setTimeout(function () { openSchedQuick(); }, 0);
     });
   };
 
@@ -1632,7 +1633,7 @@
       ['Meetings & calls', [
         tile('meet', 'orange', 'Meet', 'Start a new video room', function () { openDialog('new'); }),
         tile('join', 'blue', I18n.t('Join'), 'Enter a meeting ID', function () { openDialog('join'); }),
-        tile('schedule', 'blue', I18n.t('Schedule'), 'Plan meetings that get a real ID', function () { show('schedule'); }),
+        tile('schedule', 'blue', I18n.t('Schedule'), 'Plan meetings that get a real ID', function () { show('schedule', { open: true }); }),
         tile('calendar', 'blue', I18n.t('Calendar'), 'Month view of events and meetings', function () { show('calendar'); })
       ]],
       ['Collaborate', [
@@ -1937,7 +1938,7 @@
     var t = e.target.closest('[data-act]');
     if (t) act(t.dataset.act);
     var n = e.target.closest('.nav-item[data-view]');
-    if (n) show(n.dataset.view);
+    if (n) show(n.dataset.view, n.dataset.view === 'schedule' ? { open: true } : undefined);   // only an explicit click opens the quick-create card
     var l = e.target.closest('.nav-item[data-href]');
     if (l) location.href = l.dataset.href;
   });
@@ -1945,7 +1946,7 @@
     var t = e.target.closest && e.target.closest('[data-act],.nav-item[data-view],.nav-item[data-href]');
     if (t && (e.key === 'Enter' || e.key === ' ') && e.target === t) {
       e.preventDefault();
-      if (t.dataset.act) act(t.dataset.act); else if (t.dataset.href) location.href = t.dataset.href; else show(t.dataset.view);
+      if (t.dataset.act) act(t.dataset.act); else if (t.dataset.href) location.href = t.dataset.href; else show(t.dataset.view, t.dataset.view === 'schedule' ? { open: true } : undefined);
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') { e.preventDefault(); $('searchInput').focus(); }
     var tag = (e.target && e.target.tagName) || '';
@@ -2048,6 +2049,7 @@
     else if (name === 'chat') window.location.href = 'chat.html';
     else if (name === 'charge-session') chargeCurrentSession();
     else if (name === 'skip-charge') skipCurrentCharge();
+    else if (name === 'schedule') show(name, { open: true });
     else show(name);
   }
   $('searchForm').addEventListener('submit', function (e) { e.preventDefault(); show('search', { q: $('searchInput').value.trim() }); });
