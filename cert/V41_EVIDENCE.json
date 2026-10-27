@@ -1,7 +1,7 @@
 {
-  "finished": "2026-10-27T07:04:33.978Z",
+  "finished": "2026-10-27T08:13:09.912Z",
   "git": {
-    "headSha": "72e7f6e95025e6c8031e1990edfa8ecb79358a2c",
+    "headSha": "810e196349e00bd68befcf4b43ccdb3df80a3ae3",
     "branch": "feature/qorlla-workplace-v4.6-provider-certification",
     "sourceTreeClean": false,
     "dirtySourcePaths": [
@@ -38,7 +38,7 @@
       "id": "U-LOCKOUT-PG",
       "name": "PostgreSQL lockout adapter: persistence, concurrency, release, durable recovery, fail-closed, stress metrics; migration upgrade, inherited-grant guard, append-only application role, owner-only retention",
       "status": "PASS",
-      "detail": "13 passed, 0 failed; stress: 90 attempts, 5 comparisons (budget 5), outcomes {\"wrong\":0,\"locked\":8,\"busy\":82,\"unavailable\":0}, p95 1843.2 ms, p99 1942.5 ms, max pool wait 1539.8 ms"
+      "detail": "13 passed, 0 failed; stress: 90 attempts, 5 comparisons (budget 5), outcomes {\"wrong\":0,\"locked\":8,\"busy\":82,\"unavailable\":0}, p95 1894.9 ms, p99 1933.7 ms, max pool wait 1707.3 ms"
     },
     {
       "id": "D01",

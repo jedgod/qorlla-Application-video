@@ -2,80 +2,80 @@ TAP version 13
 # Subtest: upgrade from an earlier revision REVOKES the direct DELETE/UPDATE and PUBLIC grants; effective privileges end up append-only
 ok 1 - upgrade from an earlier revision REVOKES the direct DELETE/UPDATE and PUBLIC grants; effective privileges end up append-only
   ---
-  duration_ms: 1199.0687
+  duration_ms: 869.3111
   type: 'test'
   ...
 # Subtest: a privilege inherited through a role the application role belongs to makes the migration FAIL; removing it lets it pass
 ok 2 - a privilege inherited through a role the application role belongs to makes the migration FAIL; removing it lets it pass
   ---
-  duration_ms: 296.7214
+  duration_ms: 152.5608
   type: 'test'
   ...
 # Subtest: as the real application role: it can append and read security events but cannot delete, update, truncate or prune them
 ok 3 - as the real application role: it can append and read security events but cannot delete, update, truncate or prune them
   ---
-  duration_ms: 554.0154
+  duration_ms: 309.0201
   type: 'test'
   ...
 # Subtest: the lockout works end to end with ONLY those privileges (no DELETE/UPDATE on events)
 ok 4 - the lockout works end to end with ONLY those privileges (no DELETE/UPDATE on events)
   ---
-  duration_ms: 7299.0236
+  duration_ms: 5900.0332
   type: 'test'
   ...
 # Subtest: retention is an owner-run, audited step that never touches events needed for the recovery limit
 ok 5 - retention is an owner-run, audited step that never touches events needed for the recovery limit
   ---
-  duration_ms: 144.683
+  duration_ms: 97.0245
   type: 'test'
   ...
 # Subtest: four failures survive a restart (new pool, new service); the fifth locks; a correct passcode does not lift it
 ok 6 - four failures survive a restart (new pool, new service); the fifth locks; a correct passcode does not lift it
   ---
-  duration_ms: 2180.9509
+  duration_ms: 1529.2117
   type: 'test'
   ...
 # Subtest: expiry follows the DATABASE clock, then the budget starts again
 ok 7 - expiry follows the DATABASE clock, then the budget starts again
   ---
-  duration_ms: 920.7723
+  duration_ms: 984.2104
   type: 'test'
   ...
-# LOCKOUT_STRESS_METRICS {"attempted":90,"comparisons":5,"budget":5,"outcomes":{"wrong":0,"locked":8,"busy":82,"unavailable":0},"p95Ms":1843.2,"p99Ms":1942.5,"maxPoolWaitMs":1539.8,"p95PoolWaitMs":1458.6,"poolAcquisitions":95,"unavailableRate":0}
+# LOCKOUT_STRESS_METRICS {"attempted":90,"comparisons":5,"budget":5,"outcomes":{"wrong":0,"locked":8,"busy":82,"unavailable":0},"p95Ms":1894.9,"p99Ms":1933.7,"maxPoolWaitMs":1707.3,"p95PoolWaitMs":1623.3,"poolAcquisitions":95,"unavailableRate":0}
 # Subtest: concurrent attempts through several "instances" share one budget (row lock); outcomes, comparisons, latency and pool wait are reported
 ok 8 - concurrent attempts through several "instances" share one budget (row lock); outcomes, comparisons, latency and pool wait are reported
   ---
-  duration_ms: 1990.6434
+  duration_ms: 1981.3292
   type: 'test'
   ...
 # Subtest: an in-flight success that settles after the lock is refused; the host can clear the lock; events carry no raw actor
 ok 9 - an in-flight success that settles after the lock is refused; the host can clear the lock; events carry no raw actor
   ---
-  duration_ms: 1210.1222
+  duration_ms: 418.3984
   type: 'test'
   ...
 # Subtest: database unavailable, or table missing, fails closed: the passcode comparison never runs
 ok 10 - database unavailable, or table missing, fails closed: the passcode comparison never runs
   ---
-  duration_ms: 117.7711
+  duration_ms: 80.4053
   type: 'test'
   ...
 # Subtest: release is idempotent, own-reservation-only and epoch-guarded (PostgreSQL)
 ok 11 - release is idempotent, own-reservation-only and epoch-guarded (PostgreSQL)
   ---
-  duration_ms: 898.5261
+  duration_ms: 845.5555
   type: 'test'
   ...
 # Subtest: a faulting comparison does not consume the budget; an unconfirmable release fails closed and stays counted (PostgreSQL)
 ok 12 - a faulting comparison does not consume the budget; an unconfirmable release fails closed and stays counted (PostgreSQL)
   ---
-  duration_ms: 902.867
+  duration_ms: 576.6384
   type: 'test'
   ...
 # Subtest: recovery allowance is atomic across instances, durable, per host, and rejected requests do not consume it (PostgreSQL)
 ok 13 - recovery allowance is atomic across instances, durable, per host, and rejected requests do not consume it (PostgreSQL)
   ---
-  duration_ms: 1362.786
+  duration_ms: 1068.1189
   type: 'test'
   ...
 1..13
@@ -86,4 +86,4 @@ ok 13 - recovery allowance is atomic across instances, durable, per host, and re
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 10501.8465
+# duration_ms 8257.4277

@@ -1,13 +1,13 @@
 # Workplace v4.1 certification evidence
 
-- Git HEAD: `72e7f6e95025e6c8031e1990edfa8ecb79358a2c` (branch feature/qorlla-workplace-v4.6-provider-certification; source tree DIRTY: M cert/LOCKOUT_PG_STRESS.json,  M cert/e2e-output.txt,  M cert/e2e-results.json,  M cert/lockout-pg.tap,  M cert/portal-unit.tap)
+- Git HEAD: `810e196349e00bd68befcf4b43ccdb3df80a3ae3` (branch feature/qorlla-workplace-v4.6-provider-certification; source tree DIRTY: M cert/LOCKOUT_PG_STRESS.json,  M cert/e2e-output.txt,  M cert/e2e-results.json,  M cert/lockout-pg.tap,  M cert/portal-unit.tap)
 - Result: **12 passed, 0 failed**
 - Payment provider = local TEST DOUBLE; real-provider verification is BLOCKED (no account/keys, no authorization to collect payments).
 
 | ID | Result | Check | Detail |
 |---|---|---|---|
 | U-ALL | PASS | portal node:test suites (auth, billing lifecycle, entitlements, sales, migrations/rollback, real-MAIN contract) | 168 passed, 0 failed |
-| U-LOCKOUT-PG | PASS | PostgreSQL lockout adapter: persistence, concurrency, release, durable recovery, fail-closed, stress metrics; migration upgrade, inherited-grant guard, append-only application role, owner-only retention | 13 passed, 0 failed; stress: 90 attempts, 5 comparisons (budget 5), outcomes {"wrong":0,"locked":8,"busy":82,"unavailable":0}, p95 1843.2 ms, p99 1942.5 ms, max pool wait 1539.8 ms |
+| U-LOCKOUT-PG | PASS | PostgreSQL lockout adapter: persistence, concurrency, release, durable recovery, fail-closed, stress metrics; migration upgrade, inherited-grant guard, append-only application role, owner-only retention | 13 passed, 0 failed; stress: 90 attempts, 5 comparisons (budget 5), outcomes {"wrong":0,"locked":8,"busy":82,"unavailable":0}, p95 1894.9 ms, p99 1933.7 ms, max pool wait 1707.3 ms |
 | D01 | PASS | docker compose config is valid and every long-running service has a restart policy | 7 services: dashboard-client-proxy, main-db, meet, meet-db, meet-sync-worker, qorlla-portal, workspace-signaling-engine |
 | D02 | PASS | unified stack builds and every service becomes healthy (main, portal, meet, databases, nginx) | main-db=healthy meet=healthy meet-db=healthy meet-sync-worker=running qorlla-portal=healthy workspace-signaling-engine=healthy dashboard-client-proxy=healthy |
 | D03 | PASS | single HTTPS entry point: only nginx listens on public interfaces; app services bind loopback or nothing | only dashboard-client-proxy (nginx) is published on 0.0.0.0 |
