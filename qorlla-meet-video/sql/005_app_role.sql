@@ -14,4 +14,10 @@ DO $$ BEGIN
     REVOKE UPDATE, DELETE, TRUNCATE ON recording_audit FROM qorlla_meet_app;
     REVOKE DELETE, TRUNCATE ON recording_sessions FROM qorlla_meet_app;
   END IF;
+  -- Collaboration (v4.8): note revisions and poll ballots/voters are append-only for the application role.
+  IF to_regclass('public.poll_ballots') IS NOT NULL THEN
+    REVOKE UPDATE, DELETE, TRUNCATE ON meeting_notes_revisions FROM qorlla_meet_app;
+    REVOKE UPDATE, DELETE, TRUNCATE ON poll_ballots FROM qorlla_meet_app;
+    REVOKE UPDATE, DELETE, TRUNCATE ON poll_voters FROM qorlla_meet_app;
+  END IF;
 END $$;

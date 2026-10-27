@@ -16,6 +16,7 @@ import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import { Server } from 'socket.io';
 import { recoveryService } from './recovery-service.mjs';
+import { registerCollab } from './collab.mjs';
 import { registerRecording } from './recording.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -45,7 +46,15 @@ const rateOpts = { windowMs: 60_000, standardHeaders: 'draft-7', legacyHeaders: 
 // by the browser-facing limit, but it is still capped to bound bridge-secret guessing.
 const bridgeLimiter = rateLimit({ ...rateOpts, limit: Number(process.env.BRIDGE_RATE_LIMIT || 1200) });
 const apiLimiter = rateLimit({ ...rateOpts, limit: Number(process.env.API_RATE_LIMIT || 90) });
-app.use('/api', (req, res, next) => (req.path.startsWith('/integrations/') ? bridgeLimiter : apiLimiter)(req, res, next));
+// In-meeting calls (notes autosave, polls, recording) are limited per signed-in PARTICIPANT, not per IP: many people behind one office or school address must not
+// throttle each other. Anything without a valid meeting token keeps the strict per-IP budget.
+const meetingLimiter = rateLimit({ ...rateOpts, limit: Number(process.env.MEETING_RATE_LIMIT || 600), keyGenerator: req => 'p:' + (req.user?.participantId || ''), validate: false });
+const meetingPath = /^\/(v1\/)?meetings\/[0-9a-f-]{36}\//i;
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/integrations/')) return bridgeLimiter(req, res, next);
+  if (meetingPath.test(req.path)) { try { req.user = verify((req.headers.authorization || '').replace(/^Bearer /, '')); return meetingLimiter(req, res, next); } catch { /* no valid token: strict per-IP budget below */ } }
+  return apiLimiter(req, res, next);
+});
 const server = createServer(app);
 const io = new Server(server, { cors: { origin: process.env.CORS_ORIGIN || false }, maxHttpBufferSize: 16_384 });
 const directory = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -269,6 +278,7 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
  audit(req.params.id,req.user.participantId,'meeting.ended'); res.json({ok:true});
 });
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
+const collab = registerCollab({ app, io, db, auth, fail, room, audit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recording = registerRecording({ app, io, db, auth, member, fail, room, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 app.get('/api/health',async(_req,res)=>{try{await db.query('SELECT 1');res.json({ok:true});}catch{res.status(503).json({ok:false});}});
 const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:message});
