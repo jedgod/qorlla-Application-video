@@ -150,7 +150,24 @@ function verifyHostKey(meeting, key) {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 const meetingAccounts = new Map();      // meetingId -> Set(accountId) of signed-in people who joined (they may read that meeting's documents)
-const publicMeeting = ({ hostKeyHash: _hidden, ...rest }) => rest;
+const publicMeeting = ({ hostKeyHash: _h, passcodeHash: _p, removedAccounts: _r, ...rest }) => ({ ...rest, passcodeRequired: !!_p });
+
+// Optional meeting passcode: scrypt-hashed, compared in constant time, 5 wrong tries lock the meeting's passcode for 10 minutes.
+const passcodeFails = new Map();
+const hashPasscode = (pc, salt = crypto.randomBytes(16).toString('hex')) => salt + ':' + crypto.scryptSync(String(pc), salt, 32).toString('hex');
+function checkPasscode(meeting, supplied) {
+    if (!meeting || !meeting.passcodeHash) return { required: false, ok: true };
+    const now = Date.now(); const rec = passcodeFails.get(meeting.meetingId) || { n: 0, until: 0 };
+    if (rec.until > now) return { required: true, ok: false, locked: true };
+    const [salt, hash] = meeting.passcodeHash.split(':');
+    const given = typeof supplied === 'string' ? hashPasscode(supplied, salt).split(':')[1] : '';
+    const ok = given.length === hash.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(hash));
+    if (ok) { passcodeFails.delete(meeting.meetingId); return { required: true, ok: true }; }
+    rec.n += 1; if (rec.n >= 5) { rec.n = 0; rec.until = now + 10 * 60 * 1000; } passcodeFails.set(meeting.meetingId, rec);
+    return { required: true, ok: false, locked: rec.until > now };
+}
+const admittedAccounts = new Map();     // meetingId -> Set(accountId) that supplied the passcode
+const admitAccount = (id, accountId) => { if (!admittedAccounts.has(id)) admittedAccounts.set(id, new Set()); admittedAccounts.get(id).add(accountId); };
 
 /** Who is calling: a signed-in account, a guest with a live session, or nobody. Never trusts ids sent by the client. */
 function actorOf(req) {
@@ -178,7 +195,7 @@ function attachActor(req, res, next) {
     req.isMeetingHost = (id, allowEnded) => actorIsHost(req.actor, id, allowEnded);
     next();
 }
-app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getMeeting: meetingById, getAccount: (req) => auth.getUser(req), verifyHostKey }));
+app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getMeeting: meetingById, getAccount: (req) => auth.getUser(req), verifyHostKey, checkPasscode, admitAccount }));
 
 // --- Mount service files ---
 const appointmentsRouter = require('./appointments');
@@ -267,6 +284,11 @@ app.post('/api/meetings/create', limitCreate, (req, res) => {
     let hostKey;
     if (!account) { hostKey = crypto.randomBytes(24).toString('base64url'); newMeeting.hostKeyHash = hostKeyHash(hostKey); }
     if (req.body.allowGuests === false) newMeeting.allowGuests = false;
+    if (req.body.passcode !== undefined && req.body.passcode !== '') {
+        const pc = String(req.body.passcode);
+        if (pc.length < 4 || pc.length > 32) { meetingsState.delete(newMeeting.meetingId); return res.status(400).json({ error: 'The passcode must be 4 to 32 characters.' }); }
+        newMeeting.passcodeHash = hashPasscode(pc);
+    }
     saveSnapshotSoon();
 
     return res.status(201).json({
@@ -276,13 +298,33 @@ app.post('/api/meetings/create', limitCreate, (req, res) => {
     });
 });
 
+// Host sends invitations by email (needs SMTP; says so plainly when it is not configured). Text/SMS and share-sheet invites are device links in the page.
+const limitInvite = rateLimit(10, 60 * 60 * 1000);
+app.post('/api/meetings/:meetingId/invite', limitInvite, attachActor, async (req, res) => {
+    const id = normalizeId(req.params.meetingId);
+    const meeting = meetingsState.get(id);
+    if (!req.actor) return res.status(401).json({ error: 'Sign in or join the meeting first.' });
+    if (!meeting || !actorIsHost(req.actor, id)) return res.status(403).json({ error: 'Only the host can send invitations.' });
+    const list = Array.isArray(req.body && req.body.emails) ? [...new Set(req.body.emails.map((e) => String(e).trim().toLowerCase()))] : [];
+    if (!list.length || list.length > 20) return res.status(400).json({ error: 'Give 1 to 20 email addresses.' });
+    if (!list.every((e) => mailer.isValidAddress(e))) return res.status(400).json({ error: 'One or more addresses are not valid.' });
+    if (!mailer.configured) return res.status(503).json({ error: 'Email is not set up on this server (SMTP_URL and SMTP_FROM). Copy the invite link or share it by text instead.' });
+    const base = (mailer.baseUrl || (req.protocol + '://' + req.get('host'))).replace(/\/+$/, '');
+    const link = base + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin';
+    const who = req.actor.type === 'guest' ? req.actor.session.name : (req.actor.user.displayName || req.actor.user.username);
+    const text = who + ' invited you to a Qorlla meeting.\n\nTopic: ' + meeting.topic + '\nMeeting ID: ' + id + '\nJoin: ' + link + '\n' + (meeting.passcodeHash ? '\nThis meeting needs a passcode. Ask the host for it.\n' : '') + '\nYou do not need an account to join.';
+    const results = [];
+    for (const to of list) { const r = await mailer.send({ to, subject: who + ' invited you to a Qorlla meeting', text }); results.push({ email: to, status: r.status }); }
+    res.json({ sent: results.filter((r) => r.status === 'sent').length, results });
+});
+
 app.get('/api/meetings/validate/:meetingId', limitValidate, (req, res) => {
     const meeting = meetingsState.get(normalizeId(req.params.meetingId));
     if (!meeting || meeting.status === 'completed') {
         return res.status(404).json({ isValid: false, error: "Meeting resource code is invalid or has expired." });
     }
 
-    return res.json({ isValid: true, topic: meeting.topic, status: meeting.status });
+    return res.json({ isValid: true, topic: meeting.topic, status: meeting.status, passcodeRequired: !!meeting.passcodeHash });
 });
 
 // ==========================================
@@ -372,6 +414,10 @@ io.on('connection', (socket) => {
             if (previous) { previous.emit('session_revoked', { reason: 'taken_over' }); leaveCurrentRoom(previous); previous.guestSid = null; previous.disconnect(true); }
             gs.socketId = socket.id; socket.guestSid = gs.sid;
         } else {
+            if (currentMeeting.passcodeHash && currentMeeting.hostId !== joiningAccount.id && !(admittedAccounts.get(cleanId) && admittedAccounts.get(cleanId).has(joiningAccount.id))) {
+                socket.emit('error_response', { code: 'passcode_required', message: 'This meeting needs a passcode. Join from the meeting page and enter it.' });
+                return;
+            }
             if (!meetingAccounts.has(cleanId)) meetingAccounts.set(cleanId, new Set());
             meetingAccounts.get(cleanId).add(joiningAccount.id);
         }
@@ -574,6 +620,11 @@ server.listen(PORT, () => {
 });
 
 // Explicit public translation assets; never expose the source directory.
+// Portal sections (/app, /pricing) and Meet (/meet) are served by the reverse proxy in the full stack. On a standalone MAIN there is nothing behind
+// them, so say so instead of a bare "Cannot GET".
+app.get(['/app', '/app/*', '/pricing', '/pricing/*', '/meet', '/meet/*'], (req, res) => {
+    res.status(503).set('Cache-Control', 'no-store').type('html').send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Section not running</title><body style="font:16px system-ui;max-width:560px;margin:12vh auto;padding:0 20px;color:#101b39"><h1 style="font-size:24px">This section is not running here</h1><p style="color:#536487;line-height:1.6">Phone, Docs, Clips, Pricing, Billing and Meet are served by the Qorlla Workplace Portal behind the reverse proxy. This is the standalone meeting server, which does not include them. Start the full stack (<code>docker compose up</code>) and open it on the proxy port.</p><p><a href="/qorlla.html" style="color:#1765f5">Back to Qorlla</a></p></body>');
+});
 app.get('/i18n.js', (req, res) => res.sendFile(path.join(__dirname, 'i18n.js')));
 app.get('/locales/es.js', (req, res) => res.sendFile(path.join(__dirname, 'locales', 'es.js')));
 

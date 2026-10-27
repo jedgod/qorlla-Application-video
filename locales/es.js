@@ -307,5 +307,21 @@ window.QorllaLocales["es"] = {
   "My camera or microphone does not work.": "Mi cámara o micrófono no funciona.",
   "Allow access in your browser's site settings, then use Test microphone and camera on the pre-join screen. You can still join without them.": "Permite el acceso en la configuración del sitio de tu navegador y usa Probar micrófono y cámara en la pantalla previa. Aun así puedes unirte sin ellos.",
   "Invitation link": "Enlace de invitación",
-  "Guest navigation": "Navegación de invitado"
+  "Guest navigation": "Navegación de invitado",
+  "Passcode (optional)": "Código de acceso (opcional)",
+  "Meeting passcode": "Código de acceso de la reunión",
+  "Email app": "Aplicación de correo",
+  "Text message": "Mensaje de texto",
+  "Share...": "Compartir...",
+  "Email addresses": "Direcciones de correo",
+  "name@example.com, other@example.com": "nombre@ejemplo.com, otro@ejemplo.com",
+  "Send invitations": "Enviar invitaciones",
+  "This meeting needs a passcode. Enter it in the Passcode box.": "Esta reunión requiere un código de acceso. Introdúcelo en el cuadro de código.",
+  "Join my Qorlla meeting": "Únete a mi reunión de Qorlla",
+  "Ask me for the passcode.": "Pídeme el código de acceso.",
+  "Enter at least one email address.": "Introduce al menos una dirección de correo.",
+  "Sent: {n}": "Enviadas: {n}",
+  "Could not send invitations.": "No se pudieron enviar las invitaciones.",
+  "Incorrect passcode.": "Código de acceso incorrecto.",
+  "Too many wrong passcodes. Try again in a few minutes.": "Demasiados códigos incorrectos. Inténtalo de nuevo en unos minutos."
 };

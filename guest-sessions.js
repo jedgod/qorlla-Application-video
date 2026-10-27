@@ -139,7 +139,7 @@ function createGuestSessions({ getMeeting, now = () => Date.now() }) {
  * Express router mounted at /api/guest.
  * deps: { express, sessions, getMeeting, getAccount(req), verifyHostKey(meeting, key) }
  */
-function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHostKey }) {
+function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHostKey, checkPasscode, admitAccount }) {
     const router = express.Router();
     const limit = rateLimit(30);
     const NOT_OPEN = { eligible: false, error: 'This meeting was not found, has ended, or is not open to guests.' };
@@ -158,7 +158,7 @@ function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHo
     router.post('/meetings/resolve', limit, (req, res) => {
         const meeting = getMeeting(idOf(req.body && req.body.meetingId));
         if (!sessions.eligibility(meeting)) return res.status(404).json(NOT_OPEN);
-        res.json({ eligible: true, meeting: { meetingId: meeting.meetingId, topic: meeting.topic, status: meeting.status, startsAt: meeting.startTime } });
+        res.json({ eligible: true, passcodeRequired: !!meeting.passcodeHash, meeting: { meetingId: meeting.meetingId, topic: meeting.topic, status: meeting.status, startsAt: meeting.startTime } });
     });
 
     router.post('/sessions', limit, (req, res) => {
@@ -168,11 +168,21 @@ function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHo
         // A signed-in account needs no guest session; confirm the meeting is joinable and say so.
         if (account) {
             if (!meeting || meeting.status === 'completed') return res.status(404).json(NOT_OPEN);
+            if (meeting.hostId !== account.id) {
+                const pc = checkPasscode(meeting, body.passcode);
+                if (pc.required && !pc.ok) return res.status(pc.locked ? 429 : 403).json({ error: pc.locked ? 'Too many wrong passcodes. Try again in a few minutes.' : 'Incorrect passcode.', passcodeRequired: true });
+                admitAccount(meeting.meetingId, account.id);
+            }
             return res.json({ kind: 'account', meeting: { meetingId: meeting.meetingId } });
         }
         if (!sessions.eligibility(meeting)) return res.status(404).json(NOT_OPEN);
+        const isHost = verifyHostKey(meeting, body.hostKey);
+        if (!isHost) {                                                              // the host key bypasses the passcode; nobody else does
+            const pc = checkPasscode(meeting, body.passcode);
+            if (pc.required && !pc.ok) return res.status(pc.locked ? 429 : 403).json({ error: pc.locked ? 'Too many wrong passcodes. Try again in a few minutes.' : 'Incorrect passcode.', passcodeRequired: true });
+        }
         sessions.revokeRequest(req, 'replaced');                                    // never reuse an incoming token
-        const role = verifyHostKey(meeting, body.hostKey) ? 'host' : 'participant';
+        const role = isHost ? 'host' : 'participant';
         let out;
         try { out = sessions.issue({ meetingId: meeting.meetingId, displayName: body.displayName, role }); }
         catch (e) { return res.status(e.status || 400).json({ error: e.message }); }

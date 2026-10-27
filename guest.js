@@ -52,6 +52,7 @@
     fetch('/api/guest/meetings/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: id }) }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); }).then(function (r) {
       if (!r.ok || !r.d.eligible) { $('pjTopic').textContent = T('This meeting ID is not valid or the meeting has ended.'); return; }
       $('pjTopic').textContent = T('You are joining: ') + ((r.d.meeting && r.d.meeting.topic) || 'Meeting') + ' (' + id + ')'; $('pjGo').disabled = false;
+      if (r.d.passcodeRequired) $('pjPassWrap').classList.remove('hidden');
     }).catch(function () { $('pjTopic').textContent = T('Cannot reach the server. Check your connection and reload.'); });
     $('pjTest').addEventListener('click', function () {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { $('pjMsg').textContent = T('This browser cannot access the camera or microphone.'); $('pjMsg').className = 'msg err'; return; }
@@ -71,10 +72,10 @@
       if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); cancelAnimationFrame(raf);
       // The server decides whether this person may join: it issues a short-lived session bound to this meeting (HttpOnly cookie).
       $('pjGo').disabled = true;
-      fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: id, displayName: name }) })
-        .then(function (r) { if (!r.ok) throw new Error('refused'); return r.json(); })
+      fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: id, displayName: name, passcode: $('pjPass').value || undefined }) })
+        .then(function (r) { if (!r.ok) { var e = new Error('refused'); e.status = r.status; throw e; } return r.json(); })
         .then(function () { location.href = '/index.html?meeting=' + encodeURIComponent(id); })
-        .catch(function () { $('pjGo').disabled = false; $('pjMsg').textContent = T('This meeting ID is not valid or the meeting has ended.'); $('pjMsg').className = 'msg err'; });
+        .catch(function (e) { $('pjGo').disabled = false; $('pjMsg').textContent = (e && (e.status === 403 || e.status === 429)) ? T(e.status === 429 ? 'Too many wrong passcodes. Try again in a few minutes.' : 'Incorrect passcode.') : T('This meeting ID is not valid or the meeting has ended.'); $('pjMsg').className = 'msg err'; });
     });
   }
 })();

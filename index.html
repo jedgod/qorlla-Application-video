@@ -129,6 +129,9 @@
               <label class="flex min-w-[160px] flex-1 flex-col gap-1 text-[11px] font-semibold text-slate-400"><span data-i18n="Meeting ID">Meeting ID</span>
                 <input id="meetingIdInput" inputmode="numeric" placeholder="858 9833 3712" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2 font-mono text-sm text-white outline-none focus:border-blue-400" />
               </label>
+              <label class="flex min-w-[120px] flex-1 flex-col gap-1 text-[11px] font-semibold text-slate-400"><span data-i18n="Passcode (optional)">Passcode (optional)</span>
+                <input id="passcodeInput" type="password" maxlength="32" autocomplete="off" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400" />
+              </label>
               <div class="flex flex-wrap items-center gap-3 text-[11px] text-slate-300">
                 <label class="flex items-center gap-1.5"><input id="joinMic" type="checkbox" checked class="accent-blue-500" /> Mic</label>
                 <label class="flex items-center gap-1.5"><input id="joinCam" type="checkbox" checked class="accent-blue-500" /> <span data-i18n="Camera">Camera</span></label>
@@ -149,7 +152,21 @@
               <div class="flex gap-2">
                 <button id="copyIdBtn" class="rounded-lg border border-white/10 bg-white/5 px-3 py-1 font-semibold text-slate-200 hover:bg-white/10">Copy ID</button>
                 <button id="copyInviteBtn" class="rounded-lg border border-white/10 bg-white/5 px-3 py-1 font-semibold text-slate-200 hover:bg-white/10">Copy invite link</button>
+                <button id="inviteBtn" aria-expanded="false" aria-controls="invitePanel" class="rounded-lg border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 font-semibold text-cyan-200 hover:bg-cyan-400/20"><span data-i18n="Invite">Invite</span></button>
               </div>
+            </div>
+            <div id="invitePanel" class="hidden rounded-2xl border border-white/5 bg-slate-950/40 p-3 text-xs">
+              <div class="flex flex-wrap items-center gap-2">
+                <a id="inviteMail" class="rounded-lg border border-white/10 bg-white/5 px-3 py-1 font-semibold text-slate-200 hover:bg-white/10" href="#"><span data-i18n="Email app">Email app</span></a>
+                <a id="inviteSms" class="rounded-lg border border-white/10 bg-white/5 px-3 py-1 font-semibold text-slate-200 hover:bg-white/10" href="#"><span data-i18n="Text message">Text message</span></a>
+                <button id="inviteShare" class="hidden rounded-lg border border-white/10 bg-white/5 px-3 py-1 font-semibold text-slate-200 hover:bg-white/10"><span data-i18n="Share...">Share...</span></button>
+              </div>
+              <form id="inviteForm" class="mt-2 flex flex-wrap items-center gap-2">
+                <label class="sr-only" for="inviteEmails" data-i18n="Email addresses">Email addresses</label>
+                <input id="inviteEmails" placeholder="name@example.com, other@example.com" data-i18n-placeholder="name@example.com, other@example.com" class="min-w-[220px] flex-1 rounded-lg border border-white/10 bg-slate-900/60 px-3 py-1.5 text-white outline-none focus:border-cyan-400" />
+                <button id="inviteSend" class="rounded-lg bg-cyan-500 px-3 py-1.5 font-bold text-slate-950 hover:brightness-110"><span data-i18n="Send invitations">Send invitations</span></button>
+              </form>
+              <p id="inviteStatus" class="mt-2 text-slate-400" role="status"></p>
             </div>
 
             <!-- Video grid -->
@@ -1031,7 +1048,7 @@
     const guestHostKeys = {};
     let guestRefreshTimer = null;
     async function ensureGuestSession(meetingId) {
-      const res = await postJson('/api/guest/sessions', { meetingId, displayName: myName(), hostKey: guestHostKeys[meetingId] });
+      const res = await postJson('/api/guest/sessions', { meetingId, displayName: myName(), hostKey: guestHostKeys[meetingId], passcode: $('passcodeInput').value.trim() || undefined });
       if (!res.ok) throw new Error((res.body && res.body.error) || 'You cannot join this meeting.');
       if (res.body.kind === 'guest') {
         if (socket) { socket.disconnect(); socket = null; }   // a fresh handshake so the socket carries the new guest cookie
@@ -1063,8 +1080,8 @@
       try {
         let meetingId;
         if (create) {
-          const res = await postJson('/api/meetings/create', { topic: myName() + "'s Meeting", hostId: me.id });
-          if (!res.ok) throw new Error('Could not create the meeting.');
+          const res = await postJson('/api/meetings/create', { topic: myName() + "'s Meeting", hostId: me.id, passcode: $('passcodeInput').value.trim() || undefined });
+          if (!res.ok) throw new Error((res.body && res.body.error) || 'Could not create the meeting.');
           meetingId = res.body.meeting.meetingId;
           if (res.body.hostKey) guestHostKeys[meetingId] = res.body.hostKey;   // proves we are the host if we have no account (kept in memory only)
         } else {
@@ -1072,6 +1089,7 @@
           if (!meetingId) throw new Error('Enter a meeting ID first.');
           const res = await api('/api/meetings/validate/' + encodeURIComponent(meetingId));
           if (!res.ok) throw new Error('That meeting ID is invalid or has ended.');
+          if (res.body && res.body.passcodeRequired && !$('passcodeInput').value.trim()) { $('passcodeInput').focus(); throw new Error(I18n.t('This meeting needs a passcode. Enter it in the Passcode box.')); }
         }
         await ensureGuestSession(meetingId);
         await ensureSocket();
@@ -1229,11 +1247,33 @@
     $('copyIdBtn').addEventListener('click', () => copyText(room && room.id, 'Meeting ID copied'));
     $('copyInviteBtn').addEventListener('click', () => {
       if (!room) return;
-      const url = new URL(location.href);
-      url.search = '';
-      url.searchParams.set('meeting', room.id);
-      if (params.get('api')) url.searchParams.set('api', params.get('api'));
-      copyText(url.toString(), 'Invite link copied');
+      copyText(inviteUrl(), 'Invite link copied');
+    });
+    // ---------- Inviting people ----------
+    const inviteUrl = () => location.origin + '/guest/meeting/' + encodeURIComponent(room.id) + '/prejoin';
+    const inviteText = () => I18n.t('Join my Qorlla meeting') + ': ' + room.topic + '\n' + I18n.t('Meeting ID') + ': ' + room.id + '\n' + inviteUrl() + ($('passcodeInput').value.trim() ? '\n' + I18n.t('Ask me for the passcode.') : '');
+    function refreshInviteLinks() {
+      if (!room) return;
+      $('inviteMail').href = 'mailto:?subject=' + encodeURIComponent(I18n.t('Join my Qorlla meeting')) + '&body=' + encodeURIComponent(inviteText());
+      $('inviteSms').href = 'sms:?&body=' + encodeURIComponent(inviteText());
+      $('inviteShare').classList.toggle('hidden', !navigator.share);
+    }
+    $('inviteBtn').addEventListener('click', () => {
+      const open = $('invitePanel').classList.toggle('hidden') === false;
+      $('inviteBtn').setAttribute('aria-expanded', String(open)); if (open) { refreshInviteLinks(); $('inviteEmails').focus(); }
+    });
+    $('inviteShare').addEventListener('click', () => { if (room && navigator.share) navigator.share({ title: room.topic, text: inviteText(), url: inviteUrl() }).catch(() => {}); });
+    $('inviteForm').addEventListener('submit', async (e) => {
+      e.preventDefault(); if (!room) return;
+      const emails = $('inviteEmails').value.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+      if (!emails.length) { $('inviteStatus').textContent = I18n.t('Enter at least one email address.'); return; }
+      $('inviteSend').disabled = true; $('inviteStatus').textContent = '...';
+      try {
+        const r = await postJson('/api/meetings/' + encodeURIComponent(room.id) + '/invite', { emails });
+        $('inviteStatus').textContent = r.ok ? I18n.t('Sent: {n}', { n: r.body.sent }) + (r.body.sent < emails.length ? ' (' + r.body.results.filter((x) => x.status !== 'sent').map((x) => x.email + ': ' + x.status).join(', ') + ')' : '') : ((r.body && r.body.error) || I18n.t('Could not send invitations.'));
+        if (r.ok && r.body.sent === emails.length) $('inviteEmails').value = '';
+      } catch (err) { $('inviteStatus').textContent = I18n.t('Could not send invitations.'); }
+      $('inviteSend').disabled = false;
     });
     function copyText(text, okMsg) {
       if (!text) return;
