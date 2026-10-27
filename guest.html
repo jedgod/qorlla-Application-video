@@ -100,9 +100,9 @@
     .language-control label { font-size:12px; } .language-control select { height:clamp(30px,4.4vh,36px); font-size:13px; border-radius:11px; }
     .shell { min-height:calc(100vh - clamp(46px,6.6vh,60px)); }
     .sidebar { width:clamp(84px,7vw,104px); padding:8px 6px; gap:2px; } .nav { min-height:clamp(46px,8.6vh,66px); font-size:clamp(10.5px,1.55vh,12px); gap:3px; border-radius:12px; } .nav .ic { font-size:clamp(18px,3.1vh,24px); }
-    .content { padding:0 14px clamp(8px,1.6vh,16px); display:flex; flex-direction:column; } .view { padding-top:0; }
+    .content { padding:8px 14px clamp(8px,1.6vh,14px) 4px; display:flex; flex-direction:column; } .view { padding-top:0; }   /* top gap = the rail's top padding, so the page lines up with the rail */
     #v-welcome { display:flex; flex-direction:column; min-height:0; flex:1; }
-    .hero { margin:0 -14px; min-height:0; padding:clamp(14px,3.4vh,30px) clamp(24px,3.6vw,46px) clamp(14px,3vh,26px); border-radius:0 0 14px 14px; }
+    .hero { margin:0; min-height:0; padding:clamp(12px,3vh,28px) clamp(22px,3.4vw,44px) clamp(12px,2.8vh,24px); border-radius:14px; }
     .hero::after { width:min(44%,520px); }
     .guest-pill { font-size:clamp(12px,1.9vh,15px); padding:clamp(5px,1vh,8px) 15px clamp(5px,1vh,8px) 12px; gap:8px; } .guest-pill .ic { font-size:clamp(15px,2.4vh,19px) !important; }
     .hero h1 { font-size:clamp(24px,5.4vh,46px); letter-spacing:-1px; margin:clamp(8px,2vh,18px) 0 clamp(4px,1vh,10px); }
