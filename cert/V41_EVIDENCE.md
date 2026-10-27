@@ -1,12 +1,13 @@
 # Workplace v4.1 certification evidence
 
-- Git HEAD: `c88ccbeb9cddf1dbf0a4193340e1be6ea2743d7a` (branch feature/qorlla-workplace-v4.6-provider-certification; source tree DIRTY:  M cert/e2e-results.json,  M cert/portal-unit.tap)
-- Result: **10 passed, 3 failed**
+- Git HEAD: `19442d484aed9ab0d0c17538838416763c239049` (branch feature/qorlla-workplace-v4.6-provider-certification; source tree DIRTY:  M cert/e2e-results.json,  M cert/portal-unit.tap, ?? cert/LOCKOUT_PG_STRESS.json, ?? cert/lockout-pg.tap)
+- Result: **11 passed, 2 failed**
 - Payment provider = local TEST DOUBLE; real-provider verification is BLOCKED (no account/keys, no authorization to collect payments).
 
 | ID | Result | Check | Detail |
 |---|---|---|---|
 | U-ALL | PASS | portal node:test suites (auth, billing lifecycle, entitlements, sales, migrations/rollback, real-MAIN contract) | 168 passed, 0 failed |
+| U-LOCKOUT-PG | PASS | PostgreSQL lockout adapter: persistence, concurrency, release, durable recovery, fail-closed, audit permissions, stress metrics | 8 passed, 0 failed; stress: 90 attempts, 5 comparisons (budget 5), outcomes {"wrong":0,"locked":6,"busy":84,"unavailable":0}, p95 971.5 ms, p99 1001.7 ms, max pool wait 830.7 ms |
 | D01 | PASS | docker compose config is valid and every long-running service has a restart policy | 7 services: dashboard-client-proxy, main-db, meet, meet-db, meet-sync-worker, qorlla-portal, workspace-signaling-engine |
 | D02 | PASS | unified stack builds and every service becomes healthy (main, portal, meet, databases, nginx) | main-db=healthy meet=healthy meet-db=healthy meet-sync-worker=running qorlla-portal=healthy workspace-signaling-engine=healthy dashboard-client-proxy=healthy |
 | D03 | PASS | single HTTPS entry point: only nginx listens on public interfaces; app services bind loopback or nothing | only dashboard-client-proxy (nginx) is published on 0.0.0.0 |
@@ -15,18 +16,18 @@
 | D06 | PASS | portal fails closed (503) while authentication is not operational, and answers 401 once configured | 503 ["MAIN_AUTH_ISSUER","MAIN_AUTH_JWKS_URL","PORTAL_ALLOWED_ORIGIN","MAIN_INTROSPECTION_URL + PORTAL_INTROSPECTION_SECRET (>=32 chars)"] |
 | D08 | PASS | a platform admin can be provisioned (configuration only) and the console + metrics are not reachable by anyone else | admin id configured; /internal/metrics is not routed publicly |
 | D09 | PASS | metrics are served inside the private network only, with the bearer token, as Prometheus text with no secrets | 9 gauges |
-| E2E | FAIL | browser E2E: pricing, checkout/webhook, portal auth, navigation, mobile, Meet under /meet/, meeting-to-report | 41 passed, 2 failed |
-| E2E-FAIL | FAIL | FAIL Welcome -> Join -> Pre-Join -> meeting over HTTPS; the guest cookie is Secure, HttpOnly and SameSite=Strict |  |
-| E2E-FAIL | FAIL | FAIL five failures lock the meeting; the lock is stored in PostgreSQL and survives a MAIN container restart; the host can lift it |  |
+| E2E | FAIL | browser E2E: pricing, checkout/webhook, portal auth, navigation, mobile, Meet under /meet/, meeting-to-report | 43 passed, 1 failed |
+| E2E-FAIL | FAIL | FAIL notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it |  |
 | D07 | PASS | restart resilience: portal and nginx restart cleanly and the site keeps serving |  |
 
 ## Browser E2E test titles
 - ok upgrade now, schedule a downgrade, cancel it; usage panel says no pay-as-you-go prices exist
 - ok the platform console is invisible to ordinary users and works for the configured admin: overview, health, refund, sales workflow, kill switch
-- FAIL Welcome -> Join -> Pre-Join -> meeting over HTTPS; the guest cookie is Secure, HttpOnly and SameSite=Strict
+- ok Welcome -> Join -> Pre-Join -> meeting over HTTPS; the guest cookie is Secure, HttpOnly and SameSite=Strict
 - ok direct URL and WebSocket bypass attempts fail: no session, wrong-meeting session, and a passcode field on the socket
-- FAIL five failures lock the meeting; the lock is stored in PostgreSQL and survives a MAIN container restart; the host can lift it
-- ok the application role can only do what the lockout needs (no DELETE, no DDL) and the passcode never reaches the database
+- ok five failures lock the meeting; the lock is stored in PostgreSQL and survives a MAIN container restart; the host can lift it
+- ok the DEPLOYED application role is append-only on security events (effective privileges, inherited ones included) and the passcode never reaches the database
+- ok the recovery allowance used BEFORE a MAIN restart is still counted AFTER it: two lifts, restart, exactly one more succeeds, concurrent requests cannot exceed it
 - ok Meet UI loads under /meet/, redirects /meet, and its assets and API are prefix-aware
 - ok internal bridge, recovery and readiness endpoints are not reachable even with the right secret header
 - ok two browsers meet under /meet/: websocket upgrade on the prefixed path, chat both ways, passcode, refresh and rejoin
@@ -60,7 +61,7 @@
 - ok [I12] Enterprise "Contact sales" creates a real inquiry in PostgreSQL (and the honeypot does not)
 - ok signed-out visitors who click Buy are sent to sign in and come back to pricing
 - ok [I10] signed-in Buy creates a SERVER-SIDE checkout with the database price; the redirect alone activates nothing; a verified webhook does
-- ok notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it
+- FAIL notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it
 - ok documents: create, edit with version history and restore, optimistic-concurrency conflict, and sharing as read-only
 - ok sheets and slides edit and persist; AI draft is labelled and private (test-double model)
 - ok QorllaMate proposes, the user approves, and only then does the note exist; email stays blocked (test-double model)

@@ -147,16 +147,16 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 5639,
+                      "duration": 5271,
                       "errors": [],
                       "stdout": [],
                       "stderr": [
                         {
-                          "text": "(node:14496) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.\n"
+                          "text": "(node:9720) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.\n"
                         }
                       ],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:34:38.808Z",
+                      "startTime": "2026-10-27T06:50:12.613Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -185,12 +185,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 7256,
+                      "duration": 7076,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:34:45.057Z",
+                      "startTime": "2026-10-27T06:50:18.506Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -217,12 +217,12 @@
         {
           "title": "guest access through the HTTPS origin",
           "file": "guest-meeting.spec.js",
-          "line": 16,
+          "line": 22,
           "column": 6,
           "specs": [
             {
               "title": "Welcome -> Join -> Pre-Join -> meeting over HTTPS; the guest cookie is Secure, HttpOnly and SameSite=Strict",
-              "ok": false,
+              "ok": true,
               "tags": [],
               "tests": [
                 {
@@ -235,58 +235,23 @@
                     {
                       "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "failed",
-                      "duration": 15256,
-                      "error": {
-                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Welcome to Qorlla' })\nExpected: visible\nTimeout: 15000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Welcome to Qorlla' }) with timeout 15000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Welcome to Qorlla' })\u001b[22m\n",
-                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Welcome to Qorlla' })\nExpected: visible\nTimeout: 15000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Welcome to Qorlla' }) with timeout 15000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Welcome to Qorlla' })\u001b[22m\n\n    at C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\guest-meeting.spec.js:21:111",
-                        "location": {
-                          "file": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\guest-meeting.spec.js",
-                          "column": 111,
-                          "line": 21
-                        },
-                        "snippet": "  19 |     const a = await api(); const m = await create(a);\n  20 |     const ctx = await browser.newContext({ ignoreHTTPSErrors: true, baseURL: BASE, permissions: ['camera', 'microphone'] }); const page = await ctx.newPage();\n> 21 |     await page.goto('/guest/welcome'); await expect(page.getByRole('heading', { name: 'Welcome to Qorlla' })).toBeVisible();\n     |                                                                                                               ^\n  22 |     await page.getByRole('link', { name: /Join Meeting/ }).first().click(); await page.fill('#mid', m.id); await page.getByRole('button', { name: 'Continue' }).click();\n  23 |     await expect(page).toHaveURL(/\\/prejoin$/); await page.fill('#pjName', 'HTTPS Guest'); await expect(page.locator('#pjGo')).toBeEnabled(); await page.click('#pjGo');\n  24 |     await expect(page).toHaveURL(/\\/index\\.html\\?meeting=/);"
-                      },
-                      "errors": [
-                        {
-                          "location": {
-                            "file": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\guest-meeting.spec.js",
-                            "column": 111,
-                            "line": 21
-                          },
-                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Welcome to Qorlla' })\nExpected: visible\nTimeout: 15000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Welcome to Qorlla' }) with timeout 15000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Welcome to Qorlla' })\u001b[22m\n\n\n  19 |     const a = await api(); const m = await create(a);\n  20 |     const ctx = await browser.newContext({ ignoreHTTPSErrors: true, baseURL: BASE, permissions: ['camera', 'microphone'] }); const page = await ctx.newPage();\n> 21 |     await page.goto('/guest/welcome'); await expect(page.getByRole('heading', { name: 'Welcome to Qorlla' })).toBeVisible();\n     |                                                                                                               ^\n  22 |     await page.getByRole('link', { name: /Join Meeting/ }).first().click(); await page.fill('#mid', m.id); await page.getByRole('button', { name: 'Continue' }).click();\n  23 |     await expect(page).toHaveURL(/\\/prejoin$/); await page.fill('#pjName', 'HTTPS Guest'); await expect(page.locator('#pjGo')).toBeEnabled(); await page.click('#pjGo');\n  24 |     await expect(page).toHaveURL(/\\/index\\.html\\?meeting=/);\n    at C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\guest-meeting.spec.js:21:111"
-                        }
-                      ],
+                      "status": "passed",
+                      "duration": 1301,
+                      "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:34:52.489Z",
+                      "startTime": "2026-10-27T06:50:25.835Z",
                       "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\test-results\\guest-meeting-guest-access-48dff-ttpOnly-and-SameSite-Strict-chromium\\test-failed-1.png"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\test-results\\guest-meeting-guest-access-48dff-ttpOnly-and-SameSite-Strict-chromium\\error-context.md"
-                        }
-                      ],
-                      "errorLocation": {
-                        "file": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\guest-meeting.spec.js",
-                        "column": 111,
-                        "line": 21
-                      }
+                      "attachments": []
                     }
                   ],
-                  "status": "unexpected"
+                  "status": "expected"
                 }
               ],
               "id": "69bb01aa8283a41b5cbe-b4223c809908ee01cee3",
               "file": "guest-meeting.spec.js",
-              "line": 17,
+              "line": 23,
               "column": 3
             },
             {
@@ -302,19 +267,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 1,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 563,
+                      "duration": 384,
                       "errors": [],
                       "stdout": [],
-                      "stderr": [
-                        {
-                          "text": "(node:30760) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.\n"
-                        }
-                      ],
+                      "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:35:17.071Z",
+                      "startTime": "2026-10-27T06:50:27.178Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -324,7 +285,7 @@
               ],
               "id": "69bb01aa8283a41b5cbe-040306a36290f0fd9d85",
               "file": "guest-meeting.spec.js",
-              "line": 29,
+              "line": 35,
               "column": 3
             }
           ]
@@ -332,12 +293,12 @@
         {
           "title": "durable passcode lockout in PostgreSQL",
           "file": "guest-meeting.spec.js",
-          "line": 39,
+          "line": 45,
           "column": 6,
           "specs": [
             {
               "title": "five failures lock the meeting; the lock is stored in PostgreSQL and survives a MAIN container restart; the host can lift it",
-              "ok": false,
+              "ok": true,
               "tags": [],
               "tests": [
                 {
@@ -348,59 +309,29 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 1,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "failed",
-                      "duration": 4679,
-                      "error": {
-                        "message": "Error: Command failed: docker restart qv41-workspace-signaling-engine-1",
-                        "stack": "Error: Command failed: docker restart qv41-workspace-signaling-engine-1\n    at C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\guest-meeting.spec.js:49:5",
-                        "location": {
-                          "file": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\guest-meeting.spec.js",
-                          "column": 5,
-                          "line": 49
-                        },
-                        "snippet": "  47 |     expect(dbq(`SELECT kind FROM public.meeting_passcode_events WHERE meeting_id='${m.id}'`)).toBe('locked');\n  48 |     await new Promise((r) => setTimeout(r, 1200));                                                                        // let MAIN persist the meeting snapshot\n> 49 |     execFileSync('docker', ['restart', MAIN], { stdio: 'ignore' }); await waitHealthy();\n     |     ^\n  50 |     const after = await api(); const refused = await session(after, m.id, { passcode: 'pg-code-1234' });\n  51 |     expect(refused.status()).toBe(429);                                                                                   // a correct passcode is still refused after the restart\n  52 |     const host = await api(); expect((await session(host, m.id, { hostKey: m.hostKey })).status()).toBe(201);"
-                      },
-                      "errors": [
-                        {
-                          "location": {
-                            "file": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\guest-meeting.spec.js",
-                            "column": 5,
-                            "line": 49
-                          },
-                          "message": "Error: Command failed: docker restart qv41-workspace-signaling-engine-1\n\n  47 |     expect(dbq(`SELECT kind FROM public.meeting_passcode_events WHERE meeting_id='${m.id}'`)).toBe('locked');\n  48 |     await new Promise((r) => setTimeout(r, 1200));                                                                        // let MAIN persist the meeting snapshot\n> 49 |     execFileSync('docker', ['restart', MAIN], { stdio: 'ignore' }); await waitHealthy();\n     |     ^\n  50 |     const after = await api(); const refused = await session(after, m.id, { passcode: 'pg-code-1234' });\n  51 |     expect(refused.status()).toBe(429);                                                                                   // a correct passcode is still refused after the restart\n  52 |     const host = await api(); expect((await session(host, m.id, { hostKey: m.hostKey })).status()).toBe(201);\n    at C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\guest-meeting.spec.js:49:5"
-                        }
-                      ],
+                      "status": "passed",
+                      "duration": 12709,
+                      "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:35:17.741Z",
+                      "startTime": "2026-10-27T06:50:27.592Z",
                       "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\test-results\\guest-meeting-durable-pass-3e775-estart-the-host-can-lift-it-chromium\\error-context.md"
-                        }
-                      ],
-                      "errorLocation": {
-                        "file": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\guest-meeting.spec.js",
-                        "column": 5,
-                        "line": 49
-                      }
+                      "attachments": []
                     }
                   ],
-                  "status": "unexpected"
+                  "status": "expected"
                 }
               ],
               "id": "69bb01aa8283a41b5cbe-5b1bfe9a9fa13a092e66",
               "file": "guest-meeting.spec.js",
-              "line": 40,
+              "line": 46,
               "column": 3
             },
             {
-              "title": "the application role can only do what the lockout needs (no DELETE, no DDL) and the passcode never reaches the database",
+              "title": "the DEPLOYED application role is append-only on security events (effective privileges, inherited ones included) and the passcode never reaches the database",
               "ok": true,
               "tags": [],
               "tests": [
@@ -412,19 +343,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1602,
+                      "duration": 7358,
                       "errors": [],
                       "stdout": [],
-                      "stderr": [
-                        {
-                          "text": "(node:15576) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.\n"
-                        }
-                      ],
+                      "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:35:23.682Z",
+                      "startTime": "2026-10-27T06:50:40.331Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -432,9 +359,43 @@
                   "status": "expected"
                 }
               ],
-              "id": "69bb01aa8283a41b5cbe-f3e412ee4e9e17f61d34",
+              "id": "69bb01aa8283a41b5cbe-5eb680c170cbf3e23d25",
               "file": "guest-meeting.spec.js",
-              "line": 59,
+              "line": 68,
+              "column": 3
+            },
+            {
+              "title": "the recovery allowance used BEFORE a MAIN restart is still counted AFTER it: two lifts, restart, exactly one more succeeds, concurrent requests cannot exceed it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 240000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 11825,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T06:50:47.714Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "69bb01aa8283a41b5cbe-6db2a9934e7c8238b545",
+              "file": "guest-meeting.spec.js",
+              "line": 82,
               "column": 3
             }
           ]
@@ -467,15 +428,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1026,
+                      "duration": 716,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:35:25.358Z",
+                      "startTime": "2026-10-27T06:50:59.585Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -501,15 +462,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 246,
+                      "duration": 87,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:35:26.786Z",
+                      "startTime": "2026-10-27T06:51:00.362Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -535,15 +496,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 5025,
+                      "duration": 4998,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:35:27.052Z",
+                      "startTime": "2026-10-27T06:51:00.500Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -586,15 +547,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 26275,
+                      "duration": 21421,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:35:32.114Z",
+                      "startTime": "2026-10-27T06:51:05.552Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -620,15 +581,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4604,
+                      "duration": 3992,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:35:58.432Z",
+                      "startTime": "2026-10-27T06:51:27.043Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -671,15 +632,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2733,
+                      "duration": 8544,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:03.069Z",
+                      "startTime": "2026-10-27T06:51:31.128Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -705,15 +666,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 719,
+                      "duration": 3190,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:05.836Z",
+                      "startTime": "2026-10-27T06:51:39.980Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -739,15 +700,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 6819,
+                      "duration": 15006,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:06.603Z",
+                      "startTime": "2026-10-27T06:51:43.713Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -773,15 +734,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1298,
+                      "duration": 1632,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:13.470Z",
+                      "startTime": "2026-10-27T06:51:58.952Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -807,15 +768,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 804,
+                      "duration": 1120,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:14.807Z",
+                      "startTime": "2026-10-27T06:52:00.799Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -841,15 +802,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2336,
+                      "duration": 4163,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:15.630Z",
+                      "startTime": "2026-10-27T06:52:02.075Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -875,15 +836,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2450,
+                      "duration": 2467,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:17.983Z",
+                      "startTime": "2026-10-27T06:52:06.478Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -909,15 +870,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2386,
+                      "duration": 1941,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:20.454Z",
+                      "startTime": "2026-10-27T06:52:09.015Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -943,15 +904,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 77,
+                      "duration": 113,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:22.860Z",
+                      "startTime": "2026-10-27T06:52:11.038Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -994,15 +955,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3104,
+                      "duration": 3082,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:22.959Z",
+                      "startTime": "2026-10-27T06:52:11.220Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1028,15 +989,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 6987,
+                      "duration": 6428,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:26.086Z",
+                      "startTime": "2026-10-27T06:52:14.374Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1062,15 +1023,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1162,
+                      "duration": 1238,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:33.091Z",
+                      "startTime": "2026-10-27T06:52:20.873Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1113,15 +1074,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 799,
+                      "duration": 1241,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:34.278Z",
+                      "startTime": "2026-10-27T06:52:22.197Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1147,15 +1108,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3598,
+                      "duration": 2983,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:35.095Z",
+                      "startTime": "2026-10-27T06:52:23.519Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1181,15 +1142,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1995,
+                      "duration": 2645,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:38.712Z",
+                      "startTime": "2026-10-27T06:52:26.569Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1215,15 +1176,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2675,
+                      "duration": 2160,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:40.725Z",
+                      "startTime": "2026-10-27T06:52:29.259Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1249,15 +1210,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 786,
+                      "duration": 710,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:43.416Z",
+                      "startTime": "2026-10-27T06:52:31.452Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1283,15 +1244,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1064,
+                      "duration": 1382,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:44.219Z",
+                      "startTime": "2026-10-27T06:52:32.279Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1334,15 +1295,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 957,
+                      "duration": 934,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:45.310Z",
+                      "startTime": "2026-10-27T06:52:33.743Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1368,15 +1329,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 783,
+                      "duration": 761,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:46.286Z",
+                      "startTime": "2026-10-27T06:52:34.751Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1402,15 +1363,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1180,
+                      "duration": 756,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:47.088Z",
+                      "startTime": "2026-10-27T06:52:35.599Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1436,15 +1397,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1508,
+                      "duration": 1536,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:48.293Z",
+                      "startTime": "2026-10-27T06:52:36.406Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1470,15 +1431,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1620,
+                      "duration": 2029,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:49.819Z",
+                      "startTime": "2026-10-27T06:52:38.030Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1504,15 +1465,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1388,
+                      "duration": 892,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:51.460Z",
+                      "startTime": "2026-10-27T06:52:40.110Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1538,15 +1499,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 955,
+                      "duration": 655,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:52.866Z",
+                      "startTime": "2026-10-27T06:52:41.053Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1572,15 +1533,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1317,
+                      "duration": 1855,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:53.843Z",
+                      "startTime": "2026-10-27T06:52:41.814Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1606,15 +1567,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1082,
+                      "duration": 1291,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:55.180Z",
+                      "startTime": "2026-10-27T06:52:43.715Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1640,15 +1601,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 6855,
+                      "duration": 7061,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:36:56.282Z",
+                      "startTime": "2026-10-27T06:52:45.126Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1680,7 +1641,7 @@
           "specs": [
             {
               "title": "notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
@@ -1691,20 +1652,55 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 3504,
-                      "errors": [],
+                      "status": "failed",
+                      "duration": 17721,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('#notes')\nTimeout: 15000ms\n\u001b[32m- Expected substring  - 1\u001b[39m\n\u001b[31m+ Received string     + 2\u001b[39m\n\n\u001b[32m- \u001b[7mNo notes y\u001b[27met\u001b[39m\n\u001b[31m+ Pelican roadmapSecret pelican launch plan10/27/2026, 2:52:53 AM · only you\u001b[39m\n\u001b[31m+ \u001b[7m        PinDel\u001b[27met\u001b[7me\u001b[27m\u001b[39m\n\nCall log:\n\u001b[2m  - Expect \"toContainText\" locator('#notes') with timeout 15000ms\u001b[22m\n\u001b[2m  - waiting for locator('#notes')\u001b[22m\n\u001b[2m    33 × locator resolved to <div id=\"notes\" class=\"cards\">…</div>\u001b[22m\n\u001b[2m       - unexpected value \"Pelican roadmapSecret pelican launch plan10/27/2026, 2:52:53 AM · only you\u001b[22m\n\u001b[2m        PinDelete\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('#notes')\nTimeout: 15000ms\n\u001b[32m- Expected substring  - 1\u001b[39m\n\u001b[31m+ Received string     + 2\u001b[39m\n\n\u001b[32m- \u001b[7mNo notes y\u001b[27met\u001b[39m\n\u001b[31m+ Pelican roadmapSecret pelican launch plan10/27/2026, 2:52:53 AM · only you\u001b[39m\n\u001b[31m+ \u001b[7m        PinDel\u001b[27met\u001b[7me\u001b[27m\u001b[39m\n\nCall log:\n\u001b[2m  - Expect \"toContainText\" locator('#notes') with timeout 15000ms\u001b[22m\n\u001b[2m  - waiting for locator('#notes')\u001b[22m\n\u001b[2m    33 × locator resolved to <div id=\"notes\" class=\"cards\">…</div>\u001b[22m\n\u001b[2m       - unexpected value \"Pelican roadmapSecret pelican launch plan10/27/2026, 2:52:53 AM · only you\u001b[22m\n\u001b[2m        PinDelete\"\u001b[22m\n\n    at C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\workspace.spec.js:22:135",
+                        "location": {
+                          "file": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\workspace.spec.js",
+                          "column": 135,
+                          "line": 22
+                        },
+                        "snippet": "  20 |     expect(dbq(`SELECT visibility FROM portal.notes WHERE title='Pelican roadmap' AND workspace_id='${owner.workspaceId}'`)).toBe('private');\n  21 |     await page.fill('#note-search', 'pelican'); await page.locator('#note-search').press('Enter'); await expect(page.locator('#notes')).toContainText('Pelican roadmap');\n> 22 |     await page.fill('#note-search', 'zebra'); await page.locator('#note-search').press('Enter'); await expect(page.locator('#notes')).toContainText('No notes yet');\n     |                                                                                                                                       ^\n  23 |\n  24 |     const ctx2 = await browser.newContext({ ignoreHTTPSErrors: true, baseURL: BASE }); const p2 = await ctx2.newPage();\n  25 |     const second = await signUp(ctx2, 'colleague'); await addMember(context, owner.csrf, owner.workspaceId, second.user.id);"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\workspace.spec.js",
+                            "column": 135,
+                            "line": 22
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('#notes')\nTimeout: 15000ms\n\u001b[32m- Expected substring  - 1\u001b[39m\n\u001b[31m+ Received string     + 2\u001b[39m\n\n\u001b[32m- \u001b[7mNo notes y\u001b[27met\u001b[39m\n\u001b[31m+ Pelican roadmapSecret pelican launch plan10/27/2026, 2:52:53 AM · only you\u001b[39m\n\u001b[31m+ \u001b[7m        PinDel\u001b[27met\u001b[7me\u001b[27m\u001b[39m\n\nCall log:\n\u001b[2m  - Expect \"toContainText\" locator('#notes') with timeout 15000ms\u001b[22m\n\u001b[2m  - waiting for locator('#notes')\u001b[22m\n\u001b[2m    33 × locator resolved to <div id=\"notes\" class=\"cards\">…</div>\u001b[22m\n\u001b[2m       - unexpected value \"Pelican roadmapSecret pelican launch plan10/27/2026, 2:52:53 AM · only you\u001b[22m\n\u001b[2m        PinDelete\"\u001b[22m\n\n\n  20 |     expect(dbq(`SELECT visibility FROM portal.notes WHERE title='Pelican roadmap' AND workspace_id='${owner.workspaceId}'`)).toBe('private');\n  21 |     await page.fill('#note-search', 'pelican'); await page.locator('#note-search').press('Enter'); await expect(page.locator('#notes')).toContainText('Pelican roadmap');\n> 22 |     await page.fill('#note-search', 'zebra'); await page.locator('#note-search').press('Enter'); await expect(page.locator('#notes')).toContainText('No notes yet');\n     |                                                                                                                                       ^\n  23 |\n  24 |     const ctx2 = await browser.newContext({ ignoreHTTPSErrors: true, baseURL: BASE }); const p2 = await ctx2.newPage();\n  25 |     const second = await signUp(ctx2, 'colleague'); await addMember(context, owner.csrf, owner.workspaceId, second.user.id);\n    at C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\workspace.spec.js:22:135"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:37:03.166Z",
+                      "startTime": "2026-10-27T06:52:52.329Z",
                       "annotations": [],
-                      "attachments": []
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\test-results\\workspace-notes-documents--dd4cc-e-workspace-sees-none-of-it-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\test-results\\workspace-notes-documents--dd4cc-e-workspace-sees-none-of-it-chromium\\error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\workspace.spec.js",
+                        "column": 135,
+                        "line": 22
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "unexpected"
                 }
               ],
               "id": "469843e17c99c5f3017e-8eeb26a8a9f492dbfde2",
@@ -1725,15 +1721,19 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 1,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 6088,
+                      "duration": 8076,
                       "errors": [],
                       "stdout": [],
-                      "stderr": [],
+                      "stderr": [
+                        {
+                          "text": "(node:9852) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.\n"
+                        }
+                      ],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:37:06.686Z",
+                      "startTime": "2026-10-27T06:53:15.268Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1759,15 +1759,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 1,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4010,
+                      "duration": 3967,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:37:12.794Z",
+                      "startTime": "2026-10-27T06:53:23.941Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1793,15 +1793,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 2,
+                      "workerIndex": 1,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4219,
+                      "duration": 3491,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T06:37:16.820Z",
+                      "startTime": "2026-10-27T06:53:27.947Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1821,11 +1821,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-10-27T06:34:33.986Z",
-    "duration": 188870.677,
-    "expected": 41,
+    "startTime": "2026-10-27T06:50:10.637Z",
+    "duration": 205795.782,
+    "expected": 43,
     "skipped": 0,
-    "unexpected": 2,
+    "unexpected": 1,
     "flaky": 0
   }
 }
