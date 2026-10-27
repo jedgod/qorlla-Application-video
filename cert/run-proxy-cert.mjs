@@ -48,9 +48,10 @@ const proxyEnv = path.join(scratch, 'proxy.env');
 fs.writeFileSync(proxyEnv, fs.readFileSync(envFile, 'utf8').trimEnd() + '\n' + [
   `PUBLIC_URL=${MAIN_S}`, `MEET_PUBLIC_URL=${MEET_S}/`,
   `PROXY_MAIN_PORT=${P.mainHttp}`, `PROXY_MEET_PORT=${P.meetHttp}`, `PROXY_MAIN_TLS_PORT=${P.mainTls}`, `PROXY_MEET_TLS_PORT=${P.meetTls}`,
-  `PROXY_TLS_CONF=./deploy/nginx/tls.conf`, `PROXY_CERT_DIR=${certDir.replace(/\\/g, '/')}`].join('\n') + '\n');
+  `PROXY_TLS_CONF=./deploy/nginx/tls.conf`, `PROXY_CERT_DIR=${certDir.replace(/\\/g, '/')}`,
+  `MEET_UPSTREAM=host.docker.internal:3000`, `PORTAL_UPSTREAM=host.docker.internal:5500`].join('\n') + '\n');   // the portal is not part of this proxy run
 const compose = (...a) => docker('compose', '--env-file', proxyEnv, '-p', 'qcert', ...a);
-compose('up', '-d', '--build', '--force-recreate', 'workspace-signaling-engine', 'dashboard-client-proxy');
+compose('up', '-d', '--build', '--force-recreate', '--no-deps', 'workspace-signaling-engine', 'dashboard-client-proxy');
 await waitFor(async () => (await fetch(`${MAIN_H}/api/health`)).ok, { timeout: 90000, what: 'MAIN through nginx' });
 
 let meetProc = null;
