@@ -1,94 +1,52 @@
 
 Running 44 tests using 1 worker
 
-  ok  1 [chromium] › qorlla-portal\e2e\billing-launch.spec.js:22:3 › plan changes, usage and the platform console › upgrade now, schedule a downgrade, cancel it; usage panel says no pay-as-you-go prices exist (5.3s)
-  ok  2 [chromium] › qorlla-portal\e2e\billing-launch.spec.js:42:3 › plan changes, usage and the platform console › the platform console is invisible to ordinary users and works for the configured admin: overview, health, refund, sales workflow, kill switch (7.1s)
-  ok  3 [chromium] › qorlla-portal\e2e\guest-meeting.spec.js:23:3 › guest access through the HTTPS origin › Welcome -> Join -> Pre-Join -> meeting over HTTPS; the guest cookie is Secure, HttpOnly and SameSite=Strict (1.3s)
-  ok  4 [chromium] › qorlla-portal\e2e\guest-meeting.spec.js:35:3 › guest access through the HTTPS origin › direct URL and WebSocket bypass attempts fail: no session, wrong-meeting session, and a passcode field on the socket (384ms)
-  ok  5 [chromium] › qorlla-portal\e2e\guest-meeting.spec.js:46:3 › durable passcode lockout in PostgreSQL › five failures lock the meeting; the lock is stored in PostgreSQL and survives a MAIN container restart; the host can lift it (12.7s)
-  ok  6 [chromium] › qorlla-portal\e2e\guest-meeting.spec.js:68:3 › durable passcode lockout in PostgreSQL › the DEPLOYED application role is append-only on security events (effective privileges, inherited ones included) and the passcode never reaches the database (7.4s)
-  ok  7 [chromium] › qorlla-portal\e2e\guest-meeting.spec.js:82:3 › durable passcode lockout in PostgreSQL › the recovery allowance used BEFORE a MAIN restart is still counted AFTER it: two lifts, restart, exactly one more succeeds, concurrent requests cannot exceed it (11.8s)
-  ok  8 [chromium] › qorlla-portal\e2e\meet-route.spec.js:5:3 › Meet through the single HTTPS origin (/meet/) › Meet UI loads under /meet/, redirects /meet, and its assets and API are prefix-aware (716ms)
-  ok  9 [chromium] › qorlla-portal\e2e\meet-route.spec.js:12:3 › Meet through the single HTTPS origin (/meet/) › internal bridge, recovery and readiness endpoints are not reachable even with the right secret header (87ms)
-  ok 10 [chromium] › qorlla-portal\e2e\meet-route.spec.js:19:3 › Meet through the single HTTPS origin (/meet/) › two browsers meet under /meet/: websocket upgrade on the prefixed path, chat both ways, passcode, refresh and rejoin (5.0s)
-  ok 11 [chromium] › qorlla-portal\e2e\meeting-ai.spec.js:27:3 › AI Meeting Intelligence - meeting to report in the browser › host consents, builds a report from the real Meet chat, assigns work, shares, exports, and revokes - with permissions enforced throughout (21.4s)
-  ok 12 [chromium] › qorlla-portal\e2e\meeting-ai.spec.js:109:3 › AI Meeting Intelligence - meeting to report in the browser › plan limit: the Basic plan allows 3 AI reports a month and the dashboard explains it (4.0s)
-  ok 13 [chromium] › qorlla-portal\e2e\navigation.spec.js:7:3 › navigation - links, keyboard, mobile › every internal link on the pricing page, the portal and the apps menu resolves (no dead product/sidebar links) (8.5s)
-  ok 14 [chromium] › qorlla-portal\e2e\navigation.spec.js:21:3 › navigation - links, keyboard, mobile › [I07] header and product links on the pricing page are same-origin routes to the portal (3.2s)
-  ok 15 [chromium] › qorlla-portal\e2e\navigation.spec.js:27:3 › navigation - links, keyboard, mobile › [I08][I09] sidebar items work from the keyboard and open real portal pages (15.0s)
-  ok 16 [chromium] › qorlla-portal\e2e\navigation.spec.js:39:3 › navigation - links, keyboard, mobile › apps menu opens, items are reachable by Tab, and Escape closes it and restores focus (1.6s)
-  ok 17 [chromium] › qorlla-portal\e2e\navigation.spec.js:46:3 › navigation - links, keyboard, mobile › highlights expand/collapse by mouse and keyboard (1.1s)
-  ok 18 [chromium] › qorlla-portal\e2e\navigation.spec.js:53:5 › navigation - links, keyboard, mobile › phone layout: pricing and portal pages do not overflow horizontally and purchase controls stay reachable (4.2s)
+  ok  1 [chromium] › qorlla-portal\e2e\billing-launch.spec.js:22:3 › plan changes, usage and the platform console › upgrade now, schedule a downgrade, cancel it; usage panel says no pay-as-you-go prices exist (5.8s)
+  ok  2 [chromium] › qorlla-portal\e2e\billing-launch.spec.js:42:3 › plan changes, usage and the platform console › the platform console is invisible to ordinary users and works for the configured admin: overview, health, refund, sales workflow, kill switch (6.3s)
+  ok  3 [chromium] › qorlla-portal\e2e\guest-meeting.spec.js:23:3 › guest access through the HTTPS origin › Welcome -> Join -> Pre-Join -> meeting over HTTPS; the guest cookie is Secure, HttpOnly and SameSite=Strict (1.6s)
+  ok  4 [chromium] › qorlla-portal\e2e\guest-meeting.spec.js:35:3 › guest access through the HTTPS origin › direct URL and WebSocket bypass attempts fail: no session, wrong-meeting session, and a passcode field on the socket (601ms)
+  ok  5 [chromium] › qorlla-portal\e2e\guest-meeting.spec.js:46:3 › durable passcode lockout in PostgreSQL › five failures lock the meeting; the lock is stored in PostgreSQL and survives a MAIN container restart; the host can lift it (13.2s)
+  ok  6 [chromium] › qorlla-portal\e2e\guest-meeting.spec.js:68:3 › durable passcode lockout in PostgreSQL › the DEPLOYED application role is append-only on security events (effective privileges, inherited ones included) and the passcode never reaches the database (7.1s)
+  ok  7 [chromium] › qorlla-portal\e2e\guest-meeting.spec.js:82:3 › durable passcode lockout in PostgreSQL › the recovery allowance used BEFORE a MAIN restart is still counted AFTER it: two lifts, restart, exactly one more succeeds, concurrent requests cannot exceed it (12.9s)
+  ok  8 [chromium] › qorlla-portal\e2e\meet-route.spec.js:5:3 › Meet through the single HTTPS origin (/meet/) › Meet UI loads under /meet/, redirects /meet, and its assets and API are prefix-aware (761ms)
+  ok  9 [chromium] › qorlla-portal\e2e\meet-route.spec.js:12:3 › Meet through the single HTTPS origin (/meet/) › internal bridge, recovery and readiness endpoints are not reachable even with the right secret header (68ms)
+  ok 10 [chromium] › qorlla-portal\e2e\meet-route.spec.js:19:3 › Meet through the single HTTPS origin (/meet/) › two browsers meet under /meet/: websocket upgrade on the prefixed path, chat both ways, passcode, refresh and rejoin (4.5s)
+  ok 11 [chromium] › qorlla-portal\e2e\meeting-ai.spec.js:27:3 › AI Meeting Intelligence - meeting to report in the browser › host consents, builds a report from the real Meet chat, assigns work, shares, exports, and revokes - with permissions enforced throughout (20.6s)
+  ok 12 [chromium] › qorlla-portal\e2e\meeting-ai.spec.js:109:3 › AI Meeting Intelligence - meeting to report in the browser › plan limit: the Basic plan allows 3 AI reports a month and the dashboard explains it (4.3s)
+  ok 13 [chromium] › qorlla-portal\e2e\navigation.spec.js:7:3 › navigation - links, keyboard, mobile › every internal link on the pricing page, the portal and the apps menu resolves (no dead product/sidebar links) (2.0s)
+  ok 14 [chromium] › qorlla-portal\e2e\navigation.spec.js:21:3 › navigation - links, keyboard, mobile › [I07] header and product links on the pricing page are same-origin routes to the portal (765ms)
+  ok 15 [chromium] › qorlla-portal\e2e\navigation.spec.js:27:3 › navigation - links, keyboard, mobile › [I08][I09] sidebar items work from the keyboard and open real portal pages (7.8s)
+  ok 16 [chromium] › qorlla-portal\e2e\navigation.spec.js:39:3 › navigation - links, keyboard, mobile › apps menu opens, items are reachable by Tab, and Escape closes it and restores focus (738ms)
+  ok 17 [chromium] › qorlla-portal\e2e\navigation.spec.js:46:3 › navigation - links, keyboard, mobile › highlights expand/collapse by mouse and keyboard (938ms)
+  ok 18 [chromium] › qorlla-portal\e2e\navigation.spec.js:53:5 › navigation - links, keyboard, mobile › phone layout: pricing and portal pages do not overflow horizontally and purchase controls stay reachable (2.3s)
   ok 19 [chromium] › qorlla-portal\e2e\navigation.spec.js:53:5 › navigation - links, keyboard, mobile › tablet layout: pricing and portal pages do not overflow horizontally and purchase controls stay reachable (2.5s)
-  ok 20 [chromium] › qorlla-portal\e2e\navigation.spec.js:65:3 › navigation - links, keyboard, mobile › legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html (1.9s)
-  ok 21 [chromium] › qorlla-portal\e2e\navigation.spec.js:77:3 › navigation - links, keyboard, mobile › [I01][I02][I03] the catalogue is same-origin only: no CORS grants, GET-only, private endpoints closed (113ms)
-  ok 22 [chromium] › qorlla-portal\e2e\phone.spec.js:8:3 › Phone and AI Receptionist (telephony OFF) › the phone page states that telephony is off, shows an empty history, and public webhooks refuse to run (3.1s)
-  ok 23 [chromium] › qorlla-portal\e2e\phone.spec.js:28:3 › Phone and AI Receptionist (telephony OFF) › receptionist: create a profile, set business hours, enable it, add rules, and book an appointment against the hours (6.4s)
+  ok 20 [chromium] › qorlla-portal\e2e\navigation.spec.js:65:3 › navigation - links, keyboard, mobile › legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html (2.1s)
+  ok 21 [chromium] › qorlla-portal\e2e\navigation.spec.js:77:3 › navigation - links, keyboard, mobile › [I01][I02][I03] the catalogue is same-origin only: no CORS grants, GET-only, private endpoints closed (70ms)
+  ok 22 [chromium] › qorlla-portal\e2e\phone.spec.js:8:3 › Phone and AI Receptionist (telephony OFF) › the phone page states that telephony is off, shows an empty history, and public webhooks refuse to run (2.7s)
+  ok 23 [chromium] › qorlla-portal\e2e\phone.spec.js:28:3 › Phone and AI Receptionist (telephony OFF) › receptionist: create a profile, set business hours, enable it, add rules, and book an appointment against the hours (6.1s)
   ok 24 [chromium] › qorlla-portal\e2e\phone.spec.js:59:3 › Phone and AI Receptionist (telephony OFF) › the workspace owner sees the manager-only phone sections (1.2s)
-  ok 25 [chromium] › qorlla-portal\e2e\portal.spec.js:5:3 › portal - real MAIN sign-in, workspaces, authorization › signed-out visitors get a sign-in prompt on private pages and the API answers 401 (1.2s)
-  ok 26 [chromium] › qorlla-portal\e2e\portal.spec.js:12:3 › portal - real MAIN sign-in, workspaces, authorization › sign up in MAIN -> portal onboarding -> workspace -> notes with plan quota; second user cannot see the data (3.0s)
-  ok 27 [chromium] › qorlla-portal\e2e\portal.spec.js:30:3 › portal - real MAIN sign-in, workspaces, authorization › plan limit is enforced and explained in the UI (2.6s)
-  ok 28 [chromium] › qorlla-portal\e2e\portal.spec.js:39:3 › portal - real MAIN sign-in, workspaces, authorization › an expired portal token is renewed silently from the live MAIN session; sign-out ends access at once (2.2s)
-  ok 29 [chromium] › qorlla-portal\e2e\portal.spec.js:49:3 › portal - real MAIN sign-in, workspaces, authorization › tampered / garbage portal cookies are refused (and MAIN has no session to renew from) (710ms)
-  ok 30 [chromium] › qorlla-portal\e2e\portal.spec.js:55:3 › portal - real MAIN sign-in, workspaces, authorization › billing page: owner sees plan and invoices area; billing details stay hidden from plain members (1.4s)
-  ok 31 [chromium] › qorlla-portal\e2e\pricing.spec.js:10:3 › pricing page - prices come only from the server catalogue › [I04][I05] displayed prices equal the database-backed API (monthly and annual), with computed saving (934ms)
-  ok 32 [chromium] › qorlla-portal\e2e\pricing.spec.js:26:3 › pricing page - prices come only from the server catalogue › [I06] annual/monthly switch works with the mouse and the keyboard and exposes its state (761ms)
-  ok 33 [chromium] › qorlla-portal\e2e\pricing.spec.js:34:3 › pricing page - prices come only from the server catalogue › seat count changes the displayed total (756ms)
-  ok 34 [chromium] › qorlla-portal\e2e\pricing.spec.js:41:3 › pricing page - prices come only from the server catalogue › [I13] a price change in PostgreSQL shows on the page after reload; nothing is cached or hard-coded (1.5s)
-  ok 35 [chromium] › qorlla-portal\e2e\pricing.spec.js:49:3 › pricing page - prices come only from the server catalogue › [I14] annual billing is disabled (not invented) when a plan has no annual price row (2.0s)
-  ok 36 [chromium] › qorlla-portal\e2e\pricing.spec.js:58:3 › pricing page - prices come only from the server catalogue › [I15] catalogue unavailable => explicit "unavailable" state, buying disabled, NO fallback prices; Retry recovers (892ms)
-  ok 37 [chromium] › qorlla-portal\e2e\pricing.spec.js:70:3 › pricing page - prices come only from the server catalogue › when the server says checkout is not available, purchase buttons are disabled with an explanation (655ms)
-  ok 38 [chromium] › qorlla-portal\e2e\pricing.spec.js:77:3 › pricing page - prices come only from the server catalogue › [I12] Enterprise "Contact sales" creates a real inquiry in PostgreSQL (and the honeypot does not) (1.9s)
-  ok 39 [chromium] › qorlla-portal\e2e\pricing.spec.js:90:3 › pricing page - prices come only from the server catalogue › signed-out visitors who click Buy are sent to sign in and come back to pricing (1.3s)
-  ok 40 [chromium] › qorlla-portal\e2e\pricing.spec.js:96:3 › pricing page - prices come only from the server catalogue › [I10] signed-in Buy creates a SERVER-SIDE checkout with the database price; the redirect alone activates nothing; a verified webhook does (7.1s)
-  x  41 [chromium] › qorlla-portal\e2e\workspace.spec.js:12:3 › notes, documents and QorllaMate › notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it (17.7s)
-  ok 42 [chromium] › qorlla-portal\e2e\workspace.spec.js:32:3 › notes, documents and QorllaMate › documents: create, edit with version history and restore, optimistic-concurrency conflict, and sharing as read-only (8.1s)
-  ok 43 [chromium] › qorlla-portal\e2e\workspace.spec.js:58:3 › notes, documents and QorllaMate › sheets and slides edit and persist; AI draft is labelled and private (test-double model) (4.0s)
-  ok 44 [chromium] › qorlla-portal\e2e\workspace.spec.js:71:3 › notes, documents and QorllaMate › QorllaMate proposes, the user approves, and only then does the note exist; email stays blocked (test-double model) (3.5s)
+  ok 25 [chromium] › qorlla-portal\e2e\portal.spec.js:5:3 › portal - real MAIN sign-in, workspaces, authorization › signed-out visitors get a sign-in prompt on private pages and the API answers 401 (945ms)
+  ok 26 [chromium] › qorlla-portal\e2e\portal.spec.js:12:3 › portal - real MAIN sign-in, workspaces, authorization › sign up in MAIN -> portal onboarding -> workspace -> notes with plan quota; second user cannot see the data (3.3s)
+  ok 27 [chromium] › qorlla-portal\e2e\portal.spec.js:30:3 › portal - real MAIN sign-in, workspaces, authorization › plan limit is enforced and explained in the UI (3.0s)
+  ok 28 [chromium] › qorlla-portal\e2e\portal.spec.js:39:3 › portal - real MAIN sign-in, workspaces, authorization › an expired portal token is renewed silently from the live MAIN session; sign-out ends access at once (4.1s)
+  ok 29 [chromium] › qorlla-portal\e2e\portal.spec.js:49:3 › portal - real MAIN sign-in, workspaces, authorization › tampered / garbage portal cookies are refused (and MAIN has no session to renew from) (667ms)
+  ok 30 [chromium] › qorlla-portal\e2e\portal.spec.js:55:3 › portal - real MAIN sign-in, workspaces, authorization › billing page: owner sees plan and invoices area; billing details stay hidden from plain members (973ms)
+  ok 31 [chromium] › qorlla-portal\e2e\pricing.spec.js:10:3 › pricing page - prices come only from the server catalogue › [I04][I05] displayed prices equal the database-backed API (monthly and annual), with computed saving (955ms)
+  ok 32 [chromium] › qorlla-portal\e2e\pricing.spec.js:26:3 › pricing page - prices come only from the server catalogue › [I06] annual/monthly switch works with the mouse and the keyboard and exposes its state (1.6s)
+  ok 33 [chromium] › qorlla-portal\e2e\pricing.spec.js:34:3 › pricing page - prices come only from the server catalogue › seat count changes the displayed total (913ms)
+  ok 34 [chromium] › qorlla-portal\e2e\pricing.spec.js:41:3 › pricing page - prices come only from the server catalogue › [I13] a price change in PostgreSQL shows on the page after reload; nothing is cached or hard-coded (1.9s)
+  ok 35 [chromium] › qorlla-portal\e2e\pricing.spec.js:49:3 › pricing page - prices come only from the server catalogue › [I14] annual billing is disabled (not invented) when a plan has no annual price row (1.6s)
+  ok 36 [chromium] › qorlla-portal\e2e\pricing.spec.js:58:3 › pricing page - prices come only from the server catalogue › [I15] catalogue unavailable => explicit "unavailable" state, buying disabled, NO fallback prices; Retry recovers (935ms)
+  ok 37 [chromium] › qorlla-portal\e2e\pricing.spec.js:70:3 › pricing page - prices come only from the server catalogue › when the server says checkout is not available, purchase buttons are disabled with an explanation (749ms)
+  ok 38 [chromium] › qorlla-portal\e2e\pricing.spec.js:77:3 › pricing page - prices come only from the server catalogue › [I12] Enterprise "Contact sales" creates a real inquiry in PostgreSQL (and the honeypot does not) (1.4s)
+  ok 39 [chromium] › qorlla-portal\e2e\pricing.spec.js:90:3 › pricing page - prices come only from the server catalogue › signed-out visitors who click Buy are sent to sign in and come back to pricing (1.4s)
+  ok 40 [chromium] › qorlla-portal\e2e\pricing.spec.js:96:3 › pricing page - prices come only from the server catalogue › [I10] signed-in Buy creates a SERVER-SIDE checkout with the database price; the redirect alone activates nothing; a verified webhook does (7.2s)
+  ok 41 [chromium] › qorlla-portal\e2e\workspace.spec.js:12:3 › notes, documents and QorllaMate › notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it (3.9s)
+  ok 42 [chromium] › qorlla-portal\e2e\workspace.spec.js:39:3 › notes, documents and QorllaMate › documents: create, edit with version history and restore, optimistic-concurrency conflict, and sharing as read-only (6.4s)
+  ok 43 [chromium] › qorlla-portal\e2e\workspace.spec.js:65:3 › notes, documents and QorllaMate › sheets and slides edit and persist; AI draft is labelled and private (test-double model) (4.7s)
+  ok 44 [chromium] › qorlla-portal\e2e\workspace.spec.js:78:3 › notes, documents and QorllaMate › QorllaMate proposes, the user approves, and only then does the note exist; email stays blocked (test-double model) (3.5s)
 
-
-  1) [chromium] › qorlla-portal\e2e\workspace.spec.js:12:3 › notes, documents and QorllaMate › notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it 
-
-    Error: expect(locator).toContainText(expected) failed
-
-    Locator: locator('#notes')
-    Timeout: 15000ms
-    - Expected substring  - 1
-    + Received string     + 2
-
-    - No notes yet
-    + Pelican roadmapSecret pelican launch plan10/27/2026, 2:52:53 AM · only you
-    +         PinDelete
-
-    Call log:
-      - Expect "toContainText" locator('#notes') with timeout 15000ms
-      - waiting for locator('#notes')
-        33 × locator resolved to <div id="notes" class="cards">…</div>
-           - unexpected value "Pelican roadmapSecret pelican launch plan10/27/2026, 2:52:53 AM · only you
-            PinDelete"
-
-
-      20 |     expect(dbq(`SELECT visibility FROM portal.notes WHERE title='Pelican roadmap' AND workspace_id='${owner.workspaceId}'`)).toBe('private');
-      21 |     await page.fill('#note-search', 'pelican'); await page.locator('#note-search').press('Enter'); await expect(page.locator('#notes')).toContainText('Pelican roadmap');
-    > 22 |     await page.fill('#note-search', 'zebra'); await page.locator('#note-search').press('Enter'); await expect(page.locator('#notes')).toContainText('No notes yet');
-         |                                                                                                                                       ^
-      23 |
-      24 |     const ctx2 = await browser.newContext({ ignoreHTTPSErrors: true, baseURL: BASE }); const p2 = await ctx2.newPage();
-      25 |     const second = await signUp(ctx2, 'colleague'); await addMember(context, owner.csrf, owner.workspaceId, second.user.id);
-        at C:\Users\cj_wo\qorlla-v46\qorlla-portal\e2e\workspace.spec.js:22:135
-
-    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
-    qorlla-portal\e2e\test-results\workspace-notes-documents--dd4cc-e-workspace-sees-none-of-it-chromium\test-failed-1.png
-    ────────────────────────────────────────────────────────────────────────────────────────────────
-
-    Error Context: qorlla-portal\e2e\test-results\workspace-notes-documents--dd4cc-e-workspace-sees-none-of-it-chromium\error-context.md
-
-  1 failed
-    [chromium] › qorlla-portal\e2e\workspace.spec.js:12:3 › notes, documents and QorllaMate › notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it 
-  43 passed (3.4m)
-(node:9720) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+  44 passed (3.1m)
+(node:36088) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)
-(node:9720) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
-(node:9852) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
-(Use `node --trace-warnings ...` to show where the warning was created)
-(node:9852) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+(node:36088) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.

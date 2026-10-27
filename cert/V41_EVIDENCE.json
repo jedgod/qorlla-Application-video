@@ -1,14 +1,15 @@
 {
-  "finished": "2026-10-27T06:53:45.486Z",
+  "finished": "2026-10-27T07:04:33.978Z",
   "git": {
-    "headSha": "19442d484aed9ab0d0c17538838416763c239049",
+    "headSha": "72e7f6e95025e6c8031e1990edfa8ecb79358a2c",
     "branch": "feature/qorlla-workplace-v4.6-provider-certification",
     "sourceTreeClean": false,
     "dirtySourcePaths": [
+      "M cert/LOCKOUT_PG_STRESS.json",
+      " M cert/e2e-output.txt",
       " M cert/e2e-results.json",
-      " M cert/portal-unit.tap",
-      "?? cert/LOCKOUT_PG_STRESS.json",
-      "?? cert/lockout-pg.tap"
+      " M cert/lockout-pg.tap",
+      " M cert/portal-unit.tap"
     ]
   },
   "ports": {
@@ -23,8 +24,8 @@
   },
   "note": "Payment provider = local TEST DOUBLE; real-provider verification is BLOCKED (no account/keys, no authorization to collect payments).",
   "summary": {
-    "pass": 11,
-    "fail": 2
+    "pass": 12,
+    "fail": 0
   },
   "results": [
     {
@@ -35,9 +36,9 @@
     },
     {
       "id": "U-LOCKOUT-PG",
-      "name": "PostgreSQL lockout adapter: persistence, concurrency, release, durable recovery, fail-closed, audit permissions, stress metrics",
+      "name": "PostgreSQL lockout adapter: persistence, concurrency, release, durable recovery, fail-closed, stress metrics; migration upgrade, inherited-grant guard, append-only application role, owner-only retention",
       "status": "PASS",
-      "detail": "8 passed, 0 failed; stress: 90 attempts, 5 comparisons (budget 5), outcomes {\"wrong\":0,\"locked\":6,\"busy\":84,\"unavailable\":0}, p95 971.5 ms, p99 1001.7 ms, max pool wait 830.7 ms"
+      "detail": "13 passed, 0 failed; stress: 90 attempts, 5 comparisons (budget 5), outcomes {\"wrong\":0,\"locked\":8,\"busy\":82,\"unavailable\":0}, p95 1843.2 ms, p99 1942.5 ms, max pool wait 1539.8 ms"
     },
     {
       "id": "D01",
@@ -90,8 +91,8 @@
     {
       "id": "E2E",
       "name": "browser E2E: pricing, checkout/webhook, portal auth, navigation, mobile, Meet under /meet/, meeting-to-report",
-      "status": "FAIL",
-      "detail": "43 passed, 1 failed",
+      "status": "PASS",
+      "detail": "44 passed, 0 failed",
       "titles": [
         "ok upgrade now, schedule a downgrade, cancel it; usage panel says no pay-as-you-go prices exist",
         "ok the platform console is invisible to ordinary users and works for the configured admin: overview, health, refund, sales workflow, kill switch",
@@ -133,17 +134,11 @@
         "ok [I12] Enterprise \"Contact sales\" creates a real inquiry in PostgreSQL (and the honeypot does not)",
         "ok signed-out visitors who click Buy are sent to sign in and come back to pricing",
         "ok [I10] signed-in Buy creates a SERVER-SIDE checkout with the database price; the redirect alone activates nothing; a verified webhook does",
-        "FAIL notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it",
+        "ok notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it",
         "ok documents: create, edit with version history and restore, optimistic-concurrency conflict, and sharing as read-only",
         "ok sheets and slides edit and persist; AI draft is labelled and private (test-double model)",
         "ok QorllaMate proposes, the user approves, and only then does the note exist; email stays blocked (test-double model)"
       ]
-    },
-    {
-      "id": "E2E-FAIL",
-      "name": "FAIL notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it",
-      "status": "FAIL",
-      "detail": ""
     },
     {
       "id": "D07",

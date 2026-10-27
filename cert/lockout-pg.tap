@@ -1,59 +1,89 @@
 TAP version 13
-# Subtest: four failures survive a restart (new pool, new service); the fifth locks; a correct passcode does not lift it
-ok 1 - four failures survive a restart (new pool, new service); the fifth locks; a correct passcode does not lift it
+# Subtest: upgrade from an earlier revision REVOKES the direct DELETE/UPDATE and PUBLIC grants; effective privileges end up append-only
+ok 1 - upgrade from an earlier revision REVOKES the direct DELETE/UPDATE and PUBLIC grants; effective privileges end up append-only
   ---
-  duration_ms: 987.7722
+  duration_ms: 1199.0687
+  type: 'test'
+  ...
+# Subtest: a privilege inherited through a role the application role belongs to makes the migration FAIL; removing it lets it pass
+ok 2 - a privilege inherited through a role the application role belongs to makes the migration FAIL; removing it lets it pass
+  ---
+  duration_ms: 296.7214
+  type: 'test'
+  ...
+# Subtest: as the real application role: it can append and read security events but cannot delete, update, truncate or prune them
+ok 3 - as the real application role: it can append and read security events but cannot delete, update, truncate or prune them
+  ---
+  duration_ms: 554.0154
+  type: 'test'
+  ...
+# Subtest: the lockout works end to end with ONLY those privileges (no DELETE/UPDATE on events)
+ok 4 - the lockout works end to end with ONLY those privileges (no DELETE/UPDATE on events)
+  ---
+  duration_ms: 7299.0236
+  type: 'test'
+  ...
+# Subtest: retention is an owner-run, audited step that never touches events needed for the recovery limit
+ok 5 - retention is an owner-run, audited step that never touches events needed for the recovery limit
+  ---
+  duration_ms: 144.683
+  type: 'test'
+  ...
+# Subtest: four failures survive a restart (new pool, new service); the fifth locks; a correct passcode does not lift it
+ok 6 - four failures survive a restart (new pool, new service); the fifth locks; a correct passcode does not lift it
+  ---
+  duration_ms: 2180.9509
   type: 'test'
   ...
 # Subtest: expiry follows the DATABASE clock, then the budget starts again
-ok 2 - expiry follows the DATABASE clock, then the budget starts again
+ok 7 - expiry follows the DATABASE clock, then the budget starts again
   ---
-  duration_ms: 370.9501
+  duration_ms: 920.7723
   type: 'test'
   ...
-# LOCKOUT_STRESS_METRICS {"attempted":90,"comparisons":5,"budget":5,"outcomes":{"wrong":0,"locked":6,"busy":84,"unavailable":0},"p95Ms":971.5,"p99Ms":1001.7,"maxPoolWaitMs":830.7,"p95PoolWaitMs":801.4,"poolAcquisitions":95,"unavailableRate":0}
+# LOCKOUT_STRESS_METRICS {"attempted":90,"comparisons":5,"budget":5,"outcomes":{"wrong":0,"locked":8,"busy":82,"unavailable":0},"p95Ms":1843.2,"p99Ms":1942.5,"maxPoolWaitMs":1539.8,"p95PoolWaitMs":1458.6,"poolAcquisitions":95,"unavailableRate":0}
 # Subtest: concurrent attempts through several "instances" share one budget (row lock); outcomes, comparisons, latency and pool wait are reported
-ok 3 - concurrent attempts through several "instances" share one budget (row lock); outcomes, comparisons, latency and pool wait are reported
+ok 8 - concurrent attempts through several "instances" share one budget (row lock); outcomes, comparisons, latency and pool wait are reported
   ---
-  duration_ms: 1039.6716
+  duration_ms: 1990.6434
   type: 'test'
   ...
 # Subtest: an in-flight success that settles after the lock is refused; the host can clear the lock; events carry no raw actor
-ok 4 - an in-flight success that settles after the lock is refused; the host can clear the lock; events carry no raw actor
+ok 9 - an in-flight success that settles after the lock is refused; the host can clear the lock; events carry no raw actor
   ---
-  duration_ms: 389.973
+  duration_ms: 1210.1222
   type: 'test'
   ...
 # Subtest: database unavailable, or table missing, fails closed: the passcode comparison never runs
-ok 5 - database unavailable, or table missing, fails closed: the passcode comparison never runs
+ok 10 - database unavailable, or table missing, fails closed: the passcode comparison never runs
   ---
-  duration_ms: 68.4372
+  duration_ms: 117.7711
   type: 'test'
   ...
 # Subtest: release is idempotent, own-reservation-only and epoch-guarded (PostgreSQL)
-ok 6 - release is idempotent, own-reservation-only and epoch-guarded (PostgreSQL)
+ok 11 - release is idempotent, own-reservation-only and epoch-guarded (PostgreSQL)
   ---
-  duration_ms: 362.8909
+  duration_ms: 898.5261
   type: 'test'
   ...
 # Subtest: a faulting comparison does not consume the budget; an unconfirmable release fails closed and stays counted (PostgreSQL)
-ok 7 - a faulting comparison does not consume the budget; an unconfirmable release fails closed and stays counted (PostgreSQL)
+ok 12 - a faulting comparison does not consume the budget; an unconfirmable release fails closed and stays counted (PostgreSQL)
   ---
-  duration_ms: 1131.9472
+  duration_ms: 902.867
   type: 'test'
   ...
 # Subtest: recovery allowance is atomic across instances, durable, per host, and rejected requests do not consume it (PostgreSQL)
-ok 8 - recovery allowance is atomic across instances, durable, per host, and rejected requests do not consume it (PostgreSQL)
+ok 13 - recovery allowance is atomic across instances, durable, per host, and rejected requests do not consume it (PostgreSQL)
   ---
-  duration_ms: 1992.7746
+  duration_ms: 1362.786
   type: 'test'
   ...
-1..8
-# tests 8
+1..13
+# tests 13
 # suites 0
-# pass 8
+# pass 13
 # fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 7108.1982
+# duration_ms 10501.8465
