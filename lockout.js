@@ -113,9 +113,15 @@ function createPgLockoutStore({ pool }) {
         } catch (e) { try { await c.query('ROLLBACK'); } catch (x) { /* connection already gone */ } throw e; } finally { c.release(); }
     }
     const row = async (c, id) => (await c.query('SELECT failed_attempts, epoch, locked_until, (locked_until IS NOT NULL AND locked_until > now()) AS locked FROM public.meeting_passcode_attempts WHERE meeting_id=$1 FOR UPDATE', [id])).rows[0];
+    // Security events are APPEND-ONLY for the application role (it has no DELETE/UPDATE on this table). Rejected-request audits are bounded without
+    // deleting anything: beyond REJECTED_CAP per meeting per hour they are no longer stored (the server log still records every one).
+    const REJECTED_CAP = 100;
     const ev = async (c, id, kind, actor, reason) => {
+        if (kind === 'clear_rejected') {
+            const n = (await c.query("SELECT count(*)::int AS n FROM public.meeting_passcode_events WHERE meeting_id=$1 AND kind='clear_rejected' AND at > now() - interval '1 hour'", [id])).rows[0].n;
+            if (n >= REJECTED_CAP) return;
+        }
         await c.query('INSERT INTO public.meeting_passcode_events(meeting_id, kind, actor, reason) VALUES ($1,$2,$3,$4)', [id, kind, actor || null, reason || null]);
-        await c.query('DELETE FROM public.meeting_passcode_events WHERE meeting_id=$1 AND kind IN (\'clear_rejected\') AND id NOT IN (SELECT id FROM public.meeting_passcode_events WHERE meeting_id=$1 AND kind=\'clear_rejected\' ORDER BY id DESC LIMIT 100)', [id]);
     };
     const resetEpoch = async (c, id) => { await c.query('UPDATE public.meeting_passcode_attempts SET epoch = epoch + 1 WHERE meeting_id=$1', [id]); await c.query('DELETE FROM public.meeting_passcode_reservations WHERE meeting_id=$1', [id]); };
     return {

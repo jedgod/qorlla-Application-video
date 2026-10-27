@@ -155,3 +155,19 @@ test('recovery: rejected requests are audited (store + structured log) without u
   const log = s.log(); expect(log).not.toContain('audit-code-9'); expect(log).not.toContain(m.hostKey);
   await s.stop();
 });
+
+test('the recovery allowance belongs to the host identity, not the session: minting new host sessions with the host key does not reset it, across a restart too', async () => {
+  test.setTimeout(120000);
+  const dir = tmp(); let s = await start(dir); const m = await mkFull(s.base, 'identity-code'); const url = '/api/meetings/' + encodeURIComponent(m.id) + '/passcode-lockout/clear';
+  let host = await ctx(s.base); expect((await attempt(host, m.id, undefined, { hostKey: m.hostKey })).status()).toBe(201);
+  for (let i = 0; i < 3; i++) expect((await host.post(url, { data: {} })).status()).toBe(200);
+  expect((await host.post(url, { data: {} })).status()).toBe(429);
+  const second = await ctx(s.base); expect((await attempt(second, m.id, undefined, { hostKey: m.hostKey })).status()).toBe(201);   // a different session, same host key
+  expect((await second.post(url, { data: {} })).status()).toBe(429);
+  await new Promise((r) => setTimeout(r, 900)); await s.stop(); s = await start(dir);
+  const third = await ctx(s.base); expect((await attempt(third, m.id, undefined, { hostKey: m.hostKey })).status()).toBe(201);
+  expect((await third.post(url, { data: {} })).status()).toBe(429);                                                           // the used allowance survived the restart
+  const events = (await (await third.get('/api/meetings/' + encodeURIComponent(m.id) + '/passcode-security')).json()).events;
+  expect(events.filter((e) => e.kind === 'cleared_by_host').length).toBe(3);
+  await s.stop();
+});

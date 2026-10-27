@@ -42,6 +42,14 @@ await waitFor(() => { try { docker('exec', pgName, 'pg_isready', '-U', 'postgres
   record('U-ALL', 'portal node:test suites (auth, billing lifecycle, entitlements, sales, migrations/rollback, real-MAIN contract)', fail === 0 && pass > 60 ? 'PASS' : 'FAIL', `${pass} passed, ${fail} failed`);
   if (fail) record('U-FAIL', 'failing tests', 'FAIL', [...r.stdout.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1]).join(' | '));
 }
+{
+  const metrics = path.join(root, 'cert', 'LOCKOUT_PG_STRESS.json');
+  const r = spawnSync('node', ['--test', '--test-reporter=tap', 'tests/lockout-pg.test.mjs'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, TEST_DATABASE_ADMIN_URL: `postgres://postgres:postgres@127.0.0.1:${P.pg}/postgres`, LOCKOUT_METRICS_FILE: metrics } });
+  fs.writeFileSync(path.join(root, 'cert', 'lockout-pg.tap'), r.stdout);
+  const pass = Number((/^# pass (\d+)/m.exec(r.stdout) || [])[1] || 0), fail = Number((/^# fail (\d+)/m.exec(r.stdout) || [])[1] || 0);
+  let detail = `${pass} passed, ${fail} failed`; try { const m = JSON.parse(fs.readFileSync(metrics, 'utf8')); detail += `; stress: ${m.attempted} attempts, ${m.comparisons} comparisons (budget ${m.budget}), outcomes ${JSON.stringify(m.outcomes)}, p95 ${m.p95Ms} ms, p99 ${m.p99Ms} ms, max pool wait ${m.maxPoolWaitMs} ms`; } catch (e) { detail += '; stress metrics missing'; }
+  record('U-LOCKOUT-PG', 'PostgreSQL lockout adapter: persistence, concurrency, release, durable recovery, fail-closed, audit permissions, stress metrics', fail === 0 && pass >= 8 ? 'PASS' : 'FAIL', detail);
+}
 try { docker('rm', '-f', pgName); } catch {}
 
 // ------------------------------------------------------------------ 2. unified deployment
@@ -128,7 +136,7 @@ await check('D09', 'metrics are served inside the private network only, with the
 // ------------------------------------------------------------------ 3. browser E2E against the unified origin
 {
   const cfgFile = path.join(root, 'qorlla-portal', 'e2e', 'playwright.config.cjs'); const json = path.join(root, 'cert', 'e2e-results.json');
-  const r = spawnSync('npx', ['playwright', 'test', '-c', cfgFile], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32', maxBuffer: 1 << 28, env: { ...process.env, E2E_BASE: ORIGIN, E2E_DB_CONTAINER: `${PROJECT}-main-db-1`, E2E_FAKE_STRIPE_URL: `http://127.0.0.1:${P.fake}`, E2E_JSON: json, E2E_ADMIN_USER: ADMIN.username, E2E_ADMIN_PASS: ADMIN.password, NO_COLOR: '1', NODE_TLS_REJECT_UNAUTHORIZED: '0' } });
+  const r = spawnSync('npx', ['playwright', 'test', '-c', cfgFile], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32', maxBuffer: 1 << 28, env: { ...process.env, E2E_BASE: ORIGIN, E2E_DB_CONTAINER: `${PROJECT}-main-db-1`, E2E_MAIN_CONTAINER: 'zoom_core_backend_instance', E2E_COMPOSE_PROJECT: PROJECT, E2E_FAKE_STRIPE_URL: `http://127.0.0.1:${P.fake}`, E2E_JSON: json, E2E_ADMIN_USER: ADMIN.username, E2E_ADMIN_PASS: ADMIN.password, NO_COLOR: '1', NODE_TLS_REJECT_UNAUTHORIZED: '0' } });
   fs.writeFileSync(path.join(root, 'cert', 'e2e-output.txt'), (r.stdout || '') + (r.stderr || ''));
   let counts = { passed: 0, failed: 0, skipped: 0, titles: [] };
   try { const j = JSON.parse(fs.readFileSync(json, 'utf8')); const walk = (s) => { (s.specs || []).forEach((sp) => sp.tests.forEach((t) => { const st = t.results?.[t.results.length - 1]?.status; counts[st === 'passed' ? 'passed' : st === 'skipped' ? 'skipped' : 'failed']++; counts.titles.push((st === 'passed' ? 'ok ' : 'FAIL ') + sp.title); })); (s.suites || []).forEach(walk); }; (j.suites || []).forEach(walk); } catch (e) { counts.error = e.message; }

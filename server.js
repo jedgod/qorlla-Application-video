@@ -338,14 +338,17 @@ app.post('/api/meetings/:meetingId/passcode-lockout/clear', limitRecoverIp, atta
     // Rejected requests are recorded (durably, under their own kind) but never use up the three allowed successful recoveries.
     const reject = async (status, reason, message) => {
         auditRecovery(id, req.actor, 'rejected', reason);
-        if (meetingsState.get(id)) { try { await lockout.audit(id, 'clear_rejected', req.actor && req.actor.id, reason); } catch (e) { /* the response below is still a refusal */ } }
+        if (meetingsState.get(id)) { try { await lockout.audit(id, 'clear_rejected', req.actor ? (req.actor.type === 'account' ? req.actor.id : 'guest-session') : null, reason); } catch (e) { /* the response below is still a refusal */ } }
         return res.status(status).json({ error: message });
     };
     const origin = req.get('origin'); if (origin) { let h = ''; try { h = new URL(origin).host; } catch (e) { /* malformed */ } if (h !== req.get('host')) return reject(403, 'origin_rejected', 'Origin rejected.'); }
     if (!req.actor) return reject(401, 'unauthenticated', 'Sign in or join the meeting first.');
     if (!meetingsState.get(id) || !actorIsHost(req.actor, id)) return reject(403, 'not_host', 'Only the host can lift a passcode lockout.');   // checked on EVERY request
     try {
-        const out = await lockout.clearLockLimited(id, req.actor.id);          // allowance check + clear + event in one atomic operation
+        // The allowance belongs to the host's stable identity: the owning account, or (for an anonymous host) the meeting itself. It must NOT be the
+        // guest session id: re-issuing a session with the host key would otherwise reset the allowance.
+        const hostIdentity = req.actor.type === 'account' ? req.actor.id : 'hostkey:' + id;
+        const out = await lockout.clearLockLimited(id, hostIdentity);          // allowance check + clear + event in one atomic operation
         if (!out.ok) { auditRecovery(id, req.actor, 'rejected', out.reason); res.set('Retry-After', String(Math.ceil((out.retryAfterMs || 3600000) / 1000))); return res.status(429).json({ error: 'You have lifted this lockout too often. Try again later.' }); }
         auditRecovery(id, req.actor, 'cleared', out.wasLocked ? 'was_locked' : 'was_not_locked');
         res.json({ cleared: true, wasLocked: out.wasLocked });

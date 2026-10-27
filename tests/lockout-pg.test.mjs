@@ -40,11 +40,26 @@ test('expiry follows the DATABASE clock, then the budget starts again', async ()
   assert.equal((await right(s, 'P2')).status, 'ok');
 });
 
-test('concurrent attempts through several "instances" share one budget (row lock)', async () => {
-  const instances = [svc(pool()), svc(pool()), svc(pool())]; let verified = 0;
-  const results = await Promise.all(Array.from({ length: 90 }, (_, i) => instances[i % 3].verify({ meetingId: 'P3', clientKey: 'c', check: async () => { verified++; await new Promise((r) => setTimeout(r, 3)); return false; } })));
-  assert.ok(verified <= MAX_FAILURES, `verified ${verified}`); assert.ok(verified > 0);
-  assert.ok(results.every((r) => ['wrong', 'locked', 'busy'].includes(r.status)), 'only wrong/locked/busy outcomes: ' + JSON.stringify(results.reduce((m, r) => (m[r.status] = (m[r.status] || 0) + 1, m), {})));
+// Wraps a pool so the time spent waiting for a free connection is measured.
+const timedPool = (waits) => { const p = pool(); const connect = p.connect.bind(p); p.connect = async () => { const t = performance.now(); try { return await connect(); } finally { waits.push(performance.now() - t); } }; return p; };
+const pct = (xs, q) => { const s = [...xs].sort((a, b) => a - b); return s.length ? Math.round(s[Math.min(s.length - 1, Math.ceil(q * s.length) - 1)] * 10) / 10 : 0; };
+
+test('concurrent attempts through several "instances" share one budget (row lock); outcomes, comparisons, latency and pool wait are reported', async () => {
+  const waits = []; const instances = [svc(timedPool(waits)), svc(timedPool(waits)), svc(timedPool(waits))]; let comparisons = 0; const latencies = []; const ATTEMPTS = 90;
+  const results = await Promise.all(Array.from({ length: ATTEMPTS }, async (_, i) => {
+    const t = performance.now();
+    const r = await instances[i % 3].verify({ meetingId: 'P3', clientKey: 'c', check: async () => { comparisons++; await new Promise((x) => setTimeout(x, 3)); return false; } });
+    latencies.push(performance.now() - t); return r;
+  }));
+  const outcomes = results.reduce((m, r) => (m[r.status] = (m[r.status] || 0) + 1, m), { wrong: 0, locked: 0, busy: 0, unavailable: 0 });
+  const metrics = { attempted: ATTEMPTS, comparisons, budget: MAX_FAILURES, outcomes, p95Ms: pct(latencies, 0.95), p99Ms: pct(latencies, 0.99), maxPoolWaitMs: pct(waits, 1), p95PoolWaitMs: pct(waits, 0.95), poolAcquisitions: waits.length, unavailableRate: outcomes.unavailable / ATTEMPTS };
+  console.log('LOCKOUT_STRESS_METRICS ' + JSON.stringify(metrics));
+  if (process.env.LOCKOUT_METRICS_FILE) fs.writeFileSync(process.env.LOCKOUT_METRICS_FILE, JSON.stringify(metrics, null, 2));
+  // SECURITY result first: no excess comparison, whatever else happened.
+  assert.ok(comparisons <= MAX_FAILURES, `SECURITY: ${comparisons} comparisons exceeded the budget of ${MAX_FAILURES}`); assert.ok(comparisons > 0);
+  assert.equal(outcomes.wrong + outcomes.locked + outcomes.busy + outcomes.unavailable, ATTEMPTS, 'unexpected outcome kinds: ' + JSON.stringify(outcomes));
+  // AVAILABILITY result, reported separately: an "unavailable" is a visible operational failure even though failing closed is the correct security behaviour.
+  assert.equal(outcomes.unavailable, 0, `AVAILABILITY: ${outcomes.unavailable} of ${ATTEMPTS} requests were unavailable (rate ${(100 * outcomes.unavailable / ATTEMPTS).toFixed(1)}%); security held. Metrics: ${JSON.stringify(metrics)}`);
   assert.equal((await instances[0].status('P3')).locked, true);
 });
 
