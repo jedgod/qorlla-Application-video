@@ -626,7 +626,7 @@
   // Qorlla Meet (qorlla-meet-video) runs as its own server and is used when it is CONFIGURED (MEET_PUBLIC_URL on the server, or localStorage zw_meet_url).
   // When it is not, meetings start in this server's built-in meeting room (/index.html). It used to fall back to a guessed port (3000), which
   // opened whatever else happened to be running there instead of a meeting.
-  var VIDEO_PAGE = store('zw_meet_url') || window.QORLLA_MEET_URL || '';
+  var VIDEO_PAGE = store('zw_meet_url') || window.QORLLA_MEET_URL || '';   // the server detects a running Meet and fills QORLLA_MEET_URL (see /meet-config.js)
   var API = '/api/workplace';
   var $ = function (id) { return document.getElementById(id); };
 
@@ -756,7 +756,8 @@
 
   // ---------- video page hand-off ----------
   function go(params) {
-    if (!VIDEO_PAGE) {                                   // built-in meeting room of this server
+    if (!VIDEO_PAGE) {                                   // Meet is not running: say so, then use this server's basic built-in meeting room
+      try { sessionStorage.setItem('zw_meet_notice', '1'); } catch (e) { /* ignore */ }
       var b = new URLSearchParams({ start: params.start, mic: params.mic === 'false' ? '0' : '1', cam: params.camera === 'false' ? '0' : '1' });
       if (params.name) b.set('name', params.name);
       if (params.meetingId) b.set('meeting', params.meetingId);

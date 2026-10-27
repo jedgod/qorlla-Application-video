@@ -19,7 +19,7 @@ module.exports = defineConfig({
   webServer: {
     command: 'node server.js',
     url: baseURL + '/api/health',
-    env: { PORT: port, DATA_DIR: testData, GUEST_RATE_LIMIT_MAX: '5000' },
+    env: { PORT: port, DATA_DIR: testData, GUEST_RATE_LIMIT_MAX: '5000', MEET_DETECT: 'off' },
     reuseExistingServer: false,
     timeout: 30000
   },

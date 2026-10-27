@@ -1358,6 +1358,7 @@
     paintControls();
     layout();
     renderPeople();
+    if (params.get('start') && sessionStorage.getItem('zw_meet_notice')) { sessionStorage.removeItem('zw_meet_notice'); setTimeout(() => toast('Qorlla Meet is not running here, so this is the basic meeting room. Start Meet (MEET_PUBLIC_URL) for the full video page.', 'error'), 600); }
     const invited = params.get('meeting');
     if (invited) { $('meetingIdInput').value = invited; toast('Enter your name and press Join to enter meeting ' + invited); }
     // Launched from the Workplace home page (qorlla.html)

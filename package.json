@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "playwright test",
+    "dev:stack": "node scripts/dev-stack.mjs",
     "build:css": "tailwindcss -i assets/tailwind.input.css -o assets/meeting.css --minify",
     "meet-worker": "node meet-sync/src/worker.mjs",
     "test:meet-sync": "node --test meet-sync/tests/smoke.test.mjs"

@@ -703,9 +703,29 @@ app.get('/locales/pt-PT.js', (req, res) => res.sendFile(path.join(__dirname, 'lo
 
 // Public product assets only; the source and account data remain private.
 // Where the public Meet site lives (MEET_PUBLIC_URL, e.g. https://meet.example.com). Empty = qorlla.html derives it.
-app.get('/meet-config.js', (req, res) => {
+// Where is Qorlla Meet (the full video app)? MEET_PUBLIC_URL when set; otherwise a Meet answering on this machine (MEET_PROBE_URL, default
+// http://127.0.0.1:3000) is detected, so "New meeting" opens the current video page whenever Meet is running. Only a server that really is Meet
+// qualifies (it must answer GET /api/config with { iceServers: [...] }); any other app on that port is ignored. MEET_DETECT=off disables the probe.
+let meetProbe = { at: 0, port: 0 };
+async function probeMeetPort() {
+    if (process.env.MEET_DETECT === 'off') return 0;
+    if (Date.now() - meetProbe.at < 4000) return meetProbe.port;
+    let port = 0;
+    try {
+        const base = new URL(process.env.MEET_PROBE_URL || 'http://127.0.0.1:3000');
+        if (Number(base.port || 80) !== Number(process.env.PORT || 5000)) {
+            const r = await fetch(base.origin + '/api/config', { signal: AbortSignal.timeout(800) });
+            const j = r.ok ? await r.json() : null;
+            if (j && Array.isArray(j.iceServers)) port = Number(base.port || 80);
+        }
+    } catch (e) { /* nothing (or not Meet) there */ }
+    meetProbe = { at: Date.now(), port };
+    return port;
+}
+app.get('/meet-config.js', async (req, res) => {
     let url = '';
     try { const u = new URL(process.env.MEET_PUBLIC_URL || ''); if (/^https?:$/.test(u.protocol)) url = u.origin + '/'; } catch (e) { /* unset */ }
+    if (!url) { const port = await probeMeetPort(); if (port) url = req.protocol + '://' + req.hostname + ':' + port + '/'; }
     res.set('Cache-Control', 'no-store').type('application/javascript').send('window.QORLLA_MEET_URL=' + JSON.stringify(url) + ';');
 });
 // Brand logo used by login.html
