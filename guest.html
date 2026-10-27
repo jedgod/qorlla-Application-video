@@ -94,6 +94,30 @@
     .tile { padding:16px 16px 0; } .tile-links { margin:0 -16px; flex-wrap:wrap; } .tile-links a { flex:1 1 40%; } .tile-icon { width:60px; height:60px; font-size:32px; border-radius:16px; } .tile p { font-size:14px; }
     .sign-in { font-size:17px; height:56px; } .sign-in .ic { right:18px; } .disclaimer { font-size:13px; }
   }
+  /* Compact sizing: type, spacing and artwork scale with the window HEIGHT so the whole Welcome screen fits without scrolling (like the sign-in page). */
+  @media (min-width:701px) {
+    header.topbar { height:clamp(46px,6.6vh,60px); padding:0 22px; } header.topbar img { height:clamp(26px,4.2vh,34px); }
+    .language-control label { font-size:12px; } .language-control select { height:clamp(30px,4.4vh,36px); font-size:13px; border-radius:11px; }
+    .shell { min-height:calc(100vh - clamp(46px,6.6vh,60px)); }
+    .sidebar { width:clamp(84px,7vw,104px); padding:8px 6px; gap:2px; } .nav { min-height:clamp(46px,8.6vh,66px); font-size:clamp(10.5px,1.55vh,12px); gap:3px; border-radius:12px; } .nav .ic { font-size:clamp(18px,3.1vh,24px); }
+    .content { padding:0 14px clamp(8px,1.6vh,16px); display:flex; flex-direction:column; } .view { padding-top:0; }
+    #v-welcome { display:flex; flex-direction:column; min-height:0; flex:1; }
+    .hero { margin:0 -14px; min-height:0; padding:clamp(14px,3.4vh,30px) clamp(24px,3.6vw,46px) clamp(14px,3vh,26px); border-radius:0 0 14px 14px; }
+    .hero::after { width:min(44%,520px); }
+    .guest-pill { font-size:clamp(12px,1.9vh,15px); padding:clamp(5px,1vh,8px) 15px clamp(5px,1vh,8px) 12px; gap:8px; } .guest-pill .ic { font-size:clamp(15px,2.4vh,19px) !important; }
+    .hero h1 { font-size:clamp(24px,5.4vh,46px); letter-spacing:-1px; margin:clamp(8px,2vh,18px) 0 clamp(4px,1vh,10px); }
+    .hero-sub { font-size:clamp(12px,2.2vh,18px); max-width:560px; }
+    .benefits { grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px clamp(10px,2vw,28px); margin-top:clamp(10px,2.4vh,22px); } .benefits b { font-size:clamp(12.5px,2.1vh,16px); gap:8px; } .benefits b .ic { font-size:clamp(20px,3.6vh,28px); } .benefits small { font-size:clamp(10.5px,1.7vh,13px); margin:1px 0 0 clamp(28px,4.6vh,36px); }
+    .tiles { gap:clamp(8px,1.6vh,14px); margin-top:clamp(8px,1.8vh,16px); }
+    .tile { padding:clamp(9px,1.8vh,15px) 16px 0; gap:clamp(7px,1.4vh,11px); border-radius:14px; } .tile h2 a::after { border-radius:14px; }
+    .tile-top { gap:14px; } .tile-icon { width:clamp(40px,7.6vh,60px); height:clamp(40px,7.6vh,60px); border-radius:14px; font-size:clamp(22px,4.2vh,32px); }
+    .tile h2 { font-size:clamp(15px,2.8vh,21px); margin-bottom:2px; } .tile p { font-size:clamp(11px,1.85vh,14px); line-height:1.35; }
+    .arrow { width:clamp(30px,4.8vh,38px); height:clamp(30px,4.8vh,38px); font-size:clamp(15px,2.4vh,19px); }
+    .tile-links { margin:0 -16px; min-height:clamp(32px,5vh,44px); } .tile-links a { font-size:clamp(11px,1.8vh,13.5px); padding:5px 6px; gap:6px; } .tile-links .ic { font-size:clamp(13px,2.1vh,17px); }
+    .sign-in { margin-top:clamp(8px,1.8vh,16px); height:clamp(38px,6vh,52px); font-size:clamp(14px,2.4vh,18px); border-radius:12px; } .sign-in .ic { font-size:20px; right:20px; }
+    .disclaimer { font-size:clamp(10.5px,1.7vh,13px); margin-top:clamp(6px,1.4vh,12px); }
+  }
+  @media (max-width:860px) and (min-width:701px) { .hero-sub { max-width:none; } }
   @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
 </style>
 </head>

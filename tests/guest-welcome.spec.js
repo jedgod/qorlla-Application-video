@@ -62,3 +62,11 @@ test('the globe is a local, optimized asset (no remote image requests)', async (
   await page.goto('/guest/welcome'); await page.waitForLoadState('networkidle');
   expect(external).toEqual([]); expect(sizes2.length).toBe(1); expect(sizes2[0]).toBeLessThan(80 * 1024);
 });
+
+for (const [w, h] of [[1920, 1080], [1366, 768], [1280, 720], [1024, 768]]) {
+  test(`compact sizing: the whole Welcome screen fits without scrolling at ${w}x${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h }); await page.goto('/guest/welcome');
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+    await expect(page.getByRole('link', { name: 'Sign in to Qorlla Workspace' })).toBeInViewport();
+  });
+}
