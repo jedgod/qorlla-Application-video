@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { gitState } from './lib-git.mjs';
 import pg from 'pg';
 import { seal } from '../meet-sync/src/store.mjs';
+// stale keep-alive sockets (ECONNRESET / UND_ERR_SOCKET) are a client-side artifact: retry, as the other runners do
+const origFetch = globalThis.fetch; globalThis.fetch = async (...a) => { for (let i = 0; ; i++) { try { return await origFetch(...a); } catch (e) { if (i >= 2 || !['ECONNRESET', 'UND_ERR_SOCKET'].includes(e.cause?.code)) throw e; await new Promise((r) => setTimeout(r, 300)); } } };
 
 const require = createRequire(import.meta.url);
 const { io } = require('socket.io-client');
