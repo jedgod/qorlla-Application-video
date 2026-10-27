@@ -178,6 +178,7 @@ async function comparePasscode(meeting, supplied) {
 async function checkPasscode(meeting, supplied, req) {
     if (!meeting || !meeting.passcodeHash) return { required: false, ok: true };
     if (typeof supplied !== 'string' || !supplied) return { required: true, ok: false, status: 'missing' };
+    if (supplied.length > 128) return { required: true, ok: false, status: 'invalid' };   // defensive request limit: refused before any hashing and without consuming an attempt
     const r = await lockout.verify({ meetingId: meeting.meetingId, clientKey: req && req.ip, check: () => comparePasscode(meeting, supplied) });
     if (r.newlyLocked) notifyHostsOfLockout(meeting.meetingId, r.lockedUntil);
     return { required: true, ok: r.status === 'ok', status: r.status, locked: r.status === 'locked', lockedUntil: r.lockedUntil };
@@ -319,8 +320,7 @@ app.post('/api/meetings/create', limitCreate, (req, res) => {
 });
 
 // Host sends invitations by email (needs SMTP; says so plainly when it is not configured). Text/SMS and share-sheet invites are device links in the page.
-const limitRecoverIp = rateLimit(30, 60 * 60 * 1000);                          // coarse brake against noise from one address
-const limitRecoverHost = rateLimit(3, 60 * 60 * 1000, (req) => 'clear|' + (req.actor && req.actor.id) + '|' + normalizeId(req.params.meetingId));   // strict, per authenticated host and meeting (others sharing an address cannot use it up)
+const limitRecoverIp = rateLimit(30, 60 * 60 * 1000);                          // coarse brake against noise from one address (the strict allowance is durable, below)
 app.get('/api/meetings/:meetingId/passcode-security', attachActor, async (req, res) => {
     const id = normalizeId(req.params.meetingId);
     if (!req.actor) return res.status(401).json({ error: 'Sign in or join the meeting first.' });
@@ -329,18 +329,27 @@ app.get('/api/meetings/:meetingId/passcode-security', attachActor, async (req, r
     catch (e) { res.status(503).json({ error: 'Passcode security status is unavailable.' }); }
 });
 // Authorised recovery: clears ONLY the lock state. It cannot read, change or reveal the passcode; it is host-only, rate limited and audited.
+// Audit line for every recovery request: actor, meeting, time, outcome and a reason code. Never a passcode, host key or credential.
+function auditRecovery(id, actor, outcome, reason) {
+    console.log(JSON.stringify({ audit: 'passcode_lockout_clear', meeting: id, actor: actor ? actor.id : null, at: new Date().toISOString(), outcome, reason }));
+}
 app.post('/api/meetings/:meetingId/passcode-lockout/clear', limitRecoverIp, attachActor, async (req, res) => {
     const id = normalizeId(req.params.meetingId);
-    const origin = req.get('origin'); if (origin) { let h = ''; try { h = new URL(origin).host; } catch (e) { /* malformed */ } if (h !== req.get('host')) return res.status(403).json({ error: 'Origin rejected.' }); }
-    if (!req.actor) return res.status(401).json({ error: 'Sign in or join the meeting first.' });
-    if (!meetingsState.get(id) || !actorIsHost(req.actor, id)) return res.status(403).json({ error: 'Only the host can lift a passcode lockout.' });
-    limitRecoverHost(req, res, async () => {
-        try {
-            const out = await lockout.clearLock(id, req.actor.id);
-            console.log('[Audit]: passcode lockout cleared for meeting ' + id + ' by ' + req.actor.type + ' host (was locked: ' + out.wasLocked + ')');
-            res.json({ cleared: true, wasLocked: out.wasLocked });
-        } catch (e) { res.status(503).json({ error: 'The lockout store is unavailable; nothing was changed.' }); }
-    });
+    // Rejected requests are recorded (durably, under their own kind) but never use up the three allowed successful recoveries.
+    const reject = async (status, reason, message) => {
+        auditRecovery(id, req.actor, 'rejected', reason);
+        if (meetingsState.get(id)) { try { await lockout.audit(id, 'clear_rejected', req.actor && req.actor.id, reason); } catch (e) { /* the response below is still a refusal */ } }
+        return res.status(status).json({ error: message });
+    };
+    const origin = req.get('origin'); if (origin) { let h = ''; try { h = new URL(origin).host; } catch (e) { /* malformed */ } if (h !== req.get('host')) return reject(403, 'origin_rejected', 'Origin rejected.'); }
+    if (!req.actor) return reject(401, 'unauthenticated', 'Sign in or join the meeting first.');
+    if (!meetingsState.get(id) || !actorIsHost(req.actor, id)) return reject(403, 'not_host', 'Only the host can lift a passcode lockout.');   // checked on EVERY request
+    try {
+        const out = await lockout.clearLockLimited(id, req.actor.id);          // allowance check + clear + event in one atomic operation
+        if (!out.ok) { auditRecovery(id, req.actor, 'rejected', out.reason); res.set('Retry-After', String(Math.ceil((out.retryAfterMs || 3600000) / 1000))); return res.status(429).json({ error: 'You have lifted this lockout too often. Try again later.' }); }
+        auditRecovery(id, req.actor, 'cleared', out.wasLocked ? 'was_locked' : 'was_not_locked');
+        res.json({ cleared: true, wasLocked: out.wasLocked });
+    } catch (e) { auditRecovery(id, req.actor, 'failed', 'store_unavailable'); res.status(503).json({ error: 'The lockout store is unavailable; nothing was changed.' }); }
 });
 
 const limitInvite = rateLimit(10, 60 * 60 * 1000);

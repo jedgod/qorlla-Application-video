@@ -6,10 +6,11 @@ const { spawn } = require('child_process'); const fs = require('fs'); const os =
 let nextPort = 5310 + Math.floor(Math.random() * 400);
 async function start(dir, extraEnv = {}) {
   const port = nextPort++; const env = { ...process.env, PORT: String(port), DATA_DIR: dir, ...extraEnv }; delete env.GUEST_RATE_LIMIT_MAX; delete env.DATABASE_URL;
-  const child = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '..'), env, stdio: 'ignore' });
+  const logPath = path.join(dir, 'server.log'); const fd = fs.openSync(logPath, 'a');
+  const child = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '..'), env, stdio: ['ignore', fd, fd] });
   const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 80; i++) { try { if ((await fetch(base + '/api/health')).ok) break; } catch (e) { /* not up yet */ } await new Promise((r) => setTimeout(r, 150)); }
-  return { base, port, stop: () => new Promise((r) => { child.once('exit', r); child.kill(); }) };
+  return { base, port, logPath, log: () => fs.readFileSync(logPath, 'utf8'), stop: () => new Promise((r) => { child.once('exit', r); child.kill(); }) };
 }
 const ctx = (base, extra = {}) => pwRequest.newContext({ baseURL: base, extraHTTPHeaders: { origin: base, ...extra } });
 const mkFull = async (base, passcode) => { const a = await ctx(base); const body = await (await a.post('/api/meetings/create', { data: { topic: 'Lockout', hostId: 'usr_x', passcode } })).json(); return { id: body.meeting.meetingId, hostKey: body.hostKey }; };
@@ -63,14 +64,14 @@ test('host recovery: host-only, authenticated, rate limited, audited; clears onl
   const evil = await pwRequest.newContext({ baseURL: s.base, extraHTTPHeaders: { origin: 'https://evil.example', cookie: (await host.storageState()).cookies.map((c) => c.name + '=' + c.value).join('; ') } });
   expect((await evil.post(`${url}/passcode-lockout/clear`, { data: {} })).status()).toBe(403);                                   // cross-site request
   expect((await bystander.get(`${url}/passcode-security`)).status()).toBe(403);
-  const status = await (await host.get(`${url}/passcode-security`)).json(); expect(status.locked).toBe(true); expect(status.events[0].kind).toBe('locked');
+  const status = await (await host.get(`${url}/passcode-security`)).json(); expect(status.locked).toBe(true); expect(status.events.some((e) => e.kind === 'locked')).toBe(true); expect(status.events.some((e) => e.kind === 'clear_rejected')).toBe(true);
   const cleared = await host.post(`${url}/passcode-lockout/clear`, { data: {} }); expect(cleared.status()).toBe(200);
   const text = await cleared.text(); expect(text).not.toMatch(/recover-me|passcode":|hash/i); expect(JSON.parse(text)).toEqual({ cleared: true, wasLocked: true });
   expect((await attempt(attacker, m.id, 'recover-me')).status()).toBe(201);                                                      // the same passcode still works: it was never changed
-  const after = await (await host.get(`${url}/passcode-security`)).json(); expect(after.locked).toBe(false); expect(after.events.map((e) => e.kind)).toEqual(['cleared_by_host', 'locked']);
+  const after = await (await host.get(`${url}/passcode-security`)).json(); expect(after.locked).toBe(false); expect(after.events.map((e) => e.kind).filter((k) => k !== 'clear_rejected')).toEqual(['cleared_by_host', 'locked']);
   expect(JSON.stringify(after)).not.toMatch(/127\.0\.0\.1|::1|usr_/);                                                            // events hold no addresses
   for (let i = 0; i < 2; i++) expect((await host.post(`${url}/passcode-lockout/clear`, { data: {} })).status()).toBe(200);
-  expect((await host.post(`${url}/passcode-lockout/clear`, { data: {} })).status()).toBe(429);                                   // 3 per hour
+  const fourth = await host.post(`${url}/passcode-lockout/clear`, { data: {} }); expect(fourth.status()).toBe(429); expect(Number(fourth.headers()['retry-after'])).toBeGreaterThan(0);   // 3 per hour, durable
   await s.stop();
 });
 
@@ -119,5 +120,38 @@ test('passwords: recovery codes are single use, and changing the password ends t
   expect((await anon.post('/api/auth/recover', { data: { username, code, password: 'Third-pass-9917!x' } })).status()).toBe(200);
   expect((await anon.post('/api/auth/recover', { data: { username, code, password: 'Fourth-pass-9917!x' } })).status()).toBe(401); // reuse refused
   expect((await (await ctx(s.base)).post('/api/auth/login', { data: { username, password: 'Third-pass-9917!x' } })).status()).toBe(200);
+  await s.stop();
+});
+
+test('overlong passcodes are refused before hashing and never consume an attempt', async () => {
+  const s = await start(tmp()); const m = await mkFull(s.base, 'short-code'); const g = await ctx(s.base);
+  for (let i = 0; i < 12; i++) { const r = await attempt(g, m.id, 'x'.repeat(129 + i)); expect(r.status()).toBe(400); expect((await r.json()).error).toMatch(/not valid/); }
+  expect((await attempt(g, m.id, 'y'.repeat(128))).status()).toBe(403);                  // exactly 128 is hashed and is simply wrong
+  for (let i = 0; i < 3; i++) expect((await attempt(g, m.id, 'wrong' + i)).status()).toBe(403);
+  expect((await attempt(g, m.id, 'short-code')).status()).toBe(201);                      // budget intact: 12 overlong requests cost nothing
+  await s.stop();
+});
+
+test('recovery: rejected requests are audited (store + structured log) without using the allowance; logs hold no secrets', async () => {
+  test.setTimeout(120000);
+  const s = await start(tmp()); const m = await mkFull(s.base, 'audit-code-9'); const url = `/api/meetings/${encodeURIComponent(m.id)}`;
+  const attacker = await ctx(s.base); for (let i = 0; i < 5; i++) await attempt(attacker, m.id, 'guess' + i);
+  const bystander = await ctx(s.base); const other = await mkFull(s.base); await attempt(bystander, other.id, undefined);
+  const host = await ctx(s.base); await attempt(host, m.id, undefined, { hostKey: m.hostKey });
+  const evil = await pwRequest.newContext({ baseURL: s.base, extraHTTPHeaders: { origin: 'https://evil.example', cookie: (await host.storageState()).cookies.map((c) => c.name + '=' + c.value).join('; ') } });
+  for (let i = 0; i < 4; i++) {                                                         // four rejected requests of three kinds, none of them may use up the allowance
+    expect((await (await ctx(s.base)).post(`${url}/passcode-lockout/clear`, { data: {} })).status()).toBe(401);
+    expect((await bystander.post(`${url}/passcode-lockout/clear`, { data: {} })).status()).toBe(403);
+    expect((await evil.post(`${url}/passcode-lockout/clear`, { data: {} })).status()).toBe(403);
+  }
+  for (let i = 0; i < 3; i++) expect((await host.post(`${url}/passcode-lockout/clear`, { data: {} })).status()).toBe(200);   // allowance untouched
+  expect((await host.post(`${url}/passcode-lockout/clear`, { data: {} })).status()).toBe(429);
+  const events = (await (await host.get(`${url}/passcode-security`)).json()).events;
+  const reasons = new Set(events.filter((e) => e.kind === 'clear_rejected').map((e) => e.reason)); for (const r of ['unauthenticated', 'not_host', 'origin_rejected', 'rate_limited']) expect(reasons.has(r), r).toBe(true);
+  const audit = s.log().split(String.fromCharCode(10)).filter((l) => l.startsWith('{"audit":"passcode_lockout_clear"')).map((l) => JSON.parse(l));
+  expect(audit.length).toBeGreaterThanOrEqual(15); expect(audit.filter((a) => a.outcome === 'cleared').length).toBe(3);
+  for (const a of audit) { expect(a.meeting).toBe(m.id); expect(a.at).toMatch(/^[0-9]{4}-/); expect(a.reason).toBeTruthy(); expect(['cleared', 'rejected', 'failed']).toContain(a.outcome); }
+  expect(audit.some((a) => a.actor && a.actor.startsWith('guest:'))).toBe(true);
+  const log = s.log(); expect(log).not.toContain('audit-code-9'); expect(log).not.toContain(m.hostKey);
   await s.stop();
 });

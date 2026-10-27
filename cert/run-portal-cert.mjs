@@ -132,6 +132,7 @@ await check('D09', 'metrics are served inside the private network only, with the
   fs.writeFileSync(path.join(root, 'cert', 'e2e-output.txt'), (r.stdout || '') + (r.stderr || ''));
   let counts = { passed: 0, failed: 0, skipped: 0, titles: [] };
   try { const j = JSON.parse(fs.readFileSync(json, 'utf8')); const walk = (s) => { (s.specs || []).forEach((sp) => sp.tests.forEach((t) => { const st = t.results?.[t.results.length - 1]?.status; counts[st === 'passed' ? 'passed' : st === 'skipped' ? 'skipped' : 'failed']++; counts.titles.push((st === 'passed' ? 'ok ' : 'FAIL ') + sp.title); })); (s.suites || []).forEach(walk); }; (j.suites || []).forEach(walk); } catch (e) { counts.error = e.message; }
+  if (!counts.passed && !counts.failed && !counts.error) counts.error = 'NO TESTS EXECUTED (a spec file probably failed to parse): ' + String((r.stdout || '') + (r.stderr || '')).split(String.fromCharCode(10)).find((l) => l.trim());
   record('E2E', 'browser E2E: pricing, checkout/webhook, portal auth, navigation, mobile, Meet under /meet/, meeting-to-report', counts.failed === 0 && counts.passed >= 20 ? 'PASS' : 'FAIL', `${counts.passed} passed, ${counts.failed} failed${counts.error ? ' (' + counts.error + ')' : ''}`);
   for (const t of counts.titles.filter((x) => x.startsWith('FAIL'))) record('E2E-FAIL', t, 'FAIL');
   results.find((x) => x.id === 'E2E').titles = counts.titles;

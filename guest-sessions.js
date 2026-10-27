@@ -157,8 +157,8 @@ function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHo
 
     const denyPasscode = (res, pc) => {
         const lockedish = pc.status === 'locked' || pc.status === 'busy' || pc.status === 'rate_limited';
-        const code = lockedish ? 429 : pc.status === 'unavailable' ? 503 : 403;
-        const error = lockedish ? 'Too many wrong passcodes. This meeting is locked for a while; ask the host.' : pc.status === 'unavailable' ? 'The passcode check is unavailable. Try again later.' : 'Incorrect passcode.';
+        const code = lockedish ? 429 : pc.status === 'unavailable' ? 503 : pc.status === 'invalid' ? 400 : 403;
+        const error = lockedish ? 'Too many wrong passcodes. This meeting is locked for a while; ask the host.' : pc.status === 'unavailable' ? 'The passcode check is unavailable. Try again later.' : pc.status === 'invalid' ? 'That passcode is not valid.' : 'Incorrect passcode.';
         return res.status(code).json({ error, passcodeRequired: true });
     };
 

@@ -82,7 +82,7 @@ test.describe('lockout policy (file adapter)', () => {
     const stale = path.join(dir, 'passcode-lockout.lock'); fs.mkdirSync(stale); const old = new Date(Date.now() - 60_000); fs.utimesSync(stale, old, old);
     const svc = make(dir, clock); for (let i = 0; i < 5; i++) await wrong(svc, 'M4', '9.9.9.9');
     let st = await svc.status('M4'); expect(st.locked).toBe(true); expect(st.events[0].kind).toBe('locked'); expect(JSON.stringify(st)).not.toContain('9.9.9.9');
-    const out = await svc.clearLock('M4', 'u_host'); expect(out).toEqual({ cleared: true, wasLocked: true });
+    const out = await svc.clearLockLimited('M4', 'u_host'); expect(out).toEqual({ ok: true, wasLocked: true });
     st = await svc.status('M4'); expect(st.locked).toBe(false); expect(st.events.map((e) => e.kind)).toEqual(['cleared_by_host', 'locked']);
     expect(JSON.stringify(st)).not.toContain('u_host');
   });
@@ -92,5 +92,56 @@ test.describe('lockout policy (file adapter)', () => {
     const out = []; for (let i = 0; i < 5; i++) out.push((await wrong(svc, 'M5', '8.8.8.8')).status);
     expect(out).toEqual(['wrong', 'wrong', 'wrong', 'rate_limited', 'rate_limited']);
     expect((await wrong(svc, 'M5', '7.7.7.7')).status).toBe('wrong');            // another client still has its own allowance
+  });
+});
+
+test.describe('attempt release and durable recovery (file adapter)', () => {
+  const store = (dir, clock = { t: 1_900_000_000_000 }) => createFileLockoutStore({ dir, now: () => clock.t });
+
+  test('release gives back exactly the caller\'s own reservation: idempotent, never another request\'s count', async () => {
+    const s = store(tmp()); const a = await s.reserve('R1'); const b = await s.reserve('R1');
+    await s.settleFailure('R1', 'c', b.attemptId);                                        // B really failed: stays counted
+    expect(await s.release('R1', a.attemptId)).toEqual({ released: true });
+    expect(await s.release('R1', a.attemptId)).toEqual({ released: false });             // second release: no-op
+    expect(await s.release('R1', b.attemptId)).toEqual({ released: false });             // B was settled: its failure cannot be undone by anyone
+    expect(await s.release('R1', 'not-a-real-attempt')).toEqual({ released: false });
+    expect((await s.status('R1')).failed).toBe(1);
+  });
+
+  test('a reservation voided by a reset or lock cannot decrement the new budget', async () => {
+    const s = store(tmp()); const a = await s.reserve('R2'); const b = await s.reserve('R2');
+    await s.settleSuccess('R2', b.attemptId);                                              // success resets the counter and voids open reservations
+    const fresh = await s.reserve('R2'); expect((await s.status('R2')).failed).toBe(1);
+    expect(await s.release('R2', a.attemptId)).toEqual({ released: false });
+    expect((await s.status('R2')).failed).toBe(1); expect(await s.release('R2', fresh.attemptId)).toEqual({ released: true }); expect((await s.status('R2')).failed).toBe(0);
+  });
+
+  test('a faulting comparison is released (not counted); if the release cannot be confirmed the request fails closed and the attempt stays counted', async () => {
+    const dir = tmp(); const svc = createLockoutService({ store: store(dir), perClientMax: 1000, log: quiet });
+    for (let i = 0; i < 6; i++) expect((await svc.verify({ meetingId: 'R3', clientKey: 'c', check: async () => { throw new Error('scrypt blew up'); } })).status).toBe('unavailable');
+    expect((await svc.status('R3')).failed).toBe(0);                                      // six faults, zero attempts consumed
+    for (let i = 0; i < 4; i++) expect((await wrong(svc, 'R3')).status).toBe('wrong'); expect((await wrong(svc, 'R3')).status).toBe('locked');
+    const real = store(tmp()); const flaky = { ...real, release: async () => { throw new Error('store down'); } };
+    const svc2 = createLockoutService({ store: flaky, perClientMax: 1000, log: quiet });
+    expect((await svc2.verify({ meetingId: 'R4', clientKey: 'c', check: async () => { throw new Error('x'); } })).status).toBe('unavailable');
+    expect((await real.status('R4')).failed).toBe(1);                                      // fail closed: still counted
+  });
+
+  test('recovery allowance: three per hour per host and meeting, atomic under concurrency, durable across restarts and across clearing', async () => {
+    const dir = tmp(); const clock = { t: 1_900_000_000_000 }; let s = store(dir, clock);
+    const results = await Promise.all(Array.from({ length: 12 }, () => s.clearLockLimited('R5', 'hostA')));
+    expect(results.filter((r) => r.ok).length).toBe(3); expect(results.filter((r) => r.reason === 'rate_limited').length).toBe(9);
+    s = store(dir, clock);                                                                 // restart
+    expect((await s.clearLockLimited('R5', 'hostA')).ok).toBe(false);                      // history survived the restart and the clears
+    expect((await s.clearLockLimited('R5', 'hostB')).ok).toBe(true);                       // a different authenticated host has its own allowance
+    clock.t += 61 * 60 * 1000; expect((await s.clearLockLimited('R5', 'hostA')).ok).toBe(true);   // the window moves on
+  });
+
+  test('rejected recovery requests are audited under their own kind and never consume the allowance', async () => {
+    const s = store(tmp());
+    for (let i = 0; i < 10; i++) await s.audit('R6', 'clear_rejected', 'x', i % 2 ? 'not_host' : 'unauthenticated');
+    for (let i = 0; i < 3; i++) expect((await s.clearLockLimited('R6', 'hostA')).ok).toBe(true);
+    const st = await s.status('R6'); expect(st.events.filter((e) => e.kind === 'clear_rejected').every((e) => ['not_host', 'unauthenticated', 'rate_limited'].includes(e.reason))).toBe(true);
+    expect((await s.clearLockLimited('R6', 'hostA')).ok).toBe(false);
   });
 });

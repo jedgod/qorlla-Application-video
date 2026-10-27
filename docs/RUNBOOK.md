@@ -114,3 +114,12 @@ Monitoring:
 
 1. Back up both databases. 2. Apply migrations (section 1). 3. `docker compose build qorlla-portal && docker compose up -d`. 4. Verify `/api/v1/health`, `/pricing/`, `/app/`, `/meet/`. 5. Keep the new capabilities dark: telephony off, billing per section 3, `ai` switch ON only after `AI_LLM_API_KEY` is configured.
 Rollback: switch the affected feature OFF, `docker compose up -d` the previous image tag, then (only if the schema must go back) run the matching rollback SQL in reverse order. Data created by a newer release is lost by the rollback SQL - export first.
+
+
+## Meeting passcode lockout (MAIN) - upgrade and rollback
+
+* **What it adds**: tables `meeting_passcode_attempts`, `meeting_passcode_reservations`, `meeting_passcode_events` in the MAIN database (`meet-sync/sql/008_passcode_lockout.sql`). Policy and behaviour: `docs/PASSCODE_POLICY.md`.
+* **Fresh volumes** get the migration automatically (`docker-entrypoint-initdb.d`). **Existing databases**: apply it once, as the database owner, BEFORE starting the new MAIN version: `psql -U qorlla_main -d qorlla_main -f meet-sync/sql/008_passcode_lockout.sql`. It is idempotent and upgrades an earlier revision in place. Until it is applied, protected meeting joins answer 503 (the application never falls back to memory); unprotected meetings are unaffected.
+* **Standalone MAIN** (no `DATABASE_URL`) uses `DATA_DIR/auth/passcode-lockout.json` (encrypted when `ENCRYPT_KEY` is set) with an exclusive lock directory beside it. Run ONE MAIN process per data directory on one host; several instances need PostgreSQL. `LOCKOUT_STORE=file|postgres` forces a mode.
+* **Rollback**: stop the new MAIN version first, then `DROP TABLE IF EXISTS public.meeting_passcode_reservations; DROP TABLE IF EXISTS public.meeting_passcode_events; DROP TABLE IF EXISTS public.meeting_passcode_attempts;`. An older MAIN that predates the lockout ignores these tables. Rolling back loses the lock history; any active locks end.
+* **Operating**: a host can lift a lock from the meeting screen (3 per hour per host and meeting). To inspect: `SELECT kind, reason, at FROM public.meeting_passcode_events WHERE meeting_id = '...' ORDER BY id DESC`. Events and logs contain no passcodes, host keys or addresses.

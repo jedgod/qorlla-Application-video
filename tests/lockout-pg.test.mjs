@@ -11,7 +11,7 @@ const { createPgLockoutStore, createLockoutService, MAX_FAILURES } = require('..
 const ADMIN = process.env.TEST_DATABASE_ADMIN_URL;
 const quiet = { error() {} };
 let admin, dbName, url; const pools = [];
-const pool = (u = url) => { const p = new Pool({ connectionString: u, max: 8, connectionTimeoutMillis: 1500 }); p.on('error', () => {}); pools.push(p); return p; };
+const pool = (u = url) => { const p = new Pool({ connectionString: u, max: 8, connectionTimeoutMillis: 10000 }); p.on('error', () => {}); pools.push(p); return p; };
 const svc = (p, o = {}) => createLockoutService({ store: createPgLockoutStore({ pool: p }), perClientMax: 10000, log: quiet, ...o });
 const wrong = (s, id = 'M1') => s.verify({ meetingId: id, clientKey: 'c', check: async () => false });
 const right = (s, id = 'M1') => s.verify({ meetingId: id, clientKey: 'c', check: async () => true });
@@ -44,7 +44,7 @@ test('concurrent attempts through several "instances" share one budget (row lock
   const instances = [svc(pool()), svc(pool()), svc(pool())]; let verified = 0;
   const results = await Promise.all(Array.from({ length: 90 }, (_, i) => instances[i % 3].verify({ meetingId: 'P3', clientKey: 'c', check: async () => { verified++; await new Promise((r) => setTimeout(r, 3)); return false; } })));
   assert.ok(verified <= MAX_FAILURES, `verified ${verified}`); assert.ok(verified > 0);
-  assert.ok(results.every((r) => ['wrong', 'locked', 'busy'].includes(r.status)), 'only wrong/locked/busy outcomes: ' + [...new Set(results.map((r) => r.status))]);
+  assert.ok(results.every((r) => ['wrong', 'locked', 'busy'].includes(r.status)), 'only wrong/locked/busy outcomes: ' + JSON.stringify(results.reduce((m, r) => (m[r.status] = (m[r.status] || 0) + 1, m), {})));
   assert.equal((await instances[0].status('P3')).locked, true);
 });
 
@@ -53,7 +53,7 @@ test('an in-flight success that settles after the lock is refused; the host can 
   assert.equal((await store.reserve('P4')).allowed, true);
   for (let i = 0; i < 4; i++) { await store.reserve('P4'); await store.settleFailure('P4', 'hash'); }
   const s = await store.settleSuccess('P4'); assert.equal(s.ok, false);
-  const out = await store.clearLock('P4', 'actorhash'); assert.deepEqual(out, { cleared: true, wasLocked: true });
+  const out = await store.clearLockLimited('P4', 'actorhash'); assert.deepEqual(out, { ok: true, wasLocked: true });
   const st = await store.status('P4'); assert.equal(st.locked, false); assert.deepEqual(st.events.map((e) => e.kind), ['cleared_by_host', 'locked']);
 });
 
@@ -65,4 +65,37 @@ test('database unavailable, or table missing, fails closed: the passcode compari
   try { assert.equal((await svc(p).verify({ meetingId: 'P5', clientKey: 'c', check })).status, 'unavailable'); }
   finally { await p.query('ALTER TABLE public.attempts_gone RENAME TO meeting_passcode_attempts'); }
   assert.equal(called, 0);
+});
+
+test('release is idempotent, own-reservation-only and epoch-guarded (PostgreSQL)', async () => {
+  const store = createPgLockoutStore({ pool: pool() }); const a = await store.reserve('P6'); const b = await store.reserve('P6');
+  await store.settleFailure('P6', 'c', b.attemptId);
+  assert.deepEqual(await store.release('P6', a.attemptId), { released: true });
+  assert.deepEqual(await store.release('P6', a.attemptId), { released: false });
+  assert.deepEqual(await store.release('P6', b.attemptId), { released: false });
+  assert.equal((await store.status('P6')).failed, 1);
+  const c = await store.reserve('P6'); await store.settleSuccess('P6', c.attemptId);       // reset voids everything open
+  const d = await store.reserve('P6'); const e = await store.reserve('P6'); await store.settleSuccess('P6', e.attemptId);
+  assert.deepEqual(await store.release('P6', d.attemptId), { released: false }); assert.equal((await store.status('P6')).failed, 0);
+});
+
+test('a faulting comparison does not consume the budget; an unconfirmable release fails closed and stays counted (PostgreSQL)', async () => {
+  const real = createPgLockoutStore({ pool: pool() }); const s = svc(pool());
+  for (let i = 0; i < 6; i++) assert.equal((await s.verify({ meetingId: 'P7', clientKey: 'c', check: async () => { throw new Error('boom'); } })).status, 'unavailable');
+  assert.equal((await real.status('P7')).failed, 0);
+  const flaky = createLockoutService({ store: { ...real, release: async () => { throw new Error('down'); } }, perClientMax: 1000, log: quiet });
+  assert.equal((await flaky.verify({ meetingId: 'P7', clientKey: 'c', check: async () => { throw new Error('x'); } })).status, 'unavailable');
+  assert.equal((await real.status('P7')).failed, 1);
+});
+
+test('recovery allowance is atomic across instances, durable, per host, and rejected requests do not consume it (PostgreSQL)', async () => {
+  const stores = [createPgLockoutStore({ pool: pool() }), createPgLockoutStore({ pool: pool() }), createPgLockoutStore({ pool: pool() })];
+  const results = await Promise.all(Array.from({ length: 15 }, (_, i) => stores[i % 3].clearLockLimited('P8', 'hostA')));
+  assert.equal(results.filter((r) => r.ok).length, 3); assert.equal(results.filter((r) => r.reason === 'rate_limited').length, 12);
+  assert.equal((await stores[0].clearLockLimited('P8', 'hostB')).ok, true);
+  for (let i = 0; i < 5; i++) await stores[1].audit('P9', 'clear_rejected', 'x', 'not_host');
+  for (let i = 0; i < 3; i++) assert.equal((await stores[2].clearLockLimited('P9', 'hostA')).ok, true);
+  const st = await stores[0].status('P9'); assert.ok(st.events.some((e) => e.kind === 'clear_rejected' && e.reason === 'not_host'));
+  assert.equal((await stores[0].clearLockLimited('P9', 'hostA')).ok, false);
+  const pc = pool(); assert.equal(Number((await pc.query("SELECT count(*) FROM public.meeting_passcode_events WHERE kind='cleared_by_host' AND meeting_id='P8'")).rows[0].count), 4);
 });

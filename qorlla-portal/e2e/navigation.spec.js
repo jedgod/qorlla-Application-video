@@ -68,9 +68,9 @@ test.describe('navigation - links, keyboard, mobile', () => {
     }
     // /login.html is a supported compatibility route: it hands off to the canonical sign-in (the main page, whose form is embedded in an iframe)
     // and the standalone page stays reachable with ?standalone=1.
-    await page.goto('/login.html'); await expect(page).toHaveURL(//qorlla.html/);
+    await page.goto('/login.html'); await expect(page).toHaveURL(/\/qorlla\.html/);
     await expect(page.frameLocator('iframe.login-embed').getByRole('button', { name: /Sign in/ }).first()).toBeVisible();
-    const standalone = await page.goto('/login.html?standalone=1'); expect(standalone.status()).toBe(200); await expect(page).toHaveURL(/login.html?standalone=1/);
+    const standalone = await page.goto('/login.html?standalone=1'); expect(standalone.status()).toBe(200); await expect(page).toHaveURL(/login\.html\?standalone=1/);
     await expect(page.locator('body')).toContainText(/Sign in|Welcome/);
   });
 
