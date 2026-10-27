@@ -75,12 +75,15 @@ function compileAISummaryFramework(topic, notes, chats) {
  * Changes room tracking codes, processes transcripts, archives records, and logs compliance indices.
  */
 router.post('/conclude', (req, res) => {
-    const { meetingId } = req.body;
-    const cleanId = meetingId ? meetingId.replace(/\s+/g, ' ') : null;
+    const { meetingId } = req.body || {};
+    const cleanId = typeof meetingId === 'string' ? meetingId.replace(/\s+/g, ' ').trim() : null;
 
     if (!cleanId) {
         return res.status(400).json({ error: "Missing required core session target identifier parameter." });
     }
+    // v4.6.1: only the meeting's host (signed-in owner, or a guest session issued with the host key) may conclude it
+    if (!req.actor) return res.status(401).json({ error: 'Sign in or join the meeting first.' });
+    if (!req.isMeetingHost(cleanId, true)) return res.status(403).json({ error: 'Only the host can conclude a meeting.' });
 
     // Resolve structural reference registry block
     const liveMeetingRef = activeMeetingsDatabaseMock.get(cleanId);
@@ -148,7 +151,9 @@ router.post('/conclude', (req, res) => {
  * 🔍 Endpoint 2: Fetch Archived Post-Meeting Summary Record Data
  */
 router.get('/summary/:meetingId', (req, res) => {
-    const cleanId = req.params.meetingId.replace(/\s+/g, ' ');
+    const cleanId = req.params.meetingId.replace(/\s+/g, ' ').trim();
+    if (!req.actor) return res.status(401).json({ error: 'Sign in or join the meeting first.' });
+    if (!req.canAccessMeeting(cleanId, true)) return res.status(403).json({ error: 'You do not have access to this meeting.' });
     const archivalRecord = postMeetingArchive.get(cleanId);
 
     if (!archivalRecord) {

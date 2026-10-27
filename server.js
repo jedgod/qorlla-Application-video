@@ -13,6 +13,7 @@ const fs = require('fs');
 const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
+const crypto = require('crypto');
 
 const app = express();
 // Behind nginx (private network) so req.ip reflects the real client for sign-in throttling
@@ -134,12 +135,58 @@ if (!meetingsState.has('858 9833 3712')) meetingsState.set('858 9833 3712', {
     chatHistory: []
 });
 
+meetingsState.get('858 9833 3712').evergreen = true;   // the seeded demo meeting (mobile default, CI health check) never lapses
+
+// ------------------------------------------
+// Guest access (v4.6.1): meeting-scoped sessions, actor resolution, host keys
+// ------------------------------------------
+const { createGuestSessions, createGuestRouter, rateLimit } = require('./guest-sessions');
+const meetingById = (id) => meetingsState.get(normalizeId(id));
+const guestSessions = createGuestSessions({ getMeeting: meetingById });
+const hostKeyHash = (key) => crypto.createHash('sha256').update(String(key)).digest('hex');
+function verifyHostKey(meeting, key) {
+    if (!meeting || !meeting.hostKeyHash || !key) return false;
+    const a = Buffer.from(hostKeyHash(key)); const b = Buffer.from(meeting.hostKeyHash);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+const meetingAccounts = new Map();      // meetingId -> Set(accountId) of signed-in people who joined (they may read that meeting's documents)
+const publicMeeting = ({ hostKeyHash: _hidden, ...rest }) => rest;
+
+/** Who is calling: a signed-in account, a guest with a live session, or nobody. Never trusts ids sent by the client. */
+function actorOf(req) {
+    const user = auth.getUser(req);
+    if (user) return { type: 'account', id: user.id, user };
+    const s = guestSessions.fromRequest(req);
+    return s ? { type: 'guest', id: 'guest:' + s.sid, session: s } : null;
+}
+function actorCanAccess(actor, meetingId, allowEnded = false) {
+    const id = normalizeId(meetingId); const meeting = meetingsState.get(id);
+    if (!actor || !meeting) return false;
+    if (meeting.status === 'completed' && !(allowEnded && actor.type === 'account')) return false;   // guest sessions die with the meeting
+    if (actor.type === 'guest') return actor.session.meetingId === id;
+    return meeting.hostId === actor.id || !!(meetingAccounts.get(id) && meetingAccounts.get(id).has(actor.id));
+}
+function actorIsHost(actor, meetingId, allowEnded = false) {
+    const id = normalizeId(meetingId); const meeting = meetingsState.get(id);
+    if (!actor || !meeting) return false;
+    if (meeting.status === 'completed' && !(allowEnded && actor.type === 'account')) return false;
+    return actor.type === 'guest' ? actor.session.meetingId === id && actor.session.role === 'host' : meeting.hostId === actor.id;
+}
+function attachActor(req, res, next) {
+    req.actor = actorOf(req);
+    req.canAccessMeeting = (id, allowEnded) => actorCanAccess(req.actor, id, allowEnded);
+    req.isMeetingHost = (id, allowEnded) => actorIsHost(req.actor, id, allowEnded);
+    next();
+}
+app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getMeeting: meetingById, getAccount: (req) => auth.getUser(req), verifyHostKey }));
+
 // --- Mount service files ---
 const appointmentsRouter = require('./appointments');
 const docsRouter = require('./docs');
 const postMeetingRouter = require('./post-meeting');
 const notificationsModule = require('./notifications');
 
+app.use(['/api/appointments', '/api/docs', '/api/post-meeting', '/api/notifications'], attachActor);
 app.use('/api/appointments', appointmentsRouter);
 app.use('/api/docs', docsRouter);
 app.use('/api/post-meeting', postMeetingRouter);
@@ -205,22 +252,31 @@ function allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone }
     return newMeeting;
 }
 
-app.post('/api/meetings/create', (req, res) => {
-    const { topic, startTime, durationMinutes, hostId, timezone } = req.body;
+const limitCreate = rateLimit(20), limitValidate = rateLimit(60);
+app.post('/api/meetings/create', limitCreate, (req, res) => {
+    const { topic, startTime, durationMinutes, timezone } = req.body;
+    const account = auth.getUser(req);
+    const hostId = account ? account.id : req.body.hostId;    // a signed-in host is always the account, never a client-supplied id
 
     if (!topic || !hostId) {
         return res.status(400).json({ error: "Missing required topic or host registration identifier." });
     }
 
     const newMeeting = allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone });
+    // Anonymous hosts prove they are the host with this one-time key (only its hash is stored); accounts do not need it.
+    let hostKey;
+    if (!account) { hostKey = crypto.randomBytes(24).toString('base64url'); newMeeting.hostKeyHash = hostKeyHash(hostKey); }
+    if (req.body.allowGuests === false) newMeeting.allowGuests = false;
+    saveSnapshotSoon();
 
     return res.status(201).json({
         message: "Meeting room allocation successful.",
-        meeting: newMeeting
+        meeting: publicMeeting(newMeeting),
+        ...(hostKey ? { hostKey } : {})
     });
 });
 
-app.get('/api/meetings/validate/:meetingId', (req, res) => {
+app.get('/api/meetings/validate/:meetingId', limitValidate, (req, res) => {
     const meeting = meetingsState.get(normalizeId(req.params.meetingId));
     if (!meeting || meeting.status === 'completed') {
         return res.status(404).json({ isValid: false, error: "Meeting resource code is invalid or has expired." });
@@ -232,15 +288,23 @@ app.get('/api/meetings/validate/:meetingId', (req, res) => {
 // ==========================================
 // LIVE WEBRTC & WEBSOCKET ROOM FLOW
 // ==========================================
-// Meetings created by a signed-in account (hostId starts with u_) can only be hosted by that
-// account's session; anonymous meetings keep the old client-supplied id comparison.
-function isHostFor(socket, meeting, claimedUserId) {
-    if (String(meeting.hostId).startsWith('u_')) {
-        const account = auth.getUser(socket.request);
-        return !!account && account.id === meeting.hostId;
-    }
-    return !!claimedUserId && claimedUserId === meeting.hostId;
+// Host status comes only from the server: the signed-in account that owns the meeting, or a guest session that was issued
+// with the meeting's host key. A user id sent by the client is never consulted.
+function isHostFor(socket, meeting) {
+    const account = auth.getUser(socket.request);
+    if (account) return account.id === meeting.hostId;
+    const gs = socket.guestSid && guestSessions.get(socket.guestSid);
+    return !!gs && gs.meetingId === meeting.meetingId && gs.role === 'host';
 }
+
+guestSessions.setRevokeHandler((session, reason) => {
+    const s = session.socketId && io.sockets.sockets.get(session.socketId);
+    if (!s) return;
+    s.emit('session_revoked', { reason });
+    leaveCurrentRoom(s);
+    s.guestSid = null;
+    setTimeout(() => s.disconnect(true), 50);
+});
 
 function rosterOf(roomId) {
     const room = activeRooms.get(roomId);
@@ -291,6 +355,27 @@ io.on('connection', (socket) => {
             return;
         }
 
+        if (currentMeeting.removedAccounts && currentMeeting.removedAccounts.includes((auth.getUser(socket.request) || {}).id)) {
+            socket.emit('error_response', { message: "You were removed from this meeting by the host." });
+            return;
+        }
+        // Authorization: a signed-in account, or a live guest session issued for THIS meeting. Knowing the ID is not enough.
+        const joiningAccount = auth.getUser(socket.request);
+        let gs = null;
+        if (!joiningAccount) {
+            gs = (socket.guestSid && guestSessions.get(socket.guestSid)) || guestSessions.fromRequest(socket.request);
+            if (!gs || gs.meetingId !== cleanId || !gs.caps.includes('meeting:join')) {
+                socket.emit('error_response', { code: 'guest_session_required', message: "Join from the meeting page so a guest session can be created for this meeting." });
+                return;
+            }
+            const previous = gs.socketId && gs.socketId !== socket.id ? io.sockets.sockets.get(gs.socketId) : null;
+            if (previous) { previous.emit('session_revoked', { reason: 'taken_over' }); leaveCurrentRoom(previous); previous.guestSid = null; previous.disconnect(true); }
+            gs.socketId = socket.id; socket.guestSid = gs.sid;
+        } else {
+            if (!meetingAccounts.has(cleanId)) meetingAccounts.set(cleanId, new Set());
+            meetingAccounts.get(cleanId).add(joiningAccount.id);
+        }
+
         leaveCurrentRoom(socket);
 
         if (!activeRooms.has(cleanId)) {
@@ -299,14 +384,14 @@ io.on('connection', (socket) => {
         }
 
         const roomParticipants = activeRooms.get(cleanId);
-        const safeName = String(userName || '').trim().slice(0, 60) || 'Anonymous User';
+        const safeName = String((gs && gs.name) || userName || '').trim().slice(0, 60) || 'Anonymous User';
 
         roomParticipants.set(socket.id, {
             socketId: socket.id,
-            userId,
+            userId: String(userId || '').slice(0, 64),
             userName: safeName,
             // Role is derived from the meeting record, never from client input
-            role: isHostFor(socket, currentMeeting, userId) ? 'host' : 'participant',
+            role: isHostFor(socket, currentMeeting) ? 'host' : 'participant',
             media: { audio: false, video: false, sharing: false, hand: false },
             permissions: { audio: true, video: true, screenShare: true }
         });
@@ -316,7 +401,7 @@ io.on('connection', (socket) => {
         console.log(`[User Joined Room]: ${safeName} entered ${cleanId}`);
 
         io.to(cleanId).emit('room_state_updated', {
-            meetingMetadata: currentMeeting,
+            meetingMetadata: publicMeeting(currentMeeting),
             participants: rosterOf(cleanId)
         });
 
@@ -449,10 +534,32 @@ io.on('connection', (socket) => {
                 }
             }
             activeRooms.delete(roomId);
+            guestSessions.revokeMeeting(roomId, 'meeting_ended');
         }
     });
 
+    // Host removes a participant: a guest's session is revoked (the old cookie stops working), an account is taken out of the
+    // room and barred from re-joining this meeting.
+    socket.on('remove_participant', ({ targetSocketId } = {}) => {
+        const roomId = socket.currentRoom; const room = roomId && activeRooms.get(roomId);
+        const sender = room && room.get(socket.id);
+        if (!sender || (sender.role !== 'host' && sender.role !== 'admin')) { socket.emit('error_response', { message: "Operation denied. Insufficient administrative privileges." }); return; }
+        if (!room.has(targetSocketId) || targetSocketId === socket.id) return;
+        const target = io.sockets.sockets.get(targetSocketId);
+        if (target && target.guestSid) {
+            guestSessions.revokeSid(target.guestSid, 'removed_by_host');
+        } else if (target) {
+            const acct = auth.getUser(target.request);
+            const meeting = meetingsState.get(roomId);
+            if (acct && meeting) { (meeting.removedAccounts = meeting.removedAccounts || []).push(acct.id); saveSnapshotSoon(); }
+            target.emit('session_revoked', { reason: 'removed_by_host' });
+            leaveCurrentRoom(target);
+        }
+        io.to(roomId).emit('room_state_updated', { participants: rosterOf(roomId) });
+    });
+
     socket.on('disconnect', () => {
+        if (socket.guestSid) { const g = guestSessions.get(socket.guestSid); if (g && g.socketId === socket.id) g.socketId = null; }
         leaveCurrentRoom(socket);
         console.log(`[Socket Disconnected]: Active Session Closed (${socket.id})`);
     });

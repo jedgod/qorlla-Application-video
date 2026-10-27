@@ -106,7 +106,18 @@ test.describe('Live meeting flow (two browsers)', () => {
     await expect(page.locator('#joinBar')).toBeVisible();
   });
 
+  test('scheduler asks anonymous visitors to sign in; signed-in accounts see live slots', async ({ page }) => {
+    await page.goto(APP_URL);
+    await page.fill('#slotDate', '2026-10-22');
+    await page.locator('#slotDate').dispatchEvent('change');
+    await expect(page.locator('#slotHint')).toContainText('Sign in with a Qorlla account');
+    await expect(page.locator('#slotRows tr')).toHaveCount(0);
+  });
+
   test('scheduler loads live slots and rejects a conflicting booking', async ({ page }) => {
+    const username = ('sched' + Math.random().toString(36).slice(2, 9)).slice(0, 20);
+    const reg = await page.request.post('/api/auth/register', { data: { username, displayName: 'Scheduler QA', password: 'Sched-test-9917!x' } });
+    expect(reg.status()).toBe(201);
     await page.goto(APP_URL);
     await page.fill('#slotDate', '2026-10-22');
     await page.locator('#slotDate').dispatchEvent('change');

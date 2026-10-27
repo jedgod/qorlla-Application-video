@@ -1,6 +1,15 @@
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
+  var T = function (s) { return window.I18n ? window.I18n.t(s) : s; };
+  // Static text is translated node by node: each text node's trimmed text is the catalog key (same catalogs as the rest of the app).
+  (function translateStatic() {
+    if (!window.I18n) return;
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: function (n) { return n.parentNode.closest && n.parentNode.closest('script,style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; } });
+    var node;
+    while ((node = walker.nextNode())) { var key = node.nodeValue.trim(); if (key) { var out = T(key); if (out !== key) node.nodeValue = node.nodeValue.replace(key, out); } }
+    [].forEach.call(document.querySelectorAll('[aria-label]'), function (el) { el.setAttribute('aria-label', T(el.getAttribute('aria-label'))); });
+  })();
   var path = location.pathname.replace(/\/+$/, '') || '/guest/welcome';
   var pre = /^\/guest\/meeting\/([^/]+)\/prejoin$/.exec(path);
   var views = { '/guest/welcome': 'welcome', '/guest': 'welcome', '/guest/join-meeting': 'join', '/guest/explore': 'explore', '/guest/help': 'help' };
@@ -22,7 +31,7 @@
   if (view === 'join') {
     $('joinForm').addEventListener('submit', function (e) {
       e.preventDefault(); var id = parseMeeting($('mid').value);
-      if (!id) { $('joinMsg').textContent = 'Enter a valid 11-digit meeting ID or an invitation link.'; return; }
+      if (!id) { $('joinMsg').textContent = T('Enter a valid 11-digit meeting ID or an invitation link.'); return; }
       location.href = '/guest/meeting/' + encodeURIComponent(fmt(id)) + '/prejoin';
     });
   }
@@ -31,27 +40,32 @@
     var id = fmt(digits(decodeURIComponent(pre[1]))); var stream = null, raf = 0;
     try { $('pjName').value = localStorage.getItem('zw_name') || ''; } catch (e) { /* storage unavailable */ }
     $('pjSignIn').href = '/auth/login?next=' + encodeURIComponent('/guest/meeting/' + id + '/prejoin');
-    fetch('/api/meetings/validate/' + encodeURIComponent(id)).then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); }).then(function (r) {
-      if (!r.ok || !r.d.isValid) { $('pjTopic').textContent = 'This meeting ID is not valid or the meeting has ended.'; return; }
-      $('pjTopic').textContent = 'You are joining: ' + (r.d.topic || 'Meeting') + ' (' + id + ')'; $('pjGo').disabled = false;
-    }).catch(function () { $('pjTopic').textContent = 'Cannot reach the server. Check your connection and reload.'; });
+    fetch('/api/guest/meetings/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: id }) }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); }).then(function (r) {
+      if (!r.ok || !r.d.eligible) { $('pjTopic').textContent = T('This meeting ID is not valid or the meeting has ended.'); return; }
+      $('pjTopic').textContent = T('You are joining: ') + ((r.d.meeting && r.d.meeting.topic) || 'Meeting') + ' (' + id + ')'; $('pjGo').disabled = false;
+    }).catch(function () { $('pjTopic').textContent = T('Cannot reach the server. Check your connection and reload.'); });
     $('pjTest').addEventListener('click', function () {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { $('pjMsg').textContent = 'This browser cannot access the camera or microphone.'; $('pjMsg').className = 'msg err'; return; }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { $('pjMsg').textContent = T('This browser cannot access the camera or microphone.'); $('pjMsg').className = 'msg err'; return; }
       navigator.mediaDevices.getUserMedia({ audio: true, video: true }).then(function (s) {
         stream = s; $('pjVideo').srcObject = s; $('pjVideo').classList.remove('hidden'); $('pjMeterWrap').classList.remove('hidden');
         try {
           var ctx = new (window.AudioContext || window.webkitAudioContext)(); var an = ctx.createAnalyser(); ctx.createMediaStreamSource(s).connect(an); var buf = new Uint8Array(an.frequencyBinCount);
           (function tick() { an.getByteFrequencyData(buf); var v = 0; for (var i = 0; i < buf.length; i++) v = Math.max(v, buf[i]); $('pjMeter').style.width = Math.min(100, v / 2.2) + '%'; raf = requestAnimationFrame(tick); })();
         } catch (e) { /* no audio meter */ }
-        $('pjMsg').textContent = 'Camera and microphone are working. Speak to see the level.'; $('pjMsg').className = 'msg ok';
-      }).catch(function () { $('pjMsg').textContent = 'Permission was denied or no device was found. You can still join without them.'; $('pjMsg').className = 'msg err'; });
+        $('pjMsg').textContent = T('Camera and microphone are working. Speak to see the level.'); $('pjMsg').className = 'msg ok';
+      }).catch(function () { $('pjMsg').textContent = T('Permission was denied or no device was found. You can still join without them.'); $('pjMsg').className = 'msg err'; });
     });
     $('pjForm').addEventListener('submit', function (e) {
       e.preventDefault(); var name = $('pjName').value.trim();
-      if (!name) { $('pjMsg').textContent = 'Enter a display name.'; $('pjMsg').className = 'msg err'; $('pjName').focus(); return; }
+      if (!name) { $('pjMsg').textContent = T('Enter a display name.'); $('pjMsg').className = 'msg err'; $('pjName').focus(); return; }
       try { localStorage.setItem('zw_name', name); } catch (er) { /* storage unavailable */ }
       if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); cancelAnimationFrame(raf);
-      location.href = '/index.html?meeting=' + encodeURIComponent(id);
+      // The server decides whether this person may join: it issues a short-lived session bound to this meeting (HttpOnly cookie).
+      $('pjGo').disabled = true;
+      fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: id, displayName: name }) })
+        .then(function (r) { if (!r.ok) throw new Error('refused'); return r.json(); })
+        .then(function () { location.href = '/index.html?meeting=' + encodeURIComponent(id); })
+        .catch(function () { $('pjGo').disabled = false; $('pjMsg').textContent = T('This meeting ID is not valid or the meeting has ended.'); $('pjMsg').className = 'msg err'; });
     });
   }
 })();

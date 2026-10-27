@@ -810,6 +810,7 @@
         } else if (iAmHost) {
           if (r.audio) addBtn(I18n.t('Mute'), 'bg-amber-500/20 text-amber-200 hover:bg-amber-500/30', () => socket.emit('admin_broadcast_control', { targetSocketId: r.id, targetAction: 'mute', statusState: true }));
           else addBtn('Ask to unmute', 'bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30', () => { socket.emit('admin_broadcast_control', { targetSocketId: r.id, targetAction: 'unmute_request', statusState: false }); toast('Unmute request sent'); }, 'Participants must unmute themselves');
+          addBtn(I18n.t('Remove'), 'bg-rose-500/20 text-rose-200 hover:bg-rose-500/30', () => { if (confirm(I18n.t('Remove this person from the meeting?'))) socket.emit('remove_participant', { targetSocketId: r.id }); });
         }
         li.append(left, right);
         list.appendChild(li);
@@ -1010,6 +1011,10 @@
           leaveRoom(false);
           toast(summaryMessage || 'The host ended the meeting.');
         });
+        socket.on('session_revoked', ({ reason }) => {
+          leaveRoom(false);
+          toast(reason === 'removed_by_host' ? 'The host removed you from the meeting.' : reason === 'meeting_ended' ? 'The meeting has ended.' : 'Your guest session ended.', 'error');
+        });
         socket.on('error_response', ({ message }) => { joining = false; setJoinBusy(false); toast(message || 'Server error', 'error'); });
         socket.on('disconnect', () => { if (room) { leaveRoom(false); toast('Connection lost. You left the meeting.', 'error'); } });
       }
@@ -1020,6 +1025,22 @@
         socket.once('connect_error', () => { clearTimeout(timer); reject(new Error('Cannot reach the meeting server.')); });
       });
       return socket;
+    }
+
+    // Guests get a short-lived session bound to this one meeting (HttpOnly cookie set by the server); signed-in accounts need none.
+    const guestHostKeys = {};
+    let guestRefreshTimer = null;
+    async function ensureGuestSession(meetingId) {
+      const res = await postJson('/api/guest/sessions', { meetingId, displayName: myName(), hostKey: guestHostKeys[meetingId] });
+      if (!res.ok) throw new Error((res.body && res.body.error) || 'You cannot join this meeting.');
+      if (res.body.kind === 'guest') {
+        if (socket) { socket.disconnect(); socket = null; }   // a fresh handshake so the socket carries the new guest cookie
+        clearInterval(guestRefreshTimer);
+        guestRefreshTimer = setInterval(async () => {
+          const r = await postJson('/api/guest/sessions/refresh', {});
+          if (!r.ok && room) { leaveRoom(false); toast('Your guest session expired. Rejoin from the invitation.', 'error'); }
+        }, 20 * 60 * 1000);
+      }
     }
 
     function setJoinBusy(busy) {
@@ -1040,18 +1061,20 @@
       setJoinBusy(true);
       saveName();
       try {
-        await ensureSocket();
         let meetingId;
         if (create) {
           const res = await postJson('/api/meetings/create', { topic: myName() + "'s Meeting", hostId: me.id });
           if (!res.ok) throw new Error('Could not create the meeting.');
           meetingId = res.body.meeting.meetingId;
+          if (res.body.hostKey) guestHostKeys[meetingId] = res.body.hostKey;   // proves we are the host if we have no account (kept in memory only)
         } else {
           meetingId = formatMeetingId($('meetingIdInput').value);
           if (!meetingId) throw new Error('Enter a meeting ID first.');
           const res = await api('/api/meetings/validate/' + encodeURIComponent(meetingId));
           if (!res.ok) throw new Error('That meeting ID is invalid or has ended.');
         }
+        await ensureGuestSession(meetingId);
+        await ensureSocket();
         if ($('joinMic').checked && !micOn) await setMic(true);
         if ($('joinCam').checked && !camOn) await setCam(true);
         socket.emit('join_room', { meetingId, userId: me.id, userName: myName() });
@@ -1086,6 +1109,11 @@
           }
         }
         const results = await Promise.all(dates.map((d) => api('/api/appointments/slots?hostId=host_jane_doe&date=' + encodeURIComponent(d))));
+        if (results.some((r) => r.status === 401 || r.status === 403)) {
+          $('slotRows').textContent = '';
+          $('slotHint').textContent = I18n.t('Sign in with a Qorlla account to see availability and book a slot.');
+          return;
+        }
         if (!results.every((r) => r.ok)) throw new Error('bad response');
         const filter = $('slotFilter').value;
         const allSlots = [].concat(...results.map((r) => r.body.slots || []))
@@ -1144,10 +1172,8 @@
         const res = await postJson('/api/appointments/book', { hostId: 'host_jane_doe', topic, startTimeString: pickedSlot.timeStart, participantEmail: email || undefined });
         if (res.status === 201) {
           toast('Slot booked', 'ok');
-          postJson('/api/notifications/trigger', {
-            eventType: 'MEETING_INVITE', recipientUserId: 'usr_jane_doe',
-            metadata: { topic, scheduledTime: pickedSlot.timeStart, joinUrl: location.href }
-          }).catch(() => {});
+        } else if (res.status === 401 || res.status === 403) {
+          toast('Sign in with a Qorlla account to book a slot.', 'error');
         } else if (res.status === 409) {
           toast('That slot was just taken. Refreshing availability.', 'error');
         } else {

@@ -54,8 +54,20 @@ function isOverlapping(startA, endA, startB, endB) {
  * 🛠️ Endpoint 1: Fetch and Calculate Bookable Slots for a Specific Date
  * Compiles master profile rules, slices calendar periods, filters existing conflicts.
  */
-router.get('/slots', (req, res) => {
+// v4.6.1: scheduling belongs to signed-in accounts. Guests hold a meeting-scoped session only; they cannot read availability or book.
+const requireAccount = (req, res, next) => {
+    if (!req.actor) return res.status(401).json({ error: 'Sign in to use scheduling.' });
+    if (req.actor.type !== 'account') return res.status(403).json({ error: 'Scheduling is not available to guests.' });
+    next();
+};
+const MAX_BOOKINGS_PER_ACCOUNT = 50;
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
+
+router.get('/slots', requireAccount, (req, res) => {
     const { hostId, date } = req.query; // Expects date format: YYYY-MM-DD
+    if (typeof hostId !== 'string' || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) {
+        return res.status(400).json({ error: "hostId and a YYYY-MM-DD date are required." });
+    }
 
     if (!hostId || !date) {
         return res.status(400).json({ error: "Missing required parameters: hostId and target date window." });
@@ -126,12 +138,21 @@ router.get('/slots', (req, res) => {
  * 🔒 Endpoint 2: Reserve a Specific Slot with Overlap Verification
  * Re-verifies conflict indices immediately prior to mutating memory stores to prevent race conditions.
  */
-router.post('/book', (req, res) => {
-    const { hostId, topic, startTimeString, participantEmail } = req.body;
+router.post('/book', requireAccount, (req, res) => {
+    const { hostId, topic, startTimeString, participantEmail } = req.body || {};
 
-    if (!hostId || !topic || !startTimeString) {
+    if (typeof hostId !== 'string' || typeof topic !== 'string' || !topic.trim() || topic.length > 200 || typeof startTimeString !== 'string') {
         return res.status(400).json({ error: "Missing required core slot routing details." });
     }
+    if (participantEmail !== undefined && (typeof participantEmail !== 'string' || !EMAIL_RE.test(participantEmail))) {
+        return res.status(400).json({ error: "participantEmail is not a valid address." });
+    }
+    const start = Date.parse(startTimeString);
+    if (Number.isNaN(start) || start < Date.now() - 60 * 1000 || start > Date.now() + 366 * 24 * 3600 * 1000) {
+        return res.status(400).json({ error: "The requested time must be in the next 12 months." });
+    }
+    let mine = 0; for (const list of bookedAppointments.values()) for (const b of list) if (b.bookedBy === req.actor.id) mine++;
+    if (mine >= MAX_BOOKINGS_PER_ACCOUNT) return res.status(429).json({ error: "Booking limit reached for this account." });
 
     const hostRules = providerSchedules.get(hostId);
     if (!hostRules) return res.status(404).json({ error: "Host scheduling rule metrics missing." });
@@ -164,6 +185,7 @@ router.post('/book', (req, res) => {
         startTime: requestedStart,
         endTime: requestedEnd,
         participantEmail: participantEmail || 'unregistered@workspace.internal',
+        bookedBy: req.actor.id,
         createdAt: new Date()
     };
 

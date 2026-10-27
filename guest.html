@@ -28,6 +28,10 @@
   .msg { margin-top:12px; font-size:13px; min-height:18px; } .msg.err { color:#b42318; } .msg.ok { color:#116b3a; }
   video { width:100%; max-height:240px; background:#101b39; border-radius:12px; margin-top:12px; } .meter { height:8px; background:#e5e9f2; border-radius:6px; margin-top:8px; overflow:hidden; } .meter i { display:block; height:100%; width:0; background:#22a06b; transition:width .1s; }
   .note { font-size:12px; color:var(--muted); margin-top:18px; line-height:1.6; } .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
+  header { flex-wrap:wrap; gap:10px 14px; } header .btn { padding:8px 14px; font-size:13px; white-space:nowrap; }
+  .language-control label { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:650; color:#394762; }
+  .language-control select { height:34px; border:1.5px solid #b9c3d6; border-radius:8px; font:13px inherit; background:#fff; padding:0 8px; max-width:130px; }
+  @media (max-width:520px) { header { padding:12px 16px; } main { padding:8px 16px 40px; } .panel { padding:18px; } }
   ul.help { margin:12px 0 0 18px; line-height:1.9; font-size:14px; } .hidden { display:none; }
 </style>
 </head>
@@ -65,7 +69,7 @@
       <div class="row"><button class="btn ghost" type="button" id="pjTest">Test microphone and camera</button></div>
       <div class="msg" id="pjMsg" role="status"></div>
       <div class="row"><button class="btn" type="submit" id="pjGo" disabled>Join meeting</button><a class="btn ghost" href="/guest/join-meeting">Use another meeting</a></div>
-      <p class="note">If the host requires it, you will be admitted after you join. Want your own workspace? <a href="/auth/login" id="pjSignIn">Sign in</a> and you will come back here.</p>
+      <p class="note">Want your own workspace? <a href="/auth/login" id="pjSignIn">Sign in</a> and you will come back here.</p>
     </form>
   </section>
 
@@ -87,6 +91,10 @@
     <p class="row"><a class="btn ghost" href="/guest/welcome">Back</a></p>
   </section>
 </main>
+<script src="/locales/es.js"></script>
+<script src="/locales/fr.js"></script>
+<script src="/locales/pt-PT.js"></script>
+<script src="/i18n.js"></script>
 <script src="/guest.js"></script>
 </body>
 </html>

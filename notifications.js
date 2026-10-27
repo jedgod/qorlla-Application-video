@@ -78,6 +78,7 @@ function orchestrateNotificationDispatch(payload) {
     notificationLogHistory.push({
         notificationId: uniqueNotificationId,
         recipientUserId,
+        meetingId: metadata && metadata.meetingId ? String(metadata.meetingId) : null,
         recipientEmail: userProfile.email,
         eventType,
         subject: generatedSubject,
@@ -103,8 +104,25 @@ function orchestrateNotificationDispatch(payload) {
  * 📣 Endpoint 1: Broadcast Notification Hook Request Trigger
  * Accepts inbound telemetry flags directly from internal microservices (Docs, Post-Meeting, WebSockets)
  */
+// v4.6.1: server-to-server callers present NOTIFY_INTERNAL_TOKEN (unset = no internal caller exists). Browsers may only notify
+// themselves, with an allow-listed event; guests may not trigger anything and only ever read their own meeting's notices.
+const crypto = require('crypto');
+const CLIENT_EVENTS = new Set(['MEETING_INVITE', 'CHAT_MENTION']);
+function isInternal(req) {
+    const expected = process.env.NOTIFY_INTERNAL_TOKEN || '';
+    const given = String(req.get('x-internal-token') || '');
+    return expected.length >= 24 && given.length === expected.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+}
+
 router.post('/trigger', (req, res) => {
-    const { eventType, recipientUserId, metadata } = req.body;
+    const { eventType, recipientUserId, metadata } = req.body || {};
+
+    if (!isInternal(req)) {
+        if (!req.actor) return res.status(401).json({ error: 'Sign in required.' });
+        if (req.actor.type !== 'account') return res.status(403).json({ error: 'Guests cannot send notifications.' });
+        if (recipientUserId !== req.actor.id || !CLIENT_EVENTS.has(eventType)) return res.status(403).json({ error: 'You can only notify yourself with a supported event.' });
+    }
+    if (metadata && (typeof metadata !== 'object' || JSON.stringify(metadata).length > 4000)) return res.status(400).json({ error: 'metadata must be a small object.' });
 
     if (!eventType || !recipientUserId || !metadata) {
         return res.status(400).json({ error: "Missing required core configuration trigger payload criteria parameters." });
@@ -128,11 +146,20 @@ router.post('/trigger', (req, res) => {
  * 📋 Endpoint 2: Retrieve Complete System Historical Audit Activity Log Logs
  */
 router.get('/audit-log', (req, res) => {
+    if (!isInternal(req)) return res.status(403).json({ error: 'The system audit log is restricted to internal callers.' });
     return res.json({
         systemTime: new Date().toISOString(),
         totalLogsTracked: notificationLogHistory.length,
         logs: notificationLogHistory.map(({ recipientEmail, ...entry }) => entry)
     });
+});
+
+// A caller sees only notices addressed to them (accounts by id; guests by their session id, and only for the meeting they joined).
+router.get('/mine', (req, res) => {
+    if (!req.actor) return res.status(401).json({ error: 'Sign in or join the meeting first.' });
+    const mine = notificationLogHistory.filter((e) => e.recipientUserId === req.actor.id
+        && (req.actor.type !== 'guest' || e.meetingId === req.actor.session.meetingId));
+    return res.set('Cache-Control', 'no-store').json({ notifications: mine.map(({ recipientEmail, recipientUserId, ...entry }) => entry) });
 });
 
 module.exports = {
