@@ -1,7 +1,7 @@
 # Workplace v4.1 certification evidence
 
-- Git HEAD: `4b59cfb2bc65835ade016937c4da7baa13dfae77` (branch feature/qorlla-workplace-v4.6-provider-certification; source tree DIRTY:  M cert/e2e-results.json,  M cert/portal-unit.tap)
-- Result: **11 passed, 0 failed**
+- Git HEAD: `8b3f76c9505bf9e209612649be46e2a8a294a8f8` (branch feature/qorlla-workplace-v4.6-provider-certification; source tree DIRTY:  M cert/e2e-results.json,  M cert/portal-unit.tap)
+- Result: **10 passed, 2 failed**
 - Payment provider = local TEST DOUBLE; real-provider verification is BLOCKED (no account/keys, no authorization to collect payments).
 
 | ID | Result | Check | Detail |
@@ -15,7 +15,8 @@
 | D06 | PASS | portal fails closed (503) while authentication is not operational, and answers 401 once configured | 503 ["MAIN_AUTH_ISSUER","MAIN_AUTH_JWKS_URL","PORTAL_ALLOWED_ORIGIN","MAIN_INTROSPECTION_URL + PORTAL_INTROSPECTION_SECRET (>=32 chars)"] |
 | D08 | PASS | a platform admin can be provisioned (configuration only) and the console + metrics are not reachable by anyone else | admin id configured; /internal/metrics is not routed publicly |
 | D09 | PASS | metrics are served inside the private network only, with the bearer token, as Prometheus text with no secrets | 9 gauges |
-| E2E | PASS | browser E2E: pricing, checkout/webhook, portal auth, navigation, mobile, Meet under /meet/, meeting-to-report | 39 passed, 0 failed |
+| E2E | FAIL | browser E2E: pricing, checkout/webhook, portal auth, navigation, mobile, Meet under /meet/, meeting-to-report | 38 passed, 1 failed |
+| E2E-FAIL | FAIL | FAIL legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html |  |
 | D07 | PASS | restart resilience: portal and nginx restart cleanly and the site keeps serving |  |
 
 ## Browser E2E test titles
@@ -33,7 +34,7 @@
 - ok highlights expand/collapse by mouse and keyboard
 - ok phone layout: pricing and portal pages do not overflow horizontally and purchase controls stay reachable
 - ok tablet layout: pricing and portal pages do not overflow horizontally and purchase controls stay reachable
-- ok legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html
+- FAIL legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html
 - ok [I01][I02][I03] the catalogue is same-origin only: no CORS grants, GET-only, private endpoints closed
 - ok the phone page states that telephony is off, shows an empty history, and public webhooks refuse to run
 - ok receptionist: create a profile, set business hours, enable it, add rules, and book an appointment against the hours

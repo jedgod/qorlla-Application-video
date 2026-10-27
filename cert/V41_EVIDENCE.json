@@ -1,7 +1,7 @@
 {
-  "finished": "2026-10-27T03:28:08.273Z",
+  "finished": "2026-10-27T05:58:35.565Z",
   "git": {
-    "headSha": "4b59cfb2bc65835ade016937c4da7baa13dfae77",
+    "headSha": "8b3f76c9505bf9e209612649be46e2a8a294a8f8",
     "branch": "feature/qorlla-workplace-v4.6-provider-certification",
     "sourceTreeClean": false,
     "dirtySourcePaths": [
@@ -21,8 +21,8 @@
   },
   "note": "Payment provider = local TEST DOUBLE; real-provider verification is BLOCKED (no account/keys, no authorization to collect payments).",
   "summary": {
-    "pass": 11,
-    "fail": 0
+    "pass": 10,
+    "fail": 2
   },
   "results": [
     {
@@ -82,8 +82,8 @@
     {
       "id": "E2E",
       "name": "browser E2E: pricing, checkout/webhook, portal auth, navigation, mobile, Meet under /meet/, meeting-to-report",
-      "status": "PASS",
-      "detail": "39 passed, 0 failed",
+      "status": "FAIL",
+      "detail": "38 passed, 1 failed",
       "titles": [
         "ok upgrade now, schedule a downgrade, cancel it; usage panel says no pay-as-you-go prices exist",
         "ok the platform console is invisible to ordinary users and works for the configured admin: overview, health, refund, sales workflow, kill switch",
@@ -99,7 +99,7 @@
         "ok highlights expand/collapse by mouse and keyboard",
         "ok phone layout: pricing and portal pages do not overflow horizontally and purchase controls stay reachable",
         "ok tablet layout: pricing and portal pages do not overflow horizontally and purchase controls stay reachable",
-        "ok legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html",
+        "FAIL legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html",
         "ok [I01][I02][I03] the catalogue is same-origin only: no CORS grants, GET-only, private endpoints closed",
         "ok the phone page states that telephony is off, shows an empty history, and public webhooks refuse to run",
         "ok receptionist: create a profile, set business hours, enable it, add rules, and book an appointment against the hours",
@@ -125,6 +125,12 @@
         "ok sheets and slides edit and persist; AI draft is labelled and private (test-double model)",
         "ok QorllaMate proposes, the user approves, and only then does the note exist; email stays blocked (test-double model)"
       ]
+    },
+    {
+      "id": "E2E-FAIL",
+      "name": "FAIL legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html",
+      "status": "FAIL",
+      "detail": ""
     },
     {
       "id": "D07",
