@@ -63,9 +63,15 @@ test.describe('navigation - links, keyboard, mobile', () => {
   }
 
   test('legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html', async ({ page }) => {
-    for (const [path, marker] of [['/index.html', /Meetings, without the noise|Live Video/], ['/chat.html', /Chat|Sign in/], ['/qorlla.html', /Calendar|Whiteboards/], ['/login.html', /Sign|Qorlla/]]) {
+    for (const [path, marker] of [['/index.html', /Meetings, without the noise|Live Video/], ['/chat.html', /Chat|Sign in/], ['/qorlla.html', /Calendar|Whiteboards/]]) {
       const r = await page.goto(path); expect(r.status(), path).toBe(200); await expect(page.locator('body')).toContainText(marker);
     }
+    // /login.html is a supported compatibility route: it hands off to the canonical sign-in (the main page, whose form is embedded in an iframe)
+    // and the standalone page stays reachable with ?standalone=1.
+    await page.goto('/login.html'); await expect(page).toHaveURL(//qorlla.html/);
+    await expect(page.frameLocator('iframe.login-embed').getByRole('button', { name: /Sign in/ }).first()).toBeVisible();
+    const standalone = await page.goto('/login.html?standalone=1'); expect(standalone.status()).toBe(200); await expect(page).toHaveURL(/login.html?standalone=1/);
+    await expect(page.locator('body')).toContainText(/Sign in|Welcome/);
   });
 
   test('[I01][I02][I03] the catalogue is same-origin only: no CORS grants, GET-only, private endpoints closed', async ({ request }) => {

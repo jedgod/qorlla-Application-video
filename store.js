@@ -89,7 +89,7 @@ const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),
  * while something briefly holds it open, so retry with a short back-off. If it still will not
  * rename, copy the contents over instead, which is not atomic but is far better than losing the save.
  */
-function replaceFile(tmp, file) {
+function replaceFile(tmp, file, strict) {
     const transient = new Set(['EPERM', 'EACCES', 'EBUSY']);
     let delay = 5;
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -100,6 +100,7 @@ function replaceFile(tmp, file) {
             delay = Math.min(delay * 2, 200);
         }
     }
+    if (strict) { try { fs.unlinkSync(tmp); } catch (err) { /* ignore */ } throw new Error(path.basename(file) + ' could not be replaced atomically'); }   // never fall back to a non-atomic copy
     fs.copyFileSync(tmp, file);
     try { fs.unlinkSync(tmp); } catch (err) { /* leftover temp file is harmless */ }
     console.warn('[Store]: ' + path.basename(file) + ' stayed locked; saved by copy instead of rename');
@@ -111,8 +112,12 @@ function writeJson(file, data, opts = {}) {
     const text = JSON.stringify(data, null, 2);
     const out = KEY && !opts.plain ? seal(text, file) : text;
     const tmp = file + '.tmp';
-    fs.writeFileSync(tmp, out, { mode: 0o600 });
-    replaceFile(tmp, file);
+    if (opts.durable) {                                    // data reaches the disk before the rename makes it visible
+        const fd = fs.openSync(tmp, 'w', 0o600);
+        try { fs.writeSync(fd, out); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    } else fs.writeFileSync(tmp, out, { mode: 0o600 });
+    replaceFile(tmp, file, !!opts.strict);
+    if (opts.durable) { try { const d = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(d); } finally { fs.closeSync(d); } } catch (err) { /* directory fsync is not supported on every OS */ } }
 }
 
 module.exports = {

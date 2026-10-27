@@ -152,19 +152,39 @@ function verifyHostKey(meeting, key) {
 const meetingAccounts = new Map();      // meetingId -> Set(accountId) of signed-in people who joined (they may read that meeting's documents)
 const publicMeeting = ({ hostKeyHash: _h, passcodeHash: _p, removedAccounts: _r, ...rest }) => ({ ...rest, passcodeRequired: !!_p });
 
-// Optional meeting passcode: scrypt-hashed, compared in constant time, 5 wrong tries lock the meeting's passcode for 10 minutes.
-const passcodeFails = new Map();
+// Optional meeting passcode (MAIN meetings: 4-32 characters, scrypt). Meet has its own, separate policy (see docs/PASSCODE_POLICY.md).
+// Attempts go through the durable lockout service: 5 failures lock the meeting for 10 minutes, across restarts and processes.
+const { createFileLockoutStore, createPgLockoutStore, createLockoutService } = require('./lockout');
+function buildLockoutStore() {
+    const mode = process.env.LOCKOUT_STORE || (process.env.DATABASE_URL ? 'postgres' : 'file');
+    if (mode === 'postgres') {
+        const { Pool } = require('pg');
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 3000, max: 4 });
+        pool.on('error', (e) => console.error('[lockout] database pool error:', e.message));
+        return createPgLockoutStore({ pool });
+    }
+    return createFileLockoutStore({ dir: path.join(DATA_ROOT, 'auth') });
+}
+const lockout = createLockoutService({ store: buildLockoutStore() });
+console.log('[Config] Passcode lockout store: ' + lockout.store.kind);
+const scryptAsync = require('util').promisify(crypto.scrypt);
 const hashPasscode = (pc, salt = crypto.randomBytes(16).toString('hex')) => salt + ':' + crypto.scryptSync(String(pc), salt, 32).toString('hex');
-function checkPasscode(meeting, supplied) {
-    if (!meeting || !meeting.passcodeHash) return { required: false, ok: true };
-    const now = Date.now(); const rec = passcodeFails.get(meeting.meetingId) || { n: 0, until: 0 };
-    if (rec.until > now) return { required: true, ok: false, locked: true };
+async function comparePasscode(meeting, supplied) {
     const [salt, hash] = meeting.passcodeHash.split(':');
-    const given = typeof supplied === 'string' ? hashPasscode(supplied, salt).split(':')[1] : '';
-    const ok = given.length === hash.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(hash));
-    if (ok) { passcodeFails.delete(meeting.meetingId); return { required: true, ok: true }; }
-    rec.n += 1; if (rec.n >= 5) { rec.n = 0; rec.until = now + 10 * 60 * 1000; } passcodeFails.set(meeting.meetingId, rec);
-    return { required: true, ok: false, locked: rec.until > now };
+    const given = (await scryptAsync(String(supplied), salt, 32)).toString('hex');
+    return given.length === hash.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(hash));
+}
+/** Resolves { required, ok, status, locked, lockedUntil }. An empty submission is refused WITHOUT consuming an attempt (so nobody can burn the budget with blanks). */
+async function checkPasscode(meeting, supplied, req) {
+    if (!meeting || !meeting.passcodeHash) return { required: false, ok: true };
+    if (typeof supplied !== 'string' || !supplied) return { required: true, ok: false, status: 'missing' };
+    const r = await lockout.verify({ meetingId: meeting.meetingId, clientKey: req && req.ip, check: () => comparePasscode(meeting, supplied) });
+    if (r.newlyLocked) notifyHostsOfLockout(meeting.meetingId, r.lockedUntil);
+    return { required: true, ok: r.status === 'ok', status: r.status, locked: r.status === 'locked', lockedUntil: r.lockedUntil };
+}
+function notifyHostsOfLockout(meetingId, lockedUntil) {
+    const room = activeRooms.get(meetingId); if (!room) return;
+    for (const p of room.values()) if (p.role === 'host') io.to(p.socketId).emit('passcode_lockout', { meetingId, lockedUntil });
 }
 const admittedAccounts = new Map();     // meetingId -> Set(accountId) that supplied the passcode
 const admitAccount = (id, accountId) => { if (!admittedAccounts.has(id)) admittedAccounts.set(id, new Set()); admittedAccounts.get(id).add(accountId); };
@@ -299,6 +319,30 @@ app.post('/api/meetings/create', limitCreate, (req, res) => {
 });
 
 // Host sends invitations by email (needs SMTP; says so plainly when it is not configured). Text/SMS and share-sheet invites are device links in the page.
+const limitRecoverIp = rateLimit(30, 60 * 60 * 1000);                          // coarse brake against noise from one address
+const limitRecoverHost = rateLimit(3, 60 * 60 * 1000, (req) => 'clear|' + (req.actor && req.actor.id) + '|' + normalizeId(req.params.meetingId));   // strict, per authenticated host and meeting (others sharing an address cannot use it up)
+app.get('/api/meetings/:meetingId/passcode-security', attachActor, async (req, res) => {
+    const id = normalizeId(req.params.meetingId);
+    if (!req.actor) return res.status(401).json({ error: 'Sign in or join the meeting first.' });
+    if (!meetingsState.get(id) || !actorIsHost(req.actor, id)) return res.status(403).json({ error: 'Only the host can see this.' });
+    try { const s = await lockout.status(id); res.set('Cache-Control', 'no-store').json({ locked: s.locked, lockedUntil: s.lockedUntil, events: s.events }); }
+    catch (e) { res.status(503).json({ error: 'Passcode security status is unavailable.' }); }
+});
+// Authorised recovery: clears ONLY the lock state. It cannot read, change or reveal the passcode; it is host-only, rate limited and audited.
+app.post('/api/meetings/:meetingId/passcode-lockout/clear', limitRecoverIp, attachActor, async (req, res) => {
+    const id = normalizeId(req.params.meetingId);
+    const origin = req.get('origin'); if (origin) { let h = ''; try { h = new URL(origin).host; } catch (e) { /* malformed */ } if (h !== req.get('host')) return res.status(403).json({ error: 'Origin rejected.' }); }
+    if (!req.actor) return res.status(401).json({ error: 'Sign in or join the meeting first.' });
+    if (!meetingsState.get(id) || !actorIsHost(req.actor, id)) return res.status(403).json({ error: 'Only the host can lift a passcode lockout.' });
+    limitRecoverHost(req, res, async () => {
+        try {
+            const out = await lockout.clearLock(id, req.actor.id);
+            console.log('[Audit]: passcode lockout cleared for meeting ' + id + ' by ' + req.actor.type + ' host (was locked: ' + out.wasLocked + ')');
+            res.json({ cleared: true, wasLocked: out.wasLocked });
+        } catch (e) { res.status(503).json({ error: 'The lockout store is unavailable; nothing was changed.' }); }
+    });
+});
+
 const limitInvite = rateLimit(10, 60 * 60 * 1000);
 app.post('/api/meetings/:meetingId/invite', limitInvite, attachActor, async (req, res) => {
     const id = normalizeId(req.params.meetingId);

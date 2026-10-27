@@ -167,6 +167,10 @@
                 <button id="inviteSend" class="rounded-lg bg-cyan-500 px-3 py-1.5 font-bold text-slate-950 hover:brightness-110"><span data-i18n="Send invitations">Send invitations</span></button>
               </form>
               <p id="inviteStatus" class="mt-2 text-slate-400" role="status"></p>
+              <div id="lockRow" class="mt-2 hidden items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-amber-200">
+                <span id="lockMsg" role="status"></span>
+                <button id="clearLockBtn" class="rounded-lg bg-amber-400 px-3 py-1 font-bold text-slate-950 hover:brightness-110"><span data-i18n="Lift lockout">Lift lockout</span></button>
+              </div>
             </div>
 
             <!-- Video grid -->
@@ -1028,6 +1032,10 @@
           leaveRoom(false);
           toast(summaryMessage || 'The host ended the meeting.');
         });
+        socket.on('passcode_lockout', () => {   // host-only: too many wrong passcodes were tried
+          $('lockMsg').textContent = I18n.t('Passcode locked after too many wrong tries.'); $('lockRow').classList.remove('hidden'); $('lockRow').classList.add('flex');
+          $('invitePanel').classList.remove('hidden'); $('inviteBtn').setAttribute('aria-expanded', 'true'); toast(I18n.t('Passcode locked after too many wrong tries.'), 'error');
+        });
         socket.on('session_revoked', ({ reason }) => {
           leaveRoom(false);
           toast(reason === 'removed_by_host' ? 'The host removed you from the meeting.' : reason === 'meeting_ended' ? 'The meeting has ended.' : 'Your guest session ended.', 'error');
@@ -1261,6 +1269,10 @@
     $('inviteBtn').addEventListener('click', () => {
       const open = $('invitePanel').classList.toggle('hidden') === false;
       $('inviteBtn').setAttribute('aria-expanded', String(open)); if (open) { refreshInviteLinks(); $('inviteEmails').focus(); }
+    });
+    $('clearLockBtn').addEventListener('click', async () => {   // authenticated host action: lifts the lock only, never touches the passcode
+      if (!room) return; const r = await postJson('/api/meetings/' + encodeURIComponent(room.id) + '/passcode-lockout/clear', {});
+      if (r.ok) { $('lockRow').classList.add('hidden'); $('lockRow').classList.remove('flex'); toast(I18n.t('Lockout lifted.'), 'ok'); } else toast((r.body && r.body.error) || I18n.t('Could not lift the lockout.'), 'error');
     });
     $('inviteShare').addEventListener('click', () => { if (room && navigator.share) navigator.share({ title: room.topic, text: inviteText(), url: inviteUrl() }).catch(() => {}); });
     $('inviteForm').addEventListener('submit', async (e) => {

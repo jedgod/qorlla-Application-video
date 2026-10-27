@@ -41,13 +41,13 @@ function parseCookie(req, name) {
 }
 
 /** Tiny fixed-window limiter keyed by client IP. In-memory: fine for one process, documented as such. */
-function rateLimit(requested, windowMs = 60 * 1000) {
+function rateLimit(requested, windowMs = 60 * 1000, keyFn) {
     const max = Number(process.env.GUEST_RATE_LIMIT_MAX) || requested;      // tests raise the ceiling; production keeps the defaults
     const hits = new Map();
     const timer = setInterval(() => { const now = Date.now(); for (const [k, v] of hits) if (v.reset <= now) hits.delete(k); }, windowMs);
     timer.unref();
     return (req, res, next) => {
-        const now = Date.now(); const key = req.ip || 'unknown'; let h = hits.get(key);
+        const now = Date.now(); const key = (keyFn ? keyFn(req) : req.ip) || 'unknown'; let h = hits.get(key);
         if (!h || h.reset <= now) { h = { n: 0, reset: now + windowMs }; hits.set(key, h); }
         if (++h.n > max) { res.set('Retry-After', String(Math.ceil((h.reset - now) / 1000))); return res.status(429).json({ error: 'Too many attempts. Wait a minute and try again.' }); }
         next();
@@ -155,13 +155,20 @@ function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHo
     });
     const idOf = (v) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, 40);
 
+    const denyPasscode = (res, pc) => {
+        const lockedish = pc.status === 'locked' || pc.status === 'busy' || pc.status === 'rate_limited';
+        const code = lockedish ? 429 : pc.status === 'unavailable' ? 503 : 403;
+        const error = lockedish ? 'Too many wrong passcodes. This meeting is locked for a while; ask the host.' : pc.status === 'unavailable' ? 'The passcode check is unavailable. Try again later.' : 'Incorrect passcode.';
+        return res.status(code).json({ error, passcodeRequired: true });
+    };
+
     router.post('/meetings/resolve', limit, (req, res) => {
         const meeting = getMeeting(idOf(req.body && req.body.meetingId));
         if (!sessions.eligibility(meeting)) return res.status(404).json(NOT_OPEN);
         res.json({ eligible: true, passcodeRequired: !!meeting.passcodeHash, meeting: { meetingId: meeting.meetingId, topic: meeting.topic, status: meeting.status, startsAt: meeting.startTime } });
     });
 
-    router.post('/sessions', limit, (req, res) => {
+    router.post('/sessions', limit, async (req, res) => {
         const body = req.body || {};
         const meeting = getMeeting(idOf(body.meetingId));
         const account = getAccount(req);
@@ -169,8 +176,8 @@ function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHo
         if (account) {
             if (!meeting || meeting.status === 'completed') return res.status(404).json(NOT_OPEN);
             if (meeting.hostId !== account.id) {
-                const pc = checkPasscode(meeting, body.passcode);
-                if (pc.required && !pc.ok) return res.status(pc.locked ? 429 : 403).json({ error: pc.locked ? 'Too many wrong passcodes. Try again in a few minutes.' : 'Incorrect passcode.', passcodeRequired: true });
+                const pc = await checkPasscode(meeting, body.passcode, req);
+                if (pc.required && !pc.ok) return denyPasscode(res, pc);
                 admitAccount(meeting.meetingId, account.id);
             }
             return res.json({ kind: 'account', meeting: { meetingId: meeting.meetingId } });
@@ -178,8 +185,8 @@ function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHo
         if (!sessions.eligibility(meeting)) return res.status(404).json(NOT_OPEN);
         const isHost = verifyHostKey(meeting, body.hostKey);
         if (!isHost) {                                                              // the host key bypasses the passcode; nobody else does
-            const pc = checkPasscode(meeting, body.passcode);
-            if (pc.required && !pc.ok) return res.status(pc.locked ? 429 : 403).json({ error: pc.locked ? 'Too many wrong passcodes. Try again in a few minutes.' : 'Incorrect passcode.', passcodeRequired: true });
+            const pc = await checkPasscode(meeting, body.passcode, req);
+            if (pc.required && !pc.ok) return denyPasscode(res, pc);
         }
         sessions.revokeRequest(req, 'replaced');                                    // never reuse an incoming token
         const role = isHost ? 'host' : 'participant';

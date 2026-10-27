@@ -110,3 +110,16 @@ test.describe('accounts and sections outside MAIN', () => {
     for (const p of ['/api/workplace/chat', '/api/workplace/notes', '/api/workplace/whiteboard', '/api/workplace/mail', '/api/workplace/calendar', '/api/workplace/schedule']) expect((await context.request.get(p)).status(), p).toBe(200);
   });
 });
+
+test('the host is told about a passcode lockout and can lift it from the meeting screen; the passcode itself is untouched', async ({ browser, baseURL }) => {
+  test.setTimeout(120000);
+  const hctx = await browser.newContext({ baseURL }); const host = await hctx.newPage();
+  await host.goto('/index.html'); await host.fill('#displayName', 'Host Lou'); await host.fill('#passcodeInput', 'lift-code'); await host.click('#startMeetingBtn');
+  await expect(host.locator('#meetingBar')).toBeVisible(); const id = (await host.locator('#meetingIdLabel').textContent()).trim();
+  const attacker = await ctx(baseURL); for (let i = 0; i < 5; i++) await session(attacker, { meetingId: id, displayName: 'A', passcode: 'wrong' + i });
+  await expect(host.locator('#lockRow')).toBeVisible(); await expect(host.locator('#lockMsg')).toContainText('locked');
+  expect((await session(attacker, { meetingId: id, displayName: 'A', passcode: 'lift-code' })).status()).toBe(429);
+  await host.click('#clearLockBtn'); await expect(host.locator('#lockRow')).toBeHidden();
+  expect((await session(attacker, { meetingId: id, displayName: 'A', passcode: 'lift-code' })).status()).toBe(201);
+  await hctx.close();
+});

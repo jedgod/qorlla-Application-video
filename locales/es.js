@@ -323,5 +323,9 @@ window.QorllaLocales["es"] = {
   "Sent: {n}": "Enviadas: {n}",
   "Could not send invitations.": "No se pudieron enviar las invitaciones.",
   "Incorrect passcode.": "Código de acceso incorrecto.",
-  "Too many wrong passcodes. Try again in a few minutes.": "Demasiados códigos incorrectos. Inténtalo de nuevo en unos minutos."
+  "Too many wrong passcodes. Try again in a few minutes.": "Demasiados códigos incorrectos. Inténtalo de nuevo en unos minutos.",
+  "Lift lockout": "Levantar bloqueo",
+  "Passcode locked after too many wrong tries.": "Código bloqueado tras demasiados intentos erróneos.",
+  "Lockout lifted.": "Bloqueo levantado.",
+  "Could not lift the lockout.": "No se pudo levantar el bloqueo."
 };

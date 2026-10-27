@@ -49,6 +49,7 @@ services:
       - ./meet-sync/sql/004_ack_retry.sql:/docker-entrypoint-initdb.d/004_ack_retry.sql:ro
       - ./meet-sync/sql/005_roles.sh:/docker-entrypoint-initdb.d/005_roles.sh:ro
       - ./meet-sync/sql/006_meeting_directory.sql:/docker-entrypoint-initdb.d/007_meeting_directory.sql:ro
+      - ./meet-sync/sql/008_passcode_lockout.sql:/docker-entrypoint-initdb.d/008_passcode_lockout.sql:ro
       - ./qorlla-portal/sql/001_portal.sql:/docker-entrypoint-initdb.d/010_portal_001.sql:ro
       - ./qorlla-portal/sql/002_billing.sql:/docker-entrypoint-initdb.d/011_portal_002_billing.sql:ro
       - ./qorlla-portal/sql/004_meeting_ai.sql:/docker-entrypoint-initdb.d/012_portal_004_meeting_ai.sql:ro
