@@ -15,6 +15,10 @@
   var views = { '/guest/welcome': 'welcome', '/guest': 'welcome', '/guest/join-meeting': 'join', '/guest/explore': 'explore', '/guest/help': 'help' };
   var view = pre ? 'prejoin' : (views[path] || 'welcome');
   $('v-' + view).classList.remove('hidden');
+  // current-page state in the rail (Home / More / Settings); the other rail items are feature-preview links on the Explore page
+  var navFor = { welcome: 'navHome', explore: 'navMore', help: 'navHelp' }[view];
+  if (navFor) $(navFor).setAttribute('aria-current', 'page');
+  var navEl = document.querySelector('.sidebar'); if (navEl) navEl.setAttribute('aria-label', T('Guest navigation'));
   var digits = function (s) { return String(s || '').replace(/\D/g, ''); };
   var fmt = function (d) { return d.length === 11 ? d.slice(0, 3) + ' ' + d.slice(3, 7) + ' ' + d.slice(7) : d; };
   // accepts "858 9833 3712", "85898333712" or an invitation link containing the ID (?meeting=, ?id= or a /guest/meeting/<id>/prejoin path)
@@ -29,6 +33,11 @@
   }
 
   if (view === 'join') {
+    // ?mode=link | ?mode=id from the Welcome tile shortcuts only changes the prompt; validation is identical and server-side
+    var mode = new URLSearchParams(location.search).get('mode');
+    if (mode === 'link') { $('midLabel').textContent = T('Invitation link'); $('mid').placeholder = 'https://'; $('mid').type = 'url'; }
+    else if (mode === 'id') { $('midLabel').textContent = T('Meeting ID'); $('mid').inputMode = 'numeric'; }
+    $('mid').focus();
     $('joinForm').addEventListener('submit', function (e) {
       e.preventDefault(); var id = parseMeeting($('mid').value);
       if (!id) { $('joinMsg').textContent = T('Enter a valid 11-digit meeting ID or an invitation link.'); return; }
