@@ -370,6 +370,7 @@
   @media (max-width: 900px) {
     .mail-grid, .notes-grid, .cal-layout, .board-grid { grid-template-columns: 1fr; }
   }
+  .login-embed { width:100%; height:calc(100vh - 170px); min-height:560px; border:0; border-radius:16px; background:#fff; display:block; }
 </style>
   <script src="locales/es.js"></script>
   <script src="locales/fr.js"></script>
@@ -391,6 +392,14 @@
     <div class="nav-item active" data-view="home" role="button" tabindex="0">
       <svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg>
       <span data-i18n="Home">Home</span>
+    </div>
+    <div class="nav-item" data-href="/app/phone" role="link" tabindex="0">
+      <svg class="i" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"/></svg>
+      <span data-i18n="Phone">Phone</span>
+    </div>
+    <div class="nav-item" data-href="/app/suite" role="link" tabindex="0">
+      <svg class="i" viewBox="0 0 24 24"><path d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5M8 13h8M8 17h5"/></svg>
+      <span data-i18n="Docs">Docs</span>
     </div>
     <div class="nav-item" data-view="mail" role="button" tabindex="0">
       <svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 8 8 5.5L20 8"/></svg>
@@ -773,11 +782,17 @@
   function emptyState(text) { return h('div', { class: 'empty' }, [h('p', { text: text })]); }
   // Mail, whiteboards, calendar, schedule and notes are private to an account
   function gate(title, what) {
+    if (!state.user) { embedLogin(location.hash.replace('#', '') || 'home'); return; }
     viewEl.appendChild(pageHead(title, '', []));
     viewEl.appendChild(h('div', { class: 'empty' }, [
       h('p', { text: 'Sign in to use ' + what + '. They are private to your account.' }),
       h('a', { class: 'btn primary', href: 'login.html?next=qorlla.html', text: I18n.t('Sign in or create account') })
     ]));
+  }
+  // Signed-out visitors get the real sign-in page inside the app shell (same origin, so a successful sign-in reloads the shell itself)
+  function embedLogin(view) {
+    var f = h('iframe', { class: 'login-embed', title: 'Sign in to Qorlla', src: 'login.html?embed=1&next=' + encodeURIComponent('qorlla.html#' + view) });
+    viewEl.appendChild(f);
   }
   function field(label, input) { return h('label', { class: 'fld' }, [h('span', { text: label }), input]); }
 
@@ -803,9 +818,10 @@
     applyBillingTimer();
     var meetingBox = viewEl.querySelector('#homeMeetings');
     if (!state.user) {
-      viewEl.querySelector('#homeDayLabel').textContent = I18n.t('Your day');
-      meetingBox.textContent = '';
-      meetingBox.appendChild(h('p', { class: 'muted pad' }, [I18n.t('Sign in to see your meetings, mail and notes.') + ' ', h('a', { href: 'login.html?next=qorlla.html', text: 'Sign in or create account' })]));
+      // keep the greeting and the quick actions (joining a meeting needs no account); the account panels give way to the sign-in page
+      var keep = viewEl.querySelector('.actions');
+      while (keep && keep.nextSibling) keep.parentNode.removeChild(keep.nextSibling);
+      embedLogin('home');
       return;
     }
     return upcomingItems().then(function (items) {
@@ -1689,12 +1705,14 @@
     if (t) act(t.dataset.act);
     var n = e.target.closest('.nav-item[data-view]');
     if (n) show(n.dataset.view);
+    var l = e.target.closest('.nav-item[data-href]');
+    if (l) location.href = l.dataset.href;
   });
   document.addEventListener('keydown', function (e) {
-    var t = e.target.closest && e.target.closest('[data-act],.nav-item[data-view]');
+    var t = e.target.closest && e.target.closest('[data-act],.nav-item[data-view],.nav-item[data-href]');
     if (t && (e.key === 'Enter' || e.key === ' ') && e.target === t) {
       e.preventDefault();
-      if (t.dataset.act) act(t.dataset.act); else show(t.dataset.view);
+      if (t.dataset.act) act(t.dataset.act); else if (t.dataset.href) location.href = t.dataset.href; else show(t.dataset.view);
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') { e.preventDefault(); $('searchInput').focus(); }
     var tag = (e.target && e.target.tagName) || '';

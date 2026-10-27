@@ -7,7 +7,8 @@ test('workspace navigation and join dialog work from the keyboard', async ({ pag
   await notes.focus();
   await page.keyboard.press('Enter');
   await expect(notes).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('#view')).toContainText('Sign in');
+  // signed out: the sign-in page is shown inside the app shell
+  await expect(page.frameLocator('iframe.login-embed').getByRole('heading', { name: 'Welcome to your workspace' })).toBeVisible();
   await page.locator('[data-view="home"]').click();
   await page.locator('.action-btn[data-act="join"]').click();
   await expect(page.locator('#joinDialog')).toBeVisible();

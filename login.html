@@ -52,10 +52,17 @@
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="stylesheet" href="assets/product.css">
   <script src="assets/product.js" defer></script>
+<style>
+  .auth-form-area { position:relative; }
+  .ai-callout { position:absolute; left:-165px; top:38%; width:290px; pointer-events:none; background:#fff; color:#131a2a; border:2px solid #2563ff; border-radius:34px 34px 34px 8px; padding:20px 22px; font:13px/1.45 Georgia,'Times New Roman',serif; box-shadow:0 18px 50px rgba(0,0,0,.35); z-index:3; }
+  .ai-callout ul { margin:8px 0 8px 18px; } .ai-callout li { margin:6px 0; } .ai-callout b { font-weight:600; }
+  @media (max-width: 1200px) { .ai-callout { display:none; } }
+  html.embed body { min-height:0; padding:0; background:#fff; } html.embed .auth-story { min-height:100vh; }
+  </style>
 </head>
 <body data-page="auth">
 <aside class="auth-story"><a class="auth-wordmark" href="qorlla.html"><span class="mark">Q</span>Qorlla</a><div class="auth-story-main"><span class="product-eyebrow"><span data-i18n="A more connected workday">A more connected workday</span></span><h1><span data-i18n="Good work starts with connection.">Good work starts with connection.</span></h1><p><span data-i18n="Bring your meetings, conversations and ideas into one focused workspace.">Bring your meetings, conversations and ideas into one focused workspace.</span></p><div class="auth-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="m8 12 3 3 5-6"/></svg><span><span data-i18n="Meet. Plan. Create. Together.">Meet. Plan. Create. Together.</span></span></div></div><div class="auth-story-footer">Qorlla Workplace</div></aside>
-<div class="auth-form-area" data-language-host>
+<div class="auth-form-area" data-language-host><aside class="ai-callout" aria-label="Qorlla AI features"><b>Qorlla&trade; brings AI into Workplace.</b> It helps you:<ul><li>Search for meetings, chats, emails or files by keyword, participant or date</li><li>Summarize meetings, chats, emails or files and answer related questions</li><li>Prepare for upcoming meetings with relevant materials</li><li>Find people by relationship, such as teammates or managers</li><li>Retrieve profile details like email, location or job title</li><li>Answer questions using the latest information from web searches</li></ul>Sign up and start using Qorlla&trade; Workplace.</aside>
 <main class="card" id="card">
   <div class="brand"><img src="Qorlla-Logo.jpg" alt="Qorlla" style="display:block;width:clamp(110px,38vw,160px);height:auto"></div>
 
@@ -166,6 +173,8 @@
 
   // Only allow redirects to our own pages
   var params = new URLSearchParams(location.search);
+  var EMBED = params.get('embed') === '1' && window.top !== window;
+  if (EMBED) { document.documentElement.classList.add('embed'); document.querySelectorAll('a[href="qorlla.html"]').forEach(function (a) { a.target = '_top'; }); }
   var ALLOWED = ['chat.html', 'qorlla.html', 'index.html'];
   var next = params.get('next') || 'qorlla.html';
   if (ALLOWED.indexOf(next) === -1) next = 'qorlla.html';
@@ -186,7 +195,7 @@
   function done(user) {
     try { localStorage.setItem('zw_name', user.displayName); } catch (e) {}
     sessionStorage.setItem('zw_uid', user.id);
-    location.href = next;
+    (EMBED ? top.location : location).href = next;
   }
 
   // ---------- sign in / create ----------
