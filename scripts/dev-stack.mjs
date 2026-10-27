@@ -42,6 +42,10 @@ if (has !== 't') {
   }
 }
 
+// idempotent additions are applied on EVERY start, so an existing development database picks them up
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_7_recording_consent.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Recording-consent migration failed:', r.stderr); process.exit(1); } }
+
 const children = [];
 const run = (name, cmd, args, cwd, env) => { const c = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(c); for (const s of [c.stdout, c.stderr]) s.on('data', (d) => process.stdout.write(String(d).split('\n').filter(Boolean).map((l) => `[${name}] ${l}\n`).join(''))); c.on('exit', (code) => { console.log(`[${name}] exited (${code})`); }); return c; };
 run('meet', process.execPath, ['server/index.js'], path.join(root, 'qorlla-meet-video'), { PORT: String(MEET_PORT), DATABASE_URL: `postgres://qorlla:${secrets.dbPassword}@127.0.0.1:${DB_PORT}/qorlla_meet`, JWT_SECRET: secrets.jwt, QORLLA_BRIDGE_SECRET: secrets.bridge, RECOVERY_ESCROW_KEY: secrets.escrow, NODE_ENV: 'development' });

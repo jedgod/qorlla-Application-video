@@ -7,3 +7,11 @@ GRANT CONNECT ON DATABASE qorlla_meet TO qorlla_meet_app;
 GRANT USAGE ON SCHEMA public TO qorlla_meet_app;
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO qorlla_meet_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO qorlla_meet_app;
+-- Recording consent (v4.7): consents and the audit trail are APPEND-ONLY for the application role (it may INSERT and SELECT, never UPDATE or DELETE them).
+DO $$ BEGIN
+  IF to_regclass('public.recording_consents') IS NOT NULL THEN
+    REVOKE UPDATE, DELETE, TRUNCATE ON recording_consents FROM qorlla_meet_app;
+    REVOKE UPDATE, DELETE, TRUNCATE ON recording_audit FROM qorlla_meet_app;
+    REVOKE DELETE, TRUNCATE ON recording_sessions FROM qorlla_meet_app;
+  END IF;
+END $$;

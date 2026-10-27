@@ -2,16 +2,14 @@
   "config": {
     "argv": [
       "C:\\nvm4w\\nodejs\\node.exe",
-      "C:\\Users\\cj_wo\\qorlla-v41\\node_modules\\@playwright\\test\\cli.js",
+      "C:\\Users\\cj_wo\\qorlla-v46\\node_modules\\@playwright\\test\\cli.js",
       "test",
       "-c",
       "qorlla-portal/e2e/playwright.config.cjs",
-      "navigation.spec.js",
-      "-g",
-      "legacy"
+      "meet-recording-consent"
     ],
-    "configFile": "C:\\Users\\cj_wo\\qorlla-v41\\qorlla-portal\\e2e\\playwright.config.cjs",
-    "rootDir": "C:/Users/cj_wo/qorlla-v41/qorlla-portal/e2e",
+    "configFile": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\playwright.config.cjs",
+    "rootDir": "C:/Users/cj_wo/qorlla-v46/qorlla-portal/e2e",
     "failOnFlakyTests": false,
     "forbidOnly": false,
     "fullyParallel": false,
@@ -27,7 +25,7 @@
     "preserveOutput": "always",
     "projects": [
       {
-        "outputDir": "C:/Users/cj_wo/qorlla-v41/qorlla-portal/e2e/test-results",
+        "outputDir": "C:/Users/cj_wo/qorlla-v46/qorlla-portal/e2e/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
@@ -35,7 +33,7 @@
         },
         "id": "chromium",
         "name": "chromium",
-        "testDir": "C:/Users/cj_wo/qorlla-v41/qorlla-portal/e2e",
+        "testDir": "C:/Users/cj_wo/qorlla-v46/qorlla-portal/e2e",
         "testIgnore": [],
         "testMatch": [
           "/.*\\.spec\\.js/"
@@ -47,20 +45,20 @@
       {
         "grep": {},
         "grepInvert": null,
-        "outputDir": "C:\\Users\\cj_wo\\qorlla-v41\\qorlla-portal\\e2e\\test-results",
+        "outputDir": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
           "actualWorkers": 1
         },
         "name": "chromium",
-        "testDir": "C:\\Users\\cj_wo\\qorlla-v41\\qorlla-portal\\e2e",
-        "snapshotDir": "C:\\Users\\cj_wo\\qorlla-v41\\qorlla-portal\\e2e",
+        "testDir": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e",
+        "snapshotDir": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e",
         "testIgnore": [],
         "testMatch": {},
         "timeout": 90000,
         "use": {
-          "baseURL": "https://localhost:28443",
+          "baseURL": "http://localhost:3310",
           "ignoreHTTPSErrors": true,
           "headless": true,
           "trace": "off",
@@ -73,6 +71,7 @@
             "args": [
               "--use-fake-ui-for-media-stream",
               "--use-fake-device-for-media-stream",
+              "--auto-select-desktop-capture-source=Entire screen",
               "--ignore-certificate-errors"
             ]
           },
@@ -122,20 +121,88 @@
   },
   "suites": [
     {
-      "title": "navigation.spec.js",
-      "file": "navigation.spec.js",
+      "title": "meet-recording-consent.spec.js",
+      "file": "meet-recording-consent.spec.js",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "navigation - links, keyboard, mobile",
-          "file": "navigation.spec.js",
-          "line": 6,
+          "title": "Qorlla Meet recording consent",
+          "file": "meet-recording-consent.spec.js",
+          "line": 36,
           "column": 6,
           "specs": [
             {
-              "title": "legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html",
+              "title": "request -> notice -> everyone agrees -> start; a late joiner pauses it until they answer; stop saves a real file; the next request needs fresh consent",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 150000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 17348,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T22:09:16.647Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "bd8501993e2940c46335-61d34a194f1362c73fee",
+              "file": "meet-recording-consent.spec.js",
+              "line": 37,
+              "column": 3
+            },
+            {
+              "title": "one decline blocks recording and the decliner can stay or leave; withdrawing consent mid-recording stops it and saves what was captured",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 150000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 15065,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T22:09:34.307Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "bd8501993e2940c46335-e2c762b2a62dd9bf44ff",
+              "file": "meet-recording-consent.spec.js",
+              "line": 67,
+              "column": 3
+            },
+            {
+              "title": "only the host can request, start or stop; nothing starts without a request; disclosure and the privacy contact are mandatory",
               "ok": true,
               "tags": [],
               "tests": [
@@ -150,12 +217,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1819,
+                      "duration": 3601,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-26T21:34:50.460Z",
+                      "startTime": "2026-10-27T22:09:49.388Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -163,9 +230,9 @@
                   "status": "expected"
                 }
               ],
-              "id": "ce7c070a851ea64285fd-a00a67e9b55a96165ac5",
-              "file": "navigation.spec.js",
-              "line": 65,
+              "id": "bd8501993e2940c46335-402efa3b82ace70d3345",
+              "file": "meet-recording-consent.spec.js",
+              "line": 87,
               "column": 3
             }
           ]
@@ -175,9 +242,9 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-10-26T21:34:49.074Z",
-    "duration": 9418.186000000002,
-    "expected": 1,
+    "startTime": "2026-10-27T22:09:15.515Z",
+    "duration": 47826.452999999994,
+    "expected": 3,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

@@ -16,6 +16,7 @@ import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import { Server } from 'socket.io';
 import { recoveryService } from './recovery-service.mjs';
+import { registerRecording } from './recording.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const SECRET = process.env.JWT_SECRET;
@@ -70,7 +71,7 @@ const resolveMeeting = async value => {
 const createCode = () => { const bytes = randomBytes(6); return Array.from(bytes, b => String(b % 100).padStart(2,'0')).join(''); };
 
 const active = new Map(); // meetingId -> Map(participantId -> socketId); single active socket per participant
-const recorders = new Map(); // meetingId -> Map(participantId -> display name) currently recording locally; shown to everyone so nobody is recorded unknowingly
+const names = new Map(); // meetingId -> Map(participantId -> display name) of people who have connected (used by the recording notices)
 const activeList = id => [...(active.get(id)?.keys() || [])];
 const auth = (req,res,next) => { try { req.user=verify((req.headers.authorization||'').replace(/^Bearer /,'')); next(); } catch { fail(res,401,'Authentication required'); } };
 const member = async (req,res,next) => {
@@ -263,9 +264,12 @@ app.get('/api/resolve/:code',async(req,res)=>{
 app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
  if(req.user.role!=='host') return fail(res,403,'Host only');
  await db.query('UPDATE meetings SET ended_at=now() WHERE id=$1',[req.params.id]);
+ recording.stopFor(req.params.id,'meeting_ended',req.user.participantId).catch(()=>{});
  io.to(room(req.params.id)).emit('meeting-ended');
  audit(req.params.id,req.user.participantId,'meeting.ended'); res.json({ok:true});
 });
+// Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
+const recording = registerRecording({ app, io, db, auth, member, fail, room, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 app.get('/api/health',async(_req,res)=>{try{await db.query('SELECT 1');res.json({ok:true});}catch{res.status(503).json({ok:false});}});
 const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:message});
 io.use(async(socket,next)=>{
@@ -292,7 +296,9 @@ io.on('connection',socket=>{
  if(prior && prior!==socket.id) io.sockets.sockets.get(prior)?.disconnect(true);
  roster.set(pid,socket.id); socket.join(room(id));
  socket.emit('roster',activeList(id));
- socket.emit('recorders',[...(recorders.get(id)||new Map())].map(([participantId,name])=>({participantId,name})));
+ if(!names.has(id)) names.set(id,new Map()); names.get(id).set(pid,u.name);
+ recording.publicState(id).then(s=>socket.emit('recording-state',s)).catch(()=>{});
+ recording.reevaluate(id,'joined',pid,u.role).catch(e=>console.error('[recording] join check failed:',e.message));   // a late joiner pauses a running recording until they answer
  socket.to(room(id)).emit('participant-online',{participantId:pid,name:u.name,role:u.role});
  const isOnline=(target)=>roster.get(target);
  socket.on('signal',({to,data}={},ack)=>{
@@ -308,7 +314,6 @@ io.on('connection',socket=>{
  });
  socket.on('hand',raised=>{socket.to(room(id)).emit('hand',{participantId:pid,raised:!!raised});});
  socket.on('media-state',state=>{socket.to(room(id)).emit('media-state',{participantId:pid,mic:!!state?.mic,cam:!!state?.cam,sharing:!!state?.sharing});});
- socket.on('recording',on=>{if(!recorders.has(id))recorders.set(id,new Map());const set=recorders.get(id);if(on)set.set(pid,u.name);else set.delete(pid);if(!set.size)recorders.delete(id);io.to(room(id)).emit('recording',{participantId:pid,name:u.name,recording:!!on});});
  socket.on('reaction',emoji=>{if(['👍','👏','❤️','🎉','😂'].includes(emoji))io.to(room(id)).emit('reaction',{name:u.name,emoji});});
  socket.on('notes',async(text,ack)=>{
   if(u.role!=='host')return ackError(ack,'Host only');
@@ -328,6 +333,6 @@ io.on('connection',socket=>{
    const {rows}=await db.query('SELECT choice,count(*)::int AS count FROM poll_votes WHERE poll_id=$1 GROUP BY choice',[pollId]);io.to(room(id)).emit('poll-results',{pollId,counts:rows});ack?.({ok:true});
   }catch{ackError(ack,'Vote failed');}
  });
- socket.on('disconnect',()=>{if(roster.get(pid)!==socket.id)return;roster.delete(pid);if(recorders.get(id)?.delete(pid)){io.to(room(id)).emit('recording',{participantId:pid,name:u.name,recording:false});if(!recorders.get(id).size)recorders.delete(id);}socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
+ socket.on('disconnect',()=>{if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host')recording.stopFor(id,'host_left',pid).catch(()=>{});socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 server.listen(PORT,()=>console.log(`Qorlla Meet listening on http://localhost:${PORT}`));

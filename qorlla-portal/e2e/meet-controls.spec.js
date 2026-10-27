@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('node:fs');
 const { BASE } = require('./helpers');
 
-// Qorlla Meet video page: compact toolbar, meeting recording (with an indicator for everyone), and a screen share that can never mirror itself.
+// Qorlla Meet video page: compact toolbar, and a screen share that can never mirror itself.
 // Runs through the unified HTTPS origin under /meet/ in certification; for a local Meet use E2E_BASE=http://localhost:3300 E2E_MEET_PATH=/.
 const MEET = process.env.E2E_MEET_PATH || '/meet/';
 const bytes = (path) => fs.readFileSync(path);
@@ -36,24 +36,6 @@ test.describe('Qorlla Meet controls', () => {
     await expect(a.page.locator('#micBtn')).toHaveText('Mute'); await a.page.click('#micBtn'); await expect(a.page.locator('#micBtn')).toHaveText('Unmute'); await expect(a.page.locator('#micBtn')).toHaveAttribute('aria-pressed', 'true');
     await a.page.click('#handBtn'); await expect(a.page.locator('#handBtn')).toHaveText('Lower hand'); await expect(a.page.locator('#handBtn')).toHaveClass(/on/);
     await a.ctx.close();
-  });
-
-  test('recording: indicator for everyone (a late joiner too), a real audio+video file is saved, and leaving while recording saves it', async ({ browser }) => {
-    test.setTimeout(120000);
-    const a = await host(browser, 'Recording check'); const b = await guest(browser, a.code, 'Bob');
-    await expect(a.page.locator('#recordBtn')).toHaveText('Record'); await a.page.click('#recordBtn');
-    await expect(a.page.locator('#recordBtn')).toHaveText(/Stop \d\d:\d\d/); await expect(a.page.locator('#recordBtn')).toHaveAttribute('aria-pressed', 'true'); await expect(a.page.locator('#recBanner')).toContainText('You are recording this meeting');
-    await expect(b.page.locator('#recBanner')).toContainText('Alice is recording this meeting'); await expect(b.page.locator('.tile .rec-badge')).toHaveCount(1);
-    const c = await guest(browser, a.code, 'Carol'); await expect(c.page.locator('#recBanner')).toContainText('Alice is recording this meeting');             // joined after it started
-    await a.page.waitForTimeout(3000);
-    const [dl] = await Promise.all([a.page.waitForEvent('download'), a.page.click('#recordBtn')]);
-    expect(dl.suggestedFilename()).toMatch(/^qorlla-\d+-\d{8}-\d{4}\.webm$/); const buf = bytes(await dl.path()); expect(buf.length).toBeGreaterThan(20000); expect(buf.subarray(0, 4).toString('hex')).toBe('1a45dfa3');   // a WebM container
-    await expect(a.page.locator('#recordBtn')).toHaveText('Record'); await expect(b.page.locator('#recBanner')).toBeHidden(); await expect(b.page.locator('.tile .rec-badge')).toHaveCount(0);
-    // leaving during a recording still saves it
-    await a.page.click('#recordBtn'); await expect(b.page.locator('#recBanner')).toContainText('Alice is recording'); await a.page.waitForTimeout(2000);
-    const [dl2] = await Promise.all([a.page.waitForEvent('download'), a.page.click('#leaveBtn')]); expect(bytes(await dl2.path()).length).toBeGreaterThan(10000);
-    await expect(b.page.locator('#recBanner')).toBeHidden();
-    await a.ctx.close(); await b.ctx.close(); await c.ctx.close();
   });
 
   test('screen share never mirrors itself: this tab is excluded, your own share is a placeholder, others see the real screen', async ({ browser }) => {

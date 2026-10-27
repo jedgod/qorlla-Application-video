@@ -11,14 +11,14 @@ function tile(id,name,isLocal=false){let el=document.getElementById('tile-'+id);
 function setVideo(id,stream,muted=false){const el=tile(id,state.names.get(id)||id,id===state.participantId);let v=el.querySelector('video');if(!v){v=document.createElement('video');v.autoplay=true;v.playsInline=true;v.muted=muted;el.prepend(v);}v.srcObject=stream;el.querySelector('.avatar').style.display=stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')?'none':'grid';v.play().catch(()=>{});if(id!==state.participantId)recAddAudio(id,stream);}
 function renderPeople(){const root=$('peopleList');root.replaceChildren();for(const id of state.roster){const p=document.createElement('div');p.className='person';p.textContent=(state.names.get(id)||id.slice(0,8))+(id===state.participantId?' (You)':'');root.append(p);}}
 function openTab(tab){document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));document.querySelectorAll('.tab-view').forEach(v=>v.classList.toggle('hidden',v.id!=='tab-'+tab));}
-async function startMeeting(payload){Object.assign(state,{token:payload.token,meetingId:payload.meetingId,participantId:payload.participantId});const claims=JSON.parse(atob(payload.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));state.role=claims.role;state.name=claims.name;state.names.set(state.participantId,state.name);state.start=Date.now();sessionStorage.setItem('qorlla-session',JSON.stringify({token:state.token,meetingId:state.meetingId,participantId:state.participantId}));const data=await api('/meetings/'+state.meetingId);$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=data.meeting_code||state.meetingId.slice(0,8);$('meetingDetails').textContent='Meeting ID: '+(data.meeting_code||state.meetingId);$('notes').value=data.notes;$('notes').readOnly=state.role!=='host';$('saveNotes').classList.toggle('hidden',state.role!=='host');$('pollForm').classList.toggle('hidden',state.role!=='host');$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);data.polls.forEach(addPoll);try{state.iceServers=(await api('/config')).iceServers;}catch{}await startMedia();connect();}
+async function startMeeting(payload){Object.assign(state,{token:payload.token,meetingId:payload.meetingId,participantId:payload.participantId});const claims=JSON.parse(atob(payload.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));state.role=claims.role;$('recordBtn').classList.toggle('hidden',claims.role!=='host');state.name=claims.name;state.names.set(state.participantId,state.name);state.start=Date.now();sessionStorage.setItem('qorlla-session',JSON.stringify({token:state.token,meetingId:state.meetingId,participantId:state.participantId}));const data=await api('/meetings/'+state.meetingId);$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=data.meeting_code||state.meetingId.slice(0,8);$('meetingDetails').textContent='Meeting ID: '+(data.meeting_code||state.meetingId);$('notes').value=data.notes;$('notes').readOnly=state.role!=='host';$('saveNotes').classList.toggle('hidden',state.role!=='host');$('pollForm').classList.toggle('hidden',state.role!=='host');$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);data.polls.forEach(addPoll);try{state.iceServers=(await api('/config')).iceServers;}catch{}await startMedia();connect();}
 async function startMedia(){try{state.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:{width:{ideal:1280},height:{ideal:720}}});}catch(e){notify('Media unavailable: '+e.message);state.stream=new MediaStream();state.mic=false;state.cam=false;}setVideo(state.participantId,state.stream,true);updateControls();}
 function updateControls(){
   const set=(id,label,off,pressed)=>{const b=$(id);b.querySelector('span').textContent=label;b.classList.toggle('off',!!off);b.setAttribute('aria-pressed',String(!!pressed));};
   set('micBtn',state.mic?'Mute':'Unmute',!state.mic,!state.mic);set('camBtn',state.cam?'Stop video':'Start video',!state.cam,!state.cam);
   $('handBtn').querySelector('span').textContent=state.hand?'Lower hand':'Raise hand';$('handBtn').classList.toggle('on',state.hand);$('handBtn').setAttribute('aria-pressed',String(state.hand));
   const local=$('tile-'+state.participantId);if(local)local.querySelector('.avatar').style.display=(state.cam&&state.stream?.getVideoTracks().length)||local.classList.contains('sharing-local')?'none':'grid';}
-function connect(){state.socket=io({path:BASE+'socket.io',auth:{token:state.token},transports:['websocket','polling']});const s=state.socket;s.on('connect',()=>{$('status').textContent='Connected';s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});});s.on('connect_error',e=>notify('Connection error: '+e.message));s.on('disconnect',()=>{$('status').textContent='Reconnecting…';});s.on('roster',ids=>{state.roster=new Set([...ids,state.participantId]);renderPeople();for(const id of ids)if(id!==state.participantId)createPeer(id,true);});s.on('participant-online',p=>{state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('chat',addMessage);s.on('recorders',list=>{for(const r of list)setRecorder(r.participantId,r.name||state.names.get(r.participantId)||'Someone',true);});s.on('recording',({participantId,name,recording})=>setRecorder(participantId,participantId===state.participantId?'You':(name||state.names.get(participantId)||'Someone'),!!recording));s.on('media-state',({participantId,sharing})=>{const t=$('tile-'+participantId);if(t&&participantId!==state.participantId)t.classList.toggle('sharing-remote',!!sharing);});s.on('hand',({participantId,raised})=>{const t=$('tile-'+participantId);if(t)t.querySelector('.hand').textContent=raised?'✋':'';});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));s.on('notes',text=>$('notes').value=text);s.on('poll-created',addPoll);s.on('poll-results',updatePollResults);s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
+function connect(){state.socket=io({path:BASE+'socket.io',auth:{token:state.token},transports:['websocket','polling']});const s=state.socket;s.on('connect',()=>{$('status').textContent='Connected';s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});});s.on('connect_error',e=>notify('Connection error: '+e.message));s.on('disconnect',()=>{$('status').textContent='Reconnecting…';});s.on('roster',ids=>{state.roster=new Set([...ids,state.participantId]);renderPeople();for(const id of ids)if(id!==state.participantId)createPeer(id,true);});s.on('participant-online',p=>{state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('media-state',({participantId,sharing})=>{const t=$('tile-'+participantId);if(t&&participantId!==state.participantId)t.classList.toggle('sharing-remote',!!sharing);});s.on('hand',({participantId,raised})=>{const t=$('tile-'+participantId);if(t)t.querySelector('.hand').textContent=raised?'✋':'';});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));s.on('notes',text=>$('notes').value=text);s.on('poll-created',addPoll);s.on('poll-results',updatePollResults);s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
 function createPeer(id,initiator=false){if(state.peers.has(id))return state.peers.get(id);const pc=new RTCPeerConnection({iceServers:state.iceServers});state.peers.set(id,pc);for(const track of state.stream.getTracks())pc.addTrack(track,state.stream);pc.onicecandidate=e=>{if(e.candidate)state.socket.emit('signal',{to:id,data:{type:'candidate',candidate:e.candidate}});};pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);setVideo(id,stream);};pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed')notify('Connection to participant interrupted');};if(initiator)pc.createOffer().then(o=>pc.setLocalDescription(o).then(()=>state.socket.emit('signal',{to:id,data:{type:'offer',sdp:pc.localDescription}}))).catch(console.error);return pc;}
 async function onSignal(id,data){let pc=state.peers.get(id);if(!pc)pc=createPeer(id);if(data.type==='offer'){await pc.setRemoteDescription(data.sdp);const answer=await pc.createAnswer();await pc.setLocalDescription(answer);state.socket.emit('signal',{to:id,data:{type:'answer',sdp:pc.localDescription}});}else if(data.type==='answer'){await pc.setRemoteDescription(data.sdp);}else if(data.type==='candidate'){try{await pc.addIceCandidate(data.candidate);}catch(e){console.warn('ICE candidate deferred/failed',e);}}}
 function removePeer(id){state.peers.get(id)?.close();state.peers.delete(id);$('tile-'+id)?.remove();}
@@ -57,7 +57,7 @@ $('saveNotes').onclick=()=>state.socket.emit('notes',$('notes').value,r=>notify(
 $('pollForm').onsubmit=e=>{e.preventDefault();state.socket.emit('poll-create',{question:$('pollQuestion').value,options:$('pollOptions').value.split('|')},r=>{if(r?.ok){$('pollQuestion').value='';$('pollOptions').value='';}else notify(r?.error||'Poll failed');});};
 $('copyLink').onclick=()=>navigator.clipboard.writeText(location.origin+BASE+'?meeting='+($('roomId').textContent||state.meetingId)).then(()=>notify('Meeting link copied')).catch(()=>notify('Copy unavailable'));
 $('settingsBtn').onclick=()=>notify('Use your browser site settings to manage microphone and camera permissions.');
-$('recordBtn').onclick=()=>{if(state.recording)stopRecording();else startRecording();};window.addEventListener('beforeunload',e=>{if(state.recording){e.preventDefault();e.returnValue='';}});
+$('recordBtn').onclick=()=>recButton();window.addEventListener('beforeunload',e=>{if(state.recording){e.preventDefault();e.returnValue='';}});
 $('leaveBtn').onclick=leave;$('endBtn').onclick=async()=>{if(!confirm('End meeting for everyone?'))return;try{await api('/meetings/'+state.meetingId+'/end','POST');leave();}catch(e){notify(e.message);}};
 $('peopleBtn').onclick=()=>openTab('people');$('chatBtn').onclick=()=>openTab('chat');document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>openTab(b.dataset.tab));document.querySelectorAll('[data-layout]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-layout]').forEach(x=>x.classList.toggle('selected',x===b));$('videos').className='video-grid '+b.dataset.layout;});document.querySelectorAll('[data-emoji]').forEach(b=>b.onclick=()=>state.socket.emit('reaction',b.dataset.emoji));
 setInterval(()=>{if(!state.token)return;const seconds=Math.floor((Date.now()-state.start)/1000);$('timer').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');},1000);
@@ -129,20 +129,8 @@ function recUi(){
   const b=$('recordBtn');if(!state.recording){b.classList.remove('on');b.setAttribute('aria-pressed','false');b.querySelector('span').textContent='Record';return;}
   b.classList.add('on');b.setAttribute('aria-pressed','true');b.querySelector('span').textContent='Stop '+recLabel();renderRecBanner();
 }
-const recorders=new Map();
-function setRecorder(pid,name,on){
-  if(on)recorders.set(pid,name);else recorders.delete(pid);
-  const t=document.getElementById('tile-'+pid);if(t){t.querySelector('.rec-badge')?.remove();if(on){const bd=document.createElement('span');bd.className='rec-badge';bd.textContent='● REC';t.append(bd);}}
-  renderRecBanner();
-}
-function renderRecBanner(){
-  const b=$('recBanner');const names=[...recorders.values()];
-  if(!names.length){b.classList.add('hidden');b.textContent='';return;}
-  b.classList.remove('hidden');b.textContent=names.length===1&&names[0]==='You'?'You are recording this meeting'+(state.recording?' ('+recLabel()+')':''):names.join(', ')+(names.length===1?' is':' are')+' recording this meeting';
-}
-async function startRecording(){
+async function beginCapture(){
   if(!window.MediaRecorder||!HTMLCanvasElement.prototype.captureStream){notify('Recording is not supported in this browser.');return;}
-  if(!confirm('Record this meeting to a file on your computer?\n\nEveryone in the meeting will see a recording indicator. Only record where everyone has agreed. Keep this tab open while recording.'))return;
   try{
     REC.canvas=document.createElement('canvas');REC.canvas.width=1280;REC.canvas.height=720;REC.g=REC.canvas.getContext('2d');
     REC.ctx=new (window.AudioContext||window.webkitAudioContext)();await REC.ctx.resume();REC.dest=REC.ctx.createMediaStreamDestination();REC.src.clear();
@@ -153,7 +141,7 @@ async function startRecording(){
     rec.ondataavailable=e=>{if(e.data&&e.data.size)REC.chunks.push(e.data);};
     REC.done=new Promise(resolve=>{rec.onstop=()=>{
       clearInterval(REC.ui);REC.tick?.stop?.();REC.tick=null;REC.stream.getTracks().forEach(t=>t.stop());REC.ctx.close().catch(()=>{});
-      state.recording=null;setRecorder(state.participantId,'You',false);recUi();state.socket?.emit('recording',false);
+      state.recording=null;recUi();
       if(!REC.chunks.length){notify('Nothing was recorded.');resolve();return;}
       const blob=new Blob(REC.chunks,{type:rec.mimeType||'video/webm'});const code=($('roomId').textContent||'meeting').replace(/\W+/g,'');const d=new Date(),p=n=>String(n).padStart(2,'0');
       const name='qorlla-'+code+'-'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+'.webm';
@@ -163,9 +151,9 @@ async function startRecording(){
     // Frames are drawn on a plain timer (the page's content-security-policy forbids blob workers). A tab that is playing the meeting's audio is not
     // throttled by the browser, so keep this tab open while recording.
     const iv=setInterval(recFrame,66);REC.tick={stop:()=>clearInterval(iv)};
-    REC.ui=setInterval(recUi,1000);setRecorder(state.participantId,'You',true);recUi();state.socket?.emit('recording',true);
+    REC.ui=setInterval(recUi,1000);recUi();
     notify('Recording started. Everyone can see the recording indicator.');
-  }catch(e){state.recording=null;notify('Could not start recording: '+(e.message||e));}
+  }catch(e){state.recording=null;notify('Could not start recording: '+(e.message||e));throw e;}
 }
 function stopRecording(){
   const rec=state.recording;if(!rec)return Promise.resolve();
@@ -193,3 +181,115 @@ function fitGrid(){
 }
 new MutationObserver(fitGrid).observe($('videos'),{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
 new ResizeObserver(fitGrid).observe($('videos'));window.addEventListener('resize',fitGrid);fitGrid();
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// Recording consent. The SERVER decides (request -> everyone answers -> start); this page only shows it and captures once the server says go.
+// A web page cannot technically stop someone recording their own screen with other tools; the rules and the notice are the protection.
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+const rcState={st:{status:'disabled'},answeredFor:null,mine:null};
+const rcApi=async(path,method,body)=>{const r=await fetch(BASE+'api/v1/meetings/'+state.meetingId+'/recording'+path,{method:method||'GET',headers:{'Content-Type':'application/json',Authorization:'Bearer '+state.token},body:body===undefined?undefined:JSON.stringify(body)});const d=await r.json().catch(()=>({}));if(!r.ok){const e=Error(d.error||'Request failed');e.data=d;throw e;}return d;};
+function rcEl(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
+function rcClose(){document.getElementById('rcModal')?.remove();}
+function rcModal(title,build){rcClose();const wrap=rcEl('div','rc-modal');wrap.id='rcModal';const box=rcEl('div','rc-box');box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-label',title);box.append(rcEl('h2','',title));build(box);wrap.append(box);document.body.append(wrap);box.querySelector('input,button')?.focus();return box;}
+function rcScopeText(n){return [n.video&&'video',n.audio&&'audio'].filter(Boolean).join(' and ');}
+function rcNotice(box,n){const dl=rcEl('dl','rc-notice');for(const [k,v] of [['Who is recording',n.requestedBy||'Host'],['Data controller',n.controller],['What is recorded',rcScopeText(n)+' of this meeting'],['Why',n.purpose],['Who will receive it',n.recipients],['How long it is kept',n.retention],['Privacy contact',n.privacyContact]]){dl.append(rcEl('dt','',k),rcEl('dd','',v||'—'));}
+  const dd=rcEl('dd');if(n.privacyUrl){const a=rcEl('a','','View Privacy Policy');a.href=n.privacyUrl;a.target='_blank';a.rel='noopener noreferrer';dd.append(a);}else dd.textContent='Not provided — ask the privacy contact';dl.append(rcEl('dt','','Privacy policy'),dd);box.append(dl);box.append(rcEl('p','rc-note','AI transcription and summaries are NOT part of this request and are not offered by this version. Declining never stops you attending the meeting.'));}
+
+// ---- status shown to everybody -------------------------------------------------------------------------------------------------------------
+function renderRecBanner(){
+  const b=$('recBanner'),st=rcState.st,s=st.status;
+  if(s==='disabled'||!s){b.classList.add('hidden');b.textContent='';applyRecBadge();return;}
+  const me=st.recorder&&st.recorder.participantId===state.participantId,who=me?'You are':(st.recorder?.name||'The host')+' is';
+  const txt={awaiting:'Recording requested by '+(st.requestedBy||'the host')+' — waiting for '+st.pending+' answer(s). NOTHING is being recorded.',
+    blocked:'Recording blocked — a participant declined. NOTHING is being recorded.',
+    ready:'Everyone has agreed. Waiting for the host to start. NOTHING is being recorded yet.',
+    recording:who+' recording this meeting ('+rcScopeText(st)+')'+(me&&state.recording?' '+recLabel():''),
+    paused:'Recording PAUSED — waiting for a new participant to answer. Nothing is recorded while paused.'}[s];
+  b.classList.remove('hidden');b.classList.toggle('pending',s!=='recording');b.textContent=txt;applyRecBadge();
+}
+function applyRecBadge(){
+  const st=rcState.st,live=st.status==='recording'&&st.recorder;
+  document.querySelectorAll('#videos .tile').forEach(t=>{const want=live&&t.id==='tile-'+st.recorder.participantId,has=t.querySelector('.rec-badge');if(want&&!has){const bd=rcEl('span','rec-badge','● REC');t.append(bd);}else if(!want&&has)has.remove();});
+}
+new MutationObserver(applyRecBadge).observe($('videos'),{childList:true});
+
+// ---- server state arrives (socket snapshot or broadcast) -----------------------------------------------------------------------------------
+async function recState(st){
+  const prev=rcState.st;rcState.st=st||{status:'disabled'};
+  renderRecBanner();recUi();
+  if(rcState.st.status==='disabled'){rcClose();rcState.answeredFor=null;rcState.mine=null;if(state.recording){notify('Recording stopped.');await stopRecording();}return;}
+  // the person recording captures only while the server says RECORDING; paused means stop feeding the file
+  const me=rcState.st.recorder&&rcState.st.recorder.participantId===state.participantId;
+  if(me&&rcState.st.status==='recording'&&!state.recording&&!rcState.starting){rcState.starting=true;try{await beginCapture();}catch(e){try{await rcApi('/stop','POST');}catch{}}finally{rcState.starting=false;}}
+  if(state.recording){try{if(rcState.st.status==='paused'&&state.recording.state==='recording')state.recording.pause();else if(rcState.st.status==='recording'&&state.recording.state==='paused')state.recording.resume();}catch{}}
+  if(state.role==='host'){rcRefreshHost();return;}
+  if(rcState.answeredFor!==rcState.st.sessionId){rcState.answeredFor=rcState.st.sessionId;try{const c=await rcApi('/consents');rcState.mine=c.mine?.decision||'pending';}catch{rcState.mine='pending';}
+    if(rcState.mine==='pending')rcAskParticipant();}
+  else if(prev.sessionId===rcState.st.sessionId&&rcState.mine==='pending'&&!document.getElementById('rcModal'))rcAskParticipant();
+  rcMineControl();
+}
+
+// ---- participant: the blocking consent dialog ----------------------------------------------------------------------------------------------
+function rcAskParticipant(){
+  const n=rcState.st;
+  rcModal('Recording consent',box=>{
+    box.append(rcEl('p','rc-lead',(n.requestedBy||'The host')+' wants to record this meeting. Nothing is recorded unless everyone agrees.'));rcNotice(box,n);
+    const mk=(id,label,disabled)=>{const l=rcEl('label','rc-check');const i=rcEl('input');i.type='checkbox';i.id=id;i.disabled=!!disabled;l.append(i,document.createTextNode(' '+label));box.append(l);return i;};
+    const v=n.video?mk('rcVideo','I consent to my video being recorded'):null,a=n.audio?mk('rcAudio','I consent to my audio being recorded'):null,r=mk('rcReviewed','I have reviewed the recording notice above');
+    const err=rcEl('p','rc-err');err.setAttribute('role','alert');
+    const row=rcEl('div','rc-row');const agree=rcEl('button','rc-primary','Agree'),decline=rcEl('button','rc-secondary','Decline');agree.disabled=true;row.append(agree,decline);box.append(err,row);
+    const sync=()=>{agree.disabled=!((!v||v.checked)&&(!a||a.checked)&&r.checked);};[v,a,r].forEach(x=>x&&x.addEventListener('change',sync));
+    const send=async(decision)=>{agree.disabled=decline.disabled=true;try{await rcApi('/consent','POST',{sessionId:n.sessionId,decision,video:!!v?.checked,audio:!!a?.checked,noticeReviewed:r.checked});rcState.mine=decision;rcClose();
+      if(decision==='decline')rcDeclined();else notify('You agreed to the recording. You can withdraw at any time.');rcMineControl();}catch(e){err.textContent=e.message;sync();decline.disabled=false;}};
+    agree.onclick=()=>send('agree');decline.onclick=()=>send('decline');
+  });
+}
+function rcDeclined(){
+  rcModal('You declined recording',box=>{box.append(rcEl('p','','Recording will not start while your answer is “decline”. You can stay in the meeting or leave.'));
+    const row=rcEl('div','rc-row'),stay=rcEl('button','rc-primary','Stay in meeting'),lv=rcEl('button','rc-secondary','Leave meeting');stay.onclick=rcClose;lv.onclick=()=>{rcClose();leave();};row.append(stay,lv);box.append(row);});
+}
+function rcMineControl(){
+  let b=document.getElementById('rcWithdraw');const st=rcState.st.status;
+  const show=state.role!=='host'&&rcState.mine==='agree'&&['awaiting','ready','recording','paused'].includes(st);
+  if(!show){b?.remove();return;}
+  if(!b){b=rcEl('button','rc-withdraw','Withdraw recording consent');b.id='rcWithdraw';b.onclick=async()=>{try{await rcApi('/consent','POST',{sessionId:rcState.st.sessionId,decision:'withdraw',noticeReviewed:true});rcState.mine='withdraw';notify('Consent withdrawn. Recording stops.');rcMineControl();}catch(e){notify(e.message);}};document.body.append(b);}
+}
+
+// ---- host: request form, progress panel, start / stop --------------------------------------------------------------------------------------
+function recButton(){
+  if(state.role!=='host')return;
+  const s=rcState.st.status;
+  if(s==='disabled'||!s)return rcRequestForm();
+  if(s==='recording'||s==='paused'){if(!confirm('Stop recording and save the file?'))return;return rcApi('/stop','POST').catch(e=>notify(e.message));}
+  rcHostPanel();
+}
+function rcRequestForm(){
+  rcModal('Request to record this meeting',box=>{
+    box.append(rcEl('p','rc-lead','Everyone present must agree before recording can start. Tell them clearly what happens to the recording.'));
+    const f={};const field=(key,label,ph,val)=>{const l=rcEl('label','rc-field');l.append(rcEl('span','',label));const i=rcEl('input');i.type='text';i.id='rc_'+key;i.placeholder=ph||'';if(val)i.value=val;f[key]=i;l.append(i);box.append(l);};
+    field('purpose','Purpose of the recording','e.g. Minutes and follow-up for people who could not attend');field('recipients','Who will receive or access it','e.g. Meeting attendees and the project team');field('retention','How long it is kept','e.g. 30 days, then deleted');
+    field('controller','Data controller (who is responsible)','Name of the organisation or host',state.name);field('privacyContact','Privacy contact','e.g. privacy@example.com');field('privacyUrl','Privacy policy link (optional)','https://');
+    const row1=rcEl('div','rc-row');const mk=(label)=>{const l=rcEl('label','rc-check');const i=rcEl('input');i.type='checkbox';i.checked=true;l.append(i,document.createTextNode(' '+label));row1.append(l);return i;};const vid=mk('Record video'),aud=mk('Record audio');box.append(row1);
+    box.append(rcEl('p','rc-note','AI transcription and summaries are separate and not included.'));
+    const err=rcEl('p','rc-err');err.setAttribute('role','alert');const row=rcEl('div','rc-row'),send=rcEl('button','rc-primary','Send request'),cancel=rcEl('button','rc-secondary','Cancel');row.append(send,cancel);box.append(err,row);cancel.onclick=rcClose;
+    send.onclick=async()=>{send.disabled=true;try{await rcApi('/request','POST',{purpose:f.purpose.value,recipients:f.recipients.value,retention:f.retention.value,controller:f.controller.value,privacyContact:f.privacyContact.value,privacyUrl:f.privacyUrl.value,video:vid.checked,audio:aud.checked});rcClose();notify('Request sent. Waiting for everyone to answer.');}catch(e){err.textContent=e.message;send.disabled=false;}};
+  });
+}
+async function rcRefreshHost(){
+  const m=document.getElementById('rcModal');if(m&&m.dataset.panel==='1')rcHostPanel();
+}
+async function rcHostPanel(){
+  let data;try{data=await rcApi('/consents');}catch(e){notify(e.message);return;}
+  const st=rcState.st;if(st.status==='recording'||st.status==='disabled'||!st.status){document.getElementById('rcModal')?.remove();return;}   // a late refresh must never reopen the panel over a running recording
+  const box=rcModal('Recording consent',box=>{
+    
+    const label={awaiting:'Waiting for answers',blocked:'Blocked — someone declined',ready:'Everyone agreed — ready to start',recording:'Recording',paused:'Paused — waiting for a new participant'}[st.status]||st.status;
+    box.append(rcEl('p','rc-lead','Status: '+label));
+    const ul=rcEl('ul','rc-list');for(const p of data.participants||[]){const li=rcEl('li','rc-'+p.decision);li.append(rcEl('span','',p.name||'Participant'),rcEl('b','',{agree:'Agreed',decline:'Declined',withdraw:'Withdrew',pending:'Waiting'}[p.decision]||p.decision));ul.append(li);}box.append(ul);
+    const row=rcEl('div','rc-row');
+    if(st.status==='ready'){const go=rcEl('button','rc-primary','Start recording');go.onclick=async()=>{go.disabled=true;try{await rcApi('/start','POST');rcClose();}catch(e){notify(e.message);go.disabled=false;}};row.append(go);}
+    const cancel=rcEl('button','rc-secondary',st.status==='recording'||st.status==='paused'?'Stop recording':'Cancel request');cancel.onclick=async()=>{try{await rcApi('/stop','POST');rcClose();}catch(e){notify(e.message);}};
+    const close=rcEl('button','rc-secondary','Close');close.onclick=rcClose;row.append(cancel,close);box.append(row);
+  });
+  box.parentElement.dataset.panel='1';return box;
+}
