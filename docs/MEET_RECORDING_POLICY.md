@@ -47,3 +47,6 @@ Consents and audit events are **append-only**: the application role can INSERT/S
 ## Operations
 Apply `sql/v4_7_recording_consent.sql` as the database owner **before** `sql/005_app_role.sql` (compose does this; `npm run dev:stack` applies it on start). Rollback: stop the new Meet, then `DROP TABLE recording_audit, recording_consents, recording_sessions;` (consent history is lost).
 Tests: `tests/recording-consent.test.mjs` (state machine) and `qorlla-portal/e2e/meet-recording-consent.spec.js` (end-to-end flows; local Meet: `E2E_BASE=http://localhost:3310 E2E_MEET_PATH=/`).
+
+## Host connection loss vs. host departure (v4.0.2)
+A dropped host connection is not a departure. The recording survives an outage of up to `HOST_RECONNECT_GRACE_MS` (default 30 000 ms); `recording.host_disconnected` and `recording.host_reconnected` are written to the audit trail. It is finalized immediately only by an intentional Leave, End for all, a decline/withdrawal, or an outage that outlasts the grace period (`end_reason = host_left`). While the host's browser is offline it keeps capturing locally; participants still see the recording banner.

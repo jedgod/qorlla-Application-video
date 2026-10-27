@@ -35,6 +35,7 @@ export function evaluate({ session, roster, latest }) {
   return { status: live ? 'recording' : 'ready', pending, declined };
 }
 
+const GRACE_MS = Number(process.env.HOST_RECONNECT_GRACE_MS || 30000), graceTimers = new Map();
 export function registerRecording({ app, io, db, auth, member, fail, room, getRoster, getName }) {
   const paths = (suffix) => [`/api/meetings/:id/recording${suffix}`, `/api/v1/meetings/:id/recording${suffix}`];
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
@@ -171,6 +172,11 @@ export function registerRecording({ app, io, db, auth, member, fail, room, getRo
     /** Hook for any future server-side recorder: nothing may be captured unless this returns true. */
     authorize: async (meetingId) => { const s = await active(meetingId); if (!s || s.status !== 'recording') return false; const ev = evaluate({ session: s, roster: getRoster(meetingId), latest: await latestConsents(s.id) }); return ev.status === 'recording'; },
     /** The host left or the meeting ended: a live recording must stop. */
+    // A host whose connection drops is NOT a host who left: the recording survives a short outage (HOST_RECONNECT_GRACE_MS, default 30 s), both ends are audited,
+    // and only an intentional leave, End for all, or an outage that outlasts the grace period finalizes it.
+    hostLeft: async (meetingId, pid) => { const s = await active(meetingId); if (!s) return; await audit(meetingId, s.id, pid, 'host', 'recording.host_disconnected', { graceMs: GRACE_MS }); clearTimeout(graceTimers.get(meetingId));
+      graceTimers.set(meetingId, setTimeout(async () => { graceTimers.delete(meetingId); try { const s2 = await active(meetingId); if (!s2) return; await end(s2, (s2.status === 'recording' || s2.status === 'paused') ? 'stopped' : 'cancelled', 'host_left', pid, 'system'); await broadcast(meetingId); } catch (e) { console.error('[recording] grace expiry failed:', e.message); } }, GRACE_MS)); },
+    hostBack: async (meetingId, pid) => { const t = graceTimers.get(meetingId); if (!t) return; clearTimeout(t); graceTimers.delete(meetingId); const s = await active(meetingId); if (s) await audit(meetingId, s.id, pid, 'host', 'recording.host_reconnected', {}); },
     stopFor: async (meetingId, reason, actor = null) => { const s = await active(meetingId); if (!s) return; await end(s, (s.status === 'recording' || s.status === 'paused') ? 'stopped' : 'cancelled', reason, actor, 'system'); await broadcast(meetingId); }
   };
 }

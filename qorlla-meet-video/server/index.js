@@ -295,6 +295,7 @@ io.on('connection',socket=>{
  const prior=roster.get(pid);
  if(prior && prior!==socket.id) io.sockets.sockets.get(prior)?.disconnect(true);
  roster.set(pid,socket.id); socket.join(room(id));
+ if(u.role==='host')recording.hostBack(id,pid).catch(()=>{});
  socket.emit('roster',activeList(id));
  socket.emit('names',Object.fromEntries(activeList(id).map(p=>[p,names.get(id)?.get(p)||'']).filter(([,n])=>n)));   // who is who, for people already in the meeting
  if(!names.has(id)) names.set(id,new Map()); names.get(id).set(pid,u.name);
@@ -334,6 +335,6 @@ io.on('connection',socket=>{
    const {rows}=await db.query('SELECT choice,count(*)::int AS count FROM poll_votes WHERE poll_id=$1 GROUP BY choice',[pollId]);io.to(room(id)).emit('poll-results',{pollId,counts:rows});ack?.({ok:true});
   }catch{ackError(ack,'Vote failed');}
  });
- socket.on('disconnect',()=>{if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host')recording.stopFor(id,'host_left',pid).catch(()=>{});socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
+ socket.on('disconnect',reason=>{if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 server.listen(PORT,()=>console.log(`Qorlla Meet listening on http://localhost:${PORT}`));

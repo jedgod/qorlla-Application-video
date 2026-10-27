@@ -83,6 +83,23 @@ test.describe('Qorlla Meet recording consent', () => {
     expect((await call(b.page, '/audit')).status).toBe(403);
     for (const p of [a, b, c]) await p.ctx.close();
   });
+  test('a brief host disconnect does not finalize the recording (audited); an outage past the grace period does; leaving on purpose stops it at once', async ({ browser }) => {
+    test.setTimeout(150000);
+    const start = async () => { const a = await open(browser, 'Alice'); const b = await open(browser, 'Bob', a.code); await request(a); await agree(b); await a.page.click('#recordBtn'); await a.page.getByRole('button', { name: 'Start recording' }).click(); await expect(a.page.locator('#recordBtn')).toHaveText(/Stop/); return { a, b }; };
+    // 1) short outage: signalling drops and returns - still recording, both events in the audit trail
+    let { a, b } = await start();
+    await a.page.evaluate(() => window.__qorlla.state.socket.io.engine.close()); await expect(a.page.locator('#liveBadge')).toHaveAttribute('data-state', 'live', { timeout: 30000 }); await a.page.waitForTimeout(1500);
+    expect((await call(a.page, '')).body.status).toBe('recording'); await expect(b.page.locator('#recBanner')).toContainText('Alice is recording'); await expect(a.page.locator('#recordBtn')).toHaveText(/Stop/);
+    const acts = JSON.stringify((await call(a.page, '/audit')).body); expect(acts).toContain('recording.host_disconnected'); expect(acts).toContain('recording.host_reconnected'); expect(acts).not.toContain('host_left');
+    // 2) intentional leave: finalized immediately
+    const [dl] = await Promise.all([a.page.waitForEvent('download'), a.page.click('#leaveBtn')]); expect(fs.readFileSync(await dl.path()).length).toBeGreaterThan(5000); await expect(b.page.locator('#recBanner')).toBeHidden({ timeout: 10000 });
+    await a.ctx.close(); await b.ctx.close();
+    // 3) an outage that outlasts the grace period (HOST_RECONNECT_GRACE_MS, default 30 s): the recording is finalized for everyone
+    ({ a, b } = await start());
+    await a.page.evaluate(() => { window.__qorlla.state.socket.io.reconnection(false); window.__qorlla.state.socket.io.engine.close(); });
+    await expect(b.page.locator('#recBanner')).toBeHidden({ timeout: 60000 });
+    await a.ctx.close(); await b.ctx.close();
+  });
 
   test('only the host can request, start or stop; nothing starts without a request; disclosure and the privacy contact are mandatory', async ({ browser }) => {
     const a = await open(browser, 'Alice'); const b = await open(browser, 'Bob', a.code);
