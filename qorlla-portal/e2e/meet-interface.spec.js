@@ -32,6 +32,30 @@ test.describe('Qorlla Meet G2 interface and accessibility', () => {
     await p.keyboard.press('Home'); expect(Number(await p.locator('#panelResizer').getAttribute('aria-valuenow'))).toBe(280);
     await a.ctx.close();
   });
+  test('the panel can be docked left / right / top / bottom (buttons or dragging), resized in any dock, and locked in place', async ({ browser }) => {
+    const a = await open(browser, 'Alice'); const p = a.page; const stage = () => box(p, '.stage'), panel = () => box(p, '#panel');
+    let s = await stage(), pn = await panel(); expect(pn.x).toBeGreaterThan(s.x + s.width - 3);                                                                       // right (default)
+    await p.click('button[data-dock=left]'); await expect(p.locator('button[data-dock=left]')).toHaveAttribute('aria-pressed', 'true'); s = await stage(); pn = await panel(); expect(pn.x + pn.width).toBeLessThanOrEqual(s.x + 3); expect(s.width).toBeGreaterThan(700);
+    await p.click('button[data-dock=top]'); s = await stage(); pn = await panel(); expect(pn.y + pn.height).toBeLessThanOrEqual(s.y + 3); expect(pn.width).toBeGreaterThan(1300); expect(pn.height).toBeLessThan(300); await expect(p.locator('#tab-chat')).toBeVisible();
+    await p.click('button[data-dock=bottom]'); s = await stage(); pn = await panel(); expect(pn.y).toBeGreaterThanOrEqual(s.y + s.height - 3); expect(pn.y + pn.height).toBeLessThanOrEqual(768 - 60);
+    const noScroll = await p.evaluate(() => document.scrollingElement.scrollHeight <= innerHeight && document.scrollingElement.scrollWidth <= innerWidth); expect(noScroll).toBe(true);
+    // resize in a horizontal dock (keyboard): ArrowUp grows a bottom panel
+    await p.focus('#panelResizer'); const h0 = (await panel()).height; await p.keyboard.press('ArrowUp'); await p.keyboard.press('ArrowUp'); expect((await panel()).height).toBeGreaterThan(h0 + 30); await expect(p.locator('#panelResizer')).toHaveAttribute('aria-orientation', 'horizontal');
+    // collapse still works in every dock and gives the space back
+    await p.click('#panelToggle'); await expect(p.locator('#panel')).toBeHidden(); expect((await stage()).height).toBeGreaterThan(s.height + 150); await p.click('#panelToggle'); await expect(p.locator('#panel')).toBeVisible();
+    // drag the grip to the left quarter of the window
+    const g = await box(p, '#dockGrip'); await p.mouse.move(g.x + 5, g.y + 5); await p.mouse.down(); await p.mouse.move(100, 300, { steps: 5 }); await p.mouse.up();
+    await expect(p.locator('button[data-dock=left]')).toHaveAttribute('aria-pressed', 'true'); pn = await panel(); expect(pn.x).toBeLessThan(5);
+    // lock: nothing moves or resizes, and the state is announced
+    await p.click('#panelLock'); await expect(p.locator('#panelLock')).toHaveAttribute('aria-pressed', 'true'); await expect(p.locator('#panelLock')).toContainText('Locked'); await expect(p.locator('#announcer')).toContainText('Panel locked');
+    await expect(p.locator('button[data-dock=top]')).toBeDisabled(); await expect(p.locator('#dockGrip')).toBeDisabled(); await p.locator('button[data-dock=top]').click({ force: true }).catch(() => {}); await expect(p.locator('button[data-dock=left]')).toHaveAttribute('aria-pressed', 'true');
+    const w0 = (await panel()).width; await p.evaluate(() => document.getElementById('panelResizer').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))); expect((await panel()).width).toBe(w0);
+    const g2 = await box(p, '#dockGrip'); await p.mouse.move(g2.x + 5, g2.y + 5); await p.mouse.down(); await p.mouse.move(1200, 300, { steps: 5 }); await p.mouse.up(); await expect(p.locator('button[data-dock=left]')).toHaveAttribute('aria-pressed', 'true');
+    await p.click('#panelLock'); await expect(p.locator('button[data-dock=right]')).toBeEnabled(); await p.click('button[data-dock=right]'); expect((await panel()).x).toBeGreaterThan(900);
+    // tablet and mobile keep their drawer / sheet and hide the dock controls
+    await p.setViewportSize({ width: 1024, height: 700 }); await expect(p.locator('.panel-dock')).toBeHidden();
+    await a.ctx.close();
+  });
 
   test('tablet: video first, the panel is a drawer that opens on demand, traps nothing, closes on Escape / scrim and returns focus', async ({ browser }) => {
     const a = await open(browser, 'Alice', undefined, TABLET); const p = a.page;

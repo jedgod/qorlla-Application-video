@@ -426,12 +426,34 @@ document.querySelector('.tabs').addEventListener('keydown',e=>{
   e.preventDefault();openTab(tabs[to].dataset.tab);tabs[to].focus();
 });
 openTab('chat');
-{ // resizable panel (desktop): drag or arrow keys
-  const r=$('panelResizer'),clamp=w=>Math.max(280,Math.min(560,Math.round(w)));
-  const apply=w=>{w=clamp(w);document.documentElement.style.setProperty('--panel-w',w+'px');r.setAttribute('aria-valuenow',String(w));return w;};
-  apply(Number(lsGet('qorlla-panel-w','340'))||340);
-  r.addEventListener('pointerdown',e=>{r.setPointerCapture(e.pointerId);const mv=ev=>apply(innerWidth-ev.clientX),up=()=>{r.removeEventListener('pointermove',mv);r.removeEventListener('pointerup',up);lsSet('qorlla-panel-w',r.getAttribute('aria-valuenow'));};r.addEventListener('pointermove',mv);r.addEventListener('pointerup',up);});
-  r.addEventListener('keydown',e=>{const cur=Number(r.getAttribute('aria-valuenow')),to={ArrowLeft:cur+20,ArrowRight:cur-20,Home:280,End:560}[e.key];if(to===undefined)return;e.preventDefault();lsSet('qorlla-panel-w',String(apply(to)));});
+{ // panel position (dock) and size, lockable; desktop only (tablet and mobile keep the drawer / bottom sheet)
+  const r=$('panelResizer'),app=$('app'),root=document.documentElement.style;
+  const dock=()=>app.dataset.panelDock||'right',horizontal=()=>dock()==='top'||dock()==='bottom';
+  const lim=()=>horizontal()?[140,Math.round(innerHeight*0.6)]:[280,560];
+  const apply=n=>{const [lo,hi]=lim();n=Math.max(lo,Math.min(hi,Math.round(n)));root.setProperty(horizontal()?'--panel-h':'--panel-w',n+'px');r.setAttribute('aria-valuemin',String(lo));r.setAttribute('aria-valuemax',String(hi));r.setAttribute('aria-valuenow',String(n));return n;};
+  const sizeKey=()=>horizontal()?'qorlla-panel-h':'qorlla-panel-w';
+  function setLocked(on){app.dataset.locked=String(on);const b=$('panelLock');b.setAttribute('aria-pressed',String(on));b.textContent=on?'🔒 Locked':'🔓 Unlocked';b.title=on?'Unlock to move or resize the panel':'Lock the panel so it cannot be moved or resized';
+    document.querySelectorAll('[data-dock],#dockGrip').forEach(x=>x.disabled=on);r.tabIndex=on?-1:0;r.setAttribute('aria-disabled',String(on));lsSet('qorlla-panel-locked',String(on));if(!app.classList.contains('hidden'))announce(on?'Panel locked in place':'Panel unlocked');}
+  function setDock(d,{announceIt=true}={}){app.dataset.panelDock=d;r.setAttribute('aria-orientation',horizontal()?'horizontal':'vertical');
+    document.querySelectorAll('[data-dock]').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.dock===d)));
+    apply(Number(lsGet(sizeKey(),horizontal()?'240':'340'))||(horizontal()?240:340));lsSet('qorlla-panel-dock',d);if(announceIt)announce('Panel docked '+d);}
+  document.querySelectorAll('[data-dock]').forEach(b=>b.addEventListener('click',()=>{if(app.dataset.locked!=='true')setDock(b.dataset.dock);}));
+  $('panelLock').addEventListener('click',()=>setLocked(app.dataset.locked!=='true'));
+  // drag the grip: drop on the nearest side (left / right quarter, otherwise top or bottom half)
+  const zone=rcEl('div','dock-zone');document.body.append(zone);
+  const pick=(x,y)=>x<innerWidth*0.25?'left':x>innerWidth*0.75?'right':y<innerHeight/2?'top':'bottom';
+  const show=d=>{const W=innerWidth,Hh=innerHeight;const box={left:[0,56,W*0.3,Hh-120],right:[W*0.7,56,W*0.3,Hh-120],top:[0,56,W,Hh*0.3],bottom:[0,Hh*0.65,W,Hh*0.3]}[d];Object.assign(zone.style,{display:'block',left:box[0]+'px',top:box[1]+'px',width:box[2]+'px',height:box[3]+'px'});};
+  $('dockGrip').addEventListener('pointerdown',e=>{if(app.dataset.locked==='true'||e.button!==0)return;const g=$('dockGrip');g.setPointerCapture(e.pointerId);app.classList.add('dragging-panel');
+    const mv=ev=>show(pick(ev.clientX,ev.clientY)),up=ev=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);g.removeEventListener('pointercancel',up);app.classList.remove('dragging-panel');zone.style.display='none';if(ev.type==='pointerup')setDock(pick(ev.clientX,ev.clientY));};
+    g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);g.addEventListener('pointercancel',up);show(pick(e.clientX,e.clientY));});
+  r.addEventListener('pointerdown',e=>{if(app.dataset.locked==='true')return;r.setPointerCapture(e.pointerId);
+    const val=ev=>{const d=dock();return d==='right'?innerWidth-ev.clientX:d==='left'?ev.clientX:d==='bottom'?innerHeight-64-ev.clientY:ev.clientY-56;};
+    const mv=ev=>apply(val(ev)),up=()=>{r.removeEventListener('pointermove',mv);r.removeEventListener('pointerup',up);lsSet(sizeKey(),r.getAttribute('aria-valuenow'));};r.addEventListener('pointermove',mv);r.addEventListener('pointerup',up);});
+  r.addEventListener('keydown',e=>{if(app.dataset.locked==='true')return;const cur=Number(r.getAttribute('aria-valuenow')),d=dock();
+    const grow={right:'ArrowLeft',left:'ArrowRight',top:'ArrowDown',bottom:'ArrowUp'}[d],shrink={right:'ArrowRight',left:'ArrowLeft',top:'ArrowUp',bottom:'ArrowDown'}[d];
+    const to=e.key===grow?cur+20:e.key===shrink?cur-20:e.key==='Home'?lim()[0]:e.key==='End'?lim()[1]:undefined;if(to===undefined)return;e.preventDefault();lsSet(sizeKey(),String(apply(to)));});
+  setDock(['left','right','top','bottom'].includes(lsGet('qorlla-panel-dock','right'))?lsGet('qorlla-panel-dock','right'):'right',{announceIt:false});
+  setLocked(lsGet('qorlla-panel-locked','false')==='true');
 }
 const defaultPanel=()=>setPanel(mqDesktop.matches,{focus:false});
 mqDesktop.addEventListener('change',defaultPanel);defaultPanel();

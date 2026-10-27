@@ -50,3 +50,26 @@
   .stage-top{flex-wrap:wrap}
 }
 @media(prefers-reduced-motion:reduce){.panel{transition:none}}
+
+/* ---- dockable panel (desktop): left / right / top / bottom, with a lock ---- */
+.panel-dock{display:none}
+@media(min-width:1200px){
+  :root{--panel-h:240px}
+  .header{grid-column:1/-1;grid-row:1}.controls{grid-column:1/-1}
+  .panel-dock{display:flex;gap:4px;align-items:center;padding:6px 8px;border-bottom:1px solid #30384a;flex:none}
+  .panel-dock button{font:inherit;font-size:12px;padding:3px 8px;min-width:28px}.panel-dock button[aria-pressed=true]{background:#1d4ed8;border-color:#3b82f6;color:#fff}
+  .panel-dock .dock-lock{margin-left:auto}.dock-grip{cursor:grab}.panel-dock button:disabled{opacity:.45;cursor:not-allowed}
+  .app[data-panel-dock=right] .stage{grid-column:1;grid-row:2}.app[data-panel-dock=right] .panel{grid-column:2;grid-row:2}
+  .app[data-panel-dock=left]{grid-template-columns:var(--panel-w) minmax(0,1fr)}.app[data-panel-dock=left]:not(.panel-open){grid-template-columns:0 minmax(0,1fr)}
+  .app[data-panel-dock=left] .stage{grid-column:2;grid-row:2}.app[data-panel-dock=left] .panel{grid-column:1;grid-row:2;border-left:0;border-right:1px solid #30384a}.app[data-panel-dock=left] .panel-resizer{left:auto;right:-4px}
+  .app[data-panel-dock=top],.app[data-panel-dock=bottom]{grid-template-columns:minmax(0,1fr)}
+  .app[data-panel-dock=top]{grid-template-rows:56px var(--panel-h) minmax(0,1fr) 64px}.app[data-panel-dock=top]:not(.panel-open){grid-template-rows:56px 0 minmax(0,1fr) 64px}
+  .app[data-panel-dock=bottom]{grid-template-rows:56px minmax(0,1fr) var(--panel-h) 64px}.app[data-panel-dock=bottom]:not(.panel-open){grid-template-rows:56px minmax(0,1fr) 0 64px}
+  .app[data-panel-dock=top] .panel{grid-column:1;grid-row:2;border-left:0;border-bottom:1px solid #30384a}.app[data-panel-dock=top] .stage{grid-column:1;grid-row:3}
+  .app[data-panel-dock=bottom] .stage{grid-column:1;grid-row:2}.app[data-panel-dock=bottom] .panel{grid-column:1;grid-row:3;border-left:0;border-top:1px solid #30384a}
+  .app[data-panel-dock=top] .panel-resizer,.app[data-panel-dock=bottom] .panel-resizer{left:0;right:0;width:auto;height:8px;cursor:row-resize}
+  .app[data-panel-dock=top] .panel-resizer{top:auto;bottom:-4px}.app[data-panel-dock=bottom] .panel-resizer{top:-4px;bottom:auto}
+  .app[data-locked=true] .panel-resizer{cursor:default;pointer-events:none}
+  .app.dragging-panel{cursor:grabbing;user-select:none}
+  .dock-zone{position:fixed;z-index:60;background:#3b82f633;border:2px dashed #65a5ff;pointer-events:none;display:none}
+}
