@@ -276,7 +276,7 @@
   .qp-logo { width: 48px; height: 48px; display: grid; place-items: center; background: var(--qp-blue); color: #fff; font-size: 30px; border-radius: 16px; }
   .qp-help { background: #eef4ff; border: 1px solid #cfdcff; border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; }
   .qp-tabs { display: flex; margin-bottom: 16px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 12px; overflow-x: auto; padding: 3px; gap: 3px; } .qp-tabs button { flex: 1; border: 0; background: transparent; padding: 8px 12px; border-radius: 10px; font: inherit; font-weight: 600; color: #334155; cursor: pointer; white-space: nowrap; } .qp-tabs button[aria-selected=true] { background: var(--qp-blue); color: #fff; } .qp-tabs button:focus-visible { outline: 3px solid #93b4ff; outline-offset: 1px; }
-  .qp-grid { max-width: 540px; margin: 0 auto; }
+  .qp-grid { display: grid; grid-template-columns: minmax(300px, 430px) minmax(260px, 1fr); gap: 14px; align-items: start; justify-content: start; } .qp-grid > .qp-card { margin: 0; } .qp-list h2 { margin: 0 0 4px; } .qp-sub { font-size: 13px; } .qp-items { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; } .qp-item { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid #e2e8f0; background: #fff; border-radius: 10px; padding: 9px 12px; font: inherit; cursor: pointer; text-align: left; } .qp-item:hover { background: #eef4ff; border-color: #cfdcff; } .qp-item:focus-visible { outline: 3px solid #93b4ff; } .qp-recent-num strong { font-size: 16px; letter-spacing: .5px; } .qp-list .ph-meeting { padding: 0; margin: 0 0 6px; } .qp-dl { margin: 10px 0; } .qp-dl div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid #eef2f7; } .qp-dl dt { color: #64748b; } .qp-dl dd { margin: 0; font-weight: 600; text-align: right; } .qp-call-row[aria-pressed=true] { background: #eef4ff; }
   .qp-card { min-width: 0; padding: 18px; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; } .qp-card h2 { margin: 0 0 2px; font-size: 18px; } .qp-card h3 { margin: 14px 0 6px; font-size: 15px; } .qp-right { display: grid; gap: 12px; min-width: 0; }
   .qp-card select, .qp-card input[type=text], .qp-card input[type=tel], .qp-card input[type=password], .qp-card input[type=search] { width: 100%; box-sizing: border-box; height: 42px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0 12px; font: inherit; background: #fff; margin-top: 6px; }
   .qp-numin { position: relative; } .qp-numin input { padding-right: 40px; } .qp-x { position: absolute; right: 8px; top: 12px; width: 28px; height: 28px; border: 0; border-radius: 50%; background: transparent; cursor: pointer; font-size: 18px; color: #64748b; } .qp-x:focus-visible, .qp-copy:focus-visible, .qp-more:focus-visible, .qp-link:focus-visible { outline: 3px solid #93b4ff; }
@@ -292,7 +292,7 @@
   .qp-filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 4px; } .qp-filters button { border: 0; background: #f1f5f9; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; } .qp-filters button[aria-pressed=true] { background: var(--qp-blue); color: #fff; } .qp-filters button:focus-visible { outline: 3px solid #93b4ff; }
   .qp-calls { margin: 6px 0 10px; } .qp-call-row { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-bottom: 1px solid #eef2f7; background: transparent; padding: 10px 0; text-align: left; font: inherit; cursor: pointer; } .qp-call-row:hover { background: #f8fafc; } .qp-ctext { flex: 1; min-width: 0; display: flex; flex-direction: column; } .qp-ctext strong, .qp-ctext small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .qp-ctime { display: flex; flex-direction: column; text-align: right; font-size: 13px; }
   @media (max-height: 800px) { .qp-sub { display: none; } .qp-card { padding: 10px 14px; } .qp-card select, .qp-card input[type=tel] { height: 34px; margin-top: 4px; } .qp-key small { display: none; } .qp-card .qp-hint { min-height: 0; margin: 0 2px; } .qp-keys { margin: 2px 0; gap: 4px 12px; } .qp-lbl { margin-top: 4px !important; } } .qp-alt { max-width: 640px; margin: 0 auto; } .qp-alt .qp-card { margin: 10px 0; }
-  @media (max-width: 1180px) { .qp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .qp-right { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+  @media (max-width: 900px) { .qp-grid { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 760px) { .qp-grid, .qp-right { grid-template-columns: minmax(0, 1fr); } .qp-right { grid-column: auto; } .qp-title h1 { font-size: 24px; } .qp-head { flex-direction: column; align-items: stretch; } }
   @media (max-width: 360px) { .qp-keys { grid-template-columns: repeat(3, 64px); gap: 8px 12px; } .qp-key, .qp-call { width: 64px; height: 64px; } }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
@@ -2156,11 +2156,12 @@
     function select(t) {
       cur = t; Array.prototype.forEach.call(bar.children, function (b) { var on = b.dataset.tab === t; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       var main = t === 'dial' || t === 'join' || t === 'recent'; grid.classList.toggle('hidden', !main); alt.classList.toggle('hidden', main);
-      if (main) { [dialCard, joinCard, recentCard].forEach(function (c) { c.classList.toggle('hidden', c !== { dial: dialCard, join: joinCard, recent: recentCard }[t]); }); return; }
+      if (main) { var pair = { dial: [dialCard, dialList], join: [joinCard, joinList], recent: [recentCard, recentDetail] }[t]; [dialCard, dialList, joinCard, joinList, recentCard, recentDetail].forEach(function (c) { c.classList.toggle('hidden', pair.indexOf(c) < 0); }); return; }
       alt.setAttribute('aria-labelledby', 'phTab-' + t); alt.textContent = ''; (t === 'contacts' ? contactsPanel : settingsPanel)();
     }
     var copyIcon = function (text, label) { return h('button', { class: 'qp-copy', type: 'button', 'aria-label': label, title: label, text: '⧉', onclick: function () { copyPlain(text, I18n.t('Number copied')); } }); };
     // ---- 1. Make a call
+    var dialList = h('section', { class: 'qp-card qp-list', id: 'qpRecentNums', 'aria-labelledby': 'qpRNH' }), joinList = h('section', { class: 'qp-card qp-list', id: 'qpMeetings', 'aria-labelledby': 'qpMineH' }), recentDetail = h('section', { class: 'qp-card qp-list', id: 'qpCallDetail', 'aria-labelledby': 'qpCDH', 'aria-live': 'polite' });
     var dialCard = h('section', { class: 'qp-card', id: 'dial-pad', 'aria-labelledby': 'qpDialH' });
     (function () {
       var sel = h('select', { id: 'qpDialCountry', 'aria-label': I18n.t('Country') }, COUNTRIES.map(function (c) { return h('option', { value: c[0], text: c[0] + ' +' + c[1] + ' ' + c[3] }); }));
@@ -2180,9 +2181,10 @@
         var b = h('button', { type: 'button', class: 'qp-key ph-key', 'data-key': k[0], 'aria-label': k[0] === '*' ? 'star' : k[0] === '#' ? 'pound' : k[0] }, [h('strong', { text: k[0] }), h('small', { text: k[1] })]);
         b.addEventListener('click', function () { set(num + k[0]); }); keys.appendChild(b); });
       input.addEventListener('input', function () { set(input.value.replace(/[^0-9*#+ ()-]/g, '')); }); sel.addEventListener('change', paint); del.addEventListener('click', function () { set(num.slice(0, -1)); });
-      copy.addEventListener('click', function () { if (num) copyPlain(num, I18n.t('Number copied')); });
-      call.addEventListener('click', function () { var n = e164(); if (!n) return; phoneApi('/api/phone/calls', { method: 'POST', body: { to: n } }).catch(function (e) { toast(e.message, 'err'); }); });
-      dialCard._keys = function (e) { if (/^[0-9*#]$/.test(e.key)) { e.preventDefault(); set(num + e.key); } else if (e.key === 'Backspace') { e.preventDefault(); set(num.slice(0, -1)); } };
+      copy.addEventListener('click', function () { if (num) { copyPlain(num, I18n.t('Number copied')); dialList._add(num); } });
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter' && num) { e.preventDefault(); dialList._add(num); } });
+      call.addEventListener('click', function () { var n = e164(); if (!n) return; dialList._add(n); phoneApi('/api/phone/calls', { method: 'POST', body: { to: n } }).catch(function (e) { toast(e.message, 'err'); }); });
+      dialCard._set = set; dialCard._keys = function (e) { if (/^[0-9*#]$/.test(e.key)) { e.preventDefault(); set(num + e.key); } else if (e.key === 'Backspace') { e.preventDefault(); set(num.slice(0, -1)); } };
       dialCard.appendChild(h('h2', { id: 'qpDialH', text: I18n.t('Make a call') })); dialCard.appendChild(h('p', { class: 'muted qp-sub', text: I18n.t('Enter a phone number to call') }));
       dialCard.appendChild(sel); dialCard.appendChild(h('div', { class: 'qp-numin' }, [input, clear])); dialCard.appendChild(hint); dialCard.appendChild(keys);
       dialCard.appendChild(h('div', { class: 'qp-callrow' }, [h('span', {}), call, del])); dialCard.appendChild(h('div', { class: 'row qp-center' }, [copy])); dialCard.appendChild(note);
@@ -2191,6 +2193,22 @@
       paint();
     })();
     root.addEventListener('keydown', function (e) { if (cur === 'dial' && !/INPUT|TEXTAREA|SELECT|BUTTON/.test((e.target || {}).tagName || '') && dialCard._keys) dialCard._keys(e); else if (cur === 'dial' && e.target && e.target.className && /ph-key/.test(e.target.className) && /^[0-9*#]$/.test(e.key)) dialCard._keys(e); });
+    // ---- right of Dial Pad: numbers entered here (kept in this browser only; no call is placed without a provider)
+    (function () {
+      var KEY = 'qp_recent_numbers', box = h('div', { class: 'qp-items' }), clr = h('button', { class: 'qp-link', type: 'button', text: I18n.t('Clear') });
+      function load() { try { var v = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(v) ? v.filter(function (x) { return typeof x === 'string' && /^[0-9*#+ ()-]{1,24}$/.test(x); }).slice(0, 10) : []; } catch (e) { return []; } }
+      function save(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* private mode: the list lasts until reload */ } }
+      var items = load();
+      function paint() {
+        box.textContent = ''; clr.classList.toggle('hidden', !items.length);
+        if (!items.length) return box.appendChild(h('p', { class: 'muted', id: 'qpNoRecentNums', text: I18n.t('No numbers yet. Numbers you copy or submit with Enter appear here.') }));
+        items.forEach(function (n) { box.appendChild(h('button', { type: 'button', class: 'qp-item qp-recent-num', 'aria-label': I18n.t('Use number') + ' ' + n, onclick: function () { dialCard._set(n); var i = document.getElementById('qpDialNumber'); if (i) i.focus(); } }, [h('span', { class: 'qp-ph', 'aria-hidden': 'true', text: '\u260E' }), h('strong', { text: n })])); });
+      }
+      dialList._add = function (n) { items = [n].concat(items.filter(function (x) { return x !== n; })).slice(0, 10); save(items); paint(); };
+      clr.addEventListener('click', function () { items = []; save(items); paint(); });
+      dialList.appendChild(h('div', { class: 'qp-jhead' }, [h('h2', { id: 'qpRNH', text: I18n.t('Recent numbers') }), clr]));
+      dialList.appendChild(h('p', { class: 'muted qp-sub', text: I18n.t('Click a number to put it back on the dial pad. Calls are not connected yet, so these are numbers you entered, kept on this device only.') })); dialList.appendChild(box); paint();
+    })();
     // ---- 2. Join a Qorlla meeting by phone
     var joinCard = h('section', { class: 'qp-card', id: 'join-by-phone', 'aria-labelledby': 'qpJoinH' });
     (function () {
@@ -2226,7 +2244,7 @@
       joinCard.appendChild(h('h3', { text: '2. ' + I18n.t('Enter meeting details') })); joinCard.appendChild(h('label', { class: 'qp-lbl', for: 'phone-meeting-id', text: I18n.t('Meeting ID (11 digits)') })); joinCard.appendChild(idIn); joinCard.appendChild(idErr);
       joinCard.appendChild(h('label', { class: 'qp-lbl', for: 'phone-pin', text: I18n.t('Telephone access PIN') })); joinCard.appendChild(h('div', { class: 'qp-numin' }, [pinIn, eye])); joinCard.appendChild(h('small', { class: 'muted', text: I18n.t('You type the PIN on your phone. This box is only a reminder: it is never sent or stored.') }));
       joinCard.appendChild(go); joinCard.appendChild(how);
-      var mine = h('details', { class: 'qp-host' }, [h('summary', { text: I18n.t('Host: phone access for your meetings') })]), mineList = h('div', {}, I18n.t('Loading…')); mine.appendChild(mineList); joinCard.appendChild(mine);
+      var mineList = h('div', { class: 'qp-items' }, I18n.t('Loading…')); joinList.appendChild(h('h2', { id: 'qpMineH', text: I18n.t('Your meetings') })); joinList.appendChild(h('p', { class: 'muted qp-sub', text: I18n.t('Click a meeting to fill in its Meeting ID. As the host you can also create its phone PIN here.') })); joinList.appendChild(mineList);
       getInfo().then(function () {
         var seen = {}; (info.numbers || []).forEach(function (n) { seen[n.country] = 1; }); var cs = Object.keys(seen);
         if (!cs.length) { countrySel.appendChild(h('option', { text: I18n.t('No dial-in numbers provisioned') })); countrySel.disabled = true; } else cs.forEach(function (c) { countrySel.appendChild(h('option', { value: c, text: c })); });
@@ -2246,7 +2264,8 @@
             }).catch(function (e) { out.classList.remove('hidden'); out.textContent = e.message; }).then(function () { make.disabled = false; });
           } });
           var revoke = h('button', { class: 'btn small', type: 'button', text: I18n.t('Revoke PIN'), onclick: function () { phoneApi('/api/meetings/' + encodeURIComponent(id) + '/phone-access', { method: 'DELETE' }).then(function () { out.classList.remove('hidden'); out.textContent = I18n.t('The PIN was revoked and callers were disconnected.'); }).catch(fail); } });
-          mineList.appendChild(h('div', { class: 'ph-meeting' }, [h('div', {}, [h('strong', { text: s.title }), h('div', { class: 'muted', text: 'ID ' + id })]), h('div', { class: 'row' }, [make, revoke]), out]));
+          var pick = h('button', { type: 'button', class: 'qp-item qp-pick', 'aria-label': I18n.t('Fill in meeting') + ' ' + s.title + ', ID ' + id, onclick: function () { idIn.value = String(id).replace(/[^0-9]/g, ''); idIn.dispatchEvent(new Event('input')); idIn.focus(); } }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '\uD83D\uDC65' }), h('span', { class: 'qp-ctext' }, [h('strong', { text: s.title }), h('small', { class: 'muted', text: fmt(String(id).replace(/[^0-9]/g, '')) + (s.date ? ' \u00B7 ' + s.date + (s.time ? ' ' + s.time : '') : '') })])]);
+          mineList.appendChild(h('div', { class: 'ph-meeting' }, [pick, h('div', { class: 'row' }, [make, revoke]), out]));
         });
       }).catch(function (e) { mineList.textContent = e.message; });
     })();
@@ -2277,15 +2296,21 @@
           var st = c.status === 'connected' ? I18n.t('Connected') : c.status === 'waiting' ? I18n.t('Waiting room') : c.status === 'ended' ? I18n.t('Completed') : c.status === 'denied' ? I18n.t('Not admitted') : c.status === 'removed' ? I18n.t('Removed by host') : c.status;
           var when = c.joinedAt ? new Date(c.joinedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
           var row = h('button', { type: 'button', class: 'qp-call-row', 'aria-label': c.title + ', ' + c.name + ', ' + st }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '👥' }), h('span', { class: 'qp-ctext' }, [h('strong', { text: c.title }), h('small', { class: 'muted', text: c.name + ' · ' + st + (c.muted ? ', ' + I18n.t('muted') : '') })]), h('span', { class: 'qp-ctime' }, [h('span', { text: when }), h('small', { class: 'muted', text: c.seconds ? fmtDur(c.seconds) : '—' })])]);
-          row.addEventListener('click', function () { show('history'); }); list.appendChild(row);
+          row.addEventListener('click', function () { Array.prototype.forEach.call(list.children, function (x) { x.setAttribute('aria-pressed', 'false'); }); row.setAttribute('aria-pressed', 'true'); detail(c, st, when); }); list.appendChild(row);
         });
       }
+      function detail(c, st, when) {
+        recentDetail.textContent = ''; recentDetail.appendChild(h('h2', { id: 'qpCDH', text: c.title })); var rows = [[I18n.t('Meeting ID'), c.meetingId], [I18n.t('Caller'), c.name], [I18n.t('Status'), st + (c.muted ? ', ' + I18n.t('muted') : '')], [I18n.t('When'), when], [I18n.t('Duration'), c.seconds ? fmtDur(c.seconds) : '\u2014']];
+        recentDetail.appendChild(h('dl', { class: 'qp-dl' }, rows.map(function (r) { return h('div', {}, [h('dt', { text: r[0] }), h('dd', { text: String(r[1] == null ? '\u2014' : r[1]) })]); })));
+        recentDetail.appendChild(h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Open in History'), onclick: function () { show('history'); } }));
+      }
+      recentDetail.appendChild(h('h2', { id: 'qpCDH', text: I18n.t('Call details') })); recentDetail.appendChild(h('p', { class: 'muted', id: 'qpNoDetail', text: I18n.t('Select a call on the left to see who called, when, how long, and open the meeting in History.') }));
       viewAll._all = false;
       recentCard.appendChild(h('div', { class: 'qp-jhead' }, [h('span', { class: 'qp-ico', 'aria-hidden': 'true', text: '🕒' }), h('h2', { id: 'qpRecH', text: I18n.t('Recent Calls') }), viewAll]));
       recentCard.appendChild(fb); recentCard.appendChild(search); recentCard.appendChild(list); recentCard.appendChild(openHist);
       getCalls().then(paint).catch(function (e) { list.textContent = e.message; });
     })();
-    grid.appendChild(dialCard); grid.appendChild(joinCard); grid.appendChild(recentCard); select('dial');
+    [dialCard, dialList, joinCard, joinList, recentCard, recentDetail].forEach(function (c) { grid.appendChild(c); }); select('dial');
     // ---- Contacts and Numbers & Plans open as full-width panels
     function contactsPanel() { alt.appendChild(h('h2', { text: I18n.t('Contacts') })); alt.appendChild(h('p', { class: 'muted', id: 'phContacts', text: I18n.t('Contacts are not available yet. Saved contacts and Qorlla participants will appear here once they are built.') })); }
     function settingsPanel() {
