@@ -297,7 +297,7 @@ async function doStart(meeting, user, b, req) {
         const session = await meetLaunch.join(link, { name, host: true });
         meeting.viaMeet = true; hist.recordAccount(meeting, user.id); saveSnapshotSoon();
         const ret = String(b.returnUrl || '');
-        return { status: 200, body: { mode: 'meet', settings, url: meetLaunch.url(pub, session, { mic: b.mic !== false, camera: b.camera !== false, returnUrl: /^https?:\/\//.test(ret) ? ret : '', prefs: { camLabel: b.camLabel, micLabel: b.micLabel, spkLabel: b.spkLabel } }) } };
+        return { status: 200, body: { mode: 'meet', settings, url: meetLaunch.url(pub, session, { mic: b.mic !== false, camera: b.camera !== false, returnUrl: /^https?:\/\//.test(ret) ? ret : '', prefs: { camLabel: b.camLabel, micLabel: b.micLabel, spkLabel: b.spkLabel, res: b.res } }) } };
     } catch (e) { console.warn('[Meet start] ' + e.message); return unavailable('meet_unavailable', e.message); }
 }
 for (const base of ['/api/meetings', '/api/v1/meetings']) {

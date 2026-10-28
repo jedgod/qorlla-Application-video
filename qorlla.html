@@ -261,6 +261,8 @@
   dialog.sd select.sd-prevlab { position: absolute; left: 8px; bottom: 8px; width: auto; min-width: 0; max-width: calc(100% - 64px); height: 30px; box-sizing: border-box; padding: 0 22px 0 10px; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; color: #fff; background-color: rgba(15,23,42,.82); border: 1px solid rgba(255,255,255,.35); border-radius: 8px; }
   dialog.sd select.sd-prevlab option { color: #0f172a; background: #fff; }
   @media (max-height: 740px) and (min-width: 851px) { dialog.sd select.sd-prevlab { max-width: calc(100% - 100px); } }
+  dialog.sd .sd-prevcard { position: relative; } dialog.sd .sd-cammenu { position: fixed; z-index: 5; width: min(250px, calc(100% - 20px)); background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(15,23,42,.28); padding: 10px 12px; display: flex; flex-direction: column; gap: 5px; }
+  dialog.sd .sd-cammenu.hidden { display: none; } dialog.sd .sd-cammenu h4 { margin: 0 0 2px; font-size: 13px; } dialog.sd .sd-cammenu select { width: 100%; } dialog.sd .sd-check { display: flex; gap: 6px; align-items: center; font-size: 12px; margin-top: 2px; } dialog.sd .sd-cammenu .chip { align-self: flex-end; }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 21px; margin-bottom: 4px; letter-spacing: -.4px; }
   dialog .sub { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
@@ -731,9 +733,17 @@
         <p class="sd-s hint">Share this link with the people you want to invite.</p>
       </div>
       <div class="sd-right">
-        <section aria-labelledby="sdPrevH" class="sd-card">
+        <section aria-labelledby="sdPrevH" class="sd-card sd-prevcard">
           <h3 id="sdPrevH">Camera preview</h3>
-          <div class="sd-prev"><video id="sdVideo" autoplay muted playsinline hidden aria-label="Camera preview"></video><p id="sdPrevHint">Your camera and microphone stay off until you choose to test them.</p><select class="sd-prevlab" id="sdPrevCam" aria-label="Camera used for the preview"><option value="">Camera preview</option></select><div class="sd-prevbtns"><button type="button" id="sdSnap" aria-label="Take a snapshot" title="Take a snapshot" disabled><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button><button type="button" id="sdPrevSet" aria-label="Choose camera and microphone" title="Choose camera and microphone"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.6 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.6-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/></svg></button></div></div>
+          <div class="sd-prev"><video id="sdVideo" autoplay muted playsinline hidden aria-label="Camera preview"></video><p id="sdPrevHint">Your camera and microphone stay off until you choose to test them.</p><select class="sd-prevlab" id="sdPrevCam" aria-label="Camera used for the preview"><option value="">Camera preview</option></select><div class="sd-prevbtns"><button type="button" id="sdSnap" aria-label="Take a snapshot" title="Take a snapshot" disabled><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button><button type="button" id="sdPrevSet" aria-label="Camera settings" title="Camera settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="sdCamMenu"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.6 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.6-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/></svg></button></div></div>
+          <div class="sd-cammenu hidden" id="sdCamMenu" role="dialog" aria-label="Camera settings">
+            <h4>Camera settings</h4>
+            <label class="f" for="sdMenuCam">Camera</label><select id="sdMenuCam"><option value="">Test your devices to choose</option></select>
+            <label class="f" for="sdRes">Video quality</label><select id="sdRes"><option value="">Automatic</option><option value="720">High (720p)</option><option value="480">Standard (480p)</option><option value="360">Low (360p, saves data)</option></select>
+            <label class="sd-check"><input type="checkbox" id="sdMirror"> Mirror my preview</label>
+            <p class="hint" id="sdCamInfo">Camera is off. Press Test microphone and camera.</p>
+            <button type="button" class="chip" id="sdCamMenuClose">Done</button>
+          </div>
           <button type="button" class="chip" id="sdTest">Test microphone and camera</button>
         </section>
         <section aria-labelledby="sdDevH" class="sd-card">
@@ -989,7 +999,7 @@
   $('sdPassGen').addEventListener('click', function () { $('sdPass').value = newPassword(); $('sdPass').type = 'text'; $('sdPassToggle').textContent = 'Hide'; $('sdPassToggle').setAttribute('aria-pressed', 'true'); $('sdRemovePass').checked = false; });
   $('sdClose').addEventListener('click', function () { $('startDialog').close(); });
   $('sdCancel').addEventListener('click', function () { $('startDialog').close(); });
-  $('startDialog').addEventListener('close', function () { stopPreview(); });
+  $('startDialog').addEventListener('close', function () { stopPreview(); $('sdCamMenu').classList.add('hidden'); $('sdPrevSet').setAttribute('aria-expanded', 'false'); });
 
   // ---- devices: nothing is opened until the person asks (the test button or the preview tick box) ----
   function resetDevices() {
@@ -1033,10 +1043,11 @@
     stopPreview(); var gen = sd.gen;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { netRow('cam', 'Not supported by this browser', 'bad'); netRow('mic', 'Not supported by this browser', 'bad'); return Promise.resolve(); }
     var cam = $('sdCamSel').value, mic = $('sdMicSel').value;
-    return navigator.mediaDevices.getUserMedia({ video: cam ? { deviceId: { exact: cam } } : true, audio: mic ? { deviceId: { exact: mic } } : true }).then(function (s) {
+    var res = camRes(), vc = res ? { height: { ideal: Number(res) }, width: { ideal: Math.round(Number(res) * 16 / 9) } } : {}; if (cam) vc.deviceId = { exact: cam };
+    return navigator.mediaDevices.getUserMedia({ video: Object.keys(vc).length ? vc : true, audio: mic ? { deviceId: { exact: mic } } : true }).then(function (s) {
       if (gen !== sd.gen || !$('startDialog').open) { s.getTracks().forEach(function (t) { t.stop(); }); return; }   // superseded or the screen was closed meanwhile: release at once
       sd.stream = s; var v = $('sdVideo'); v.srcObject = s; v.hidden = false; $('sdPrevHint').hidden = true;
-      netRow('cam', 'Working', 'ok'); netRow('mic', 'Working', 'ok'); $('sdSnap').disabled = false;
+      netRow('cam', 'Working', 'ok'); netRow('mic', 'Working', 'ok'); $('sdSnap').disabled = false; camInfo();
       try {
         sd.ctx = new (window.AudioContext || window.webkitAudioContext)(); var an = sd.ctx.createAnalyser(); sd.ctx.createMediaStreamSource(s).connect(an); var buf = new Uint8Array(an.frequencyBinCount);
         (function tick() { an.getByteFrequencyData(buf); var peak = 0; for (var i = 0; i < buf.length; i++) peak = Math.max(peak, buf[i]); $('sdMeter').style.width = Math.min(100, peak / 2.2) + '%'; sd.raf = requestAnimationFrame(tick); })();
@@ -1049,7 +1060,31 @@
     });
   }
   $('sdTest').addEventListener('click', function () { startPreview(); });
-  $('sdPrevSet').addEventListener('click', function () { $('sdCamSel').disabled ? startPreview() : $('sdCamSel').focus(); });
+  // ---- camera settings (the gear on the preview): camera, video quality, mirror; remembered, and the quality travels with you into the meeting ----
+  function camRes() { var r = store('zw_cam_res') || ''; return ['720', '480', '360'].indexOf(r) >= 0 ? r : ''; }
+  function camInfo() {
+    var t = sd.stream && sd.stream.getVideoTracks()[0], s = t && t.getSettings && t.getSettings();
+    $('sdCamInfo').textContent = s && s.width ? 'Now: ' + s.width + '\u00d7' + s.height + (s.frameRate ? ' \u00b7 ' + Math.round(s.frameRate) + ' fps' : '') + (t.label ? ' \u00b7 ' + t.label : '') : 'Camera is off. Press Test microphone and camera.';
+  }
+  function applyMirror() { $('sdVideo').style.transform = $('sdMirror').checked ? 'scaleX(-1)' : 'none'; }
+  function placeMenu() {                                                                       // beside the gear, always inside the dialog
+    var m = $('sdCamMenu'), g = $('sdPrevSet').getBoundingClientRect(), d = $('startDialog').getBoundingClientRect(), w = m.offsetWidth, hgt = m.offsetHeight;
+    var left = Math.min(Math.max(g.right - w, d.left + 8), d.right - w - 8), top = g.top - hgt - 8; if (top < d.top + 8) top = Math.min(g.bottom + 8, d.bottom - hgt - 8); top = Math.max(top, d.top + 8);
+    m.style.left = Math.round(left) + 'px'; m.style.top = Math.round(top) + 'px';
+  }
+  window.addEventListener('resize', function () { if (!$('sdCamMenu').classList.contains('hidden')) placeMenu(); });
+  function menuOpen(open) {
+    var m = $('sdCamMenu'); m.classList.toggle('hidden', !open); $('sdPrevSet').setAttribute('aria-expanded', String(open));
+    if (open) { $('sdMenuCam').innerHTML = $('sdCamSel').innerHTML; $('sdMenuCam').selectedIndex = $('sdCamSel').selectedIndex; $('sdMenuCam').disabled = $('sdCamSel').disabled; $('sdRes').value = camRes(); $('sdMirror').checked = store('zw_cam_mirror') === '1'; camInfo(); placeMenu(); $('sdMenuCam').focus(); }
+    else if (document.activeElement && m.contains(document.activeElement)) $('sdPrevSet').focus();
+  }
+  $('sdPrevSet').addEventListener('click', function () { menuOpen($('sdCamMenu').classList.contains('hidden')); });
+  $('sdCamMenuClose').addEventListener('click', function () { menuOpen(false); });
+  $('sdCamMenu').addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); menuOpen(false); } });
+  $('sdMenuCam').addEventListener('change', function () { var s = $('sdCamSel'); s.selectedIndex = this.selectedIndex; s.dispatchEvent(new Event('change')); });
+  $('sdRes').addEventListener('change', function () { store('zw_cam_res', this.value); if (sd.stream) startPreview(); else camInfo(); });
+  $('sdMirror').addEventListener('change', function () { store('zw_cam_mirror', this.checked ? '1' : '0'); applyMirror(); });
+  applyMirror(); $('sdMirror').checked = store('zw_cam_mirror') === '1'; applyMirror();
   $('sdSnap').addEventListener('click', function () { var vd = $('sdVideo'); if (!sd.stream || !vd.videoWidth) return; var c = document.createElement('canvas'); c.width = vd.videoWidth; c.height = vd.videoHeight; c.getContext('2d').drawImage(vd, 0, 0); var a = document.createElement('a'); a.href = c.toDataURL('image/png'); a.download = 'camera-preview.png'; document.body.appendChild(a); a.click(); a.remove(); toast('Snapshot saved', 'ok'); });
   $('sdPreview').addEventListener('change', function () { if (this.checked) startPreview(); else stopPreview(); });
   ['sdCamSel', 'sdMicSel'].forEach(function (id) { $(id).addEventListener('change', function () {
@@ -1078,7 +1113,7 @@
     var spkOpt = $('sdSpkSel').selectedOptions[0], spkLabel = spkOpt && $('sdSpkSel').value ? spkOpt.textContent : '';
     var camLabel = '', micLabel = ''; if (sd.stream) { var vt = sd.stream.getVideoTracks()[0], at = sd.stream.getAudioTracks()[0]; camLabel = vt ? vt.label : ''; micLabel = at ? at.label : ''; }
     var mic = $('sdMic').checked, cam = $('sdCam').checked, m = sd.m;
-    var body = { requestId: sd.requestId, name: name, title: title, topic: $('sdTopic').value.trim(), category: $('sdCategory').value, mic: mic, camera: cam, camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel, returnUrl: location.href.split('#')[0],
+    var body = { requestId: sd.requestId, name: name, title: title, topic: $('sdTopic').value.trim(), category: $('sdCategory').value, mic: mic, camera: cam, camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel, res: camRes(), returnUrl: location.href.split('#')[0],
       waitingRoom: $('sdWait').checked, joinBeforeHost: $('sdBefore').checked, lockAfterJoin: $('sdLock').checked };
     if (pw) body.password = pw; else if ($('sdRemovePass').checked) body.removePassword = true;
     stopPreview();                                                                          // release the camera and microphone so Meet can use them
@@ -1135,7 +1170,7 @@
     if (dg.length !== 11) { err.textContent = 'Enter the 11-digit meeting ID (spaces are fine).'; $('sdMid').focus(); return; }
     var fmt = dg.slice(0, 3) + ' ' + dg.slice(3, 7) + ' ' + dg.slice(7);
     stopPreview(); sd.busy = true; $('sdGo').disabled = true; $('sdGo').textContent = 'Joining…';
-    fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: fmt, displayName: name, passcode: pw || undefined, mic: mic, camera: cam, prefs: { camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel } }) })
+    fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: fmt, displayName: name, passcode: pw || undefined, mic: mic, camera: cam, prefs: { camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel, res: camRes() } }) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
       .then(function (r) {
         if (r.ok) { if (r.d.meet && r.d.meet.url) { window.location.href = r.d.meet.url; return; } p.meetingId = fmt; goBuiltin(p); return; }

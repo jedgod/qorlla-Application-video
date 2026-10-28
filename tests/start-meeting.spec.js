@@ -289,3 +289,26 @@ test('the camera-name picker stays inside the preview, clear of the snapshot and
     await ctx.close();
   }
 });
+
+test('camera settings (the gear): opens a menu with camera, video quality and mirror; they act on the preview, are remembered, and quality goes into the meeting', async ({ page, context }) => {
+  test.setTimeout(90000);
+  const { item } = await organiser(context, MAIN);
+  await page.addInitScript(() => { window.__gumv = []; const o = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getUserMedia = (c) => { window.__gumv.push(JSON.stringify(c.video)); return o(c); }; });
+  await openStart(page); const gear = page.locator('#sdPrevSet'), menu = page.locator('#sdCamMenu');
+  await expect(gear).toHaveAttribute('aria-haspopup', 'dialog'); await expect(gear).toHaveAttribute('aria-expanded', 'false'); await expect(menu).toBeHidden();
+  await gear.click(); await expect(menu).toBeVisible(); await expect(gear).toHaveAttribute('aria-expanded', 'true'); await expect(page.locator('#sdMenuCam')).toBeFocused(); await expect(page.locator('#sdCamInfo')).toContainText('Camera is off');
+  const m = await page.evaluate(() => { const a = document.getElementById('sdCamMenu').getBoundingClientRect(), d = document.getElementById('startDialog').getBoundingClientRect(); return a.left >= d.left && a.right <= d.right && a.top >= d.top && a.bottom <= d.bottom; }); expect(m).toBe(true);   // never spills out of the dialog
+  expect(await page.evaluate(() => window.__gumv.length)).toBe(0);                                  // opening the menu does not turn the camera on
+  await page.selectOption('#sdRes', '480'); await page.check('#sdMirror');
+  await page.keyboard.press('Escape'); await expect(menu).toBeHidden(); await expect(page.locator('#startDialog')).toBeVisible(); await expect(gear).toBeFocused();   // Escape closes the menu, not the dialog
+  await page.click('#sdTest'); await expect(page.locator('#sdVideo')).toBeVisible(); await expect(page.locator('#sdVideo')).toHaveCSS('transform', /matrix\(-1/); expect(await page.evaluate(() => window.__gumv.pop())).toContain('"height":{"ideal":480}');
+  await gear.click(); await expect(page.locator('#sdCamInfo')).toContainText('Now:'); await expect(page.locator('#sdCamInfo')).toContainText('×');
+  await page.selectOption('#sdRes', '720'); await expect.poll(() => page.evaluate(() => window.__gumv.length)).toBeGreaterThan(0); expect(await page.evaluate(() => window.__gumv.pop())).toContain('"ideal":720');
+  await page.click('#sdCamMenuClose'); await expect(menu).toBeHidden();
+  // remembered
+  await page.click('#sdCancel'); await openStart(page); await gear.click(); await expect(page.locator('#sdRes')).toHaveValue('720'); await expect(page.locator('#sdMirror')).toBeChecked(); await page.keyboard.press('Escape');
+  // goes into the meeting with you
+  const st = await context.request.post(MAIN + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/start', { data: { waitingRoom: false, res: '480', camLabel: 'x' } }); expect(st.status()).toBe(200);
+  const frag = new URL((await st.json()).url).hash.replace('#qs=', ''); const p = JSON.parse(Buffer.from(frag, 'base64url').toString()); expect(p.prefs.res).toBe('480');
+  const bad = await context.request.post(MAIN + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/start', { data: { waitingRoom: false, res: '9999', camLabel: 'x' } }); const p2 = JSON.parse(Buffer.from(new URL((await bad.json()).url).hash.replace('#qs=', ''), 'base64url').toString()); expect(p2.prefs.res).toBe('');
+});

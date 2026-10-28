@@ -140,7 +140,7 @@ const originalLeave=leave;
 // The handoff return destination is constrained to the same hostname.
 if(query.has('meeting'))$('meetingId').value=query.get('meeting');
 // Hand-off from Qorlla Workplace: the session arrives in the URL fragment (never sent to a server); take it and remove it from the address bar at once.
-{const m=/[#&]qs=([A-Za-z0-9_-]+)/.exec(location.hash||'');if(m){try{const p=JSON.parse(atob(m[1].replace(/-/g,'+').replace(/_/g,'/')));if(p&&p.token&&p.meetingId&&p.participantId){sessionStorage.setItem('qorlla-session',JSON.stringify({token:p.token,meetingId:p.meetingId,participantId:p.participantId}));if(p.prefs)sessionStorage.setItem('qorlla-prefs',JSON.stringify({camLabel:String(p.prefs.camLabel||'').slice(0,120),micLabel:String(p.prefs.micLabel||'').slice(0,120),spkLabel:String(p.prefs.spkLabel||'').slice(0,120)}));}}catch(e){/* ignore a malformed hand-off */}try{history.replaceState(null,'',location.pathname+location.search);}catch(e){/* ignore */}}}
+{const m=/[#&]qs=([A-Za-z0-9_-]+)/.exec(location.hash||'');if(m){try{const p=JSON.parse(atob(m[1].replace(/-/g,'+').replace(/_/g,'/')));if(p&&p.token&&p.meetingId&&p.participantId){sessionStorage.setItem('qorlla-session',JSON.stringify({token:p.token,meetingId:p.meetingId,participantId:p.participantId}));if(p.prefs)sessionStorage.setItem('qorlla-prefs',JSON.stringify({camLabel:String(p.prefs.camLabel||'').slice(0,120),micLabel:String(p.prefs.micLabel||'').slice(0,120),spkLabel:String(p.prefs.spkLabel||'').slice(0,120),res:['720','480','360'].includes(String(p.prefs.res))?String(p.prefs.res):''}));}}catch(e){/* ignore a malformed hand-off */}try{history.replaceState(null,'',location.pathname+location.search);}catch(e){/* ignore */}}}
 const cached=sessionStorage.getItem('qorlla-session');if(cached){try{startMeeting(JSON.parse(cached)).catch(e=>{sessionStorage.removeItem('qorlla-session');if(e&&/did not let you in/.test(e.message))error(e);});}catch{sessionStorage.removeItem('qorlla-session');}}
 
 // Qorlla main-page integration: prefill fields and honor initial device preferences.
@@ -570,6 +570,7 @@ async function applyDevicePrefs(){
   if(!prefs||!state.stream)return;
   try{
     const devs=await navigator.mediaDevices.enumerateDevices();
+    if(prefs.res){const vt=state.stream.getVideoTracks()[0];if(vt&&vt.applyConstraints)await vt.applyConstraints({height:{ideal:Number(prefs.res)},width:{ideal:Math.round(Number(prefs.res)*16/9)}}).catch(()=>{});}   // the video quality chosen on the start screen
     const spk=prefs.spkLabel?devs.find(d=>d.kind==='audiooutput'&&d.label===prefs.spkLabel):null;
     if(spk){state.sinkId=spk.deviceId;document.querySelectorAll('#videos video').forEach(v=>v.setSinkId&&v.setSinkId(spk.deviceId).catch(()=>{}));}      // the chosen speakers play the meeting
     const want=(kind,label)=>label?devs.find(d=>d.kind===kind&&d.label===label):null;

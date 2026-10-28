@@ -96,7 +96,7 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
         const q = new URLSearchParams({ mic: mic ? 'true' : 'false', camera: camera ? 'true' : 'false' });
         if (returnUrl) q.set('return', returnUrl);
         const payload = { token: session.token, meetingId: session.meetingId, participantId: session.participantId };
-        if (prefs && (prefs.camLabel || prefs.micLabel || prefs.spkLabel)) payload.prefs = { camLabel: String(prefs.camLabel || '').slice(0, 120), micLabel: String(prefs.micLabel || '').slice(0, 120), spkLabel: String(prefs.spkLabel || '').slice(0, 120) };
+        if (prefs && (prefs.camLabel || prefs.micLabel || prefs.spkLabel || prefs.res)) payload.prefs = { res: ['720', '480', '360'].includes(String(prefs.res)) ? String(prefs.res) : '', camLabel: String(prefs.camLabel || '').slice(0, 120), micLabel: String(prefs.micLabel || '').slice(0, 120), spkLabel: String(prefs.spkLabel || '').slice(0, 120) };
         return publicBase + '?' + q.toString() + '#qs=' + Buffer.from(JSON.stringify(payload)).toString('base64url');
     }
     /** Who was in the room and when, as Meet recorded it (names and times). null when this meeting is not registered with Meet or Meet cannot answer. */
