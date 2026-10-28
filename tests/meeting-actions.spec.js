@@ -143,8 +143,9 @@ test('on a phone the menu stays on screen and the actions are reachable', async 
 test.describe('starting and joining from Home', () => {
   test('a registered user clicks New meeting, presses Start, and is in a new meeting as host with an 11-digit ID', async ({ page, context }) => {
     await signedIn(context, 'nm'); await page.goto('/qorlla.html#home');
-    await page.locator('.action-btn[data-act="meet"]').click(); await expect(page.locator('#joinDialog[open]')).toBeVisible(); await page.click('#dlgGo');
-    await expect(page).toHaveURL(/\/index\.html\?start=new/); await expect(page.locator('#meetingBar')).toBeVisible();
+    await page.locator('.action-btn[data-act="meet"]').click(); await expect(page.locator('#startDialog')).toBeVisible(); await expect(page.locator('#sdPassNote')).not.toHaveText('Checking…'); await expect(page.locator('#sdId')).toHaveText(/^\d{3} \d{4} \d{4}$/); await expect(page.locator('#sdBadge')).toBeHidden(); await expect(page.locator('#sdTitleIn')).toHaveValue(/Stryker's meeting/);
+    await page.click('#sdGo');                                                                      // no Meet here: the basic room, as host
+    await expect(page).toHaveURL(/\/index\.html\?start=join/); await expect(page.locator('#meetingBar')).toBeVisible();
     const id = (await page.locator('#meetingIdLabel').textContent()).trim(); expect(id).toMatch(/^\d{3} \d{4} \d{4}$/); await expect(page.locator('#endCallBtn')).toHaveText('End for Everyone');
     expect((await context.request.get('/api/meetings/validate/' + encodeURIComponent(id))).status()).toBe(200);
     expect(page.url()).not.toContain(':3000');                                                          // never a guessed Meet port
@@ -159,11 +160,10 @@ test.describe('starting and joining from Home', () => {
     await host.close();
   });
 
-  test('when a Meet service IS configured, New meeting goes there instead (with the parameters Meet expects)', async ({ page, context }) => {
-    await signedIn(context, 'mc'); const seen = [];
-    await page.route('http://meet.test.invalid/**', (route) => { seen.push(route.request().url()); route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>meet service</h1>' }); });
-    await page.addInitScript(() => { try { localStorage.setItem('zw_meet_url', 'http://meet.test.invalid/'); } catch (e) { /* ignore */ } });
-    await page.goto('/qorlla.html#home'); await page.locator('.action-btn[data-act="meet"]').click(); await page.click('#dlgGo');
-    await expect(page.getByRole('heading', { name: 'meet service' })).toBeVisible(); const u = new URL(seen[0]); expect(u.searchParams.get('start')).toBe('new'); expect(u.searchParams.get('name')).toBe('Stryker'); expect(u.searchParams.get('return')).toContain('/qorlla.html');
+  test('New meeting reserves one room; cancelling and clicking again reuses it instead of piling up empty rooms', async ({ page, context }) => {
+    await signedIn(context, 'mc'); await page.goto('/qorlla.html#home');
+    await page.locator('.action-btn[data-act="meet"]').click(); await expect(page.locator('#startDialog')).toBeVisible(); await expect(page.locator('#sdPassNote')).not.toHaveText('Checking…'); const first = await page.locator('#sdId').textContent(); expect(first).toMatch(/^\d{3} \d{4} \d{4}$/);
+    await page.click('#sdCancel'); await page.locator('.action-btn[data-act="meet"]').click(); await expect(page.locator('#startDialog')).toBeVisible(); await expect(page.locator('#sdPassNote')).not.toHaveText('Checking…'); await expect(page.locator('#sdId')).toHaveText(first);
+    expect((await context.request.get('/api/meetings/validate/' + encodeURIComponent(first))).status()).toBe(200);
   });
 });

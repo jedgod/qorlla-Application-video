@@ -40,16 +40,17 @@ test.describe('New meeting in the browser', () => {
   test('with Meet running, New meeting opens Meet (the current video page), not the basic room', async ({ page, context }) => {
     const m = await stubMeet(); const app = await boot({ MEET_PROBE_URL: `http://127.0.0.1:${m.port}` });
     try {
-      await signUp(context, app.base); await page.goto(app.base + '/qorlla.html#home'); await page.locator('.action-btn[data-act="meet"]').click(); await page.click('#dlgGo');
-      await expect(page.getByRole('heading', { name: 'stub meet' })).toBeVisible(); const u = new URL(page.url()); expect(u.port).toBe(String(m.port)); expect(u.searchParams.get('start')).toBe('new'); expect(u.searchParams.get('name')).toBe('Stryker');
+      await signUp(context, app.base); await page.goto(app.base + '/qorlla.html#home'); await page.locator('.action-btn[data-act="meet"]').click();
+      await expect(page.locator('#startDialog')).toBeVisible(); await expect(page.locator('#sdNet [data-k=meet] b')).toContainText('Ready'); await expect(page.locator('#sdWait')).toBeEnabled();   // the detected Meet is what the start screen uses
     } finally { await app.stop(); await m.close(); }
   });
 
   test('without Meet, New meeting opens the basic room AND says why (never silently the old page)', async ({ page, context }) => {
     const app = await boot({ MEET_PROBE_URL: 'http://127.0.0.1:9' });
     try {
-      await signUp(context, app.base); await page.goto(app.base + '/qorlla.html#home'); await page.locator('.action-btn[data-act="meet"]').click(); await page.click('#dlgGo');
-      await expect(page).toHaveURL(/\/index\.html\?start=new/); await expect(page.locator('#meetingBar')).toBeVisible();
+      await signUp(context, app.base); await page.goto(app.base + '/qorlla.html#home'); await page.locator('.action-btn[data-act="meet"]').click();
+      await expect(page.locator('#sdNet [data-k=meet] b')).toContainText('Limited'); await expect(page.locator('#sdWait')).toBeDisabled(); await expect(page.locator('#sdWait')).not.toBeChecked(); await page.click('#sdGo');
+      await expect(page).toHaveURL(/\/index\.html\?start=join/); await expect(page.locator('#meetingBar')).toBeVisible();
       await expect(page.locator('#toasts')).toContainText('Qorlla Meet is not running here'); await expect(page.locator('#toasts')).toContainText('basic meeting room');
     } finally { await app.stop(); }
   });

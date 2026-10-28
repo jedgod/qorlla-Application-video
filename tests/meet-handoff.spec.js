@@ -65,3 +65,15 @@ test('host and guest meet in the same room; the ID cannot be used to bypass the 
   expect((await other.request.put(MAIN + '/api/meetings/' + id + '/passcode', { data: { passcode: 'abcdefgh' } })).status()).toBe(403);
   for (const c of [oc, gc, other]) await c.close();
 });
+
+test('New meeting on the homepage: reserves a room, shows the start screen, and enters the current Meet page as host; a guest can then join it', async ({ browser }) => {
+  test.setTimeout(120000);
+  const oc = await browser.newContext({ permissions: ['camera', 'microphone'] }); const op = await oc.newPage(); await organiser(oc, MAIN);
+  await op.goto(MAIN + '/qorlla.html#home'); await op.locator('.action-btn[data-act="meet"]').click();
+  await expect(op.locator('#sdNet [data-k=meet] b')).toContainText('Ready'); const id = (await op.locator('#sdId').textContent()).trim(); expect(id).toMatch(/^\d{3} \d{4} \d{4}$/); await expect(op.locator('#sdGo')).toBeEnabled();
+  await op.click('#sdWait'); await op.click('#sdGo'); await op.waitForURL(/localhost:3310/); await expect(op.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 }); await expect(op.locator('#endBtn')).toBeVisible(); await expect(op.locator('#roomId')).toHaveText(id);
+  const gc = await browser.newContext({ permissions: ['camera', 'microphone'] }); const gp = await gc.newPage();
+  await gp.goto(MAIN + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin'); await gp.fill('#pjName', 'Guest Ned'); await expect(gp.locator('#pjGo')).toBeEnabled(); await gp.click('#pjGo');
+  await gp.waitForURL(/localhost:3310/); await expect(gp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 }); await expect(op.locator('.tile')).toHaveCount(2, { timeout: 30000 });
+  for (const c of [oc, gc]) await c.close();
+});

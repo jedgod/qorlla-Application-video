@@ -886,6 +886,13 @@
   }
 
   // ---------- video page hand-off ----------
+  function goBuiltin(params) {
+    try { sessionStorage.setItem('zw_meet_notice', '1'); } catch (e) { /* ignore */ }
+    var b = new URLSearchParams({ start: params.start, mic: params.mic === 'false' ? '0' : '1', cam: params.camera === 'false' ? '0' : '1' });
+    if (params.name) b.set('name', params.name);
+    if (params.meetingId) b.set('meeting', params.meetingId);
+    window.location.href = '/index.html?' + b.toString();
+  }
   function go(params) {
     if (!VIDEO_PAGE) {                                   // Meet is not running: say so, then use this server's basic built-in meeting room
       try { sessionStorage.setItem('zw_meet_notice', '1'); } catch (e) { /* ignore */ }
@@ -938,6 +945,7 @@
       $('sdPassNote').textContent = p.passcodeRequired ? 'A password is set (stored securely, so it cannot be shown). Type a new one to change it.' : 'No password set. ' + (p.settings.waitingRoom ? 'Guests are admitted from the waiting room.' : 'Anyone with the ID or link can join - consider a password or the waiting room.');
       $('sdRemoveWrap').style.display = p.passcodeRequired ? '' : 'none';
       var up = p.meet && p.meet.reachable; netRow('meet', up ? 'Ready (' + p.meet.ms + ' ms)' : 'Limited - the basic room will be used', up ? 'ok' : 'warn'); $('sdRecheck').hidden = up;
+      $('sdWait').disabled = !up; if (!up) { $('sdWait').checked = false; $('sdPassNote').textContent += ' The waiting room needs Qorlla Meet and is unavailable in the basic room.'; }
       sd.ready = true; $('sdGo').disabled = false;
       return fetch(url + '/invitation', { cache: 'no-store' }).then(function (x) { return x.ok ? x.json() : {}; }).then(function (inv) { if (inv.url) { sd.invUrl = inv.url; $('sdLink').value = inv.url; $('sdCopyInvite').disabled = false; } });
     }).catch(function (e) {
@@ -1055,14 +1063,27 @@
     fetch('/api/meetings/' + encodeURIComponent(m.meetingId) + '/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (r) {
-        if (r.ok && r.d.mode === 'meet' && r.d.url) { window.location.href = r.d.url; return; }       // straight into the meeting as host
-        if (r.d.mode === 'builtin') { var p = { start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', meetingId: m.meetingId, name: name }; go(p); return; }
+        if (r.ok && r.d.mode === 'meet' && r.d.url) { pendingNew = null; window.location.href = r.d.url; return; }       // straight into the meeting as host
+        if (r.d.mode === 'builtin') { pendingNew = null; goBuiltin({ start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', meetingId: m.meetingId, name: name }); return; }
         throw new Error(r.d.error || 'The meeting could not be started.');
       }).catch(function (er) {                                                              // keep everything the person typed; offer a retry
         sd.busy = false; sd.requestId = crypto.randomUUID(); $('sdGo').disabled = false; $('sdGo').textContent = 'Retry start'; $('sdErr').textContent = er.message || 'The meeting could not be started.';
       });
   });
+  // New meeting (Home tile, quick action, Share): the server reserves the room first, then the organiser gets the same start screen as for a scheduled meeting.
+  var pendingNew = null;                                                                      // an unstarted new room is reused, so cancelling and clicking again does not pile up empty rooms
+  function newMeeting() {
+    if (pendingNew) { openStart(pendingNew); return; }
+    var name = myName();
+    fetch('/api/meetings/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: (name ? name + "'s meeting" : 'Qorlla meeting').slice(0, 200) }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (r) {
+        if (!r.ok || !r.d.meeting) throw new Error(r.d.error || 'The meeting could not be created.');
+        pendingNew = { meetingId: r.d.meeting.meetingId, title: r.d.meeting.topic, kind: 'meeting', instant: true }; openStart(pendingNew);
+      }).catch(function (e) { toast(e.message || 'The meeting could not be created.', 'err'); });
+  }
   function openDialog(mode, meetingId) {
+    if (mode === 'new') { newMeeting(); return; }
     dlgMode = mode;
     $('dlgTitle').textContent = mode === 'new' ? I18n.t('Start a new meeting') : I18n.t('Join meeting');
     $('dlgSub').textContent = mode === 'new' ? I18n.t('You will be the host of a new room.') : I18n.t('Enter the meeting ID to jump in.');
