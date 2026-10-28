@@ -6,11 +6,12 @@
 // passcode is needed and who to ask. Nothing else secret is ever included (no host key, no session, no recording links).
 const clean = (v, n) => String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, n);
 
-function invitationText({ host, title, topic, when, where, meetingId, link, passcode, needsPasscode, agenda, description, dialIn, phonePin }) {
+function invitationText({ host, title, topic, when, where, meetingId, link, passcode, needsPasscode, agenda, description, dialIn, phonePin, recurrence }) {
     const h = clean(host, 70) || 'The host', L = [h + ' invited you to a Qorlla meeting.', ''];
     L.push('Meeting: ' + clean(title, 200));
     if (topic) L.push('Topic: ' + clean(topic, 255));
     if (when) L.push('When: ' + clean(when, 200));
+    if (recurrence) L.push('Repeats: ' + clean(recurrence, 200));
     if (where) L.push('Where: ' + clean(where, 200));
     L.push('Host: ' + h, '', 'Meeting ID: ' + meetingId);
     if (link) L.push('Join link: ' + link);

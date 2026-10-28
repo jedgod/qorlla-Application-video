@@ -104,7 +104,7 @@ function banner(m, user, now = Date.now()) {
         meetingId: m.meetingId, title: m.title || m.topic || '', topic: m.topicText || '', category: m.category || '', hostName: m.hostName || '', isHost: !!user && m.hostId === user.id,
         status: statusOf(m), scheduledStartAt: m.scheduledStartAt || m.startTime || null, actualStartAt: start ? new Date(start).toISOString() : null, actualEndAt: end ? new Date(end).toISOString() : null,
         durationSeconds: start && end ? Math.max(0, Math.round((end - start) / 1000)) : null, uniqueAttendeeCount: st.unique || 0, peakConcurrentCount: st.peak || 0,
-        outcomeSummary: (m.outcome || '').slice(0, 280), previousMeetingId: m.previousMeetingId || null, endReason: m.endReason || null
+        outcomeSummary: (m.outcome || '').slice(0, 280), previousMeetingId: m.previousMeetingId || null, endReason: m.endReason || null, recurrence: m.recurrenceLabel || ''
     };
 }
 function details(m, user, now = Date.now()) {

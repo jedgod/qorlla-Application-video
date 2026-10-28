@@ -151,7 +151,7 @@ test.describe('dial-in against the real Meet server', () => {
     test.setTimeout(120000);
     const m = await meeting(browser, { title: 'Dial me' }); await dial(m, FROM1, { callId: ('ui-1' + RUN) });
     const page = await m.ctx.newPage(); await page.context().grantPermissions(['clipboard-read', 'clipboard-write']); await page.goto(B() + '/qorlla.html#home'); await page.locator('.nav-item[data-view=phone]').click();
-    await expect(page.locator('[role=tab][aria-selected=true]')).toHaveText('Dial Pad'); await expect(page.locator('.qp-grid .qp-card:visible')).toHaveCount(2); await expect(page.locator('#dial-pad')).toBeVisible(); await expect(page.locator('#qpRecentNums')).toBeVisible();   // each tab: its card on the left, a list on the right
+    await expect(page.locator('.qp-tabs [role=tab][aria-selected=true]')).toHaveText('Dial Pad'); await expect(page.locator('.qp-grid .qp-card:visible')).toHaveCount(2); await expect(page.locator('#dial-pad')).toBeVisible(); await expect(page.locator('#qpRecentNums')).toBeVisible();   // each tab: its card on the left, a list on the right
     const num = page.locator('#qpDialNumber'); await page.locator('.ph-key[data-key="4"]').click(); await page.locator('.ph-key[data-key="5"]').click(); await expect(num).toHaveValue('45'); await page.getByRole('button', { name: 'Delete last digit' }).click(); await expect(num).toHaveValue('4');
     await page.locator('.ph-key[data-key="7"]').focus(); await page.keyboard.press('8'); await expect(num).toHaveValue('48'); await expect(page.locator('#qpDialHint')).toContainText('valid phone number');
     await page.getByRole('button', { name: 'Copy number', exact: true }).click(); expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('48');
@@ -171,10 +171,11 @@ test.describe('dial-in against the real Meet server', () => {
     await box.getByRole('button', { name: 'Copy phone invitation' }).click(); const inv = await page.evaluate(() => navigator.clipboard.readText()); expect(inv).toContain('+12125550100'); expect(inv).toContain('PIN: ' + pin + '#'); expect(inv).toContain('Meeting ID: ' + m.digits + '#');
     expect((await dial(m, FROM2, { pin })).body.result).toBe('connected');                                                              // the PIN shown on the page really works
     await page.reload(); await page.locator('.nav-item[data-view=phone]').click(); await page.locator('#phTab-recent').click(); const rc = page.locator('#recent-calls'); await expect(rc).toContainText('Dial me'); await expect(rc).toContainText('Phone ••••4567');
-    await rc.locator('.qp-call-row').first().click(); await expect(page.locator('#qpCallDetail')).toContainText('Dial me'); await expect(page.locator('#qpCallDetail')).toContainText(m.digits.slice(0, 3) + ' ' + m.digits.slice(3, 7) + ' ' + m.digits.slice(7, 11)); await rc.getByRole('button', { name: 'Calls', exact: true }).click(); await expect(page.locator('#phNoCalls')).toContainText('need a telephony provider'); await rc.getByRole('button', { name: 'Meeting Calls' }).click(); await rc.getByLabel('Search calls').fill('zzz'); await expect(page.locator('#phNoCalls')).toContainText('No calls match'); await rc.getByLabel('Search calls').fill('');
-    await page.locator('#phTab-contacts').click(); await expect(page.locator('#phContacts')).toContainText('not available yet'); await expect(page.locator('.qp-grid')).toBeHidden();
-    await page.locator('#phSettingsBtn').click(); await expect(page.locator('#phStatus')).toContainText('Telephony provider'); await expect(page.locator('#phStatus')).toContainText('2 provisioned'); await expect(page.locator('#phStatus')).toContainText('not built');
-    await page.locator('#phTab-dial').focus(); await page.keyboard.press('ArrowRight'); await expect(page.locator('[role=tab][aria-selected=true]')).toHaveText('Join Meeting'); await expect(page.locator('.qp-grid')).toBeVisible();   // tabs by keyboard
+    await rc.locator('.qp-call-row').first().click(); await expect(page.locator('#qpCallDetail')).toContainText('Dial me'); await expect(page.locator('#qpCallDetail')).toContainText(m.digits.slice(0, 3) + ' ' + m.digits.slice(3, 7) + ' ' + m.digits.slice(7, 11)); await expect(page.locator('#qpCallDetail')).toContainText('Host'); await expect(page.locator('#qpCallDetail')).toContainText('by phone'); await page.locator('#qpViewPeople').click(); await expect(page.locator('#qpPeers')).toContainText('Phone ••••4567'); await page.locator('#qpCopyId').click(); expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(m.digits.slice(0, 3) + ' ' + m.digits.slice(3, 7) + ' ' + m.digits.slice(7, 11)); await page.locator('#qpCopyInv').click(); expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('Meeting ID: ');   // detail buttons are wired
+    await rc.getByRole('button', { name: 'Calls', exact: true }).click(); await expect(page.locator('#phNoCalls')).toContainText('need a telephony provider'); await rc.getByRole('button', { name: 'Meeting Calls' }).click(); await rc.getByLabel('Search calls').fill('zzz'); await expect(page.locator('#phNoCalls')).toContainText('No calls match'); await rc.getByLabel('Search calls').fill('');
+    await page.locator('#phTab-contacts').click(); await expect(page.locator('#qpNoContacts')).toContainText('No contacts yet'); await expect(page.locator('#qpContacts')).toBeVisible(); await expect(page.locator('#recent-calls')).toBeHidden();
+    await page.locator('#phSettingsBtn').click(); await expect(page.locator('#qpSaveSettings')).toBeVisible(); await page.locator('#qpPT-plans').click(); await expect(page.locator('#phStatus')).toContainText('Telephony provider'); await expect(page.locator('#phStatus')).toContainText('2 provisioned'); await expect(page.locator('#phStatus')).toContainText('not built');
+    await page.locator('#phTab-dial').focus(); await page.keyboard.press('ArrowRight'); await expect(page.locator('.qp-tabs [role=tab][aria-selected=true]')).toHaveText('Join Meeting'); await expect(page.locator('.qp-grid')).toBeVisible();   // tabs by keyboard
     await page.setViewportSize({ width: 390, height: 800 }); await page.locator('#phTab-dial').click(); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);   // no horizontal overflow on a phone
     await box.getByRole('button', { name: 'Revoke PIN' }).click({ timeout: 1500 }).catch(() => {}); await m.ctx.close();
   });
@@ -185,7 +186,7 @@ test('no provider: the Phone page says so and the dial-in directory is empty, ne
   const main = await startMain(5298, { PHONE_DIAL_IN_NUMBERS: '', PHONE_PROVIDER: '' });
   try {
     const ctx = await browser.newContext(); await organiser(ctx, main.base); const page = await ctx.newPage(); await page.goto(main.base + '/qorlla.html#home'); await page.locator('.nav-item[data-view=phone]').click(); await page.locator('#phTab-join').click(); await expect(page.locator('#phNoNumbers')).toContainText('No dial-in numbers');
-    await page.locator('#phTab-settings').click(); await expect(page.locator('#phStatus')).toContainText('not connected'); await expect(page.locator('#phStatus')).toContainText('none provisioned'); await page.locator('#phTab-recent').click(); await expect(page.locator('#phNoCalls')).toBeVisible(); await ctx.close();
+    await page.locator('#phTab-settings').click(); await page.locator('#qpPT-plans').click(); await expect(page.locator('#phStatus')).toContainText('not connected'); await expect(page.locator('#phStatus')).toContainText('none provisioned'); await page.locator('#phTab-recent').click(); await expect(page.locator('#phNoCalls')).toBeVisible(); await ctx.close();
   } finally { main.stop(); }
 });
 
@@ -205,4 +206,73 @@ test('Join Meeting: a failing request is told apart from an empty one (stale ser
     await page.locator('#qpMeetings [data-m=history]').click(); await expect(page.locator('#qpMineNone')).toContainText('No finished meetings'); await expect(page.getByRole('button', { name: 'Create phone PIN' })).toHaveCount(0);
     await ctx.close();
   } finally { main.stop(); }
+});
+
+test.describe('Phone: contacts, call preferences, plans, recurrence labels, invitation text', () => {
+  test.describe.configure({ mode: 'serial' });
+  let main; test.beforeAll(async () => { main = await startMain(5295, { PHONE_DIAL_IN_NUMBERS: NUMBERS, PHONE_PROVIDER: 'test', SMTP_URL: 'smtp://127.0.0.1:1', SMTP_FROM: 'noreply@qorlla.test' }); }); test.afterAll(() => main && main.stop());
+
+  test('API: contacts are private, validated and complete (create, list, edit, favorite, delete); phone settings validate and save; overview tells the truth', async ({ browser }) => {
+    const ctx = await browser.newContext(); await organiser(ctx, main.base); const r = ctx.request, u = main.base + '/api/workplace/contacts';
+    expect((await (await r.get(u)).json())).toEqual([]);
+    expect((await r.post(u, { data: { name: '', email: 'a@b.co' } })).status()).toBe(400);
+    expect((await r.post(u, { data: { name: 'No way to reach' } })).status()).toBe(400);
+    expect((await r.post(u, { data: { name: 'Bad phone', phone: '12345' } })).status()).toBe(400);
+    expect((await r.post(u, { data: { name: 'Bad mail', email: 'nope' } })).status()).toBe(400);
+    const a = await r.post(u, { data: { name: 'Jane Smith', email: 'Jane@Example.com', phone: '+1 (202) 555-0100', department: 'Engineering', group: 'colleague' } }); expect(a.status()).toBe(201); const jane = await a.json();
+    expect(jane).toMatchObject({ email: 'jane@example.com', phone: '+12025550100', group: 'colleague', favorite: false });
+    await r.post(u, { data: { name: 'Amina Khan', email: 'amina@example.com', group: 'bogus' } });
+    expect((await (await r.get(u)).json()).map((c) => c.name)).toEqual(['Amina Khan', 'Jane Smith']);   // sorted by name; an unknown group becomes external
+    expect((await (await r.patch(u + '/' + jane.id, { data: { favorite: true, department: 'Research' } })).json())).toMatchObject({ favorite: true, department: 'Research', phone: '+12025550100' });
+    const other = await browser.newContext(); await organiser(other, main.base); expect((await (await other.request.get(u)).json())).toEqual([]);   // another account sees none of them
+    expect((await other.request.delete(u + '/' + jane.id)).status()).toBe(404); await other.close();
+    expect((await r.delete(u + '/' + jane.id)).status()).toBe(200); expect((await (await r.get(u)).json()).length).toBe(1);
+    const ps = main.base + '/api/workplace/phone-settings'; expect((await (await r.get(ps)).json())).toMatchObject({ forwardEnabled: false, voicemailEnabled: false, missedAlerts: true });
+    expect((await r.put(ps, { data: { forwardEnabled: true } })).status()).toBe(400); expect((await r.put(ps, { data: { forwardTo: '12345' } })).status()).toBe(400);
+    const saved = await (await r.put(ps, { data: { forwardEnabled: true, forwardTo: '+44 20 7123 4567', voicemailEnabled: true, voicemailGreeting: 'Leave a message', callerIdName: 'Stryker' } })).json(); expect(saved).toMatchObject({ forwardTo: '+442071234567', active: false }); expect(saved.note).toContain('once carrier calling is connected');
+    expect((await (await r.get(ps)).json())).toMatchObject({ forwardEnabled: true, voicemailGreeting: 'Leave a message', callerIdName: 'Stryker' });
+    const ov = await (await r.get(main.base + '/api/phone/overview')).json(); expect(ov).toMatchObject({ carrierCalling: false, audioBridge: false, assigned: [], plan: { name: 'Free', limitMinutes: 30, graceMinutes: 10, billingConnected: false } }); expect(ov.numbers.map((n) => n.number)).toEqual(['+12125550100', '+18005550100']);
+    await ctx.close();
+  });
+
+  test('a repeating series is labelled "Recurring (N occurrences)" with its pattern and which occurrence it is, and the invitation carries a Repeats line', async ({ browser }) => {
+    const ctx = await browser.newContext(); const { item } = await organiser(ctx, main.base, { title: 'Embedded and SCADA systems' }); const r = ctx.request;
+    const mk = async (i, date) => (await (await r.post(main.base + '/api/workplace/schedule', { data: { title: 'Weekly class', date, time: '17:00', duration: 150, seriesId: 'sTest1', seriesRepeat: 'weekly', seriesCount: 3, seriesIndex: i } })).json());
+    const a = await mk(0, '2027-08-23'), b = await mk(1, '2027-08-30'); await mk(2, '2027-09-06');
+    expect(a.meetingId).not.toEqual(b.meetingId);                                                             // every occurrence keeps its own Meeting ID, attendance and History record
+    const list = await (await r.get(main.base + '/api/workplace/schedule')).json(); const x = list.find((i) => i.id === b.id);
+    expect(x.recurrence).toMatchObject({ label: 'Recurring (3 occurrences)', occurrence: '2 of 3', count: 3, repeat: 'weekly' }); expect(x.recurrence.detail).toBe('Every week on Mon, until Sep 6, 2027 (3 occurrences)');
+    expect(list.find((i) => i.id === item.id).recurrence).toBeUndefined();                                    // a single meeting has none
+    const t = await (await r.get(main.base + '/api/meetings/' + encodeURIComponent(b.meetingId) + '/invitation-text')).json(); expect(t.text).toContain('Repeats: Every week on Mon, until Sep 6, 2027 (3 occurrences)'); expect(t.text).toContain('+12125550100'); expect(t.text).toContain('Meeting ID: ' + b.meetingId);
+    expect((await ctx.request.get(main.base + '/api/meetings/' + encodeURIComponent(b.meetingId) + '/invitation.ics')).status()).toBe(200);
+    const other = await browser.newContext(); await organiser(other, main.base); expect((await other.request.get(main.base + '/api/meetings/' + encodeURIComponent(b.meetingId) + '/invitation-text')).status()).toBe(403); await other.close();   // only the host
+    const page = await ctx.newPage(); await page.goto(main.base + '/qorlla.html#home'); await page.locator('.nav-item[data-view=schedule]').click(); await expect(page.locator('.sched-rec').first()).toContainText('Recurring (3 occurrences)'); await ctx.close();
+  });
+
+  test('Contacts tab: add, search, filter, favorite, edit, call (honestly refused without a provider), start a meeting, delete; Numbers & Plans tabs save and show the truth; all at 1280x720 without scrolling', async ({ browser }) => {
+    test.setTimeout(120000);
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } }); await organiser(ctx, main.base); const page = await ctx.newPage(); page.on('dialog', (d) => d.accept());
+    await page.goto(main.base + '/qorlla.html#home'); await page.locator('.nav-item[data-view=phone]').click(); await page.locator('#phTab-contacts').click();
+    await page.locator('#qpAddContact').click(); await page.locator('#qpSaveContact').click(); await expect(page.locator('#qpFormMsg')).toContainText('Name is required');
+    await page.locator('#qpCName').fill('Dr. Jane Smith'); await page.locator('#qpCEmail').fill('jane.smith@example.com'); await page.locator('#qpCPhone').fill('abc'); await page.locator('#qpSaveContact').click(); await expect(page.locator('#qpFormMsg')).toContainText('international');
+    await page.locator('#qpCPhone').fill('+12025550100'); await page.locator('#qpCDept').fill('Engineering'); await page.locator('#qpSaveContact').click();
+    await expect(page.locator('#qpCtDH')).toHaveText('Dr. Jane Smith'); await expect(page.locator('#qpContactDetail')).toContainText('Engineering'); await expect(page.locator('.qp-crow')).toHaveCount(1);
+    await page.locator('#qpAddContact').click(); await page.locator('#qpCName').fill('Michael Tan'); await page.locator('#qpCEmail').fill('michael@example.com'); await page.locator('#qpCGroup').selectOption('external'); await page.locator('#qpSaveContact').click(); await expect(page.locator('.qp-crow')).toHaveCount(2);
+    await page.locator('#qpFav').click(); await expect(page.locator('#qpFav')).toHaveAttribute('aria-pressed', 'true'); await page.locator('#cFilter, [data-f=favorites]').first().click(); await expect(page.locator('.qp-crow')).toHaveCount(1); await page.locator('#qpContacts [data-f=all]').click();
+    await page.getByLabel('Search contacts').fill('jane'); await expect(page.locator('.qp-crow')).toHaveCount(1); await page.getByLabel('Search contacts').fill('zzz'); await expect(page.locator('#qpNoContacts')).toContainText('No contacts match'); await page.getByLabel('Search contacts').fill('');
+    await page.locator('.qp-crow', { hasText: 'Dr. Jane Smith' }).click(); await page.locator('#qpCallBtn').click(); await expect(page.locator('#qpContactMsg')).toContainText('Carrier calling is not enabled');   // wired to the API; refused honestly
+    await page.locator('#qpEdit').click(); await page.locator('#qpCDept').fill('Research'); await page.locator('#qpSaveContact').click(); await expect(page.locator('#qpContactDetail')).toContainText('Research');
+    await page.locator('#qpStartMeet').click(); await expect(page.locator('#startDialog')).toBeVisible({ timeout: 15000 }); await expect(page.locator('#sdEmails')).toHaveValue('jane.smith@example.com', { timeout: 15000 }); await page.locator('#sdClose').click();
+    const over = await page.evaluate(() => { const g = document.querySelector('.qp-grid').getBoundingClientRect(); return [g.bottom, innerHeight, document.documentElement.scrollWidth > innerWidth + 1]; }); expect(over[0]).toBeLessThanOrEqual(over[1]); expect(over[2]).toBe(false);
+    await page.locator('.qp-crow-wrap', { hasText: 'Michael Tan' }).getByLabel('More actions for Michael Tan').click(); await page.getByRole('menuitem', { name: 'Delete' }).click(); await expect(page.locator('.qp-crow')).toHaveCount(1);
+    // Numbers & Plans
+    await page.locator('#phTab-settings').click(); await expect(page.locator('#qpNumTable')).toContainText('+12125550100'); await expect(page.locator('#qpNumber')).toContainText('Unassigned');
+    await page.locator('#qpPT-plans').click(); await expect(page.locator('#qpPlanBody')).toContainText('Free'); await expect(page.locator('#qpPlanBody')).toContainText('30 + 10'); await expect(page.locator('#qpUpgrade')).toHaveAttribute('href', /pricing/);
+    await page.locator('#qpPT-settings').click(); await page.locator('#qpCallerName').fill('Qorlla Workspace'); await page.locator('#qpSaveSettings').click(); await expect(page.locator('#qpPlanMsg')).toContainText('Saved'); await expect(page.locator('#qpNumber')).toContainText('Qorlla Workspace');
+    await page.locator('#qpPT-forward').click(); await page.locator('#qpFwdOn').check(); await page.locator('#qpSaveFwd').click(); await expect(page.locator('#qpPlanMsg')).toContainText('Enter the number'); await page.locator('#qpFwdTo').fill('+442071234567'); await page.locator('#qpSaveFwd').click(); await expect(page.locator('#qpPlanMsg')).toContainText('once carrier calling is connected');
+    await page.locator('#qpPT-voicemail').click(); await page.locator('#qpVmOn').check(); await page.locator('#qpVmGreeting').fill('Please leave a message'); await page.locator('#qpSaveVm').click(); await expect(page.locator('#qpPlanMsg')).toContainText('once carrier calling is connected');
+    await page.reload(); await page.locator('.nav-item[data-view=phone]').click(); await page.locator('#phTab-settings').click(); await page.locator('#qpPT-voicemail').click(); await expect(page.locator('#qpVmOn')).toBeChecked(); await expect(page.locator('#qpVmGreeting')).toHaveValue('Please leave a message');   // it was really saved
+    await page.locator('#qpManage').click(); await expect(page.locator('#qpNumTable')).toBeVisible(); await page.locator('#qpReqNum').click(); await expect(page.locator('#qpReqMsg')).toContainText('provider');
+    await ctx.close();
+  });
 });

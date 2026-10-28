@@ -261,6 +261,13 @@ function dialInNumbers() {
     catch (e) { return []; }
 }
 const phoneUser = (req, res) => { const u = auth.getUser(req); if (!u) { res.status(401).json({ error: 'Sign in first.' }); return null; } return u; };
+app.get('/api/phone/overview', (req, res) => {
+    const u = phoneUser(req, res); if (!u) return;
+    const cfg = ML.config(process.env), exempt = ML.isExempt(u, process.env), since = Date.now() - 30 * 86400000; let meetings = 0, ms = 0;
+    for (const m of meetingsState.values()) { const a = Number(m.actualStartAt) || 0; if (m.hostId === u.id && a >= since) { meetings++; ms += Math.max(0, (Number(m.actualEndAt) || Date.now()) - a); } }
+    res.set('Cache-Control', 'no-store').json({ provider: process.env.PHONE_PROVIDER || null, carrierCalling: false, audioBridge: false, numbers: dialInNumbers().map((n) => ({ ...n, status: 'active', use: 'Meeting dial-in' })), assigned: [],
+        plan: { name: exempt ? 'Paid (no time limit)' : 'Free', exempt, limitMinutes: Math.round(cfg.limitMs / 60000), graceMinutes: Math.round(cfg.graceMs / 60000), billingConnected: false }, usage: { days: 30, hostedMeetings: meetings, hostedMinutes: Math.round(ms / 60000) } });
+});
 app.get('/api/phone/dial-in-numbers', (req, res) => {
     if (!phoneUser(req, res)) return; const numbers = dialInNumbers(), provider = process.env.PHONE_PROVIDER || null;
     res.set('Cache-Control', 'no-store').json({ configured: numbers.length > 0, numbers, provider, carrierCalling: false, note: numbers.length ? null : 'No dial-in numbers have been provisioned for this workspace. Qorlla never shows a number that is not real.' });
@@ -362,6 +369,11 @@ for (const base of ['/api/meetings', '/api/v1/meetings']) {
         const meeting = hostMeeting(req, res); if (!meeting) return;
         const id = meeting.meetingId, url = req.protocol + '://' + req.get('host') + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin';
         res.set('Cache-Control', 'no-store').json({ id, title: meeting.topic || '', url, passcodeRequired: !!meeting.passcodeHash, scheduledFor: meeting.startTime || null });   // the password is never returned: it is stored hashed
+    });
+    app.get(base + '/:id/invitation-text', (req, res) => {                                  // the same invitation the email carries, for Copy invitation (no passcode: it is stored hashed)
+        const meeting = hostMeeting(req, res); if (!meeting) return;
+        const id = meeting.meetingId, link = (mailer.baseUrl || (req.protocol + '://' + req.get('host'))).replace(/\/+$/, '') + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin';
+        res.set('Cache-Control', 'no-store').json({ text: invitationText({ host: req.hostUser.displayName, title: meeting.title || meeting.topic, topic: meeting.topicText, when: meeting.whenText, recurrence: meeting.recurrenceLabel, meetingId: id, link, needsPasscode: !!meeting.passcodeHash, agenda: meeting.agenda, description: meeting.description, dialIn: dialInNumbers() }) });
     });
     app.get(base + '/:id/invitation.ics', (req, res) => {
         const meeting = hostMeeting(req, res); if (!meeting) return;
@@ -546,7 +558,7 @@ app.post('/api/meetings/:meetingId/invite', limitInvite, attachActor, async (req
         if (typeof pc !== 'string' || pc.length < 6 || pc.length > 32) return res.status(400).json({ error: 'The passcode must be 6 to 32 characters.' });
         const ch = applyHostChanges(meeting, { password: pc }); if (ch.error) return res.status(400).json({ error: ch.error }); passcode = pc;
     }
-    const text = invitationText({ host: who, title: meeting.title || meeting.topic, topic: meeting.topicText, when: meeting.whenText, meetingId: id, link, passcode, needsPasscode: !!meeting.passcodeHash, agenda: meeting.agenda, description: meeting.description, dialIn: dialInNumbers(), phonePin: req.body && req.body.phonePin });
+    const text = invitationText({ host: who, title: meeting.title || meeting.topic, topic: meeting.topicText, when: meeting.whenText, recurrence: meeting.recurrenceLabel, meetingId: id, link, passcode, needsPasscode: !!meeting.passcodeHash, agenda: meeting.agenda, description: meeting.description, dialIn: dialInNumbers(), phonePin: req.body && req.body.phonePin });
     const results = [];
     for (const to of list) { const r = await mailer.send({ to, subject: who + ' invited you: ' + (meeting.title || meeting.topic || 'Qorlla meeting'), replyTo: req.actor.type === 'account' && req.actor.user.emailVerified ? req.actor.user.email : undefined, text }); results.push({ email: to, status: r.status }); }
     res.json({ sent: results.filter((r) => r.status === 'sent').length, results });

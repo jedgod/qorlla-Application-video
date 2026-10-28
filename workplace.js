@@ -24,6 +24,24 @@ const MAX_IMAGE_CHARS = 6 * 1024 * 1024;
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const nowIso = () => new Date().toISOString();
 
+// Repeating meetings are a series of separate meetings (each keeps its own Meeting ID, attendance and History record) that share a seriesId.
+// The wall-clock date and time are stored as the user typed them, so a 5:00 PM series stays at 5:00 PM across daylight-saving changes.
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function addPeriod(dateStr, repeat, i) {
+    const [y, m, d] = dateStr.split('-').map(Number), x = new Date(y, m - 1, d);
+    if (repeat === 'daily') x.setDate(x.getDate() + i);
+    else if (repeat === 'weekly') x.setDate(x.getDate() + 7 * i);
+    else if (repeat === 'monthly') { x.setDate(1); x.setMonth(x.getMonth() + i); x.setDate(Math.min(d, new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate())); }
+    return x;
+}
+function recurrenceOf(i) {
+    if (!i || !i.seriesId || !['daily', 'weekly', 'monthly'].includes(i.seriesRepeat) || !(i.seriesCount >= 2) || !DATE_RE.test(i.date || '')) return undefined;
+    const n = i.seriesCount, idx = Math.min(Math.max(0, i.seriesIndex || 0), n - 1), last = addPeriod(i.date, i.seriesRepeat, n - 1 - idx), first = addPeriod(i.date, i.seriesRepeat, -idx);
+    const until = last.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), start = new Date(first.getFullYear(), first.getMonth(), first.getDate());
+    const every = i.seriesRepeat === 'daily' ? 'Every day' : i.seriesRepeat === 'weekly' ? 'Every week on ' + DOW[start.getDay()] : 'Every month on day ' + start.getDate();
+    return { repeat: i.seriesRepeat, count: n, index: idx + 1, label: 'Recurring (' + n + ' occurrences)', detail: every + ', until ' + until + ' (' + n + ' occurrences)', occurrence: (idx + 1) + ' of ' + n };
+}
+
 module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, updateMeeting, closeMeeting, isMeetingFinished, auth, mailer, notify }) {
     const dir = path.join(dataDir, 'workplace');
     const seedDir = path.join(__dirname, 'seed');
@@ -184,6 +202,50 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
             res.json({ ok: true });
         });
     }
+
+    // ---------- phone: contacts and call preferences (private to each account) ----------
+    const E164 = /^\+[1-9]\d{6,14}$/, normPhone = (v) => String(v || '').replace(/[\s().-]/g, '');
+    crud('contacts', {
+        sort: (a, b) => String(a.name).localeCompare(String(b.name)),
+        update: true,
+        sanitize(body, existing) {
+            const has = (k) => k in body || !existing;
+            const v = {
+                name: has('name') ? str(body.name, 80) : existing.name,
+                email: has('email') ? str(body.email, 200).toLowerCase() : (existing.email || ''),
+                phone: has('phone') ? normPhone(str(body.phone, 30)) : (existing.phone || ''),
+                department: has('department') ? str(body.department, 80) : (existing.department || ''),
+                group: has('group') ? (['participant', 'colleague', 'external'].includes(body.group) ? body.group : 'external') : (existing.group || 'external'),
+                favorite: has('favorite') ? body.favorite === true : existing.favorite === true
+            };
+            if (!v.name) return { error: 'Name is required.' };
+            if (v.email && !mailer.isValidAddress(v.email)) return { error: 'The email address is not valid.' };
+            if (v.phone && !E164.test(v.phone)) return { error: 'The phone number must be international, such as +12025550100.' };
+            if (!v.email && !v.phone) return { error: 'Add an email address or a phone number.' };
+            return { value: v };
+        },
+        create: async (item, body, user) => {
+            if (load(userKey('contacts', user), 'contacts').length >= 500) throw new Error('You can keep up to 500 contacts.');
+            return { ...item, createdAt: nowIso() };
+        }
+    });
+    const PHONE_DEFAULTS = { callerIdName: '', missedAlerts: true, forwardEnabled: false, forwardTo: '', voicemailEnabled: false, voicemailGreeting: '' };
+    router.get('/phone-settings', requireUser, (req, res) => res.set('Cache-Control', 'no-store').json({ ...PHONE_DEFAULTS, ...(store.readJson(file(userKey('phonesettings', req.user)), {}) || {}) }));
+    router.put('/phone-settings', requireUser, (req, res) => {
+        const b = req.body || {}, cur = { ...PHONE_DEFAULTS, ...(store.readJson(file(userKey('phonesettings', req.user)), {}) || {}) };
+        const next = {
+            callerIdName: 'callerIdName' in b ? str(b.callerIdName, 40) : cur.callerIdName,
+            missedAlerts: 'missedAlerts' in b ? b.missedAlerts === true : cur.missedAlerts,
+            forwardEnabled: 'forwardEnabled' in b ? b.forwardEnabled === true : cur.forwardEnabled,
+            forwardTo: 'forwardTo' in b ? normPhone(str(b.forwardTo, 30)) : cur.forwardTo,
+            voicemailEnabled: 'voicemailEnabled' in b ? b.voicemailEnabled === true : cur.voicemailEnabled,
+            voicemailGreeting: 'voicemailGreeting' in b ? str(b.voicemailGreeting, 300) : cur.voicemailGreeting
+        };
+        if (next.forwardTo && !E164.test(next.forwardTo)) return bad(res, 'The forwarding number must be international, such as +12025550100.');
+        if (next.forwardEnabled && !next.forwardTo) return bad(res, 'Enter the number to forward calls to.');
+        save(userKey('phonesettings', req.user), next);
+        res.json({ ...next, active: false, note: 'Saved. Forwarding and voicemail take effect once carrier calling is connected; nothing is forwarded or recorded today.' });
+    });
 
     // ---------- external email ----------
     // Only accounts with a VERIFIED email may send outside, which keeps this from becoming an open
@@ -354,6 +416,10 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
             v.allDay = has('allDay') ? body.allDay === true : existing.allDay === true;
             if (has('chatId')) { v.chatId = str(body.chatId, 40); if (v.chatId && !/^[A-Za-z0-9-]+$/.test(v.chatId)) return { error: 'Chat id is not valid.' }; } else v.chatId = existing.chatId || '';
             if ('seriesId' in body || !existing) { v.seriesId = str(body.seriesId, 40); if (v.seriesId && !/^[A-Za-z0-9_-]+$/.test(v.seriesId)) return { error: 'Series id is not valid.' }; } else v.seriesId = existing.seriesId || '';
+            // Series details (sent by the scheduler for repeating meetings) so each occurrence can say what it belongs to
+            v.seriesRepeat = has('seriesRepeat') ? (['daily', 'weekly', 'monthly'].includes(body.seriesRepeat) ? body.seriesRepeat : '') : (existing.seriesRepeat || '');
+            v.seriesCount = has('seriesCount') ? Math.max(0, Math.min(120, Math.round(Number(body.seriesCount)) || 0)) : (existing.seriesCount || 0);
+            v.seriesIndex = has('seriesIndex') ? Math.max(0, Math.min(119, Math.round(Number(body.seriesIndex)) || 0)) : (existing.seriesIndex || 0);
             if (has('invitees')) {
                 const raw = Array.isArray(body.invitees) ? body.invitees : String(body.invitees || '').split(/[,;\s]+/);
                 const list = [...new Set(raw.map((x) => String(x).trim().toLowerCase()).filter(Boolean))];
@@ -390,7 +456,8 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         decorate: async (items, req) => {
             const all = meetSync.enabled ? await meetSync.decorate(items) : items;
             const done = (i) => typeof isMeetingFinished === 'function' && !!i.meetingId && isMeetingFinished(i.meetingId);
-            return req && req.query && req.query.include === 'finished' ? all.map((i) => (done(i) ? { ...i, finished: true } : i)) : all.filter((i) => !done(i));
+            const rec = (i) => { const r = recurrenceOf(i); return r ? { ...i, recurrence: r } : i; };
+            return (req && req.query && req.query.include === 'finished' ? all.map((i) => (done(i) ? { ...i, finished: true } : i)) : all.filter((i) => !done(i))).map(rec);
         },
         create: async (item, body, user) => {
             const startTime = new Date(`${item.date}T${item.time}:00`);
@@ -399,7 +466,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
                 startTime: isNaN(startTime) ? undefined : startTime.toISOString(),
                 durationMinutes: item.duration,
                 hostId: user.id, hostName: user.displayName, previousMeetingId: item.rescheduledFrom || undefined, limitExempt: ML.isExempt(user),
-                meta: { ...cleanMeta({ title: item.title, topic: item.topic, description: item.description, agenda: item.agenda, category: item.category }), whenText: item.date + ' ' + item.time + (item.timezone ? ' (' + item.timezone + ')' : '') + ', ' + item.duration + ' min' }
+                meta: { recurrenceLabel: (recurrenceOf(item) || {}).detail || '', ...cleanMeta({ title: item.title, topic: item.topic, description: item.description, agenda: item.agenda, category: item.category }), whenText: item.date + ' ' + item.time + (item.timezone ? ' (' + item.timezone + ')' : '') + ', ' + item.duration + ' min' }
             });
             const out = { ...item, hostId: user.id, ownerName: user.displayName, meetingId: meeting.meetingId, createdAt: nowIso() };
             // Invitation emails go through the same guarded path as Mail (verified sender, daily limit, Reply-To the host). The outcome is stored so
@@ -408,7 +475,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
                 const base = (mailer.baseUrl || '').replace(/\/+$/, '');
                 const when = item.date + ' ' + item.time + (item.timezone ? ' (' + item.timezone + ')' : '') + ', ' + item.duration + ' min';
                 const pcOk = typeof body.passcode === 'string' && body.passcode.length >= 8 && body.passcode.length <= 128;
-                const text = invitationText({ host: user.displayName, title: item.title, topic: item.topic, when, where: item.location, meetingId: meeting.meetingId, link: base ? base + '/guest/meeting/' + encodeURIComponent(meeting.meetingId) + '/prejoin' : '', passcode: pcOk ? body.passcode : '', needsPasscode: !!body.passcode, agenda: item.agenda, description: item.description });
+                const text = invitationText({ host: user.displayName, recurrence: (recurrenceOf(item) || {}).detail, title: item.title, topic: item.topic, when, where: item.location, meetingId: meeting.meetingId, link: base ? base + '/guest/meeting/' + encodeURIComponent(meeting.meetingId) + '/prejoin' : '', passcode: pcOk ? body.passcode : '', needsPasscode: !!body.passcode, agenda: item.agenda, description: item.description });
                 try { out.inviteResults = await sendExternal(item.invitees, { subject: user.displayName + ' invited you: ' + item.title, body: text }, user); }
                 catch (err) { out.inviteResults = item.invitees.map((to) => ({ to, status: 'failed' })); }
             }

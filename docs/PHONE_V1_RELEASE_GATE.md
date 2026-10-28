@@ -24,3 +24,15 @@
 Run: `node scripts/start-recording-test-meet.cjs` then `npx playwright test tests/phone.spec.js` (10 tests). Regression: main suite 190 passed, Meet suites 43 passed, both Chromium only.
 
 To make it real you need: a provider account and compliance review, a provider adapter in `server/phone.mjs` (`createProvider`), real numbers in `PHONE_DIAL_IN_NUMBERS`, a media gateway that joins callers to the meeting audio, and a billing/fraud policy. Until then keep `PHONE_PROVIDER` unset (everything answers "Telephony is not enabled").
+
+## Phone workspace additions (Recent Calls, Contacts, Numbers & Plans)
+
+| Area | Status | Notes |
+|---|---|---|
+| Contacts (add, edit, favorite, delete, search, filter) | PASS (API + UI) | `/api/workplace/contacts`, private per account, max 500, E.164 phone and email validated. |
+| Call / Start meeting / Send message from a contact | PARTIAL | Call answers 503 until a carrier is connected (shown to the user). Start meeting opens the Start dialog and fills the contact's email when mail is set up. |
+| Call preferences (caller ID name, missed-call alerts, forwarding, voicemail) | PARTIAL | Saved per account at `/api/workplace/phone-settings`; they take effect only when carrier calling is connected. Nothing is forwarded or recorded today. |
+| `/api/phone/overview` (numbers, plan, 30-day usage) | PASS | Numbers are only the configured, provisioned dial-in numbers; no assigned personal number exists. |
+| Call details, Copy Invitation | PASS | `/api/meetings/:id/invitation-text` (host only, never contains the passcode). |
+| Recurrence labels | PASS | A repeating series is separate meetings (own Meeting ID, attendance, History) sharing a `seriesId`; labels show "Recurring (N occurrences)", the pattern, and "2 of N". Wall-clock times are stored as typed, so a 5:00 PM series stays 5:00 PM across daylight saving. Not built: one Meeting ID shared by the whole series, edit-whole-series, RRULE in the .ics. |
+| Telephony billing, number provisioning, forwarding/voicemail delivery | BLOCKED | Need a provider. |
