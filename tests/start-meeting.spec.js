@@ -5,7 +5,9 @@ const { MEET, startMain, organiser, login } = require('./support/meet-stack');
 // retry keeps the form), accessible dialog. Real Workplace server (5291) + real Meet (3310: node scripts/start-recording-test-meet.cjs) + real fake-device Chromium.
 let main, MAIN;
 test.describe.configure({ mode: 'serial' });
-test.use({ permissions: ['camera', 'microphone'], launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } });
+const FF = !!process.env.E2E_FIREFOX;                                  // Firefox: fake devices and auto-allow come from the project's preferences; Playwright has no camera/microphone permission names there
+const PERM = FF ? [] : ['camera', 'microphone'];
+test.use(FF ? {} : { permissions: PERM, launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } });
 test.beforeAll(async () => { main = await startMain(5291); MAIN = main.base; });
 test.afterAll(() => main && main.stop());
 
@@ -20,7 +22,7 @@ async function hostIn(browser, ctx, item, settings = {}) {
   const p = await ctx.newPage(); await p.goto((await r.json()).url); await expect(p.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 }); return p;
 }
 const prejoin = async (browser, item, name) => {
-  const gc = await browser.newContext({ permissions: ['camera', 'microphone'] }); const gp = await gc.newPage();
+  const gc = await browser.newContext({ permissions: PERM }); const gp = await gc.newPage();
   await gp.goto(MAIN + '/guest/meeting/' + encodeURIComponent(item.meetingId) + '/prejoin'); await gp.fill('#pjName', name); await expect(gp.locator('#pjGo')).toBeEnabled(); await gp.click('#pjGo'); return { gc, gp };
 };
 
@@ -72,8 +74,9 @@ test('the form: required fields, password show/generate, copy, security options 
   await page.fill('#sdPass', 'abc'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('6 to 32');
   await expect(page.locator('#sdPass')).toHaveAttribute('type', 'password'); await page.click('#sdPassToggle'); await expect(page.locator('#sdPass')).toHaveAttribute('type', 'text'); await expect(page.locator('#sdPassToggle')).toHaveAttribute('aria-pressed', 'true');
   await page.click('#sdPassGen'); expect((await page.inputValue('#sdPass')).length).toBe(10);
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']); await page.click('#sdCopyInvite'); const text = await page.evaluate(() => navigator.clipboard.readText());
-  expect(text).toContain('Roadmap'); expect(text).toContain('Meeting ID:'); expect(text).toContain('/guest/meeting/'); expect(text).toContain('Password: ' + (await page.inputValue('#sdPass')));
+  if (FF) { await page.click('#sdCopyInvite'); }                                                  // Firefox cannot be granted clipboard-read by Playwright: the copied text is checked in Chromium only
+  else { await page.context().grantPermissions(['clipboard-read', 'clipboard-write']); await page.click('#sdCopyInvite'); const text = await page.evaluate(() => navigator.clipboard.readText());
+  expect(text).toContain('Roadmap'); expect(text).toContain('Meeting ID:'); expect(text).toContain('/guest/meeting/'); expect(text).toContain('Password: ' + (await page.inputValue('#sdPass'))); }
   expect(await page.locator('#sdLink').inputValue()).not.toContain('?'); expect(await page.locator('#sdLink').inputValue()).not.toContain(await page.inputValue('#sdPass'));          // never in the link
   await expect(page.locator('#sdSec')).toHaveAttribute('open', ''); await page.keyboard.press('Escape'); await expect(dlg).toBeHidden();
   await page.setViewportSize({ width: 390, height: 844 }); await page.locator('.meeting', { hasText: 'Sprint planning' }).locator('.join-pill').click(); await expect(dlg).toBeVisible();
@@ -99,7 +102,7 @@ test('Start is safe: one click = one start; a failure keeps every entry and offe
 
 test('the waiting room is enforced by Meet: guests wait, see nothing, are admitted or denied one by one; the host is told', async ({ browser }) => {
   test.setTimeout(150000);
-  const oc = await browser.newContext({ permissions: ['camera', 'microphone'] }); const { item } = await organiser(oc, MAIN);
+  const oc = await browser.newContext({ permissions: PERM }); const { item } = await organiser(oc, MAIN);
   const hp = await hostIn(browser, oc, item, { waitingRoom: true, joinBeforeHost: false });                                                                           // waiting room ON
   await hp.click('[data-tab=people]');
   const { gc, gp } = await prejoin(browser, item, 'Gail'); await gp.waitForURL(/localhost:3310/); await expect(gp.locator('#waiting')).toBeVisible({ timeout: 20000 }); await expect(gp.locator('#waitingMsg')).toContainText('let you in');
@@ -125,7 +128,7 @@ test('the waiting room is enforced by Meet: guests wait, see nothing, are admitt
 
 test('join-before-host off: guests wait for the host and are let in when the host arrives; lock-on-join refuses later arrivals', async ({ browser }) => {
   test.setTimeout(150000);
-  const oc = await browser.newContext({ permissions: ['camera', 'microphone'] }); const { item } = await organiser(oc, MAIN);
+  const oc = await browser.newContext({ permissions: PERM }); const { item } = await organiser(oc, MAIN);
   // set the policy first (no waiting room, no join-before-host, lock when I join) without opening the meeting yet
   expect((await api(oc, 'patch', '/api/meetings/' + encodeURIComponent(item.meetingId) + '/settings', { waitingRoom: false, joinBeforeHost: false, lockAfterJoin: true })).status()).toBe(200);
   // register with Meet (an invitee arriving first is what triggers it) - the guest arrives BEFORE the host

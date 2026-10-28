@@ -14,7 +14,7 @@ const card = (page, title) => page.locator('.meeting', { hasText: title });
 const menu = (page) => page.locator('.mtg-menu');
 const items = (page) => menu(page).getByRole('menuitem');
 
-test.use({ permissions: ['clipboard-read', 'clipboard-write', 'camera', 'microphone'], launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } });
+test.use(process.env.E2E_FIREFOX ? {} : { permissions: ['clipboard-read', 'clipboard-write', 'camera', 'microphone'], launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } });
 
 test.describe('menu and chat button', () => {
   test('Home shows a chat button and a "..." menu with the four actions in order; Delete is red', async ({ page, context }) => {
