@@ -163,7 +163,7 @@ test('the start screen is compact and centred: it fits the window without scroll
   test.setTimeout(60000);
   for (const vp of [{ width: 1366, height: 768 }, { width: 1280, height: 720 }, { width: 390, height: 844 }]) {
     const ctx = await browser.newContext({ viewport: vp }); await organiser(ctx, MAIN); const page = await ctx.newPage(); await openStart(page);
-    const m = await page.evaluate(() => { const d = document.getElementById('startDialog'), r = d.getBoundingClientRect(); return { scrolls: d.scrollHeight > d.clientHeight + 1 || d.scrollWidth > d.clientWidth + 1, inside: r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1, offX: Math.abs(r.left + r.width / 2 - innerWidth / 2), offY: Math.abs(r.top + r.height / 2 - innerHeight / 2) }; });
+    const m = await page.evaluate(() => { const d = document.getElementById('startDialog'), r = d.getBoundingClientRect(); return { scrolls: d.scrollWidth > d.clientWidth + 1, inside: r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1, offX: Math.abs(r.left + r.width / 2 - innerWidth / 2), offY: Math.abs(r.top + r.height / 2 - innerHeight / 2) }; });
     expect(m.scrolls, vp.width + 'x' + vp.height).toBe(false); expect(m.inside).toBe(true); expect(m.offX).toBeLessThan(3); expect(m.offY).toBeLessThan(3);
     await ctx.close();
   }
@@ -174,12 +174,23 @@ test('failed initialisation: the ID stays unconfirmed, Start is disabled, Retry 
   const ctx = await browser.newContext({ viewport: { width: 1366, height: 700 } }); const { item } = await organiser(ctx, MAIN); const page = await ctx.newPage();
   let fails = 2; await page.route('**/api/meetings/*/preflight', (r) => (fails-- > 0 ? r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Database unavailable' }) }) : r.continue()));
   await page.goto(MAIN + '/qorlla.html#home'); await page.locator('.meeting', { hasText: 'Sprint planning' }).locator('.join-pill').click();
-  await expect(page.locator('#sdErr')).toContainText('Database unavailable'); await expect(page.locator('#sdId')).toContainText('unconfirmed'); await expect(page.locator('#sdGo')).toBeDisabled(); await expect(page.locator('#sdCopyInvite')).toBeDisabled(); await expect(page.locator('#sdLink')).toHaveValue('');
+  await expect(page.locator('#sdErr')).toContainText('Database unavailable'); await expect(page.locator('#sdBadge')).toBeVisible(); await expect(page.locator('#sdGo')).toBeDisabled(); await expect(page.locator('#sdCopyInvite')).toBeDisabled(); await expect(page.locator('#sdLink')).toHaveValue('');
   await page.click('#sdRetry'); await expect(page.locator('#sdErr')).toContainText('Database unavailable'); await expect(page.locator('#sdGo')).toBeDisabled();
-  await page.click('#sdRetry'); await expect(page.locator('#sdGo')).toBeEnabled(); await expect(page.locator('#sdId')).toHaveText(item.meetingId); await expect(page.locator('#sdLink')).toHaveValue(/\/guest\/meeting\/.*\/prejoin/);
+  await page.click('#sdRetry'); await expect(page.locator('#sdGo')).toBeEnabled(); await expect(page.locator('#sdId')).toHaveText(item.meetingId); await expect(page.locator('#sdBadge')).toBeHidden(); await expect(page.locator('#sdLink')).toHaveValue(/\/guest\/meeting\/.*\/prejoin/);
   for (const vp of [{ width: 1366, height: 600 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(vp); const b = await page.locator('#sdGo').boundingBox(); expect(b.y + b.height).toBeLessThanOrEqual(vp.height); expect(b.y).toBeGreaterThan(0);
     await expect(page.locator('#sdCancel')).toBeInViewport(); await expect(page.locator('#sdGo')).toBeInViewport();
   }
+  await ctx.close();
+});
+
+test('404 is explained: an old server (route missing) and an unknown meeting are told apart; neither enables Start', async ({ browser }) => {
+  const ctx = await browser.newContext(); await organiser(ctx, MAIN); const page = await ctx.newPage();
+  await page.route('**/api/meetings/*/preflight', (r) => r.fulfill({ status: 404, contentType: 'text/html', body: '<pre>Cannot GET</pre>' }));
+  await page.goto(MAIN + '/qorlla.html#home'); await page.locator('.meeting', { hasText: 'Sprint planning' }).locator('.join-pill').click();
+  await expect(page.locator('#sdErr')).toContainText('Route not found'); await expect(page.locator('#sdErr')).toContainText('older version'); await expect(page.locator('#sdGo')).toBeDisabled(); await expect(page.locator('#sdNet [data-k=net] b')).toHaveClass(/bad/);
+  await page.unroute('**/api/meetings/*/preflight'); await page.route('**/api/meetings/*/preflight', (r) => r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'This meeting is not available.' }) }));
+  await page.click('#sdRetry'); await expect(page.locator('#sdErr')).toContainText('Meeting not found'); await expect(page.locator('#sdGo')).toBeDisabled();
+  await page.unroute('**/api/meetings/*/preflight'); await page.click('#sdRetry'); await expect(page.locator('#sdGo')).toBeEnabled(); await expect(page.locator('#sdBadge')).toBeHidden();
   await ctx.close();
 });

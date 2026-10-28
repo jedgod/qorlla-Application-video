@@ -208,6 +208,11 @@
   dialog.sd .btns { margin-top: 6px; } dialog.sd .btns button { padding: 8px 18px; font-size: 13px; }
   .sd-card label { font-size: 12px; } .sd-card .f { margin-top: 3px; }
   @media (max-width: 819px) { dialog.sd { width: 96vw; } .sd-prev { height: 140px; } }
+  dialog.sd .sd-left, dialog.sd .sd-right { gap: 8px; } dialog.sd .sd-body { padding-bottom: 28px; } dialog.sd .sd-grid { align-items: start; }
+  dialog.sd input[type=text], dialog.sd input[type=password] { height: 36px; } dialog.sd select { height: 34px; border: 1px solid var(--line); background: #fff; }
+  dialog.sd .sd-badge { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 700; }
+  dialog.sd .chip { min-width: 84px; text-align: center; } dialog.sd .sd-net { display: block; } dialog.sd .sd-net li { padding: 4px 0; border-bottom: 1px solid #e5eaf3; } dialog.sd .sd-net li:last-child { border: 0; }
+  dialog.sd .sd-net b::before { margin-right: 5px; font-weight: 700; } dialog.sd .sd-net b.ok::before { content: '\2713'; } dialog.sd .sd-net b.bad::before { content: '\2715'; } dialog.sd .sd-net b.warn::before { content: '!'; }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 21px; margin-bottom: 4px; letter-spacing: -.4px; }
   dialog .sub { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
@@ -678,7 +683,7 @@
       <div class="sd-left">
         <label class="f" for="sdTitleIn">Meeting title</label><input type="text" id="sdTitleIn" maxlength="160" autocomplete="off">
         <div class="f">Meeting ID</div>
-        <div class="sd-id"><strong id="sdId"></strong><button type="button" class="chip" id="sdCopyId">Copy ID</button></div>
+        <div class="sd-id"><strong id="sdId"></strong><span id="sdBadge" class="sd-badge" hidden>Unconfirmed</span><button type="button" class="chip" id="sdCopyId">Copy ID</button></div>
         <label class="f" for="sdPass">Meeting password <span class="muted">(optional)</span></label>
         <div class="sd-pass"><input type="password" id="sdPass" maxlength="32" autocomplete="new-password" placeholder="Enter meeting password"><button type="button" class="chip" id="sdPassToggle" aria-pressed="false">Show</button><button type="button" class="chip" id="sdPassGen">Generate</button></div>
         <p class="hint" id="sdPassNote"></p>
@@ -709,7 +714,7 @@
         </section>
         <section aria-labelledby="sdNetH" class="sd-card">
           <h3 id="sdNetH">Readiness</h3>
-          <button type="button" class="chip" id="sdRecheck" hidden>Re-check</button><ul class="sd-net" id="sdNet" aria-live="polite"><li data-k="net"><span>Connection</span><b>Checking…</b></li><li data-k="meet"><span>Qorlla Meet</span><b>Checking…</b></li><li data-k="cam"><span>Camera</span><b>Not tested</b></li><li data-k="mic"><span>Microphone</span><b>Not tested</b></li></ul>
+          <button type="button" class="chip" id="sdRecheck" hidden>Re-check</button><ul class="sd-net" id="sdNet" aria-live="polite"><li data-k="net"><span>Meeting lookup</span><b>Checking…</b></li><li data-k="meet"><span>Meeting server (Qorlla Meet)</span><b>Checking…</b></li><li data-k="cam"><span>Camera</span><b>Not tested</b></li><li data-k="mic"><span>Microphone</span><b>Not tested</b></li></ul>
         </section>
         <details id="sdSec" class="sd-card" open>
           <summary>Security and admission</summary>
@@ -895,18 +900,20 @@
     var m = sd.m, t0 = Date.now(), ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 8000);
     sd.ready = false; $('sdGo').disabled = true; $('sdRetry').hidden = true; $('sdRecheck').hidden = true; $('sdErr').textContent = '';
     netRow('net', navigator.onLine === false ? 'Offline' : 'Checking…', navigator.onLine === false ? 'bad' : ''); netRow('meet', 'Checking…'); $('sdPassNote').textContent = 'Checking…';
-    $('sdId').textContent = m.meetingId + ' (unconfirmed)'; $('sdCopyId').disabled = true; $('sdCopyInvite').disabled = true; $('sdLink').value = '';
+    $('sdId').textContent = m.meetingId; $('sdBadge').hidden = false; $('sdCopyId').disabled = true; $('sdCopyInvite').disabled = true; $('sdLink').value = '';
     var url = '/api/meetings/' + encodeURIComponent(m.meetingId);
     return fetch(url + '/preflight', { cache: 'no-store', signal: ctl.signal }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; });
     }).then(function (r) {
       clearTimeout(timer);
       if (!r.ok) {
-        netRow('net', 'Server answered (' + r.status + ')', 'bad'); netRow('meet', 'Not checked', 'bad'); $('sdPassNote').textContent = '';
-        fail(r.d.error || (r.status === 404 ? 'The server does not know this meeting action - restart it so it runs the current version.' : 'Could not load the meeting (HTTP ' + r.status + ').')); return;
+        netRow('meet', 'Not checked', 'warn'); $('sdPassNote').textContent = '';
+        var why = r.status === 404 && !r.d.error ? 'Route not found (HTTP 404): this server is running an older version without the start screen. Restart it, then press Retry.'
+          : r.status === 404 ? 'Meeting not found (HTTP 404): ' + r.d.error : r.status === 401 ? 'Your sign-in expired. Sign in again.' : r.status === 403 ? (r.d.error || 'Only the person who scheduled this meeting can start it.') : 'The server could not load the meeting (HTTP ' + r.status + ').' + (r.d.error ? ' ' + r.d.error : '');
+        netRow('net', r.status === 404 && !r.d.error ? 'Route not found (404)' : 'Server answered (' + r.status + ')', 'bad'); fail(why); return;
       }
       var p = r.d; netRow('net', 'Ready (' + (Date.now() - t0) + ' ms)', 'ok');
-      if (!$('sdTitleIn').value) $('sdTitleIn').value = p.title; $('sdId').textContent = p.meetingId; $('sdCopyId').disabled = false;
+      if (!$('sdTitleIn').value) $('sdTitleIn').value = p.title; $('sdId').textContent = p.meetingId; $('sdBadge').hidden = true; $('sdCopyId').disabled = false;
       $('sdWait').checked = !!p.settings.waitingRoom; $('sdBefore').checked = !!p.settings.joinBeforeHost; $('sdLock').checked = !!p.settings.lockAfterJoin;
       $('sdPassNote').textContent = p.passcodeRequired ? 'A password is set (stored securely, so it cannot be shown). Type a new one to change it.' : 'No password set. ' + (p.settings.waitingRoom ? 'Guests are admitted from the waiting room.' : 'Anyone with the ID or link can join - consider a password or the waiting room.');
       $('sdRemoveWrap').style.display = p.passcodeRequired ? '' : 'none';
