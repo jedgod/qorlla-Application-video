@@ -161,7 +161,7 @@ const meetingById = (id) => meetingsState.get(normalizeId(id));
 const guestSessions = createGuestSessions({ getMeeting: meetingById });
 const { createMeetLaunch } = require('./meet-launch');
 const hist = require('./history');
-const { invitationText } = require('./invitation');
+const { invitationText, invitationIcs } = require('./invitation');
 const ML = require('./meeting-limit');
 const meetLaunch = createMeetLaunch({ dataDir: DATA_DIR, probePort: () => probeMeetPort() });
 const hostKeyHash = (key) => crypto.createHash('sha256').update(String(key)).digest('hex');
@@ -363,6 +363,13 @@ for (const base of ['/api/meetings', '/api/v1/meetings']) {
         const id = meeting.meetingId, url = req.protocol + '://' + req.get('host') + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin';
         res.set('Cache-Control', 'no-store').json({ id, title: meeting.topic || '', url, passcodeRequired: !!meeting.passcodeHash, scheduledFor: meeting.startTime || null });   // the password is never returned: it is stored hashed
     });
+    app.get(base + '/:id/invitation.ics', (req, res) => {
+        const meeting = hostMeeting(req, res); if (!meeting) return;
+        const id = meeting.meetingId, link = (mailer.baseUrl || (req.protocol + '://' + req.get('host'))).replace(/\/+$/, '') + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin';
+        const ics = invitationIcs({ uid: meeting.id || id, title: meeting.title || meeting.topic, startIso: meeting.scheduledStartAt || meeting.startTime, minutes: meeting.durationMinutes, link, meetingId: id, host: req.hostUser.displayName, description: meeting.description });
+        if (!ics) return res.status(409).json({ error: 'This meeting has no start time to put in a calendar.' });
+        res.set({ 'Content-Type': 'text/calendar; charset=utf-8', 'Content-Disposition': 'attachment; filename="qorlla-meeting-' + id + '.ics"', 'Cache-Control': 'no-store' }).send(ics);
+    });
     // settings: title, password and admission policy; pushed to Meet when the meeting is already there
     app.patch(base + '/:id/settings', async (req, res) => {
         const meeting = hostMeeting(req, res); if (!meeting) return;
@@ -539,7 +546,7 @@ app.post('/api/meetings/:meetingId/invite', limitInvite, attachActor, async (req
         if (typeof pc !== 'string' || pc.length < 6 || pc.length > 32) return res.status(400).json({ error: 'The passcode must be 6 to 32 characters.' });
         const ch = applyHostChanges(meeting, { password: pc }); if (ch.error) return res.status(400).json({ error: ch.error }); passcode = pc;
     }
-    const text = invitationText({ host: who, title: meeting.title || meeting.topic, topic: meeting.topicText, when: meeting.whenText, meetingId: id, link, passcode, needsPasscode: !!meeting.passcodeHash, agenda: meeting.agenda, description: meeting.description });
+    const text = invitationText({ host: who, title: meeting.title || meeting.topic, topic: meeting.topicText, when: meeting.whenText, meetingId: id, link, passcode, needsPasscode: !!meeting.passcodeHash, agenda: meeting.agenda, description: meeting.description, dialIn: dialInNumbers(), phonePin: req.body && req.body.phonePin });
     const results = [];
     for (const to of list) { const r = await mailer.send({ to, subject: who + ' invited you: ' + (meeting.title || meeting.topic || 'Qorlla meeting'), replyTo: req.actor.type === 'account' && req.actor.user.emailVerified ? req.actor.user.email : undefined, text }); results.push({ email: to, status: r.status }); }
     res.json({ sent: results.filter((r) => r.status === 'sent').length, results });

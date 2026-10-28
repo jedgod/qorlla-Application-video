@@ -736,7 +736,7 @@
         </fieldset>
         <p class="sd-j sd-info">Joining is not consent to be recorded. If the host asks to record, you will be asked separately and can decline; AI features need their own consent.</p>
         <div class="sd-s f">Invitation link</div>
-        <div class="sd-s sd-link"><input type="text" id="sdLink" readonly aria-label="Invitation link"><button type="button" class="chip" id="sdCopyInvite">Copy invitation</button></div>
+        <div class="sd-s sd-link"><input type="text" id="sdLink" readonly aria-label="Invitation link"><button type="button" class="chip" id="sdCopyInvite">Copy invitation</button><a class="chip" id="sdIcs" download>Calendar invite (.ics)</a></div>
         <p class="sd-s hint">Share this link with the people you want to invite.</p>
         <div class="sd-s sd-link"><input type="text" id="sdEmails" aria-label="Email addresses to invite" placeholder="Invite by email: name@example.com, another@example.com" autocomplete="off" maxlength="900"><button type="button" class="chip" id="sdSendInvite">Send</button></div>
         <p class="sd-s hint" id="sdInviteMsg" role="status"></p>
@@ -1017,6 +1017,7 @@
         if (ok.length && !bad.length) $('sdEmails').value = '';
       }).catch(function () { msg.textContent = 'Could not reach the server.'; }).then(function () { btn.disabled = false; });
   });
+  $('sdIcs').addEventListener('click', function () { this.href = '/api/meetings/' + encodeURIComponent(sd.m.meetingId) + '/invitation.ics'; });
   $('sdCopyId').addEventListener('click', function () { copyText(sd.m.meetingId, I18n.t('Meeting ID copied')); });
   $('sdCopyInvite').addEventListener('click', function () { copyText(invitationText(), I18n.t('Invitation copied')); });
   $('sdPassToggle').addEventListener('click', function () { var show = $('sdPass').type === 'password'; $('sdPass').type = show ? 'text' : 'password'; this.textContent = show ? 'Hide' : 'Show'; this.setAttribute('aria-pressed', String(show)); });

@@ -58,3 +58,19 @@ test('mail not configured: the Start screen says so, Send is disabled, and the A
     const r = await context.request.post(main.base + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/invite', { data: { emails: ['a@example.com'] } }); expect(r.status()).toBe(503); expect((await r.json()).error).toContain('SMTP_URL');
   } finally { main.stop(); }
 });
+
+test.describe('invitation extras', () => {
+  const { invitationText, invitationIcs } = require('../invitation');
+  test('phone section lists only real provisioned numbers; the PIN appears only when supplied', () => {
+    const none = invitationText({ host: 'Ann', title: 'T', meetingId: '12345678901', dialIn: [{ country: 'US', number: '555' }] });
+    expect(none).not.toContain('Join by phone');
+    const t = invitationText({ host: 'Ann', title: 'T', meetingId: '12345678901', dialIn: [{ country: 'US', number: '+12025550188' }] });
+    expect(t).toContain('+12025550188'); expect(t).toContain('ask Ann for the PIN');
+    expect(invitationText({ host: 'Ann', title: 'T', meetingId: '12345678901', dialIn: [{ country: 'US', number: '+12025550188' }], phonePin: '12345678' })).toContain('PIN: 12345678');
+  });
+  test('calendar invite is valid, has the join link and never a passcode', () => {
+    const ics = invitationIcs({ uid: 'u1', title: 'Embedded, SCADA', startIso: '2026-08-24T21:00:00Z', minutes: 150, link: 'https://x/j', meetingId: '12345678901' });
+    expect(ics).toContain('DTSTART:20260824T210000Z'); expect(ics).toContain('DTEND:20260824T233000Z'); expect(ics).toContain('SUMMARY:Embedded' + String.fromCharCode(92) + ', SCADA'); expect(ics).not.toMatch(/passcode:/i);
+    expect(invitationIcs({ title: 'x', startIso: 'nope' })).toBeNull();
+  });
+});
