@@ -202,6 +202,29 @@ app.patch('/api/integrations/scheduled-meetings/:sourceId',bridgeAuth,async(req,
  }catch(e){await client.query('ROLLBACK').catch(()=>{});console.error(e);fail(res,500,'Schedule update failed');}finally{client.release();}
 });
 // v3.3: cancellation is terminal and idempotent; cannot be used to reopen a meeting.
+// Meeting History: who was really in the room and when, for a meeting registered by the scheduling backend. Names and times only; no tokens, no passcodes.
+app.get('/api/integrations/scheduled-meetings/:sourceId/activity',bridgeAuth,async(req,res)=>{
+ if(!validSource(req.params.sourceId))return fail(res,400,'Invalid source');
+ try{
+  const {rows:[m]}=await db.query("SELECT m.id,m.ended_at FROM external_meeting_links l JOIN meetings m ON m.id=l.meeting_id WHERE l.source_system='qorlla-main' AND l.source_id=$1",[req.params.sourceId]);
+  if(!m)return fail(res,404,'Not registered');
+  const {rows}=await db.query("SELECT p.id AS pid,p.display_name AS name,p.role,s.connected_at,s.disconnected_at FROM participant_sessions s JOIN participants p ON p.id=s.participant_id WHERE s.meeting_id=$1 ORDER BY s.connected_at",[m.id]);
+  const here=active.get(m.id),now=Date.now(),byName=new Map(),events=[];
+  for(const r of rows){
+   const a=new Date(r.connected_at).getTime();let b=r.disconnected_at?new Date(r.disconnected_at).getTime():(m.ended_at?new Date(m.ended_at).getTime():(here&&here.has(r.pid)?now:a));
+   if(b<a)b=a;const key=String(r.name).trim().toLowerCase()+'|'+r.role;
+   const e=byName.get(key)||{name:r.name,role:r.role,firstJoin:a,lastLeft:b,seconds:0,sessions:0,open:false};
+   e.firstJoin=Math.min(e.firstJoin,a);e.lastLeft=Math.max(e.lastLeft,b);e.seconds+=Math.round((b-a)/1000);e.sessions++;e.open=e.open||(!r.disconnected_at&&!m.ended_at&&!!(here&&here.has(r.pid)));byName.set(key,e);
+   events.push([a,1,key],[b,-1,key]);
+  }
+  events.sort((x,y)=>x[0]-y[0]||x[1]-y[1]);const open=new Map();let peak=0;
+  for(const [,d,k] of events){open.set(k,(open.get(k)||0)+d);peak=Math.max(peak,[...open.values()].filter(v=>v>0).length);}
+  const att=[...byName.values()];
+  res.set('Cache-Control','no-store').json({startedAt:rows.length?new Date(rows[0].connected_at).toISOString():null,endedAt:m.ended_at?new Date(m.ended_at).toISOString():null,
+   lastLeftAt:att.length?new Date(Math.max(...att.map(x=>x.lastLeft))).toISOString():null,online:att.filter(x=>x.open).length,unique:att.length,peak,
+   attendees:att.map(x=>({name:x.name,role:x.role,firstJoin:new Date(x.firstJoin).toISOString(),lastLeft:new Date(x.lastLeft).toISOString(),seconds:x.seconds,sessions:x.sessions}))});
+ }catch(e){console.error('[history] activity failed:',e.message);fail(res,500,'Activity unavailable');}
+});
 app.post('/api/integrations/scheduled-meetings/:sourceId/cancel',bridgeAuth,async(req,res)=>{
  if(!validSource(req.params.sourceId))return fail(res,400,'Invalid source ID');
  try{const {rows}=await db.query(`UPDATE meetings SET ended_at=COALESCE(ended_at,now()) WHERE id=(SELECT meeting_id FROM external_meeting_links WHERE source_system=$1 AND source_id=$2) RETURNING id`,['qorlla-main',req.params.sourceId]);
@@ -360,6 +383,7 @@ io.on('connection',socket=>{
  const prior=roster.get(pid);
  if(prior && prior!==socket.id) io.sockets.sockets.get(prior)?.disconnect(true);
  roster.set(pid,socket.id); socket.join(room(id));
+ socket.data.sess=randomUUID();db.query('INSERT INTO participant_sessions(id,meeting_id,participant_id) VALUES($1,$2,$3)',[socket.data.sess,id,pid]).catch(e=>console.error('[history] session open failed:',e.message));
  if(u.role==='host'){
   recording.hostBack(id,pid).catch(()=>{});
   db.query("UPDATE participants SET admission='admitted',wait_reason=NULL WHERE meeting_id=$1 AND admission='waiting' AND wait_reason='host_absent'",[id]).then(r=>{if(r.rowCount)io.to(room(id)).emit('waiting-changed',{});}).catch(()=>{});
@@ -404,6 +428,7 @@ io.on('connection',socket=>{
    const {rows}=await db.query('SELECT choice,count(*)::int AS count FROM poll_votes WHERE poll_id=$1 GROUP BY choice',[pollId]);io.to(room(id)).emit('poll-results',{pollId,counts:rows});ack?.({ok:true});
   }catch{ackError(ack,'Vote failed');}
  });
- socket.on('disconnect',reason=>{if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
+ socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
+db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE disconnected_at IS NULL').catch(()=>{});   // a restart ends every connection: close what the last run left open
 server.listen(PORT,()=>console.log(`Qorlla Meet listening on http://localhost:${PORT}`));

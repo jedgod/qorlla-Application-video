@@ -59,15 +59,16 @@ app.use('/api/workplace', require('./workplace')({
     allocateMeeting: (m) => allocateMeeting(m),
     // Keep the live meeting record in step with an edited/deleted scheduled meeting (so a moved meeting stays joinable and a deleted one stops working)
     updateMeeting: (id, f) => {
-        const m = meetingsState.get(normalizeId(id)); if (!m) return;
-        if (f.topic) m.topic = String(f.topic).slice(0, 200);
+        const m = meetingsState.get(normalizeId(id)); if (!m || m.status === 'completed') return;                    // history is immutable
+        if (f.topic) { m.topic = String(f.topic).slice(0, 200); m.title = m.topic; }
+        if (f.meta) for (const [k, val] of Object.entries(f.meta)) if (val !== undefined) m[k] = val;
         if (f.startTime) m.startTime = f.startTime;
         if (f.durationMinutes) m.durationMinutes = f.durationMinutes;
         saveSnapshotSoon();
     },
     closeMeeting: (id) => {
         const m = meetingsState.get(normalizeId(id)); if (!m || m.status === 'completed') return;
-        m.status = 'completed'; saveSnapshotSoon();
+        hist.finalize(m, m.actualStartAt ? 'host_ended' : 'cancelled'); saveSnapshotSoon();
         io.to(m.meetingId).emit('meeting_terminated_by_host', { summaryMessage: 'The host deleted this scheduled meeting.' });
         guestSessions.revokeMeeting(m.meetingId, 'meeting_ended');
     },
@@ -158,6 +159,7 @@ const { createGuestSessions, createGuestRouter, rateLimit } = require('./guest-s
 const meetingById = (id) => meetingsState.get(normalizeId(id));
 const guestSessions = createGuestSessions({ getMeeting: meetingById });
 const { createMeetLaunch } = require('./meet-launch');
+const hist = require('./history');
 const meetLaunch = createMeetLaunch({ dataDir: DATA_DIR, probePort: () => probeMeetPort() });
 const hostKeyHash = (key) => crypto.createHash('sha256').update(String(key)).digest('hex');
 function verifyHostKey(meeting, key) {
@@ -166,7 +168,8 @@ function verifyHostKey(meeting, key) {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 const meetingAccounts = new Map();      // meetingId -> Set(accountId) of signed-in people who joined (they may read that meeting's documents)
-const publicMeeting = ({ hostKeyHash: _h, passcodeHash: _p, removedAccounts: _r, ...rest }) => ({ ...rest, passcodeRequired: !!_p });
+// attendance, outcome and follow-ups are for the history screens (host / attendee checks there), never for the room broadcast or the public lookups
+const publicMeeting = ({ hostKeyHash: _h, passcodeHash: _p, removedAccounts: _r, attendance: _a, meetActivity: _m, joinedAccounts: _j, outcome: _o, actionItems: _i, viaMeet: _v, ...rest }) => ({ ...rest, passcodeRequired: !!_p });
 
 // Optional meeting passcode (MAIN meetings: 4-32 characters, scrypt). Meet has its own, separate policy (see docs/PASSCODE_POLICY.md).
 // Attempts go through the durable lockout service: 5 failures lock the meeting for 10 minutes, across restarts and processes.
@@ -239,6 +242,7 @@ async function meetHandoff(meeting, who, req) {
         const pub = await meetPublicBase(req);
         const link = await meetLaunch.ensureLink(meeting, meeting.hostName || meeting.ownerName || 'Host', { title: meeting.topic, settings: settingsOf(meeting) });
         const session = await meetLaunch.join(link, { name: who.name });
+        meeting.viaMeet = true; if (who.accountId) hist.recordAccount(meeting, who.accountId); saveSnapshotSoon();
         return { url: meetLaunch.url(pub, session, { mic: who.mic !== false, camera: who.camera !== false, prefs: who.prefs, returnUrl: req.protocol + '://' + req.get('host') + (who.account ? '/qorlla.html' : '/guest/welcome') }) };
     } catch (e) {
         console.warn('[Meet hand-off] ' + e.message);
@@ -247,6 +251,7 @@ async function meetHandoff(meeting, who, req) {
     }
 }
 app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getMeeting: meetingById, getAccount: (req) => auth.getUser(req), verifyHostKey, checkPasscode, admitAccount, handoff: meetHandoff }));
+hist.registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRooms, fetchActivity: (m) => meetLaunch.activity(m.meetingId) });   // Meeting History: /api/history/meetings
 
 // ---- The organiser's pre-meeting screen (v4.0.2b) --------------------------------------------------------------------------------------------------
 // Admission policy lives in meeting.settings and is ENFORCED by Qorlla Meet (waiting room, join before host, lock when the host joins): the page only edits it.
@@ -271,7 +276,8 @@ function applyHostChanges(meeting, b) {                                         
     const pw = b.password;
     if (pw !== undefined && pw !== null && pw !== '' && (typeof pw !== 'string' || pw.length < 6 || pw.length > 32)) return { error: 'The password must be 6 to 32 characters.' };
     if (Object.keys(s.value).length) meeting.settings = { ...SETTINGS_RECOMMENDED, ...(meeting.settings || {}), ...s.value };
-    if (title !== undefined) meeting.topic = title;
+    if (title !== undefined) { meeting.topic = title; meeting.title = title; }
+    if (meeting.status !== 'completed') Object.assign(meeting, hist.cleanMeta({ ...('topic' in b ? { topic: b.topic } : {}), ...('category' in b ? { category: b.category } : {}), ...('description' in b ? { description: b.description } : {}) }));
     if (b.removePassword === true || pw === null) delete meeting.passcodeHash; else if (typeof pw === 'string' && pw) meeting.passcodeHash = hashPasscode(pw);
     saveSnapshotSoon(); return { ok: true };
 }
@@ -289,6 +295,7 @@ async function doStart(meeting, user, b, req) {
         const link = await meetLaunch.ensureLink(meeting, user.displayName, { title: meeting.topic, settings });
         const name = String(b.name || user.displayName || 'Host').trim().slice(0, 70) || 'Host';
         const session = await meetLaunch.join(link, { name, host: true });
+        meeting.viaMeet = true; hist.recordAccount(meeting, user.id); saveSnapshotSoon();
         const ret = String(b.returnUrl || '');
         return { status: 200, body: { mode: 'meet', settings, url: meetLaunch.url(pub, session, { mic: b.mic !== false, camera: b.camera !== false, returnUrl: /^https?:\/\//.test(ret) ? ret : '', prefs: { camLabel: b.camLabel, micLabel: b.micLabel, spkLabel: b.spkLabel } }) } };
     } catch (e) { console.warn('[Meet start] ' + e.message); return unavailable('meet_unavailable', e.message); }
@@ -306,7 +313,7 @@ for (const base of ['/api/meetings', '/api/v1/meetings']) {
     app.get(base + '/:id/preflight', async (req, res) => {
         const meeting = hostMeeting(req, res); if (!meeting) return;
         const meet = await meetLaunch.ping(), explicit = !!meeting.settings;
-        res.set('Cache-Control', 'no-store').json({ meetingId: meeting.meetingId, title: meeting.topic || '', scheduledFor: meeting.startTime || null, kind: meeting.startTime ? 'scheduled' : 'instant', passcodeRequired: !!meeting.passcodeHash,
+        res.set('Cache-Control', 'no-store').json({ meetingId: meeting.meetingId, title: meeting.topic || '', topic: meeting.topicText || '', category: meeting.category || '', categories: hist.CATEGORIES, scheduledFor: meeting.startTime || null, kind: meeting.startTime ? 'scheduled' : 'instant', passcodeRequired: !!meeting.passcodeHash,
             settings: explicit ? settingsOf(meeting) : SETTINGS_RECOMMENDED, recommended: SETTINGS_RECOMMENDED, explicit, meet: { ...meet, public: !!(await meetPublicBase(req)) }, serverTime: new Date().toISOString() });
     });
     app.get(base + '/:id/invitation', (req, res) => {
@@ -379,7 +386,7 @@ app.get('/index.html', (req, res) => {
 // ==========================================
 // MEETING PREPARATION FLOW (REST API)
 // ==========================================
-function allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone }) {
+function allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone, meta, hostName, previousMeetingId }) {
     const rawId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
     const formattedMeetingId = `${rawId.substring(0, 3)} ${rawId.substring(3, 7)} ${rawId.substring(7, 11)}`;
 
@@ -392,6 +399,8 @@ function allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone }
         hostId,
         timezone: timezone || "GMT-4:00 (Eastern Time)",
         status: 'scheduled',
+        title: String(topic).slice(0, 200), topicText: '', description: '', agenda: [], category: '', hostName: String(hostName || '').slice(0, 70),
+        scheduledStartAt: startTime || new Date().toISOString(), previousMeetingId: previousMeetingId || undefined, ...(meta || {}),
         documents: [],
         notes: "",
         chatHistory: []
@@ -413,7 +422,7 @@ app.post('/api/meetings/create', limitCreate, (req, res) => {
         return res.status(400).json({ error: "Missing required topic or host registration identifier." });
     }
 
-    const newMeeting = allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone });
+    const newMeeting = allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone, hostName: account ? account.displayName : '', meta: hist.cleanMeta({ topic: req.body.meetingTopic, description: req.body.description, agenda: req.body.agenda, category: req.body.category }) });
     // Anonymous hosts prove they are the host with this one-time key (only its hash is stored); accounts do not need it.
     let hostKey;
     if (!account) { hostKey = crypto.randomBytes(24).toString('base64url'); newMeeting.hostKeyHash = hostKeyHash(hostKey); }
@@ -528,6 +537,7 @@ function leaveCurrentRoom(socket) {
 
     socket.leave(roomId);
     socket.currentRoom = null;
+    { const mm = meetingsState.get(roomId); if (mm && socket.attKey) hist.recordLeave(mm, socket.attKey); socket.attKey = null; }
 
     const room = activeRooms.get(roomId);
     if (!room) return;
@@ -613,6 +623,8 @@ io.on('connection', (socket) => {
 
         socket.join(cleanId);
         socket.currentRoom = cleanId;
+        socket.attKey = joiningAccount ? 'a:' + joiningAccount.id : gs ? 'g:' + gs.sid : 's:' + socket.id;
+        hist.recordJoin(currentMeeting, { key: socket.attKey, name: safeName, accountId: joiningAccount && joiningAccount.id });
         console.log(`[User Joined Room]: ${safeName} entered ${cleanId}`);
 
         io.to(cleanId).emit('room_state_updated', {
@@ -732,7 +744,8 @@ io.on('connection', (socket) => {
         if (sender && (sender.role === 'host' || sender.role === 'admin')) {
             const meeting = meetingsState.get(roomId);
             if (meeting) {
-                meeting.status = 'completed';
+                for (const p of room.values()) { const s = io.sockets.sockets.get(p.socketId); if (s && s.attKey) { hist.recordLeave(meeting, s.attKey); s.attKey = null; } }
+                hist.finalize(meeting, 'host_ended');
                 saveSnapshotSoon();
                 console.log(`[Post-Processing Engine]: Meeting ${roomId} marked closed.`);
             }

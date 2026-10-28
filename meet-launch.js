@@ -99,8 +99,16 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
         if (prefs && (prefs.camLabel || prefs.micLabel || prefs.spkLabel)) payload.prefs = { camLabel: String(prefs.camLabel || '').slice(0, 120), micLabel: String(prefs.micLabel || '').slice(0, 120), spkLabel: String(prefs.spkLabel || '').slice(0, 120) };
         return publicBase + '?' + q.toString() + '#qs=' + Buffer.from(JSON.stringify(payload)).toString('base64url');
     }
+    /** Who was in the room and when, as Meet recorded it (names and times). null when this meeting is not registered with Meet or Meet cannot answer. */
+    async function activity(meetingId) {
+        const l = links[digitsOf(meetingId)]; if (!enabled() || !l) return null;
+        const base = await internalBase(); if (!base) return null;
+        const r = await call(base, '/api/integrations/scheduled-meetings/' + encodeURIComponent(l.sourceId) + '/activity', 'GET', undefined, bridge());
+        return r.ok ? r.data : null;
+    }
+    const known = (meetingId) => !!links[digitsOf(meetingId)];
     const forget = (meetingId) => { const d = digitsOf(meetingId); if (links[d]) { delete links[d]; persist(); } };
-    return { enabled, ensureLink, updateIfLinked, join, url, ping, forget, _links: () => links };
+    return { enabled, ensureLink, updateIfLinked, join, url, ping, forget, activity, known, _links: () => links };
 }
 
 module.exports = { createMeetLaunch };

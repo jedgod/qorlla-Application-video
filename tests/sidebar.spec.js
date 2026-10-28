@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 
 // The home sidebar keeps its column (width, order) and every item fits without scrolling; labels stay inside the column.
-const ORDER = ['Home', 'Phone', 'Docs', 'Mail', 'Clips', 'Whiteboards', 'Chat', 'Calendar', 'Schedule', 'Notes', 'More', 'Settings'];
+const ORDER = ['Home', 'Phone', 'Docs', 'Mail', 'Clips', 'Whiteboards', 'Chat', 'Calendar', 'Schedule', 'History', 'Notes', 'More', 'Settings'];
 for (const [w, h] of [[1920, 1080], [1366, 768], [1280, 720], [1024, 700], [1280, 640]]) {
   test(`sidebar fits without scrolling at ${w}x${h} and keeps its column and order`, async ({ page, context }) => {
     await page.setViewportSize({ width: w, height: h });

@@ -55,7 +55,7 @@ test.describe('quick card first, full dialog on More Options', () => {
     await page.getByRole('button', { name: 'Save' }).click(); await expect(page.locator('.card.ev', { hasText: 'Quarterly planning' })).toBeVisible();
     const [s] = await list(context);
     expect(s).toMatchObject({ title: 'Quarterly planning', location: 'HQ 4th floor', room: 'Room 12', timezone: 'Europe/London', busy: false, invitees: ['a@example.com', 'b@example.com'] });
-    expect(s.description).toContain('1. Budget'); expect(s.description).toContain('Bring the budget.');
+    expect(s.agenda).toContain('1. Budget'); expect(s.description).toContain('Bring the budget.'); expect(s.description).not.toContain('1. Budget');   // the agenda is its own field now
     expect(s.inviteResults.map((r) => r.status)).toEqual(['not_configured', 'not_configured']);                  // no SMTP here: stored honestly
     await expect(page.locator('#toast')).toContainText('Invitations not sent'); await expect(page.locator('#toast')).toContainText('email is not set up');
     await expect(page.locator('.card.ev', { hasText: 'Quarterly planning' })).toContainText('not emailed');

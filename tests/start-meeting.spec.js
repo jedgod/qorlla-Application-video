@@ -260,3 +260,17 @@ test('join preview: the camera name sits over the preview, mirrors the Camera se
   await page.selectOption('#sdCamSel', { index: 0 }); await expect.poll(() => page.evaluate(() => document.getElementById('sdPrevCam').selectedIndex)).toBe(0);
   await page.click('#sdCancel'); await expect.poll(() => page.evaluate(() => window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended'))), { timeout: 5000 }).toBe(true);
 });
+
+test('the topic and category are on the start screen, come from the scheduled meeting, and are sent with Start', async ({ page, context }) => {
+  test.setTimeout(60000);
+  const { item } = await organiser(context, MAIN);
+  expect((await context.request.patch(MAIN + '/api/workplace/schedule/' + item.id, { data: { topic: 'Roadmap review', category: 'team' } })).status()).toBe(200);
+  await openStart(page); await expect(page.locator('#sdTopic')).toHaveValue('Roadmap review'); await expect(page.locator('#sdCategory')).toHaveValue('team'); await expect(page.locator('#sdTitleIn')).toHaveValue('Sprint planning');   // title and topic are separate
+  await page.fill('#sdTopic', 'Q4 priorities'); await page.selectOption('#sdCategory', 'training'); let sent = null;
+  await page.route('**/api/meetings/*/start', (r) => { sent = JSON.parse(r.request().postData()); r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ mode: 'blocked', error: 'stop here' }) }); });
+  await page.click('#sdWait'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('stop here');
+  expect(sent).toMatchObject({ title: 'Sprint planning', topic: 'Q4 priorities', category: 'training' });
+  const pf = await (await context.request.get(MAIN + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/preflight')).json(); expect(pf.title).toBe('Sprint planning');
+  await context.request.post(MAIN + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/start', { data: { topic: 'Q4 priorities', category: 'training', waitingRoom: false } });
+  const pf2 = await (await context.request.get(MAIN + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/preflight')).json(); expect(pf2.topic).toBe('Q4 priorities'); expect(pf2.category).toBe('training'); expect(pf2.title).toBe('Sprint planning');
+});

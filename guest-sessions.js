@@ -180,7 +180,7 @@ function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHo
                 if (pc.required && !pc.ok) return denyPasscode(res, pc);
                 admitAccount(meeting.meetingId, account.id);
             }
-            const meetA = meeting.hostId !== account.id && handoff ? await handoff(meeting, { account: true, name: account.displayName || body.displayName || 'Guest', mic: body.mic !== false, camera: body.camera !== false, prefs: body.prefs && typeof body.prefs === 'object' ? body.prefs : null }, req) : null;
+            const meetA = meeting.hostId !== account.id && handoff ? await handoff(meeting, { account: true, accountId: account.id, name: account.displayName || body.displayName || 'Guest', mic: body.mic !== false, camera: body.camera !== false, prefs: body.prefs && typeof body.prefs === 'object' ? body.prefs : null }, req) : null;
             if (meetA && meetA.blocked) return res.status(meetA.status || 503).json({ error: meetA.error || 'The host requires a waiting room and it is temporarily unavailable. Try again in a moment.' });
             return res.json({ kind: 'account', meeting: { meetingId: meeting.meetingId }, ...(meetA ? { meet: meetA } : {}) });
         }

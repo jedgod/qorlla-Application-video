@@ -13,6 +13,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
 const store = require('./store');
+const { cleanMeta, cleanAgenda, cleanCategory } = require('./history');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -342,6 +343,11 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
             v.room = has('room') ? str(body.room, 120) : (existing.room || '');
             v.timezone = has('timezone') ? str(body.timezone, 64) : (existing.timezone || '');
             if (v.timezone && !/^[A-Za-z0-9_+\-\/]+$/.test(v.timezone)) return { error: 'Time zone is not valid.' };
+            // Meeting topic (the subject, kept separate from the title), category and agenda items
+            v.topic = has('topic') ? str(body.topic, 255) : (existing.topic || '');
+            v.category = has('category') ? cleanCategory(body.category) : (existing.category || '');
+            v.agenda = has('agenda') ? cleanAgenda(body.agenda) : (existing.agenda || []);
+            if (!existing) { const rf = str(body.rescheduledFrom, 20); v.rescheduledFrom = /^\d{3} \d{4} \d{4}$/.test(rf) ? rf : ''; } else v.rescheduledFrom = existing.rescheduledFrom || '';
             v.busy = has('busy') ? body.busy !== false : existing.busy !== false;
             v.allDay = has('allDay') ? body.allDay === true : existing.allDay === true;
             if (has('chatId')) { v.chatId = str(body.chatId, 40); if (v.chatId && !/^[A-Za-z0-9-]+$/.test(v.chatId)) return { error: 'Chat id is not valid.' }; } else v.chatId = existing.chatId || '';
@@ -360,9 +366,11 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         // Meet sync (PostgreSQL outbox, see meet-sync/): enabled when DATABASE_URL and QORLLA_BRIDGE_SECRET are set.
         // Schedules start as pending_sync; a background worker registers them with Meet. Join is only offered once synced.
         afterUpdate: async (next, prev, user, body) => {
-            if (typeof updateMeeting === 'function' && prev.meetingId && (next.title !== prev.title || next.date !== prev.date || next.time !== prev.time || next.duration !== prev.duration)) {
+            const metaChanged = ['topic', 'category', 'description'].some((k) => (next[k] || '') !== (prev[k] || '')) || JSON.stringify(next.agenda || []) !== JSON.stringify(prev.agenda || []);
+            if (typeof updateMeeting === 'function' && prev.meetingId && (metaChanged || next.title !== prev.title || next.date !== prev.date || next.time !== prev.time || next.duration !== prev.duration)) {
                 const st = new Date(`${next.date}T${next.time}:00`);
-                updateMeeting(prev.meetingId, { topic: next.title, startTime: isNaN(st) ? undefined : st.toISOString(), durationMinutes: next.duration });
+                updateMeeting(prev.meetingId, { topic: next.title, startTime: isNaN(st) ? undefined : st.toISOString(), durationMinutes: next.duration,
+                    meta: { ...cleanMeta({ topic: next.topic, description: next.description, agenda: next.agenda, category: next.category }), scheduledStartAt: isNaN(st) ? undefined : st.toISOString() } });   // a finished meeting ignores this
             }
             if (!meetSync.enabled) return;
             const pc = passcodeChange(body);
@@ -383,7 +391,8 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
                 topic: item.title,
                 startTime: isNaN(startTime) ? undefined : startTime.toISOString(),
                 durationMinutes: item.duration,
-                hostId: user.id
+                hostId: user.id, hostName: user.displayName, previousMeetingId: item.rescheduledFrom || undefined,
+                meta: cleanMeta({ title: item.title, topic: item.topic, description: item.description, agenda: item.agenda, category: item.category })
             });
             const out = { ...item, hostId: user.id, ownerName: user.displayName, meetingId: meeting.meetingId, createdAt: nowIso() };
             // Invitation emails go through the same guarded path as Mail (verified sender, daily limit, Reply-To the host). The outcome is stored so

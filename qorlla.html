@@ -237,6 +237,13 @@
   dialog.sd .sd-pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #c7d2fe; background: #eef2ff; color: #1d4ed8; border-radius: 10px; padding: 6px 12px; font-weight: 600; flex: 1; } dialog.sd .sd-prevchk { flex-basis: 100%; }
   dialog.sd .sd-info { background: #eff6ff; color: #1e3a8a; border-radius: 10px; padding: 8px 10px; font-size: 12px; margin: 4px 0 0; }
   #startDialog[data-mode=join] .sd-quick { flex-wrap: wrap; } #startDialog[data-mode=join] .sd-body { padding-bottom: 12px; }
+  .hist-filter { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 14px; } .hist-filter input[type=search] { flex: 1 1 220px; } .hist-filter input, .hist-filter select { height: 38px; border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; background: #fff; font: inherit; }
+  .hist-card { padding: 18px 20px; margin-bottom: 14px; } .hist-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; } .hist-title { margin: 2px 0; font-size: 20px; } .hist-topic { margin: 0 0 4px; color: #334155; font-weight: 600; }
+  .hist-chip { font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 999px; background: #e0f2fe; color: #075985; text-transform: uppercase; letter-spacing: .4px; } .hist-chip.s-completed { background: #dcfce7; color: #166534; } .hist-chip.s-missed { background: #fef3c7; color: #92400e; } .hist-chip.s-cancelled { background: #fee2e2; color: #991b1b; } .hist-chip.s-partial { background: #ede9fe; color: #5b21b6; } .hist-chip.cat { background: #f1f5f9; color: #475569; text-transform: capitalize; }
+  .hist-stats { display: flex; gap: 28px; margin: 10px 0; } .hist-stat { display: flex; flex-direction: column; } .hist-k { font-size: 11px; letter-spacing: .6px; color: #64748b; } .hist-stat strong { font-size: 22px; }
+  .hist-outcome { background: #f8fafc; border-radius: 12px; padding: 10px 14px; margin: 8px 0; } .hist-outcome p { margin: 4px 0 0; } .hist-actions { margin-top: 10px; flex-wrap: wrap; } .hist-actions a.btn { text-decoration: none; }
+  .hist-more { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 6px; } .hist-sec h4 { margin: 12px 0 6px; } .hist-more textarea, .hist-more input[type=text] { width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; box-sizing: border-box; }
+  .hist-item { display: flex; gap: 8px; align-items: center; margin: 4px 0; } .hist-item input[type=text] { width: 140px; } .hist-table { width: 100%; border-collapse: collapse; font-size: 13px; } .hist-table th, .hist-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 21px; margin-bottom: 4px; letter-spacing: -.4px; }
   dialog .sub { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
@@ -382,6 +389,7 @@
   .sq .hidden, .sf .hidden { display: none !important; }
   .sq-top { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px; }
   dialog .sq-title { width: 100%; height: 46px; border: 2px solid transparent; background: #eef2f7; border-radius: 12px; padding: 0 14px; font-size: 18px; font-weight: 700; outline: none; }
+  dialog .sq-topic { width: 100%; height: 38px; border: 2px solid transparent; background: #eef2f7; border-radius: 10px; padding: 0 12px; font-size: 14px; outline: none; } dialog .sq-topic:focus { border-color: #4a90ff; background: #eef3fb; }
   dialog .sq-title:focus { border-color: #4a90ff; background: #eef3fb; box-shadow: 0 0 0 3px rgba(74,144,255,.25); }
   dialog .sq-title.big { height: 46px; font-size: 20px; }
   .sq-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line); margin: 8px 0 6px; }
@@ -492,7 +500,7 @@
   }
   /* signed out: the whole app is the sign-in screen with the short sidebar */
   @media (max-width: 900px) { body.signed-out .topbar { display: flex; } }   /* small screens keep the bar: it carries the language picker */
-  body.signed-out .ai-panel, body.signed-out .nav-item[data-view=mail], body.signed-out .nav-item[data-view=calendar], body.signed-out .nav-item[data-view=schedule], body.signed-out .nav-item[data-view=notes] { display: none; }
+  body.signed-out .ai-panel, body.signed-out .nav-item[data-view=mail], body.signed-out .nav-item[data-view=calendar], body.signed-out .nav-item[data-view=schedule], body.signed-out .nav-item[data-view=history], body.signed-out .nav-item[data-view=notes] { display: none; }
   @media (min-width: 901px) { body.signed-out .topbar { display: none; } }
   body.signed-out .center { padding: 0; background: transparent; box-shadow: none; overflow: hidden; }
   body.signed-out .login-embed { height: calc(100vh - 76px); min-height: 0; }
@@ -554,6 +562,10 @@
     <div class="nav-item" data-view="schedule" role="button" tabindex="0">
       <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
       <span data-i18n="Schedule">Schedule</span>
+    </div>
+    <div class="nav-item" data-view="history" role="button" tabindex="0">
+      <svg class="i" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.500"/><path d="M3.5 4v4.500H8M12 8v4.500l3 1.800"/></svg>
+      <span data-i18n="History">History</span>
     </div>
     <div class="nav-item" data-view="notes" role="button" tabindex="0">
       <svg class="i" viewBox="0 0 24 24"><path d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5M8 13h8M8 17h5"/></svg>
@@ -682,6 +694,7 @@
       <div class="sd-left">
         <div class="sd-j sd-fld"><label class="f" for="sdMid">Meeting ID</label><div class="sd-clear"><input type="text" id="sdMid" inputmode="numeric" maxlength="40" placeholder="000 0000 0000" autocomplete="off"><button type="button" id="sdMidClear" aria-label="Clear the meeting ID" hidden>&#10005;</button></div><p class="hint">Enter the 11-digit meeting ID or paste the invitation link from your host.</p></div>
         <div class="sd-s sd-fld"><label class="f" for="sdTitleIn">Meeting title</label><input type="text" id="sdTitleIn" maxlength="160" autocomplete="off"></div>
+        <div class="sd-s sd-fld"><label class="f" for="sdTopic">Meeting topic <span class="muted">(what will be discussed)</span></label><div class="sd-pass"><input type="text" id="sdTopic" maxlength="255" autocomplete="off" placeholder="e.g. Enterprise Meeting Experience v4.0"><select id="sdCategory" aria-label="Meeting category"><option value="">Category</option><option value="team">Team</option><option value="training">Training</option><option value="presentation">Presentation</option><option value="interview">Interview</option><option value="webinar">Webinar</option><option value="other">Other</option></select></div></div>
         <div class="sd-s f">Meeting ID</div>
         <div class="sd-s sd-id"><strong id="sdId"></strong><span id="sdBadge" class="sd-badge" hidden>Unconfirmed</span><button type="button" class="chip" id="sdCopyId">Copy ID</button></div>
         <label class="f" for="sdPass" id="sdPassLab">Meeting password <span class="muted">(optional)</span></label>
@@ -904,7 +917,7 @@
   function jget(url) { return fetch(url, { cache: 'no-store' }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); }); }
 
   // Meeting initialisation is strict: the ID, invitation and Start stay unconfirmed until the server has answered the preflight; a failure keeps the form and offers Retry.
-  function fail(msg) { $('sdErr').textContent = msg; $('sdRetry').hidden = false; $('sdGo').disabled = true; $('sdRecheck').hidden = false; }
+  function sdFail(msg) { $('sdErr').textContent = msg; $('sdRetry').hidden = false; $('sdGo').disabled = true; $('sdRecheck').hidden = false; }
   function runPreflight() {
     var m = sd.m, t0 = Date.now(), ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 8000);
     sd.ready = false; $('sdGo').disabled = true; $('sdRetry').hidden = true; $('sdRecheck').hidden = true; $('sdErr').textContent = '';
@@ -919,10 +932,10 @@
         netRow('meet', 'Not checked', 'warn'); $('sdPassNote').textContent = '';
         var why = r.status === 404 && !r.d.error ? 'Route not found (HTTP 404): this server is running an older version without the start screen. Restart it, then press Retry.'
           : r.status === 404 ? 'Meeting not found (HTTP 404): ' + r.d.error : r.status === 401 ? 'Your sign-in expired. Sign in again.' : r.status === 403 ? (r.d.error || 'Only the person who scheduled this meeting can start it.') : 'The server could not load the meeting (HTTP ' + r.status + ').' + (r.d.error ? ' ' + r.d.error : '');
-        netRow('net', r.status === 404 && !r.d.error ? 'Route not found (404)' : 'Server answered (' + r.status + ')', 'bad'); fail(why); return;
+        netRow('net', r.status === 404 && !r.d.error ? 'Route not found (404)' : 'Server answered (' + r.status + ')', 'bad'); sdFail(why); return;
       }
       var p = r.d; netRow('net', 'Ready (' + (Date.now() - t0) + ' ms)', 'ok');
-      if (!$('sdTitleIn').value) $('sdTitleIn').value = p.title; $('sdId').textContent = p.meetingId; $('sdBadge').hidden = true; $('sdCopyId').disabled = false;
+      if (!$('sdTitleIn').value) $('sdTitleIn').value = p.title; $('sdTopic').value = p.topic || ''; $('sdCategory').value = p.category || ''; $('sdId').textContent = p.meetingId; $('sdBadge').hidden = true; $('sdCopyId').disabled = false;
       $('sdWait').checked = !!p.settings.waitingRoom; $('sdBefore').checked = !!p.settings.joinBeforeHost; $('sdLock').checked = !!p.settings.lockAfterJoin;
       $('sdPassNote').textContent = p.passcodeRequired ? 'A password is set (stored securely, so it cannot be shown). Type a new one to change it.' : 'No password set. ' + (p.settings.waitingRoom ? 'Guests are admitted from the waiting room.' : 'Anyone with the ID or link can join - consider a password or the waiting room.');
       $('sdRemoveWrap').style.display = p.passcodeRequired ? '' : 'none';
@@ -933,7 +946,7 @@
     }).catch(function (e) {
       clearTimeout(timer); var to = e && e.name === 'AbortError';
       netRow('net', to ? 'Timed out' : 'Could not reach the server', 'bad'); netRow('meet', 'Not checked', 'bad'); $('sdPassNote').textContent = '';
-      fail(to ? 'The server did not answer in time.' : 'Could not reach the server. Check your connection.');
+      sdFail(to ? 'The server did not answer in time.' : 'Could not reach the server. Check your connection.');
     });
   }
   $('sdRetry').addEventListener('click', runPreflight); $('sdRecheck').addEventListener('click', runPreflight);
@@ -1046,7 +1059,7 @@
     var spkOpt = $('sdSpkSel').selectedOptions[0], spkLabel = spkOpt && $('sdSpkSel').value ? spkOpt.textContent : '';
     var camLabel = '', micLabel = ''; if (sd.stream) { var vt = sd.stream.getVideoTracks()[0], at = sd.stream.getAudioTracks()[0]; camLabel = vt ? vt.label : ''; micLabel = at ? at.label : ''; }
     var mic = $('sdMic').checked, cam = $('sdCam').checked, m = sd.m;
-    var body = { requestId: sd.requestId, name: name, title: title, mic: mic, camera: cam, camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel, returnUrl: location.href.split('#')[0],
+    var body = { requestId: sd.requestId, name: name, title: title, topic: $('sdTopic').value.trim(), category: $('sdCategory').value, mic: mic, camera: cam, camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel, returnUrl: location.href.split('#')[0],
       waitingRoom: $('sdWait').checked, joinBeforeHost: $('sdBefore').checked, lockAfterJoin: $('sdLock').checked };
     if (pw) body.password = pw; else if ($('sdRemovePass').checked) body.removePassword = true;
     stopPreview();                                                                          // release the camera and microphone so Meet can use them
@@ -1567,7 +1580,7 @@
     var d = new Date(), mins = d.getHours() * 60 + d.getMinutes(), start = Math.ceil((mins + 1) / 15) * 15;
     if (start > 23 * 60 + 30) { start = 9 * 60; d.setDate(d.getDate() + 1); }                  // too late today: tomorrow morning
     return { title: ((state.user && state.user.displayName) || 'My') + "'s " + I18n.t('Qorlla Meeting'), date: ymd(d), start: hm(start), end: hm(start + 30), allDay: false,
-      tz: localTz(), repeat: 'never', count: 4, invitees: [], room: '', location: '', agenda: '', description: '', passcode: '', busy: true, showAgenda: false };
+      tz: localTz(), repeat: 'never', count: 4, invitees: [], room: '', location: '', topic: '', category: '', agenda: '', description: '', passcode: '', busy: true, showAgenda: false };
   }
   function parseInvitees(text) { return text.split(/[,;\s]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean); }
   function addPeriod(date, repeat, i) {
@@ -1600,7 +1613,7 @@
     var duration; try { duration = validateSched(m); } catch (e) { return Promise.reject(e); }
     return api('/schedule/' + encodeURIComponent(id), { method: 'PATCH', body: {
       title: m.title.trim(), date: m.date, time: m.allDay ? '00:00' : m.start, duration: duration, timezone: m.tz, allDay: m.allDay, busy: m.busy,
-      location: m.location, room: m.room, description: [m.agenda, m.description].filter(Boolean).join('\n\n'), invitees: m.invitees, passcode: m.passcode || undefined } });
+      location: m.location, room: m.room, description: m.description, agenda: (m.agenda || '').split('\n'), topic: m.topic || '', category: m.category || '', rescheduledFrom: m.rescheduledFrom || undefined, invitees: m.invitees, passcode: m.passcode || undefined } });
   }
 
   /** Validates the model and creates the meeting (or the series). Resolves to the created schedule items; rejects with a readable message. */
@@ -1613,7 +1626,7 @@
       if (i >= n) return Promise.resolve(made);
       return api('/schedule', { method: 'POST', body: {
         title: m.title.trim(), date: addPeriod(m.date, m.repeat, i), time: m.allDay ? '00:00' : m.start, duration: duration, timezone: m.tz, allDay: m.allDay, busy: m.busy,
-        location: m.location, room: m.room, description: [m.agenda, m.description].filter(Boolean).join('\n\n'), invitees: m.invitees, notify: i === 0,   // one invitation email per person, for the first occurrence
+        location: m.location, room: m.room, description: m.description, agenda: (m.agenda || '').split('\n'), topic: m.topic || '', category: m.category || '', rescheduledFrom: m.rescheduledFrom || undefined, invitees: m.invitees, notify: i === 0,   // one invitation email per person, for the first occurrence
         seriesId: seriesId || undefined, passcode: m.passcode || undefined } })
         .then(function (s) { made.push(s); return next(i + 1); })
         .catch(function (e) { e.message = (made.length ? I18n.t('Created {n} of {total} before this error', { n: made.length, total: n }) + ': ' : '') + e.message; throw e; });
@@ -1672,6 +1685,8 @@
   function openSchedFull(model, focusSection, edit) {
     var m = model || newSchedModel(); var closed = false;
     var title = h('input', { type: 'text', class: 'sq-title big', value: m.title, maxlength: '200', 'aria-label': I18n.t('Meeting title') });
+    var topic = h('input', { type: 'text', class: 'sq-topic', value: m.topic || '', maxlength: '255', placeholder: I18n.t('Meeting topic: what will be discussed'), 'aria-label': I18n.t('Meeting topic') });
+    var category = h('select', { 'aria-label': I18n.t('Meeting category') }, [h('option', { value: '', text: I18n.t('Category (optional)') })].concat(['team', 'training', 'presentation', 'interview', 'webinar', 'other'].map(function (c) { return h('option', { value: c, text: c.charAt(0).toUpperCase() + c.slice(1) }); }))); category.value = m.category || '';
     var date = h('input', { type: 'date', value: m.date, 'aria-label': I18n.t('Date') });
     var start = timeSelect(m.start), end = timeSelect(m.end);
     start.addEventListener('change', function () { var len = Math.max(15, toMin(end.value) - toMin(m.start)); m.start = start.value; end.value = hm(Math.min(toMin(start.value) + len, 23 * 60 + 45)); });
@@ -1707,7 +1722,7 @@
     [allDay, repeat, count].forEach(function (el) { el.addEventListener('change', refresh); el.addEventListener('input', refresh); });
     function collect() {
       addInvitees(); m.title = title.value; m.date = date.value; m.start = start.value; m.end = end.value; m.allDay = allDay.checked; m.tz = tz.value; m.repeat = repeat.value; m.count = count.value;
-      m.passcode = passcode.value; m.room = room.value; m.location = location.value; m.agenda = agenda.value; m.description = desc.value; m.busy = busy.value !== 'free';
+      m.passcode = passcode.value; m.room = room.value; m.location = location.value; m.agenda = agenda.value; m.description = desc.value; m.topic = topic.value; m.category = category.value; m.busy = busy.value !== 'free';
     }
     function close() { if (closed) return; closed = true; try { dlg.close(); } catch (e) {} dlg.remove(); }
     var row = function (ic, kids, cls) { return h('div', { class: 'sf-row ' + (cls || '') }, [h('span', { class: 'sq-ic', 'aria-hidden': 'true' }, [icon(ic)])].concat(kids)); };
@@ -1722,6 +1737,7 @@
       } }, [
         h('div', { class: 'sf-head' }, [h('span', { class: 'sf-label', text: I18n.t(edit ? 'Edit event' : 'New event') }), h('button', { type: 'button', class: 'icon-sm', 'aria-label': I18n.t('Close'), onclick: close }, [icon(IC.x)])]),
         title,
+        h('div', { class: 'sf-inline' }, [h('label', { class: 'sf-small grow' }, [h('span', { text: I18n.t('Meeting topic') }), topic]), h('label', { class: 'sf-small' }, [h('span', { text: I18n.t('Category') }), category])]),
         h('div', { class: 'sq-tabs' }, [h('span', { class: 'on', text: I18n.t('Event') })]),
         h('div', { class: 'sf-grid' }, [
           h('div', { class: 'sf-main' }, [
@@ -1774,7 +1790,7 @@
   function modelFromItem(s) {
     var base = newSchedModel();
     return Object.assign(base, { title: s.title, date: s.date, start: s.allDay ? '00:00' : s.time, end: s.allDay ? '23:45' : addMinutes(s.time, s.duration), allDay: !!s.allDay, tz: s.timezone || localTz(),
-      repeat: 'never', invitees: (s.invitees || []).slice(), room: s.room || '', location: s.location || '', agenda: '', description: s.description || '', passcode: '', busy: s.busy !== false });
+      repeat: 'never', invitees: (s.invitees || []).slice(), room: s.room || '', location: s.location || '', topic: s.topic || '', category: s.category || '', agenda: (s.agenda || []).join('\n'), description: s.description || '', passcode: '', busy: s.busy !== false });
   }
   function editScheduled(m, after) {
     api('/schedule').then(function (all) {
@@ -1870,6 +1886,113 @@
   // =====================================================================
   // NOTES
   // =====================================================================
+
+  // =====================================================================
+  // History: meetings that have ended, from the same meeting records (title, topic, who came, how long, what was decided)
+  // =====================================================================
+  var HIST_STATUS = { completed: 'Completed', partial: 'Partial', missed: 'Missed', cancelled: 'Cancelled' };
+  function fmtDur(s) { if (s == null) return '—'; var hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60); return hh ? hh + 'h ' + mm + 'm' : mm ? mm + 'm' : (s % 60) + 's'; }
+  function fmtWhen(b) {
+    var a = b.actualStartAt || b.scheduledStartAt; if (!a) return '';
+    var d = new Date(a), day = d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }), tm = function (x) { return new Date(x).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); };
+    return day + ' \u2022 ' + tm(a) + (b.actualEndAt ? ' \u2013 ' + tm(b.actualEndAt) : '');
+  }
+  function summaryText(b, d) {
+    return [b.title, b.topic ? 'Topic: ' + b.topic : '', fmtWhen(b), 'Status: ' + (HIST_STATUS[b.status] || b.status) + ' \u00b7 Duration ' + fmtDur(b.durationSeconds) + ' \u00b7 Attendees ' + b.uniqueAttendeeCount + ' \u00b7 Peak ' + b.peakConcurrentCount,
+      b.hostName ? 'Host: ' + b.hostName : '', d && d.outcome ? '\nOutcome: ' + d.outcome : b.outcomeSummary ? '\nOutcome: ' + b.outcomeSummary : ''].filter(Boolean).join('\n');
+  }
+  function histCard(b, reload) {
+    var more = h('div', { class: 'hist-more hidden', id: 'hm-' + b.meetingId.replace(/\D/g, '') });
+    var loaded = false, tog = h('button', { class: 'btn small', type: 'button', 'aria-expanded': 'false', text: I18n.t('View details'), onclick: function () {
+      var open = more.classList.toggle('hidden') === false; tog.setAttribute('aria-expanded', String(open)); if (open && !loaded) { loaded = true; loadDetails(); }
+    } });
+    var stat = function (label, value) { return h('div', { class: 'hist-stat' }, [h('span', { class: 'hist-k', text: label }), h('strong', { text: value })]); };
+    var det = null;
+    function loadDetails() {
+      more.textContent = I18n.t('Loading…');
+      api2('/history/meetings/' + encodeURIComponent(b.meetingId)).then(function (d) { det = d; paintDetails(d); }).catch(function (e) { more.textContent = e.message; loaded = false; });
+    }
+    function paintDetails(d) {
+      more.textContent = '';
+      var sec = function (t, kids) { return h('section', { class: 'hist-sec' }, [h('h4', { text: t })].concat(kids)); };
+      if (d.description) more.appendChild(sec(I18n.t('Description'), [h('p', { text: d.description })]));
+      if (d.agenda && d.agenda.length) more.appendChild(sec(I18n.t('Agenda'), [h('ol', {}, d.agenda.map(function (x) { return h('li', { text: x }); }))]));
+      var outcome = h('textarea', { rows: '3', maxlength: '4000', 'aria-label': I18n.t('Meeting outcome'), placeholder: I18n.t('What was decided or concluded?') }); outcome.value = d.outcome || ''; outcome.readOnly = !d.isHost;
+      var items = (d.actionItems || []).map(function (x) { return { text: x.text, owner: x.owner, due: x.due, done: x.done }; });
+      var itemsBox = h('div', { class: 'hist-items' });
+      function drawItems() {
+        itemsBox.textContent = '';
+        items.forEach(function (x, i) {
+          var cb = h('input', { type: 'checkbox', 'aria-label': I18n.t('Done') + ': ' + x.text }); cb.checked = x.done; cb.disabled = !d.isHost; cb.onchange = function () { x.done = cb.checked; };
+          var owner = h('input', { type: 'text', maxlength: '80', placeholder: I18n.t('Owner'), 'aria-label': I18n.t('Owner') }); owner.value = x.owner || ''; owner.readOnly = !d.isHost; owner.oninput = function () { x.owner = owner.value; };
+          itemsBox.appendChild(h('div', { class: 'hist-item' }, [cb, h('span', { class: 'grow', text: x.text }), owner].concat(d.isHost ? [h('button', { class: 'icon-sm', type: 'button', 'aria-label': I18n.t('Remove'), onclick: function () { items.splice(i, 1); drawItems(); } }, [icon(IC.x)])] : [])));
+        });
+        if (!items.length) itemsBox.appendChild(h('p', { class: 'muted', text: I18n.t('No follow-up items.') }));
+      }
+      drawItems();
+      more.appendChild(sec(I18n.t('Meeting outcome'), [outcome]));
+      var newItem = h('input', { type: 'text', maxlength: '300', placeholder: I18n.t('Add an action item'), 'aria-label': I18n.t('Add an action item') });
+      var addItem = function () { var t = newItem.value.trim(); if (!t) return; items.push({ text: t, owner: '', due: '', done: false }); newItem.value = ''; drawItems(); };
+      newItem.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addItem(); } });
+      more.appendChild(sec(I18n.t('Action items'), [itemsBox].concat(d.isHost ? [h('div', { class: 'row' }, [newItem, h('button', { class: 'btn small', type: 'button', text: I18n.t('Add'), onclick: addItem })])] : [])));
+      if (d.isHost) {
+        more.appendChild(h('div', { class: 'row' }, [h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Save outcome'), onclick: function () {
+          api2('/history/meetings/' + encodeURIComponent(b.meetingId), { method: 'PATCH', body: { outcome: outcome.value, actionItems: items } }).then(function (nd) { det = nd; toast(I18n.t('Saved'), 'ok'); reload(true); }).catch(fail);
+        } })]));
+        var tbl = h('table', { class: 'hist-table' }, [h('thead', {}, [h('tr', {}, ['Attendee', 'First joined', 'Last left', 'Time', 'Joins'].map(function (t) { return h('th', { text: I18n.t(t) }); }))]),
+          h('tbody', {}, (d.attendees || []).map(function (a) { return h('tr', {}, [a.name, new Date(a.firstJoin).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }), new Date(a.lastLeft).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }), fmtDur(a.seconds), String(a.sessions)].map(function (t) { return h('td', { text: t }); })); }))]);
+        more.appendChild(sec(I18n.t('Attendance') + ' (' + (d.attendanceSource || '') + ')', [(d.attendees || []).length ? tbl : h('p', { class: 'muted', text: I18n.t('No attendance was recorded.') })]));
+        more.appendChild(sec(I18n.t('Recording'), [h('p', { class: 'muted', text: d.recordings && d.recordings.note || '' })]));
+      }
+    }
+    var actions = [tog, h('button', { class: 'btn small', type: 'button', text: I18n.t('Copy summary'), onclick: function () { var t = summaryText(b, det); if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { toast(I18n.t('Summary copied'), 'ok'); }, function () { toast(t); }); else toast(t); } })];
+    if (b.isHost) {
+      actions.push(h('a', { class: 'btn small', href: BASE + '/api/history/meetings/' + encodeURIComponent(b.meetingId) + '/report', download: '', text: I18n.t('Download report') }));
+      actions.push(h('button', { class: 'btn small', type: 'button', text: I18n.t('Reschedule'), title: I18n.t('Creates a NEW meeting with a new ID; this record stays as it was'), onclick: function () {
+        (det ? Promise.resolve(det) : api2('/history/meetings/' + encodeURIComponent(b.meetingId))).then(function (d) {
+          var m = newSchedModel(); m.title = d.title; m.topic = d.topic || ''; m.category = d.category || ''; m.description = d.description || ''; m.agenda = (d.agenda || []).join('\n'); m.rescheduledFrom = d.meetingId; m.showAgenda = !!(d.agenda && d.agenda.length);
+          openSchedFull(m, null, null);
+        }).catch(fail);
+      } }));
+    }
+    return h('article', { class: 'card hist-card', 'aria-label': b.title }, [
+      h('div', { class: 'hist-head' }, [h('span', { class: 'hist-chip s-' + b.status, text: I18n.t(HIST_STATUS[b.status] || b.status) }), b.category ? h('span', { class: 'hist-chip cat', text: b.category }) : null]),
+      h('h3', { class: 'hist-title', text: b.title }),
+      b.topic ? h('p', { class: 'hist-topic', text: I18n.t('Topic') + ': ' + b.topic }) : null,
+      h('p', { class: 'muted', text: fmtWhen(b) }),
+      h('div', { class: 'hist-stats' }, [stat(I18n.t('DURATION'), fmtDur(b.durationSeconds)), stat(I18n.t('ATTENDEES'), String(b.uniqueAttendeeCount)), stat(I18n.t('PEAK'), String(b.peakConcurrentCount))]),
+      b.outcomeSummary ? h('div', { class: 'hist-outcome' }, [h('strong', { text: I18n.t('Meeting outcome') }), h('p', { text: b.outcomeSummary })]) : null,
+      h('div', { class: 'muted', text: I18n.t('Host') + ': ' + (b.hostName || '—') }),
+      h('div', { class: 'row hist-actions' }, actions), more
+    ]);
+  }
+  // history lives under /api/history (not /api/workplace)
+  function api2(path, opts) { opts = opts || {}; var init = { method: opts.method || 'GET', headers: {} }; if (opts.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
+    return fetch(BASE + '/api' + path, init).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (r.status === 401) throw new Error('Please sign in.'); if (!r.ok) throw new Error(j.error || 'Request failed'); return j; }); }); }
+  VIEWS.history = function () {
+    if (!state.user) return gate(I18n.t('History'), 'meeting history');
+    var f = { q: '', status: '', category: '', from: '', to: '', host: '' }, timer = 0, list = h('div', { class: 'hist-list', 'aria-live': 'polite' });
+    var input = function (key, attrs) { var el = h('input', attrs); el.addEventListener('input', function () { f[key] = el.value; clearTimeout(timer); timer = setTimeout(load, 250); }); return el; };
+    var select = function (key, label, opts) { var el = h('select', { 'aria-label': label }, [h('option', { value: '', text: label })].concat(opts.map(function (o) { return h('option', { value: o[0], text: o[1] }); }))); el.addEventListener('change', function () { f[key] = el.value; load(); }); return el; };
+    viewEl.appendChild(pageHead(I18n.t('History'), I18n.t('Meetings that have ended: what they were about, who came, how long they lasted and what was decided.')));
+    viewEl.appendChild(h('div', { class: 'hist-filter', role: 'search' }, [
+      input('q', { type: 'search', placeholder: I18n.t('Search title, topic or host'), 'aria-label': I18n.t('Search title, topic or host') }),
+      select('status', I18n.t('Any status'), Object.keys(HIST_STATUS).map(function (k) { return [k, HIST_STATUS[k]]; })),
+      select('category', I18n.t('Any category'), ['team', 'training', 'presentation', 'interview', 'webinar', 'other'].map(function (c) { return [c, c.charAt(0).toUpperCase() + c.slice(1)]; })),
+      input('from', { type: 'date', 'aria-label': I18n.t('From date') }), input('to', { type: 'date', 'aria-label': I18n.t('To date') })
+    ]));
+    viewEl.appendChild(list);
+    function load(quiet) {
+      var qs = Object.keys(f).filter(function (k) { return f[k]; }).map(function (k) { return k + '=' + encodeURIComponent(f[k]); }).join('&');
+      return api2('/history/meetings' + (qs ? '?' + qs : '')).then(function (d) {
+        if (quiet) return; list.textContent = '';
+        if (!d.meetings.length) list.appendChild(emptyState(Object.keys(f).some(function (k) { return f[k]; }) ? I18n.t('No meetings match these filters.') : I18n.t('No finished meetings yet. A meeting appears here once it has ended.')));
+        d.meetings.forEach(function (b) { list.appendChild(histCard(b, load)); });
+      });
+    }
+    return load();
+  };
+
   VIEWS.notes = function (opts) {
     if (!state.user) return gate('My Notes', 'your notes');
     return api('/notes').then(function (notes) {
