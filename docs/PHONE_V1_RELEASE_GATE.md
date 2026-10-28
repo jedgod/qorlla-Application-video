@@ -1,0 +1,26 @@
+# Qorlla Phone v1.0 - release-gate report (meeting dial-in)
+
+**Release decision: NOT READY. Real telephone calling is BLOCKED.** What exists is the complete rules layer, tested against a *test double* of a carrier. There is no telephony provider adapter, no purchased/provisioned number and no PSTN-to-WebRTC media gateway in this repository.
+
+| Gate | Status | Evidence / blocker |
+|---|---|---|
+| Phone section (Dial Pad, Join Meeting, Recent, Contacts, Numbers & Settings) | PASS (UI) | `tests/phone.spec.js` page test. Contacts is a labelled placeholder, not built. |
+| 11-digit meeting IDs unchanged | PASS | the IVR resolves the existing alias; no new ID scheme |
+| Dial-in numbers are real, never invented | PASS | numbers only from `PHONE_DIAL_IN_NUMBERS`; junk entries dropped; empty state says none is provisioned |
+| Secure, separate meeting PIN | PASS | 8 digits (crypto.randomInt), scrypt verifier, shown once, revocable, rotation kills the old PIN, distinct from the host credential and web passcode |
+| IVR: meeting ID + PIN, bounded retries, generic failures | PASS (rules) | same words for wrong PIN / wrong ID / ended / locked / banned / lockout; 5 failures lock a caller (15 min, `PHONE_LOCK_MS`), another caller unaffected |
+| Validate ended, locked, waiting room, bans before admission | PASS | waiting room and "host absent" hold callers; host admit/deny uses the existing waiting list; a removed caller is banned from that meeting |
+| Provider webhook: signature, replay protection, idempotency | PASS for the test double | HMAC-SHA256 over `t.body`, 5-minute skew, per-event id stored with its answer; a repeat has no second effect. **A real provider (Twilio/Telnyx/Vonage) needs its own adapter and signature scheme: not implemented.** |
+| Phone callers as audio-only participants, in attendance/peak/history | PASS | same participant tables and sessions; History report flags `phone` |
+| Host mute / remove / disconnect | PARTIAL | remove and disconnect work (call ended, caller banned). **Mute is recorded and announced but cannot silence audio: no media bridge.** |
+| Bridge telephone audio into the Meet WebRTC media | **BLOCKED** | needs a PSTN<->WebRTC gateway (SIP trunk + media server/SFU). Not built; not testable here |
+| Recording notice and consent for callers | PASS (rules) | callers are counted in the recording roster, told on joining, answer by keypad (1 agree, 2 decline, 9 withdraw) into the same append-only consent records and audit. **No phone audio is captured by the current browser recorder.** |
+| Meeting completion disconnects callers | PASS | host End, time-limit close and PIN revocation hang every call up |
+| Call history, billing usage, fraud protection, audit | PARTIAL | call history and audit events: yes. **Billing usage metering and toll-fraud controls (spend limits, destination policy) are not built** beyond the attempt limits; the Portal's v4.3 telephony settings remain separate |
+| Outbound PSTN calling, number provisioning, voicemail, caller ID, personal numbers | **BLOCKED** | `POST /api/phone/calls` and `/api/phone/numbers/provision` answer 503 by design |
+| Country telephony, emergency calling, caller-ID, recording and privacy requirements | **NOT REVIEWED** | needs legal/regulatory review before any real service (emergency calling in particular) |
+| Provider secrets, PINs, numbers not in logs/responses | PASS (tested) | the number appears only as a keyed hash plus last 4 digits; PIN only in the one creation response |
+
+Run: `node scripts/start-recording-test-meet.cjs` then `npx playwright test tests/phone.spec.js` (10 tests). Regression: main suite 190 passed, Meet suites 43 passed, both Chromium only.
+
+To make it real you need: a provider account and compliance review, a provider adapter in `server/phone.mjs` (`createProvider`), real numbers in `PHONE_DIAL_IN_NUMBERS`, a media gateway that joins callers to the meeting audio, and a billing/fraud policy. Until then keep `PHONE_PROVIDER` unset (everything answers "Telephony is not enabled").

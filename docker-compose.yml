@@ -128,6 +128,7 @@ services:
       - ./qorlla-meet-video/sql/v4_10_admission.sql:/docker-entrypoint-initdb.d/005e_admission.sql:ro
       - ./qorlla-meet-video/sql/v4_11_history.sql:/docker-entrypoint-initdb.d/005f_history.sql:ro
       - ./qorlla-meet-video/sql/v4_12_limit.sql:/docker-entrypoint-initdb.d/005g_limit.sql:ro
+      - ./qorlla-meet-video/sql/v4_13_phone.sql:/docker-entrypoint-initdb.d/005h_phone.sql:ro
       - ./qorlla-meet-video/sql/initdb-app-role.sh:/docker-entrypoint-initdb.d/006_app_role.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qorlla -d qorlla_meet"]

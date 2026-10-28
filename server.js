@@ -254,6 +254,45 @@ async function meetHandoff(meeting, who, req) {
     }
 }
 app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getMeeting: meetingById, getAccount: (req) => auth.getUser(req), verifyHostKey, checkPasscode, admitAccount, handoff: meetHandoff }));
+// ---- Qorlla Phone: dial-in numbers, phone PINs for meetings, calls. There is NO telephone carrier in this repository: numbers come only from configuration
+// (PHONE_DIAL_IN_NUMBERS, a JSON list of real provisioned numbers), outbound calling and number provisioning answer 503 until a provider is connected.
+function dialInNumbers() {
+    try { return JSON.parse(process.env.PHONE_DIAL_IN_NUMBERS || '[]').filter((n) => n && /^\+[1-9]\d{6,14}$/.test(String(n.number || '')) && n.country).slice(0, 40).map((n) => ({ country: String(n.country).slice(0, 60), label: String(n.label || '').slice(0, 60), number: String(n.number), tollFree: !!n.tollFree })); }
+    catch (e) { return []; }
+}
+const phoneUser = (req, res) => { const u = auth.getUser(req); if (!u) { res.status(401).json({ error: 'Sign in first.' }); return null; } return u; };
+app.get('/api/phone/dial-in-numbers', (req, res) => {
+    if (!phoneUser(req, res)) return; const numbers = dialInNumbers(), provider = process.env.PHONE_PROVIDER || null;
+    res.set('Cache-Control', 'no-store').json({ configured: numbers.length > 0, numbers, provider, carrierCalling: false, note: numbers.length ? null : 'No dial-in numbers have been provisioned for this workspace. Qorlla never shows a number that is not real.' });
+});
+app.post('/api/phone/calls', (req, res) => { if (!phoneUser(req, res)) return; res.status(503).json({ error: 'Carrier calling is not enabled: it needs a connected telephony provider and provisioned calling permissions.' }); });
+app.post('/api/phone/numbers/provision', (req, res) => { if (!phoneUser(req, res)) return; res.status(503).json({ error: 'Number provisioning needs a connected telephony provider. No number was created.' }); });
+app.get('/api/phone/calls/history', async (req, res) => {
+    const u = phoneUser(req, res); if (!u) return;
+    const mine = [...meetingsState.values()].filter((m) => m.hostId === u.id && m.viaMeet).sort((a, b) => Date.parse(b.scheduledStartAt || 0) - Date.parse(a.scheduledStartAt || 0)).slice(0, 15);
+    const calls = []; await Promise.all(mine.map(async (m) => { try { for (const c of await meetLaunch.phoneCalls(m.meetingId)) calls.push({ ...c, kind: 'meeting', meetingId: m.meetingId, title: m.title || m.topic }); } catch (e) { /* Meet unreachable: no rows for it */ } }));
+    calls.sort((a, b) => Date.parse(b.joinedAt || 0) - Date.parse(a.joinedAt || 0)); res.set('Cache-Control', 'no-store').json({ calls: calls.slice(0, 100), outgoing: [] });
+});
+for (const base of ['/api/meetings', '/api/v1/meetings']) {
+    app.post(base + '/:id/phone-access', async (req, res) => {
+        const meeting = hostMeeting(req, res); if (!meeting) return;
+        try {
+            const out = await meetLaunch.phoneAccess(meeting, req.hostUser.displayName, { title: meeting.topic, settings: settingsOf(meeting), limits: ML.limitsFor(meeting.limitExempt) }, 'POST'); meeting.viaMeet = true; saveSnapshotSoon();
+            const nums = dialInNumbers(), id = meeting.meetingId;
+            const invitation = ['Join by phone', ...(nums.length ? nums.map((n) => '  ' + n.country + (n.label ? ' (' + n.label + ')' : '') + (n.tollFree ? ' toll-free' : '') + ': ' + n.number) : ['  (no dial-in number is provisioned yet)']), 'Meeting ID: ' + id.replace(/\D/g, '') + '#', 'PIN: ' + out.pin + '#', 'Phone callers join as audio only.'].join('\n');
+            res.status(201).set('Cache-Control', 'no-store').json({ pin: out.pin, shownOnce: true, meetingId: id, dialIn: nums, telephony: out.telephony, invitation });
+        } catch (e) { res.status(e.code === 'UNAVAILABLE' ? 503 : 500).json({ error: e.code === 'UNAVAILABLE' ? 'Qorlla Meet is not available, so a phone PIN cannot be created. ' + e.message : 'Could not create the phone PIN.' }); }
+    });
+    app.delete(base + '/:id/phone-access', async (req, res) => {
+        const meeting = hostMeeting(req, res); if (!meeting) return;
+        try { res.json(await meetLaunch.phoneAccess(meeting, req.hostUser.displayName, {}, 'DELETE')); } catch (e) { res.status(503).json({ error: 'Could not revoke the phone PIN. ' + e.message }); }
+    });
+    app.get(base + '/:id/phone-attendance', async (req, res) => {                             // also for finished meetings (it is part of the report)
+        const u = phoneUser(req, res); if (!u) return; const meeting = meetingById(req.params.id);
+        if (!meeting || meeting.hostId !== u.id) return res.status(404).json({ error: 'This meeting is not available.' });
+        try { res.set('Cache-Control', 'no-store').json({ calls: await meetLaunch.phoneCalls(meeting.meetingId) }); } catch (e) { res.json({ calls: [] }); }
+    });
+}
 hist.registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRooms, fetchActivity: (m) => meetLaunch.activity(m.meetingId) });   // Meeting History: /api/history/meetings
 
 // ---- The organiser's pre-meeting screen (v4.0.2b) --------------------------------------------------------------------------------------------------

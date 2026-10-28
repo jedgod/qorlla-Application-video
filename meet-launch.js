@@ -107,9 +107,21 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
         const r = await call(base, '/api/integrations/scheduled-meetings/' + encodeURIComponent(l.sourceId) + '/activity', 'GET', undefined, bridge());
         return r.ok ? r.data : null;
     }
+    /** Telephone dial-in PIN management for a meeting (registers it with Meet first). Meet answers with a new PIN once; it never stores or returns an old one. */
+    async function phoneAccess(meeting, ownerName, desired, method) {
+        const link = method === 'POST' ? await ensureLink(meeting, ownerName, desired) : links[digitsOf(meeting.meetingId)]; if (!link) throw unavailable('This meeting is not registered with Meet');
+        const base = await internalBase(); if (!base) throw unavailable('Qorlla Meet is not reachable');
+        const r = await call(base, '/api/integrations/scheduled-meetings/' + encodeURIComponent(link.sourceId) + '/phone-access', method, undefined, bridge());
+        if (!r.ok) throw unavailable(r.data.error || 'Meet refused (' + r.status + ')'); return r.data;
+    }
+    async function phoneCalls(meetingId) {
+        const l = links[digitsOf(meetingId)]; if (!enabled() || !l) return [];
+        const base = await internalBase(); if (!base) return [];
+        const r = await call(base, '/api/integrations/scheduled-meetings/' + encodeURIComponent(l.sourceId) + '/phone-calls', 'GET', undefined, bridge()); return r.ok ? (r.data.calls || []) : [];
+    }
     const known = (meetingId) => !!links[digitsOf(meetingId)];
     const forget = (meetingId) => { const d = digitsOf(meetingId); if (links[d]) { delete links[d]; persist(); } };
-    return { enabled, ensureLink, updateIfLinked, join, url, ping, forget, activity, known, _links: () => links };
+    return { enabled, ensureLink, updateIfLinked, join, url, ping, forget, activity, known, phoneAccess, phoneCalls, _links: () => links };
 }
 
 module.exports = { createMeetLaunch };

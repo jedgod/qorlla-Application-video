@@ -18,6 +18,7 @@ import { Server } from 'socket.io';
 import { recoveryService } from './recovery-service.mjs';
 import { registerCollab } from './collab.mjs';
 import { makeLimit } from './limit.mjs';
+import { registerPhone } from './phone.mjs';
 import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
 import { registerRecording } from './recording.mjs';
@@ -43,7 +44,7 @@ app.use(helmet({
   },
   referrerPolicy: { policy: 'no-referrer' }
 }));
-app.use(express.json({ limit: '32kb' }));
+app.use(express.json({ limit: '32kb', verify: (req, _res, buf) => { if (req.path.startsWith('/api/phone/')) req.rawBody = buf; } }));   // signed telephony requests are verified against the exact bytes received
 const rateOpts = { windowMs: 60_000, standardHeaders: 'draft-7', legacyHeaders: false };
 // Private bridge traffic (MAIN's sync worker) has its own, higher budget so scheduling throughput is not starved
 // by the browser-facing limit, but it is still capped to bound bridge-secret guessing.
@@ -51,10 +52,12 @@ const bridgeLimiter = rateLimit({ ...rateOpts, limit: Number(process.env.BRIDGE_
 const apiLimiter = rateLimit({ ...rateOpts, limit: Number(process.env.API_RATE_LIMIT || 90) });
 // In-meeting calls (notes autosave, polls, recording) are limited per signed-in PARTICIPANT, not per IP: many people behind one office or school address must not
 // throttle each other. Anything without a valid meeting token keeps the strict per-IP budget.
+const phoneLimiter = rateLimit({ ...rateOpts, limit: Number(process.env.PHONE_RATE_LIMIT || 1200) });
 const meetingLimiter = rateLimit({ ...rateOpts, limit: Number(process.env.MEETING_RATE_LIMIT || 600), keyGenerator: req => 'p:' + (req.user?.participantId || ''), validate: false });
 const meetingPath = /^\/(v1\/)?meetings\/[0-9a-f-]{36}\//i;
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/integrations/')) return bridgeLimiter(req, res, next);
+  if (req.path.startsWith('/phone/')) return phoneLimiter(req, res, next);               // telephone provider traffic has its own budget (signed, per-caller limits apply inside)
   if (meetingPath.test(req.path)) { try { req.user = verify((req.headers.authorization || '').replace(/^Bearer /, '')); return meetingLimiter(req, res, next); } catch { /* no valid token: strict per-IP budget below */ } }
   return apiLimiter(req, res, next);
 });
@@ -84,7 +87,8 @@ const createCode = () => { const bytes = randomBytes(6); return Array.from(bytes
 
 const active = new Map(); // meetingId -> Map(participantId -> socketId); single active socket per participant
 const names = new Map(); // meetingId -> Map(participantId -> display name) of people who have connected (used by the recording notices)
-const activeList = id => [...(active.get(id)?.keys() || [])];
+const phoneOnline = new Map(); // meetingId -> Set(participantId) of telephone callers who are connected (they have no socket)
+const activeList = id => [...(active.get(id)?.keys() || []), ...(phoneOnline.get(id) || [])];
 const auth = (req,res,next) => { try { req.user=verify((req.headers.authorization||'').replace(/^Bearer /,'')); next(); } catch { fail(res,401,'Authentication required'); } };
 const member = async (req,res,next) => {
  try {
@@ -211,12 +215,12 @@ app.get('/api/integrations/scheduled-meetings/:sourceId/activity',bridgeAuth,asy
  try{
   const {rows:[m]}=await db.query("SELECT m.id,m.ended_at,m.end_reason FROM external_meeting_links l JOIN meetings m ON m.id=l.meeting_id WHERE l.source_system='qorlla-main' AND l.source_id=$1",[req.params.sourceId]);
   if(!m)return fail(res,404,'Not registered');
-  const {rows}=await db.query("SELECT p.id AS pid,p.display_name AS name,p.role,s.connected_at,s.disconnected_at FROM participant_sessions s JOIN participants p ON p.id=s.participant_id WHERE s.meeting_id=$1 ORDER BY s.connected_at",[m.id]);
+  const {rows}=await db.query("SELECT p.id AS pid,p.display_name AS name,p.role,p.kind,s.connected_at,s.disconnected_at FROM participant_sessions s JOIN participants p ON p.id=s.participant_id WHERE s.meeting_id=$1 ORDER BY s.connected_at",[m.id]);
   const here=active.get(m.id),now=Date.now(),byName=new Map(),events=[];
   for(const r of rows){
    const a=new Date(r.connected_at).getTime();let b=r.disconnected_at?new Date(r.disconnected_at).getTime():(m.ended_at?new Date(m.ended_at).getTime():(here&&here.has(r.pid)?now:a));
    if(b<a)b=a;const key=String(r.name).trim().toLowerCase()+'|'+r.role;
-   const e=byName.get(key)||{name:r.name,role:r.role,firstJoin:a,lastLeft:b,seconds:0,sessions:0,open:false};
+   const e=byName.get(key)||{name:r.name,role:r.role,phone:r.kind==='phone',firstJoin:a,lastLeft:b,seconds:0,sessions:0,open:false};
    e.firstJoin=Math.min(e.firstJoin,a);e.lastLeft=Math.max(e.lastLeft,b);e.seconds+=Math.round((b-a)/1000);e.sessions++;e.open=e.open||(!r.disconnected_at&&!m.ended_at&&!!(here&&here.has(r.pid)));byName.set(key,e);
    events.push([a,1,key],[b,-1,key]);
   }
@@ -225,9 +229,14 @@ app.get('/api/integrations/scheduled-meetings/:sourceId/activity',bridgeAuth,asy
   const att=[...byName.values()];
   res.set('Cache-Control','no-store').json({startedAt:rows.length?new Date(rows[0].connected_at).toISOString():null,endedAt:m.ended_at?new Date(m.ended_at).toISOString():null,endReason:m.end_reason||null,
    lastLeftAt:att.length?new Date(Math.max(...att.map(x=>x.lastLeft))).toISOString():null,online:att.filter(x=>x.open).length,unique:att.length,peak,
-   attendees:att.map(x=>({name:x.name,role:x.role,firstJoin:new Date(x.firstJoin).toISOString(),lastLeft:new Date(x.lastLeft).toISOString(),seconds:x.seconds,sessions:x.sessions}))});
+   attendees:att.map(x=>({name:x.name,role:x.role,phone:!!x.phone,firstJoin:new Date(x.firstJoin).toISOString(),lastLeft:new Date(x.lastLeft).toISOString(),seconds:x.seconds,sessions:x.sessions}))});
  }catch(e){console.error('[history] activity failed:',e.message);fail(res,500,'Activity unavailable');}
 });
+// Telephone dial-in, managed by the scheduling backend on behalf of the signed-in host (bridge secret). Meet never returns a stored PIN: it only mints a new one.
+const phoneMeeting=async(sourceId)=>{if(!validSource(sourceId))return null;const {rows:[m]}=await db.query("SELECT m.id,m.ended_at FROM external_meeting_links l JOIN meetings m ON m.id=l.meeting_id WHERE l.source_system='qorlla-main' AND l.source_id=$1",[sourceId]);return m||null;};
+app.post('/api/integrations/scheduled-meetings/:sourceId/phone-access',bridgeAuth,async(req,res)=>{try{const m=await phoneMeeting(req.params.sourceId);if(!m||m.ended_at)return fail(res,404,'Not available');const pin=await phone.setPin(m.id);audit(m.id,null,'phone.pin_set',{via:'bridge'});res.status(201).set('Cache-Control','no-store').json({pin,telephony:{enabled:phone.enabled,provider:phone.provider.name,note:phone.enabled?null:phone.provider.reason}});}catch(e){console.error('[phone]',e.message);fail(res,500,'Could not create the phone PIN');}});
+app.delete('/api/integrations/scheduled-meetings/:sourceId/phone-access',bridgeAuth,async(req,res)=>{try{const m=await phoneMeeting(req.params.sourceId);if(!m)return fail(res,404,'Not available');res.json({revoked:await phone.revokePin(m.id)});}catch(e){fail(res,500,'Could not revoke');}});
+app.get('/api/integrations/scheduled-meetings/:sourceId/phone-calls',bridgeAuth,async(req,res)=>{try{const m=await phoneMeeting(req.params.sourceId);if(!m)return fail(res,404,'Not available');res.set('Cache-Control','no-store').json({calls:await phone.calls(m.id)});}catch(e){fail(res,500,'Unavailable');}});
 app.post('/api/integrations/scheduled-meetings/:sourceId/cancel',bridgeAuth,async(req,res)=>{
  if(!validSource(req.params.sourceId))return fail(res,400,'Invalid source ID');
  try{const {rows}=await db.query(`UPDATE meetings SET ended_at=COALESCE(ended_at,now()) WHERE id=(SELECT meeting_id FROM external_meeting_links WHERE source_system=$1 AND source_id=$2) RETURNING id`,['qorlla-main',req.params.sourceId]);
@@ -320,6 +329,7 @@ app.post('/api/meetings/:id/admit',auth,member,hostOnlyRoute,async(req,res)=>{
  const allow=req.body?.allow!==false, all=req.body?.all===true, pid=String(req.body?.participantId||'');
  if(!all&&!/^[0-9a-f-]{36}$/i.test(pid))return fail(res,400,'participantId required');
  const {rows}=await db.query("UPDATE participants SET admission=$2,wait_reason=NULL WHERE meeting_id=$1 AND admission='waiting' AND ($3::boolean OR id=$4::uuid) RETURNING id",[req.params.id,allow?'admitted':'denied',all,all?null:pid]);
+ phone.onAdmission(req.params.id,rows.map(r=>r.id),allow).catch(()=>{});
  audit(req.params.id,req.user.participantId,allow?'participant.admitted':'participant.denied',{count:rows.length,all});
  io.to(room(req.params.id)).emit('waiting-changed',{});
  res.json({changed:rows.length});
@@ -352,7 +362,7 @@ app.get('/api/resolve/:code',async(req,res)=>{
 app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
  if(req.user.role!=='host') return fail(res,403,'Host only');
  await db.query("UPDATE meetings SET ended_at=now(), end_reason='host_ended' WHERE id=$1",[req.params.id]);
- recording.stopFor(req.params.id,'meeting_ended',req.user.participantId).catch(()=>{});
+ recording.stopFor(req.params.id,'meeting_ended',req.user.participantId).catch(()=>{});await phone.endAll(req.params.id,'meeting_ended').catch(()=>{});         // every caller is hung up before the host is told it is done
  io.to(room(req.params.id)).emit('meeting-ended');
  audit(req.params.id,req.user.participantId,'meeting.ended'); res.json({ok:true});
 });
@@ -362,7 +372,8 @@ const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 let limiter;
 const recording = registerRecording({ app, io, db, auth, member, fail, room, audit: recAudit, media: recMedia, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
-limiter = makeLimit({ io, db, room, audit, upgradeUrl: process.env.UPGRADE_URL || '/pricing?reason=meeting-limit', onEnd: (id) => recording.stopFor(id, 'meeting_ended') });
+limiter = makeLimit({ io, db, room, audit, upgradeUrl: process.env.UPGRADE_URL || '/pricing?reason=meeting-limit', onEnd: async (id) => { await recording.stopFor(id, 'meeting_ended'); await phone.endAll(id, 'time_limit'); } });
+const phone = registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas: (mid, pid) => !!active.get(mid)?.has(pid), phoneOnline, names, recording });
 app.get('/api/health',async(_req,res)=>{try{await db.query('SELECT 1');res.json({ok:true});}catch{res.status(503).json({ok:false});}});
 const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:message});
 io.use(async(socket,next)=>{
@@ -391,6 +402,7 @@ io.on('connection',socket=>{
  socket.data.sess=randomUUID();db.query('INSERT INTO participant_sessions(id,meeting_id,participant_id) VALUES($1,$2,$3)',[socket.data.sess,id,pid]).then(()=>limiter.arm(id)).catch(e=>console.error('[history] session open failed:',e.message));
  if(u.role==='host'){
   recording.hostBack(id,pid).catch(()=>{});
+  phone.onHostArrived(id).catch(()=>{});
   db.query("UPDATE participants SET admission='admitted',wait_reason=NULL WHERE meeting_id=$1 AND admission='waiting' AND wait_reason='host_absent'",[id]).then(r=>{if(r.rowCount)io.to(room(id)).emit('waiting-changed',{});}).catch(()=>{});
   db.query('UPDATE meetings SET locked=true WHERE id=$1 AND lock_on_host_join AND NOT locked RETURNING id',[id]).then(r=>{if(r.rowCount)io.to(room(id)).emit('meeting-locked',{locked:true});}).catch(()=>{});
  }

@@ -169,8 +169,18 @@ export function registerRecording({ app, io, db, auth, member, fail, room, getRo
     catch { fail(res, 500, 'Audit unavailable'); }
   });
 
+  /** A consent answer given without the screen (a phone caller's keypad). Same record, same audit, same state machine as the web dialog. */
+  async function consentFor({ meetingId, participantId, name, decision, by }) {
+    if (!['agree', 'decline', 'withdraw'].includes(decision)) return { ok: false };
+    const s = await active(meetingId); if (!s) return { ok: false };
+    const latest = (await latestConsents(s.id)).get(participantId); if (decision === 'withdraw' && latest?.decision !== 'agree') return { ok: false };
+    const yes = decision === 'agree', video = yes && !!s.want_video, audio = yes && !!s.want_audio;
+    const ref = await audit(meetingId, s.id, participantId, 'guest', 'consent.' + decision, { video, audio, by: by || 'api' });
+    await db.query(`INSERT INTO recording_consents(id,session_id,meeting_id,participant_id,participant_name,role,decision,video,audio,ai,notice_reviewed,policy_version,audit_ref) VALUES($1,$2,$3,$4,$5,'guest',$6,$7,$8,false,$9,$10,$11)`, [randomUUID(), s.id, meetingId, participantId, name, decision, video, audio, yes, s.policy_version, ref]);
+    await reevaluate(meetingId, 'consent.' + decision, participantId, 'guest'); return { ok: true, auditRef: ref };
+  }
   return {
-    reevaluate, publicState, broadcast,
+    reevaluate, publicState, broadcast, consentFor,
     /** Hook for any future server-side recorder: nothing may be captured unless this returns true. */
     authorize: async (meetingId) => { const s = await active(meetingId); if (!s || s.status !== 'recording') return false; const ev = evaluate({ session: s, roster: getRoster(meetingId), latest: await latestConsents(s.id) }); return ev.status === 'recording'; },
     /** The host left or the meeting ended: a live recording must stop. */

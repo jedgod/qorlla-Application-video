@@ -266,6 +266,10 @@
   dialog.sd #sdInviteMsg:empty { display: none; }
   @media (max-height: 820px) and (min-width: 851px) { dialog.sd .sd-left > .sd-s.hint:not(#sdInviteMsg) { display: none; } dialog.sd .sd-link input, dialog.sd .sd-pass input { height: 30px; } }
   @media (max-height: 740px) and (min-width: 851px) { dialog.sd .sd-left .f { margin: 0; } dialog.sd .sd-left input[type=text], dialog.sd .sd-left input[type=password], dialog.sd .sd-left select { height: 28px; } dialog.sd .sd-left #sdPassNote { font-size: 10px; line-height: 1.2; } dialog.sd .sd-quick { margin: 0; } dialog.sd .sd-quick legend { margin: 0; } dialog.sd .sd-left, dialog.sd .sd-right { gap: 2px; } dialog.sd .sd-id strong { font-size: 16px; } }
+  .ph-card { padding: 18px 20px; max-width: 720px; } .ph-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; } .ph-tabs button { border: 0; background: transparent; padding: 8px 14px; border-radius: 999px; font: inherit; color: #64748b; cursor: pointer; } .ph-tabs button[aria-selected=true] { background: #eef2f7; color: #0f172a; font-weight: 600; } .ph-tabs button:focus-visible { outline: 2px solid #4a90ff; outline-offset: 2px; }
+  .ph-display { display: block; text-align: center; font-size: 28px; letter-spacing: 2px; min-height: 40px; margin: 6px 0 14px; } .ph-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 420px; margin: 0 auto; } .ph-key { height: 56px; border: 1px solid var(--line); border-radius: 14px; background: #fff; font-size: 20px; font-weight: 600; cursor: pointer; } .ph-key:hover { background: #f1f5f9; } .ph-key:focus-visible { outline: 2px solid #4a90ff; }
+  .ph-actions { justify-content: center; margin-top: 14px; } .ph-note { text-align: center; margin-top: 10px; } .ph-table { width: 100%; border-collapse: collapse; font-size: 14px; } .ph-table th, .ph-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .ph-meeting { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; } .ph-pin { background: #f8fafc; border-radius: 10px; padding: 8px 12px; } .ph-pinv { font-size: 22px; letter-spacing: 3px; } .ph-status { list-style: none; padding: 0; margin: 0 0 12px; } .ph-status li { display: flex; gap: 8px; padding: 4px 0; } .ph-dot.ok { color: #15803d; } .ph-dot.bad { color: #b91c1c; } .ph-panel .hidden { display: none; }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 21px; margin-bottom: 4px; letter-spacing: -.4px; }
   dialog .sub { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
@@ -527,7 +531,7 @@
   body.signed-out .center { padding: 0; background: transparent; box-shadow: none; overflow: hidden; }
   body.signed-out .login-embed { height: calc(100vh - 76px); min-height: 0; }
   body.signed-out .sidebar { display: flex; flex-direction: column; }
-  body.signed-out .nav-item[data-view=home] { order: 1; } body.signed-out .nav-item[data-act=chat] { order: 2; } body.signed-out .nav-item[data-href='/app/phone'] { order: 3; } body.signed-out .nav-item[data-href='/app/suite'] { order: 4; } body.signed-out .nav-item[data-view=whiteboard] { order: 5; } body.signed-out .nav-item[data-href='/app/meet'] { order: 6; }
+  body.signed-out .nav-item[data-view=home] { order: 1; } body.signed-out .nav-item[data-act=chat] { order: 2; } body.signed-out .nav-item[data-view=phone] { order: 3; } body.signed-out .nav-item[data-href='/app/suite'] { order: 4; } body.signed-out .nav-item[data-view=whiteboard] { order: 5; } body.signed-out .nav-item[data-href='/app/meet'] { order: 6; }
   body.signed-out .spacer { order: 7; flex: 1; } body.signed-out .nav-item[data-view=more] { order: 8; } body.signed-out .nav-item[data-view=settings] { order: 9; }
   .login-embed { width:100%; height:calc(100vh - 170px); min-height:560px; border:0; border-radius:16px; background:#fff; display:block; }
 </style>
@@ -552,7 +556,7 @@
       <svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg>
       <span data-i18n="Home">Home</span>
     </div>
-    <div class="nav-item" data-href="/app/phone" role="link" tabindex="0">
+    <div class="nav-item" data-view="phone" role="button" tabindex="0">
       <svg class="i" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"/></svg>
       <span data-i18n="Phone">Phone</span>
     </div>
@@ -2100,6 +2104,95 @@
     viewEl.appendChild(pageHead(I18n.t('History'), I18n.t('Meetings that have ended: what they were about, who came, how long they lasted and what was decided.')));
     viewEl.appendChild(historySection({ collapsible: false }));
   };
+  // =====================================================================
+  // PHONE: dial pad, join a meeting by telephone, recent calls, settings. Honest about what exists: there is no carrier in this build, so the dial pad cannot place
+  // calls and the dial-in directory only shows numbers an operator has really provisioned.
+  // =====================================================================
+  function phoneApi(path, opts) { opts = opts || {}; var init = { method: opts.method || 'GET', headers: {} }; if (opts.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
+    return fetch(BASE + path, init).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (r.status === 401) throw new Error('Please sign in.'); if (!r.ok) throw new Error(j.error || 'Request failed (HTTP ' + r.status + ')'); return j; }); }); }
+  function copyPlain(text, msg) { if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { toast(msg, 'ok'); }, function () { toast(text); }); else toast(text); }
+  VIEWS.phone = function () {
+    if (!state.user) return gate(I18n.t('Phone'), 'calls and meeting dial-in');
+    var tabs = [['dial', 'Dial Pad'], ['join', 'Join Meeting'], ['recent', 'Recent'], ['contacts', 'Contacts'], ['settings', 'Numbers & Settings']], cur = 'dial', info = null;
+    var panel = h('div', { class: 'ph-panel', role: 'tabpanel', id: 'phPanel' }), bar = h('div', { class: 'ph-tabs', role: 'tablist', 'aria-label': I18n.t('Phone sections') });
+    viewEl.appendChild(pageHead(I18n.t('Phone'), I18n.t('Calls and meeting dial-in')));
+    viewEl.appendChild(h('section', { class: 'card ph-card' }, [bar, panel]));
+    tabs.forEach(function (t) { var b = h('button', { type: 'button', role: 'tab', id: 'phTab-' + t[0], 'data-tab': t[0], 'aria-selected': String(t[0] === cur), 'aria-controls': 'phPanel', text: I18n.t(t[1]) }); b.addEventListener('click', function () { show1(t[0]); }); bar.appendChild(b); });
+    bar.addEventListener('keydown', function (e) { var bs = Array.prototype.slice.call(bar.children), i = bs.indexOf(document.activeElement); if (i < 0) return; var to = { ArrowRight: (i + 1) % bs.length, ArrowLeft: (i + bs.length - 1) % bs.length }[e.key]; if (to === undefined) return; e.preventDefault(); bs[to].focus(); show1(bs[to].dataset.tab); });
+    panel.addEventListener('keydown', function (e) { if (cur === 'dial' && panel._keys && !/INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName || '')) panel._keys(e); });   // one listener; the dial pad sets what it does
+    function numbers() { return info ? Promise.resolve(info) : phoneApi('/api/phone/dial-in-numbers').then(function (d) { info = d; return d; }); }
+    function show1(t) { cur = t; Array.prototype.forEach.call(bar.children, function (b) { var on = b.dataset.tab === t; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }); panel.setAttribute('aria-labelledby', 'phTab-' + t); panel.textContent = ''; ({ dial: dial, join: join, recent: recent, contacts: contacts, settings: settings })[t](); }
+    // ---- dial pad
+    function dial() {
+      var num = '', shown = h('output', { class: 'ph-display', 'aria-live': 'polite', 'aria-label': I18n.t('Phone number') }), keys = h('div', { class: 'ph-keys', role: 'group', 'aria-label': I18n.t('Dial pad') });
+      var del = h('button', { class: 'btn small', type: 'button', text: I18n.t('Delete') }), copy = h('button', { class: 'btn small', type: 'button', text: I18n.t('Copy number'), disabled: true }), call = h('button', { class: 'btn small primary', type: 'button', id: 'phCall', text: I18n.t('Call'), disabled: true });
+      var note = h('p', { class: 'muted ph-note', id: 'phCallNote', text: I18n.t('Carrier calling requires a connected telephony provider and provisioned calling permissions.') });
+      function paint() { shown.textContent = num || '\u2014'; copy.disabled = !num; del.disabled = !num; }
+      function press(ch) { if (num.length < 24) { num += ch; paint(); } }
+      ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].forEach(function (k) { var b = h('button', { type: 'button', class: 'ph-key', 'data-key': k, text: k, 'aria-label': k === '*' ? 'star' : k === '#' ? 'pound' : k }); b.addEventListener('click', function () { press(k); }); keys.appendChild(b); });
+      del.addEventListener('click', function () { num = num.slice(0, -1); paint(); });
+      copy.addEventListener('click', function () { if (num) copyPlain(num, I18n.t('Number copied')); });
+      call.addEventListener('click', function () { phoneApi('/api/phone/calls', { method: 'POST', body: { to: num } }).catch(function (e) { toast(e.message, 'err'); }); });
+      panel._keys = function (e) { if (/^[0-9*#]$/.test(e.key)) { e.preventDefault(); press(e.key); } else if (e.key === 'Backspace') { e.preventDefault(); num = num.slice(0, -1); paint(); } };
+      panel.appendChild(h('p', { class: 'muted', text: I18n.t('Enter phone number') })); panel.appendChild(shown); panel.appendChild(keys); panel.appendChild(h('div', { class: 'row ph-actions' }, [del, copy, call])); panel.appendChild(note); paint();
+      numbers().then(function (d) { if (d.carrierCalling) { call.disabled = false; note.textContent = ''; } }).catch(function () { /* the note already explains */ });
+    }
+    // ---- join a meeting by phone
+    function join() {
+      panel.appendChild(h('p', { text: I18n.t('Join a Qorlla meeting from any phone: dial the number below, enter the 11-digit meeting ID and the PIN, each followed by #. You join as audio only.') }));
+      var dir = h('div', { class: 'ph-dir' }, I18n.t('Loading\u2026')), mine = h('div', { class: 'ph-mine' });
+      panel.appendChild(h('h3', { text: I18n.t('Dial-in numbers') })); panel.appendChild(dir); panel.appendChild(h('h3', { text: I18n.t('Your meetings') })); panel.appendChild(mine);
+      numbers().then(function (d) {
+        dir.textContent = '';
+        if (!d.numbers.length) dir.appendChild(h('p', { class: 'muted', id: 'phNoNumbers', text: d.note || I18n.t('No dial-in numbers are provisioned.') }));
+        else dir.appendChild(h('table', { class: 'ph-table' }, [h('thead', {}, [h('tr', {}, ['Country', 'Number', 'Type'].map(function (t) { return h('th', { text: I18n.t(t) }); }))]), h('tbody', {}, d.numbers.map(function (n) { return h('tr', {}, [h('td', { text: n.country + (n.label ? ' (' + n.label + ')' : '') }), h('td', { text: n.number }), h('td', { text: n.tollFree ? I18n.t('Toll-free') : I18n.t('Local') })]); }))]));
+      }).catch(function (e) { dir.textContent = e.message; });
+      phoneApi('/api/workplace/schedule').then(function (list) {
+        if (!list.length) return mine.appendChild(h('p', { class: 'muted', text: I18n.t('No current meetings. Schedule or start one first.') }));
+        list.forEach(function (s) {
+          var out = h('div', { class: 'ph-pin hidden', 'aria-live': 'polite' }), id = s.meetingId;
+          var make = h('button', { class: 'btn small', type: 'button', text: I18n.t('Create phone PIN'), onclick: function () {
+            make.disabled = true; phoneApi('/api/meetings/' + encodeURIComponent(id) + '/phone-access', { method: 'POST' }).then(function (d) {
+              out.classList.remove('hidden'); out.textContent = '';
+              out.appendChild(h('p', {}, [I18n.t('PIN') + ': ', h('strong', { class: 'ph-pinv', text: d.pin }), ' ', I18n.t('(shown once: copy it now)')]));
+              if (!d.telephony.enabled) out.appendChild(h('p', { class: 'muted', text: I18n.t('Telephony is not connected on this server, so nobody can call in yet: ') + (d.telephony.note || '') }));
+              out.appendChild(h('div', { class: 'row' }, [h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Copy phone invitation'), onclick: function () { copyPlain(d.invitation, I18n.t('Phone invitation copied')); } })]));
+            }).catch(function (e) { out.classList.remove('hidden'); out.textContent = e.message; }).then(function () { make.disabled = false; });
+          } });
+          var revoke = h('button', { class: 'btn small', type: 'button', text: I18n.t('Revoke PIN'), onclick: function () { phoneApi('/api/meetings/' + encodeURIComponent(id) + '/phone-access', { method: 'DELETE' }).then(function () { out.classList.remove('hidden'); out.textContent = I18n.t('The PIN was revoked and callers were disconnected.'); }).catch(fail); } });
+          mine.appendChild(h('div', { class: 'ph-meeting' }, [h('div', {}, [h('strong', { text: s.title }), h('div', { class: 'muted', text: 'ID ' + id })]), h('div', { class: 'row' }, [make, revoke]), out]));
+        });
+      }).catch(function (e) { mine.textContent = e.message; });
+    }
+    // ---- recent calls
+    function recent() {
+      var box = h('div', {}, I18n.t('Loading\u2026')); panel.appendChild(box);
+      phoneApi('/api/phone/calls/history').then(function (d) {
+        box.textContent = '';
+        if (!d.calls.length) return box.appendChild(h('p', { class: 'muted', id: 'phNoCalls', text: I18n.t('No calls yet. Meeting dial-in calls appear here once someone has called in; outgoing and missed calls need a telephony provider.') }));
+        box.appendChild(h('table', { class: 'ph-table' }, [h('thead', {}, [h('tr', {}, ['Caller', 'Meeting', 'Status', 'Time'].map(function (t) { return h('th', { text: I18n.t(t) }); }))]),
+          h('tbody', {}, d.calls.map(function (c) { return h('tr', {}, [c.name, c.title + ' (' + c.meetingId + ')', c.status + (c.muted ? ', muted' : ''), (c.joinedAt ? new Date(c.joinedAt).toLocaleString() : '\u2014') + (c.seconds ? ' \u00b7 ' + fmtDur(c.seconds) : '')].map(function (t) { return h('td', { text: t }); })); }))]));
+      }).catch(function (e) { box.textContent = e.message; });
+    }
+    function contacts() { panel.appendChild(h('p', { class: 'muted', id: 'phContacts', text: I18n.t('Contacts are not available yet. Saved contacts and Qorlla participants will appear here once they are built.') })); }
+    // ---- numbers and settings: what is and is not connected
+    function settings() {
+      var box = h('div', {}, I18n.t('Loading\u2026')); panel.appendChild(box);
+      numbers().then(function (d) {
+        box.textContent = '';
+        var row = function (k, ok, text) { return h('li', {}, [h('span', { class: 'ph-dot ' + (ok ? 'ok' : 'bad'), 'aria-hidden': 'true', text: ok ? '\u2713' : '\u2715' }), h('span', {}, [h('strong', { text: k + ': ' }), text])]); };
+        box.appendChild(h('ul', { class: 'ph-status', id: 'phStatus' }, [
+          row(I18n.t('Telephony provider'), !!d.provider, d.provider ? d.provider + (d.provider === 'test' ? ' (a simulation for testing, not a carrier)' : '') : I18n.t('not connected')),
+          row(I18n.t('Dial-in numbers'), d.numbers.length > 0, d.numbers.length ? d.numbers.length + ' ' + I18n.t('provisioned') : I18n.t('none provisioned')),
+          row(I18n.t('Carrier calling'), !!d.carrierCalling, d.carrierCalling ? I18n.t('enabled') : I18n.t('off')),
+          row(I18n.t('Audio bridge for phone callers'), false, I18n.t('not built: telephone audio cannot yet be mixed into the video meeting'))]));
+        box.appendChild(h('p', { class: 'muted', text: I18n.t('Caller ID, voicemail and personal numbers need a provider and are not available. Phone callers never see or hear screen sharing.') }));
+        box.appendChild(h('p', {}, [h('a', { href: BASE + '/app/phone', text: I18n.t('Open telephony administration (portal)') })]));
+      }).catch(function (e) { box.textContent = e.message; });
+    }
+    show1('dial');
+  };
+
   VIEWS.notes = function (opts) {
     if (!state.user) return gate('My Notes', 'your notes');
     return api('/notes').then(function (notes) {
