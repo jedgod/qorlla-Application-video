@@ -249,7 +249,7 @@ export function initCollab(h) {
       { id: 'collab', title: 'Collaboration', items: [{ label: 'Reactions', reactions: true }, soon('Whiteboard'), soon('Breakout rooms'), soon('Shared files'), soon('Q&A')] },
       { id: 'intel', title: 'Meeting intelligence', items: [soon('AI meeting summary', 'Planned v4.2 — needs its own consent'), soon('Live transcription', 'Planned v4.2 — needs its own consent'), soon('Translated captions', 'Planned v4.2')] },
       { id: 'manage', title: 'Meeting management', items: [{ label: 'Copy invitation link', run: () => $('copyLink').click() }, { label: 'Export notes (Markdown)', run: () => exportNotes('md') }, { label: 'Meeting information', info: () => state.meetingInfo || '' }, soon('Attendance report'), soon('Lock meeting / remove people')] },
-      { id: 'sec', title: 'Security and recording', items: [{ label: state.role === 'host' ? 'Recording and consent…' : 'About recording', run: () => (state.role === 'host' ? $('recordBtn').click() : notify('Recording only happens if everyone present agrees. You will be asked, and you can withdraw at any time.')) }, { label: 'Calls and chat are encrypted in transit', info: () => 'Audio and video use WebRTC (DTLS-SRTP); the page uses HTTPS in production. Recordings are not stored by Qorlla.' }] },
+      { id: 'sec', title: 'Security and recording', items: [{ label: state.role === 'host' ? 'Recording and consent…' : 'About recording', run: () => (state.role === 'host' ? $('recordBtn').click() : notify('Recording only happens if everyone present agrees. You will be asked, and you can withdraw at any time.')) }, ...(state.role === 'host' ? [{ label: 'Recordings (download or delete)…', run: openRecordings }] : []), { label: 'Calls and chat are encrypted in transit', info: () => 'Audio and video use WebRTC (DTLS-SRTP); the page uses HTTPS in production. Recordings are not stored by Qorlla.' }] },
       { id: 'tools', title: 'Tools and settings', items: [{ label: 'Settings and keyboard shortcuts', run: () => $('settingsBtn').click() }, { label: 'Panel position and lock', info: () => 'On wide screens use the arrow buttons at the top of this panel to dock it left, right, top or bottom, and the lock to keep it stable.' }] },
     ];
     for (const [gi, g] of groups.entries()) {
@@ -267,6 +267,23 @@ export function initCollab(h) {
     t.append(el('p', 'muted', 'Items marked “Planned” are not available yet.'));
   }
 
+  async function openRecordings() {
+    let d; try { d = await call('/recordings'); } catch (e) { return notify(e.message); }
+    const fmt = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
+    rcModal('Recordings', (box) => {
+      if (!d.storage.ready) box.append(el('p', 'rc-err', 'Recording storage is not configured: ' + d.storage.reason));
+      box.append(el('p', 'rc-note', 'Recordings are encrypted on the server. Download links work once and expire in minutes; every download and deletion is logged.'));
+      const ul = el('ul', 'rc-list'); if (!d.recordings.length) ul.append(el('li', '', 'No recordings yet.'));
+      for (const r of d.recordings) {
+        const li = el('li'), t = el('span', '', new Date(r.startedAt).toLocaleString() + ' · ' + r.status + (r.status === 'available' ? ' · ' + fmt(r.bytes) : '') + (r.partial ? ' · partial' : '') + (r.legalHold ? ' · legal hold' : '') + (r.retentionUntil && r.status !== 'deleted' ? ' · kept until ' + new Date(r.retentionUntil).toLocaleDateString() : ''));
+        const act = el('span'); li.append(t, act);
+        if (r.status === 'available') { const b = el('button', 'rc-secondary', 'Download'); b.onclick = async () => { b.disabled = true; try { const x = await fetch(BASE + 'api/v1/recordings/' + r.id + '/access', { headers: { Authorization: 'Bearer ' + state.token } }); const j = await x.json(); if (!x.ok) throw Error(j.error); const a = el('a'); a.href = BASE + j.url.replace(/^\//, ''); a.rel = 'noopener'; document.body.append(a); a.click(); a.remove(); notify('Download started'); } catch (e) { notify(e.message); } b.disabled = false; }; act.append(b); }
+        if (['available', 'failed'].includes(r.status)) { const x = el('button', 'rc-secondary', 'Delete'); x.onclick = async () => { if (!(await askConfirm('Delete this recording?', 'The encrypted media is erased and cannot be recovered.', 'Delete', true))) return; try { const z = await fetch(BASE + 'api/v1/recordings/' + r.id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + state.token } }); const j = await z.json(); if (!z.ok) throw Error(j.error); notify('Recording deleted'); } catch (e) { notify(e.message); } openRecordings(); }; act.append(x); }
+        ul.append(li);
+      }
+      box.append(ul); const row = el('div', 'rc-row'), c = el('button', 'rc-primary', 'Close'); c.onclick = () => rcClose(); row.append(c); box.append(row);
+    });
+  }
   buildNotes(); buildPolls(); buildMore();
   return {
     attach(s) { s.on('notes-updated', remoteNotes); s.on('notes-editors', (m) => { N.editors = m.editors; const can = state.role === 'host' || m.editors.includes(state.participantId); if (can !== N.canEdit && !N.ended) { N.canEdit = can; renderAll(); announce(can ? 'You can now edit the notes' : 'Your edit access to the notes was removed'); } }); s.on('polls-changed', polls$); },

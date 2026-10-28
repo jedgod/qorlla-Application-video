@@ -17,6 +17,8 @@ import pg from 'pg';
 import { Server } from 'socket.io';
 import { recoveryService } from './recovery-service.mjs';
 import { registerCollab } from './collab.mjs';
+import { makeAudit } from './recording-audit.mjs';
+import { registerRecordingStorage } from './recording-store.mjs';
 import { registerRecording } from './recording.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -279,7 +281,9 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
 });
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
-const recording = registerRecording({ app, io, db, auth, member, fail, room, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
+const recAudit = makeAudit(db);
+const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
+const recording = registerRecording({ app, io, db, auth, member, fail, room, audit: recAudit, media: recMedia, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 app.get('/api/health',async(_req,res)=>{try{await db.query('SELECT 1');res.json({ok:true});}catch{res.status(503).json({ok:false});}});
 const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:message});
 io.use(async(socket,next)=>{

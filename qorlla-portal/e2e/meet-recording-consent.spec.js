@@ -7,6 +7,15 @@ const { BASE } = require('./helpers');
 // Through the unified HTTPS origin: /meet/. For a local Meet use E2E_BASE=http://localhost:3310 E2E_MEET_PATH=/.
 const MEET = process.env.E2E_MEET_PATH || '/meet/';
 const API = MEET.replace(/\/?$/, '/') + 'api/v1/meetings/';
+const RAPI = MEET.replace(/\/?$/, '/') + 'api/v1/recordings/';
+const sessionOf = (page) => page.evaluate(() => JSON.parse(sessionStorage.getItem('qorlla-session')));
+// The finished recording as the host gets it: wait until the server has finalized it, ask for a single-use access link, fetch the decrypted file.
+async function savedRecording(page, session, { expectStatus = 'available' } = {}) {
+  const s = session || await sessionOf(page); let rec;
+  await expect.poll(async () => { rec = (await page.evaluate(async ({ url, t }) => (await (await fetch(url, { headers: { Authorization: 'Bearer ' + t } })).json()).recordings, { url: API + s.meetingId + '/recordings', t: s.token }))[0]; return rec?.status; }, { timeout: 60000 }).toBe(expectStatus);
+  const file = await page.evaluate(async ({ url, t, rid }) => { const a = await (await fetch(url + rid + '/access', { headers: { Authorization: 'Bearer ' + t } })).json(); const r = await fetch(a.url); const buf = new Uint8Array(await r.arrayBuffer()); return { status: r.status, length: buf.length, head: [...buf.slice(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join('') }; }, { url: RAPI, t: s.token, rid: rec.id });
+  return { rec, ...file };
+}
 
 async function open(browser, who, code) {
   const ctx = await browser.newContext({ ignoreHTTPSErrors: true, baseURL: BASE, permissions: ['camera', 'microphone'], viewport: { width: 1366, height: 768 }, acceptDownloads: true }); const page = await ctx.newPage();
@@ -24,7 +33,7 @@ async function call(page, path, method = 'GET', body) {
 }
 async function request(host, extra = {}) {
   await host.page.click('#recordBtn');
-  await host.page.fill('#rc_purpose', extra.purpose || 'Minutes for absent colleagues'); await host.page.fill('#rc_recipients', 'Attendees and project team'); await host.page.fill('#rc_retention', '30 days then deleted');
+  await host.page.fill('#rc_purpose', extra.purpose || 'Minutes for absent colleagues'); await host.page.fill('#rc_recipients', 'Attendees and project team'); await host.page.selectOption('#rc_days', '30');
   await host.page.fill('#rc_privacyContact', 'privacy@example.com'); await host.page.fill('#rc_privacyUrl', 'https://example.com/privacy');
   await host.page.getByRole('button', { name: 'Send request' }).click(); await expect(host.page.locator('#rcModal')).toHaveCount(0);
 }
@@ -40,7 +49,7 @@ test.describe('Qorlla Meet recording consent', () => {
     await expect(a.page.locator('#recordBtn')).toHaveText('Record'); await expect(b.page.locator('#recordBtn')).toBeHidden();                       // only the host has the control
     await request(a);
     // Bob sees the full notice and cannot proceed without ticking the boxes; nothing is being recorded
-    const dlg = b.page.locator('#rcModal'); await expect(dlg).toContainText('Minutes for absent colleagues'); await expect(dlg).toContainText('Attendees and project team'); await expect(dlg).toContainText('30 days then deleted'); await expect(dlg).toContainText('privacy@example.com');
+    const dlg = b.page.locator('#rcModal'); await expect(dlg).toContainText('Minutes for absent colleagues'); await expect(dlg).toContainText('Attendees and project team'); await expect(dlg).toContainText('30 days, then deleted automatically'); await expect(dlg).toContainText('privacy@example.com');
     await expect(dlg.getByRole('link', { name: 'View Privacy Policy' })).toHaveAttribute('href', 'https://example.com/privacy'); await expect(dlg.locator('#rcVideo')).not.toBeChecked(); await expect(dlg.locator('#rcAudio')).not.toBeChecked(); await expect(dlg).toContainText('AI transcription');
     await expect(b.page.locator('#recBanner')).toContainText('NOTHING is being recorded'); await expect(a.page.locator('#recBanner')).toContainText('waiting for 1 answer');
     // the host cannot start while an answer is missing (the server refuses, not just the button)
@@ -54,8 +63,8 @@ test.describe('Qorlla Meet recording consent', () => {
     const c = await open(browser, 'Carol', a.code); await expect(c.page.locator('#rcModal')).toContainText('Recording consent'); await expect(a.page.locator('#recBanner')).toContainText('PAUSED'); await expect(b.page.locator('#recBanner')).toContainText('PAUSED');
     await agree(c); await expect(a.page.locator('#recBanner')).toContainText('You are recording this meeting');
     await a.page.waitForTimeout(3000);
-    const [dl] = await Promise.all([a.page.waitForEvent('download'), (async () => { await a.page.click('#recordBtn'); await a.page.locator('#rcModal').getByRole('button', { name: 'Stop recording' }).click(); })()]);
-    expect(dl.suggestedFilename()).toMatch(/^qorlla-\d+-\d{8}-\d{4}\.webm$/); const buf = fs.readFileSync(await dl.path()); expect(buf.length).toBeGreaterThan(15000); expect(buf.subarray(0, 4).toString('hex')).toBe('1a45dfa3');
+    await a.page.click('#recordBtn'); await a.page.locator('#rcModal').getByRole('button', { name: 'Stop recording' }).click();
+    const file = await savedRecording(a.page); expect(file.status).toBe(200); expect(file.length).toBeGreaterThan(15000); expect(file.head).toBe('1a45dfa3'); expect(file.rec.partial).toBe(false);
     await expect(b.page.locator('#recBanner')).toBeHidden(); await expect(b.page.locator('.tile .rec-badge')).toHaveCount(0);
     // old consent does not carry over: a second request asks everyone again
     await request(a, { purpose: 'Second recording' }); await expect(b.page.locator('#rcModal')).toContainText('Second recording'); await expect(c.page.locator('#rcModal')).toContainText('Second recording');
@@ -75,9 +84,9 @@ test.describe('Qorlla Meet recording consent', () => {
     // the decliner can still change their mind? Not silently: a NEW request is needed. Cancel and ask again; this time both agree.
     await a.page.getByRole('button', { name: 'Cancel request' }).click(); await request(a, { purpose: 'Try again' }); await agree(b); await agree(c);
     await a.page.click('#recordBtn'); await a.page.getByRole('button', { name: 'Start recording' }).click(); await expect(a.page.locator('#recordBtn')).toHaveText(/Stop/);
-    await a.page.waitForTimeout(2500);
-    const [dl] = await Promise.all([a.page.waitForEvent('download'), b.page.click('#rcWithdraw')]);                                   // Bob withdraws: recording stops for everyone, the host keeps what was captured
-    expect(fs.readFileSync(await dl.path()).length).toBeGreaterThan(8000); await expect(a.page.locator('#recordBtn')).toHaveText('Record'); await expect(c.page.locator('#recBanner')).toBeHidden();
+    await expect(async () => { expect((await a.page.evaluate(() => window.__qorlla.rec())).accepted).toBeGreaterThanOrEqual(2); }).toPass({ timeout: 30000 });   // some media is really stored before the withdrawal
+    await b.page.click('#rcWithdraw');                                   // Bob withdraws: recording stops for everyone, the host keeps what was captured
+    const kept = await savedRecording(a.page); expect(kept.length).toBeGreaterThan(8000); await expect(a.page.locator('#recordBtn')).toHaveText('Record'); await expect(c.page.locator('#recBanner')).toBeHidden();
     // audit trail: host-only, records the requests, answers, start and the withdrawal
     const audit = await call(a.page, '/audit'); expect(audit.status).toBe(200); const acts = JSON.stringify(audit.body); for (const w of ['recording.requested', 'consent.decline', 'consent.agree', 'recording.started', 'consent.withdraw']) expect(acts, w).toContain(w);
     expect((await call(b.page, '/audit')).status).toBe(403);
@@ -92,7 +101,7 @@ test.describe('Qorlla Meet recording consent', () => {
     expect((await call(a.page, '')).body.status).toBe('recording'); await expect(b.page.locator('#recBanner')).toContainText('Alice is recording'); await expect(a.page.locator('#recordBtn')).toHaveText(/Stop/);
     const acts = JSON.stringify((await call(a.page, '/audit')).body); expect(acts).toContain('recording.host_disconnected'); expect(acts).toContain('recording.host_reconnected'); expect(acts).not.toContain('host_left');
     // 2) intentional leave: finalized immediately
-    const [dl] = await Promise.all([a.page.waitForEvent('download'), a.page.click('#leaveBtn')]); expect(fs.readFileSync(await dl.path()).length).toBeGreaterThan(5000); await expect(b.page.locator('#recBanner')).toBeHidden({ timeout: 10000 });
+    const hostSession = await sessionOf(a.page); await a.page.click('#leaveBtn'); expect((await savedRecording(b.page, hostSession)).length).toBeGreaterThan(5000); await expect(b.page.locator('#recBanner')).toBeHidden({ timeout: 10000 });
     await a.ctx.close(); await b.ctx.close();
     // 3) an outage that outlasts the grace period (HOST_RECONNECT_GRACE_MS, default 30 s): the recording is finalized for everyone
     ({ a, b } = await start());

@@ -124,6 +124,7 @@ services:
       - ./qorlla-meet-video/sql/002_recovery.sql:/docker-entrypoint-initdb.d/005_recovery.sql:ro
       - ./qorlla-meet-video/sql/v4_7_recording_consent.sql:/docker-entrypoint-initdb.d/005b_recording_consent.sql:ro
       - ./qorlla-meet-video/sql/v4_8_collab.sql:/docker-entrypoint-initdb.d/005c_collab.sql:ro
+      - ./qorlla-meet-video/sql/v4_9_recording_storage.sql:/docker-entrypoint-initdb.d/005d_recording_storage.sql:ro
       - ./qorlla-meet-video/sql/initdb-app-role.sh:/docker-entrypoint-initdb.d/006_app_role.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qorlla -d qorlla_meet"]
@@ -147,6 +148,13 @@ services:
       - TRUST_PROXY_HOPS=1
       - MEET_READ_SECRET=${MEET_READ_SECRET:-}
       - ICE_SERVERS_JSON=${ICE_SERVERS_JSON:-[{"urls":"stun:stun.l.google.com:19302"}]}
+      # recording storage (v4.0.3): without a master key recording cannot start (503). Keep the keys backed up separately from the recordings.
+      - RECORDING_MASTER_KEYS=${RECORDING_MASTER_KEYS:-}
+      - RECORDING_ACTIVE_KEY_ID=${RECORDING_ACTIVE_KEY_ID:-}
+      - RECORDING_ADMIN_SECRET=${RECORDING_ADMIN_SECRET:-}
+      - RECORDING_STORE_DIR=/var/lib/qorlla/recordings
+    volumes:
+      - meet-recordings:/var/lib/qorlla/recordings
     ports:
       - "127.0.0.1:${MEET_HOST_PORT:-3000}:3000"
     depends_on:
@@ -228,6 +236,7 @@ volumes:
   workspace-data:
   main-db-data:
   meet-db-data:
+  meet-recordings:
 
 networks:
   cluster-mesh-network:

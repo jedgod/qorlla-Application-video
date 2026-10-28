@@ -20,4 +20,8 @@ DO $$ BEGIN
     REVOKE UPDATE, DELETE, TRUNCATE ON poll_ballots FROM qorlla_meet_app;
     REVOKE UPDATE, DELETE, TRUNCATE ON poll_voters FROM qorlla_meet_app;
   END IF;
+  -- Recording storage (v4.9): AI consent is append-only; the audit/consent tables are also protected by triggers for every role.
+  IF to_regclass('public.ai_consents') IS NOT NULL THEN
+    REVOKE UPDATE, DELETE, TRUNCATE ON ai_consents FROM qorlla_meet_app;
+  END IF;
 END $$;

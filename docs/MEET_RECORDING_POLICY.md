@@ -50,3 +50,22 @@ Tests: `tests/recording-consent.test.mjs` (state machine) and `qorlla-portal/e2e
 
 ## Host connection loss vs. host departure (v4.0.2)
 A dropped host connection is not a departure. The recording survives an outage of up to `HOST_RECONNECT_GRACE_MS` (default 30 000 ms); `recording.host_disconnected` and `recording.host_reconnected` are written to the audit trail. It is finalized immediately only by an intentional Leave, End for all, a decline/withdrawal, or an outage that outlasts the grace period (`end_reason = host_left`). While the host's browser is offline it keeps capturing locally; participants still see the recording banner.
+
+## Secure storage, retention and deletion (v4.0.3)
+Implemented in `server/recording-store.mjs`, `recording-crypto.mjs`, `recording-objects.mjs`, `recording-audit.mjs` and `sql/v4_9_recording_storage.sql`.
+
+**Pipeline.** The host's browser composes the picture and audio (people who have not consented to the requested scopes are drawn as "Not recorded" and their audio is not mixed in) and uploads small chunks. The server accepts a chunk only from the recorder and only while the consent session is `recording`: not while someone is unanswered (paused), not after a decline or withdrawal, and, after a host-initiated stop, only for a short window (`RECORDING_LATE_CHUNK_MS`, default 30 s). A refused chunk is dropped and audited, never kept. Sequence numbers advance only when a chunk is stored, so interrupted uploads are retried without gaps or duplicates.
+
+**Encryption.** Each recording gets a random 256-bit data key; every chunk is encrypted with AES-256-GCM (authenticated, bound to the recording id and position) before it reaches storage. The data key is wrapped by a master key from a keyring (`RECORDING_MASTER_KEYS`, `RECORDING_ACTIVE_KEY_ID`); rotation keeps old keys in the ring. Deleting a recording erases the objects and sets the wrapped key to NULL, so nothing can be decrypted afterwards.
+
+**Storage.** Private object store behind an interface. Only the filesystem backend (`RECORDING_STORE=fs`, `RECORDING_STORE_DIR`, owner-only, never served by the web server) is implemented and tested. An S3-compatible backend is **not implemented**.
+
+**Access.** Only the meeting's host can list, get a link, or delete (`GET .../recordings`, `GET /api/recordings/:id/access`, `DELETE /api/recordings/:id`). A link is signed, single-use, bound to the host, and expires (`RECORDING_LINK_SECONDS`, default 300); it is checked against the database clock. Every grant, refusal and download is audited. A chunk that fails authentication is never delivered (the download is cut and `recording.integrity_failure` is logged).
+
+**Retention and legal hold.** The host chooses 7/30/90/365 days in the request; the notice text is generated from that number, so what participants read is what is enforced. A sweep deletes expired recordings. An administrator (header `x-qorlla-admin` = `RECORDING_ADMIN_SECRET`, not a meeting token) can place or lift a legal hold; a held recording cannot be deleted by the host or by retention.
+
+**Recovery.** A recorder that disappears (no chunks for `RECORDING_IDLE_MS`, default 120 s) is finalized from what was received and flagged `partial`. Finalization that never completes is finished by the server after `RECORDING_FINALIZE_GRACE_MS` (default 45 s). Concurrent requests and starts are serialized by database constraints.
+
+**Audit.** Recording and consent events are hash-chained per meeting (`GET .../recordings-audit` returns the events and the chain check) and the tables are append-only for every database role (trigger), unless a maintenance session sets `qorlla.allow_purge`. AI consent is a separate append-only record per purpose (`POST .../ai-consent`, `GET .../consent-status`); **no AI processing exists in this version**, so these only record choices.
+
+**Not done / limits.** A modified browser can still send arbitrary media: capture is client-side, the strongest design is server-side (SFU) recording. No hardware/cloud KMS (keyring from your secret manager). No S3 backend, malware scanning (not needed for recordings, needed for the future shared-files feature), per-region legal text, or counsel review. Participants cannot download recordings (host only). Single-use links mean a failed or retried download needs a new link.

@@ -174,8 +174,17 @@ function recAddAudio(id,stream){
   const a=stream.getAudioTracks().filter(t=>t.readyState==='live');if(!a.length)return;
   try{const s=REC.ctx.createMediaStreamSource(new MediaStream([a[0]]));s.connect(REC.dest);REC.src.set(id,s);}catch(e){/* an unusable track is skipped */}
 }
+// Consent is enforced on what is composed: someone who has not agreed to the requested scopes is never drawn or mixed in, whatever the server timing.
+function recMayShow(id){return !id||(!!REC.consent&&REC.consent.video&&REC.consent.set.has(id));}
+function recSyncAudio(){
+  if(!REC.ctx||!REC.dest)return;const ok=id=>!!REC.consent&&REC.consent.audio&&REC.consent.set.has(id==='local'?state.participantId:id);
+  for(const [id,node] of [...REC.src]){if(!ok(id)){try{node.disconnect();}catch(e){/* already gone */}REC.src.delete(id);}}
+  if(ok('local'))recAddAudio('local',state.stream);
+  document.querySelectorAll('#videos .tile video').forEach(vd=>{const id=vd.closest('.tile').id.slice(5);if(id!==state.participantId&&ok(id)&&vd.srcObject)recAddAudio(id,vd.srcObject);});
+}
 function recDraw(t,x,y,w,h){
   const g=REC.g;g.fillStyle='#121824';g.fillRect(x,y,w,h);
+  if(!recMayShow(t.id)){g.fillStyle='#8a96ab';g.textAlign='center';g.textBaseline='middle';g.font='600 16px sans-serif';g.fillText('Not recorded',x+w/2,y+h/2);g.textAlign='left';g.textBaseline='alphabetic';return;}
   const v=t.v,live=v&&v.readyState>=2&&v.videoWidth>0&&!t.el.classList.contains('sharing-local')&&t.el.querySelector('.avatar')?.style.display==='none';
   if(live){const r=Math.min(w/v.videoWidth,h/v.videoHeight),dw=v.videoWidth*r,dh=v.videoHeight*r;g.drawImage(v,x+(w-dw)/2,y+(h-dh)/2,dw,dh);}
   else{const ini=(t.name||'?').replace(/ \(You\)$/,'').split(/\s+/).map(s=>s[0]).join('').slice(0,2).toUpperCase();g.fillStyle='#273750';g.beginPath();g.arc(x+w/2,y+h/2,Math.min(w,h)/5,0,Math.PI*2);g.fill();g.fillStyle='#c9d9ff';g.font='600 '+Math.round(Math.min(w,h)/6)+'px sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(ini,x+w/2,y+h/2);}
@@ -183,10 +192,10 @@ function recDraw(t,x,y,w,h){
 }
 function recFrame(){
   const c=REC.canvas,g=REC.g,W=c.width,H=c.height;g.fillStyle='#080b11';g.fillRect(0,0,W,H);
-  const tiles=[...document.querySelectorAll('#videos .tile')].map(el=>({el,v:el.querySelector('video'),name:el.querySelector('.nameplate')?.textContent||''}));
+  const tiles=[...document.querySelectorAll('#videos .tile')].map(el=>({el,id:el.id.slice(5),v:el.querySelector('video'),name:el.querySelector('.nameplate')?.textContent||''}));
   let main=null;
   if(state.screen&&REC.shareVideo&&REC.shareVideo.readyState>=2)main={v:REC.shareVideo,el:document.createElement('div'),name:'Your screen'};
-  else{const s=tiles.find(t=>t.el.classList.contains('sharing-remote')&&t.v&&t.v.readyState>=2);if(s)main={v:s.v,el:s.el,name:s.name+' (screen)'};}
+  else{const s=tiles.find(t=>t.el.classList.contains('sharing-remote')&&t.v&&t.v.readyState>=2&&recMayShow(t.id));if(s)main={v:s.v,el:s.el,name:s.name+' (screen)'};}
   const pad=6;
   if(main){
     const mw=Math.round(W*.78);g.fillStyle='#000';g.fillRect(0,0,mw,H);const v=main.v,r=Math.min(mw/v.videoWidth,H/v.videoHeight);g.drawImage(v,(mw-v.videoWidth*r)/2,(H-v.videoHeight*r)/2,v.videoWidth*r,v.videoHeight*r);
@@ -207,31 +216,57 @@ async function beginCapture(){
   try{
     REC.canvas=document.createElement('canvas');REC.canvas.width=1280;REC.canvas.height=720;REC.g=REC.canvas.getContext('2d');
     REC.ctx=new (window.AudioContext||window.webkitAudioContext)();await REC.ctx.resume();REC.dest=REC.ctx.createMediaStreamDestination();REC.src.clear();
-    recAddAudio('local',state.stream);document.querySelectorAll('#videos .tile video').forEach(vd=>{const id=vd.closest('.tile').id.slice(5);if(id!==state.participantId&&vd.srcObject)recAddAudio(id,vd.srcObject);});
+    recSyncAudio();
     REC.stream=new MediaStream([...REC.canvas.captureStream(15).getVideoTracks(),...REC.dest.stream.getAudioTracks()]);
     const mime=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(t=>MediaRecorder.isTypeSupported(t))||'';
-    const rec=new MediaRecorder(REC.stream,mime?{mimeType:mime,videoBitsPerSecond:2500000}:{});REC.chunks=[];
-    rec.ondataavailable=e=>{if(e.data&&e.data.size)REC.chunks.push(e.data);};
+    const rec=new MediaRecorder(REC.stream,mime?{mimeType:mime,videoBitsPerSecond:2500000}:{});
+    Object.assign(REC,{rid:rcState.st.recordingId,nextSeq:0,accepted:0,refused:0,queue:[],queued:0,uploading:false});
+    rec.ondataavailable=e=>{if(e.data&&e.data.size)recEnqueue(e.data);};
     REC.done=new Promise(resolve=>{rec.onstop=()=>{
       clearInterval(REC.ui);REC.tick?.stop?.();REC.tick=null;REC.stream.getTracks().forEach(t=>t.stop());REC.ctx.close().catch(()=>{});
       state.recording=null;recUi();
-      if(!REC.chunks.length){notify('Nothing was recorded.');resolve();return;}
-      const blob=new Blob(REC.chunks,{type:rec.mimeType||'video/webm'});const code=($('roomId').textContent||'meeting').replace(/\W+/g,'');const d=new Date(),p=n=>String(n).padStart(2,'0');
-      const name='qorlla-'+code+'-'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+'.webm';
-      const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
-      notify('Recording saved: '+name);resolve();};});
+      recFinish().then(resolve,resolve);};});
     REC.t0=Date.now();state.recording=rec;rec.start(1000);
     // Frames are drawn on a plain timer (the page's content-security-policy forbids blob workers). A tab that is playing the meeting's audio is not
     // throttled by the browser, so keep this tab open while recording.
     const iv=setInterval(recFrame,66);REC.tick={stop:()=>clearInterval(iv)};
-    REC.ui=setInterval(recUi,1000);recUi();
+    REC.ui=setInterval(()=>{recUi();recSyncAudio();},1000);recUi();
     notify('Recording started. Everyone can see the recording indicator.');
   }catch(e){state.recording=null;notify('Could not start recording: '+(e.message||e));throw e;}
 }
 function stopRecording(){
   const rec=state.recording;if(!rec)return Promise.resolve();
   try{if(rec.state!=='inactive')rec.stop();}catch(e){/* already stopped */}
-  return Promise.race([REC.done||Promise.resolve(),new Promise(r=>setTimeout(r,3000))]);
+  return Promise.race([REC.done||Promise.resolve(),new Promise(r=>setTimeout(r,35000))]);
+}
+// Recorded media goes to the meeting's encrypted storage in small chunks. The server decides whether each chunk may be accepted (consent state at that moment);
+// a refused chunk is dropped, never kept. Network failures are retried in order; sequence numbers only advance when a chunk is stored, so there are no gaps.
+function recEnqueue(blob){
+  REC.queue.push(blob);REC.queued+=blob.size;
+  if(REC.queued>150*1024*1024&&!REC.overflow){REC.overflow=true;notify('Uploads are far behind. Stopping the recording to protect this computer.');rcApi('/stop','POST').catch(()=>{});}
+  recPump();
+}
+async function recPump(){
+  if(REC.uploading)return;REC.uploading=true;let tries=0;
+  while(REC.queue.length){
+    const blob=REC.queue[0];
+    try{
+      const r=await fetch(BASE+'api/v1/meetings/'+state.meetingId+'/recordings/'+REC.rid+'/chunks?seq='+REC.nextSeq,{method:'POST',headers:{Authorization:'Bearer '+state.token,'Content-Type':'application/octet-stream'},body:blob});
+      if(r.status===201||r.status===200){REC.accepted++;REC.nextSeq++;REC.queue.shift();REC.queued-=blob.size;tries=0;}
+      else if(r.status===409||r.status===403||r.status===404){REC.queue.shift();REC.queued-=blob.size;REC.refused++;}
+      else throw new Error('HTTP '+r.status);
+    }catch(e){tries++;await new Promise(res=>setTimeout(res,Math.min(8000,500*2**Math.min(tries,4))));}
+  }
+  REC.uploading=false;
+}
+const medApi=async(path,method,body)=>{const r=await fetch(BASE+'api/v1/meetings/'+state.meetingId+path,{method,headers:{'Content-Type':'application/json',Authorization:'Bearer '+state.token},body:JSON.stringify(body)});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||'Request failed');return d;};
+async function recFinish(){
+  const t0=Date.now();while((REC.queue.length||REC.uploading)&&Date.now()-t0<25000){recPump();await new Promise(r=>setTimeout(r,200));}
+  try{
+    const r=await medApi('/recordings/'+REC.rid+'/complete','POST',{chunks:REC.nextSeq});
+    if(r.status==='available')notify(r.partial?'Recording saved, but only part of it reached the server.':'Recording saved securely. Open More › Security and recording › Recordings to download it.');
+    else notify('Nothing was recorded.');
+  }catch(e){notify('The recording could not be finalized: '+e.message+'. The server keeps what it received.');}
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------
@@ -300,7 +335,7 @@ new MutationObserver(applyRecBadge).observe($('videos'),{childList:true});
 
 // ---- server state arrives (socket snapshot or broadcast) -----------------------------------------------------------------------------------
 async function recState(st){
-  const prev=rcState.st;rcState.st=st||{status:'disabled'};
+  const prev=rcState.st;rcState.st=st||{status:'disabled'};REC.consent={set:new Set(rcState.st.consenting||[]),video:!!rcState.st.video,audio:!!rcState.st.audio};recSyncAudio();
   renderRecBanner();recUi();
   if(rcState.st.status==='disabled'){rcClose();rcState.answeredFor=null;rcState.mine=null;if(state.recording){notify('Recording stopped.');await stopRecording();}return;}
   // the person recording captures only while the server says RECORDING; paused means stop feeding the file
@@ -352,12 +387,12 @@ function rcRequestForm(){
   rcModal('Request to record this meeting',box=>{
     box.append(rcEl('p','rc-lead','Everyone present must agree before recording can start. Tell them clearly what happens to the recording.'));
     const f={};const field=(key,label,ph,val)=>{const l=rcEl('label','rc-field');l.append(rcEl('span','',label));const i=rcEl('input');i.type='text';i.id='rc_'+key;i.placeholder=ph||'';if(val)i.value=val;f[key]=i;l.append(i);box.append(l);};
-    field('purpose','Purpose of the recording','e.g. Minutes and follow-up for people who could not attend');field('recipients','Who will receive or access it','e.g. Meeting attendees and the project team');field('retention','How long it is kept','e.g. 30 days, then deleted');
+    field('purpose','Purpose of the recording','e.g. Minutes and follow-up for people who could not attend');field('recipients','Who will receive or access it','e.g. Meeting attendees and the project team');{const l=rcEl('label','rc-field');l.append(rcEl('span','','How long it is kept'));const sel=rcEl('select');sel.id='rc_days';for(const d of [7,30,90,365])sel.append(new Option(d+' days, then deleted automatically',String(d)));sel.value='30';f.retention=sel;l.append(sel);box.append(l);}
     field('controller','Data controller (who is responsible)','Name of the organisation or host',state.name);field('privacyContact','Privacy contact','e.g. privacy@example.com');field('privacyUrl','Privacy policy link (optional)','https://');
     const row1=rcEl('div','rc-row');const mk=(label)=>{const l=rcEl('label','rc-check');const i=rcEl('input');i.type='checkbox';i.checked=true;l.append(i,document.createTextNode(' '+label));row1.append(l);return i;};const vid=mk('Record video'),aud=mk('Record audio');box.append(row1);
     box.append(rcEl('p','rc-note','AI transcription and summaries are separate and not included.'));
     const err=rcEl('p','rc-err');err.setAttribute('role','alert');const row=rcEl('div','rc-row'),send=rcEl('button','rc-primary','Send request'),cancel=rcEl('button','rc-secondary','Cancel');row.append(send,cancel);box.append(err,row);cancel.onclick=rcClose;
-    send.onclick=async()=>{send.disabled=true;try{await rcApi('/request','POST',{purpose:f.purpose.value,recipients:f.recipients.value,retention:f.retention.value,controller:f.controller.value,privacyContact:f.privacyContact.value,privacyUrl:f.privacyUrl.value,video:vid.checked,audio:aud.checked});rcClose();notify('Request sent. Waiting for everyone to answer.');}catch(e){err.textContent=e.message;send.disabled=false;}};
+    send.onclick=async()=>{send.disabled=true;try{await rcApi('/request','POST',{purpose:f.purpose.value,recipients:f.recipients.value,retentionDays:Number(f.retention.value),controller:f.controller.value,privacyContact:f.privacyContact.value,privacyUrl:f.privacyUrl.value,video:vid.checked,audio:aud.checked});rcClose();notify('Request sent. Waiting for everyone to answer.');}catch(e){err.textContent=e.message;send.disabled=false;}};
   });
 }
 async function rcRefreshHost(){
@@ -380,7 +415,7 @@ async function rcHostPanel(){
 }
 // Debug/test hook (read access to the page state for the browser tests; exposes nothing the page does not already hold).
 const collab=initCollab({state,BASE,notify,announce,rcModal,rcClose,rcEl,askConfirm});
-window.__qorlla={state,recoverPeer};
+window.__qorlla={state,recoverPeer,rec:()=>({consent:[...(REC.consent?.set||[])],audio:[...REC.src.keys()],accepted:REC.accepted||0,queue:(REC.queue||[]).length,refused:REC.refused||0,rid:REC.rid||null})};
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // v4.0.2 shell: responsive layouts (desktop panel / tablet drawer / mobile sheet), adaptive toolbar, keyboard, announcements, accessible dialogs

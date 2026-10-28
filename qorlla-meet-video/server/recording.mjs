@@ -36,33 +36,32 @@ export function evaluate({ session, roster, latest }) {
 }
 
 const GRACE_MS = Number(process.env.HOST_RECONNECT_GRACE_MS || 30000), graceTimers = new Map();
-export function registerRecording({ app, io, db, auth, member, fail, room, getRoster, getName }) {
+export function registerRecording({ app, io, db, auth, member, fail, room, getRoster, getName, audit, media }) {
   const paths = (suffix) => [`/api/meetings/:id/recording${suffix}`, `/api/v1/meetings/:id/recording${suffix}`];
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
-  const audit = async (meetingId, sessionId, actor, role, action, detail = {}) => {
-    const ref = randomUUID();
-    await db.query('INSERT INTO recording_audit(audit_ref,meeting_id,session_id,actor,actor_role,action,detail) VALUES($1,$2,$3,$4,$5,$6,$7)', [ref, meetingId, sessionId, actor, role, action, JSON.stringify(detail)]);
-    return ref;
-  };
+  // `audit` (hash-chained, see recording-audit.mjs) and `media` (storage lifecycle, see recording-store.mjs) are injected by the server
   const active = async (meetingId) => (await db.query(`SELECT * FROM recording_sessions WHERE meeting_id=$1 AND status = ANY($2) LIMIT 1`, [meetingId, LIVE])).rows[0] || null;
   const latestConsents = async (sessionId) => {
     const { rows } = await db.query('SELECT DISTINCT ON (participant_id) participant_id, participant_name, role, decision, video, audio, created_at FROM recording_consents WHERE session_id=$1 ORDER BY participant_id, created_at DESC, id DESC', [sessionId]);
     return new Map(rows.map((r) => [r.participant_id, r]));
   };
-  const notice = (s) => ({ sessionId: s.id, purpose: s.purpose, recipients: s.recipients, retention: s.retention, controller: s.controller, privacyContact: s.privacy_contact, privacyUrl: s.privacy_url || null, video: s.want_video, audio: s.want_audio, ai: false, policyVersion: s.policy_version });
+  const notice = (s) => ({ sessionId: s.id, purpose: s.purpose, recipients: s.recipients, retention: s.retention, controller: s.controller, privacyContact: s.privacy_contact, privacyUrl: s.privacy_url || null, retentionDays: s.retention_days || null, video: s.want_video, audio: s.want_audio, ai: false, policyVersion: s.policy_version });
 
   /** What everyone may see: the notice, the state, counts. Never who declined (the host asks for that explicitly). */
   async function publicState(meetingId) {
     const s = await active(meetingId);
     if (!s) return { status: 'disabled' };
     const roster = getRoster(meetingId), latest = await latestConsents(s.id), ev = evaluate({ session: s, roster, latest });
-    return { ...notice(s), status: s.status, recorder: s.recorder_participant ? { participantId: s.recorder_participant, name: getName(meetingId, s.recorder_participant) } : null, requestedBy: getName(meetingId, s.requested_by), pending: ev.pending.length, declined: ev.declined.length, total: roster.length };
+    const covers = (c) => !!c && c.decision === 'agree' && (!s.want_video || c.video) && (!s.want_audio || c.audio);
+    const recordingId = (s.status === 'recording' || s.status === 'paused') ? await media.recordingIdFor(s.id) : null;
+    return { ...notice(s), recordingId, consenting: roster.filter((p) => covers(latest.get(p))), status: s.status, recorder: s.recorder_participant ? { participantId: s.recorder_participant, name: getName(meetingId, s.recorder_participant) } : null, requestedBy: getName(meetingId, s.requested_by), pending: ev.pending.length, declined: ev.declined.length, total: roster.length };
   }
   const broadcast = async (meetingId) => io.to(room(meetingId)).emit('recording-state', await publicState(meetingId));
 
   async function end(s, status, reason, actor, role) {
     await db.query('UPDATE recording_sessions SET status=$2, ended_at=now(), end_reason=$3 WHERE id=$1 AND status = ANY($4)', [s.id, status, reason, LIVE]);
     await audit(s.meeting_id, s.id, actor, role, status === 'cancelled' ? 'recording.cancelled' : 'recording.stopped', { reason });
+    try { await media.onEnd(s, reason, actor); } catch (e) { console.error('[recording] media finalize hook failed:', e.message); }
   }
 
   /** Recompute the state after anything changed (consent, someone joined or left, start). Applies the transition and tells the room. */
@@ -83,15 +82,17 @@ export function registerRecording({ app, io, db, auth, member, fail, room, getRo
   // 1. the host asks to record, disclosing who/why/how long
   app.post(paths('/request'), auth, member, hostOnly, async (req, res) => {
     const b = req.body || {};
-    const purpose = clip(b.purpose, 300), recipients = clip(b.recipients, 300), retention = clip(b.retention, 100), privacyContact = clip(b.privacyContact, 200);
+    const purpose = clip(b.purpose, 300), recipients = clip(b.recipients, 300), extra = clip(b.retention, 60), privacyContact = clip(b.privacyContact, 200);
     const controller = clip(b.controller, 120) || ('Host ' + getName(req.params.id, req.user.participantId));
     let privacyUrl = clip(b.privacyUrl, 300); if (privacyUrl && !/^https?:\/\/[^\s]+$/i.test(privacyUrl)) return fail(res, 400, 'The privacy policy link must be an http(s) address');
     const video = b.video !== false, audio = b.audio !== false;
+    const days = Math.max(1, Math.min(3650, Math.round(Number(b.retentionDays)) || Number(process.env.RECORDING_RETENTION_DEFAULT_DAYS) || 30));
+    const retention = days + ' days, then deleted automatically' + (extra ? ' (' + extra + ')' : '');          // the disclosed text always matches the enforced number
     if (!purpose || !recipients || !retention || !privacyContact) return fail(res, 400, 'Purpose, recipients, retention period and a privacy contact must be disclosed before recording can be requested');
     if (!video && !audio) return fail(res, 400, 'Choose video, audio or both');
     try {
       const id = randomUUID();
-      try { await db.query(`INSERT INTO recording_sessions(id,meeting_id,requested_by,status,purpose,recipients,retention,controller,privacy_contact,privacy_url,want_video,want_audio,policy_version) VALUES($1,$2,$3,'awaiting',$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [id, req.params.id, req.user.participantId, purpose, recipients, retention, controller, privacyContact, privacyUrl || null, video, audio, POLICY_VERSION]); }
+      try { await db.query(`INSERT INTO recording_sessions(id,meeting_id,requested_by,status,purpose,recipients,retention,controller,privacy_contact,privacy_url,want_video,want_audio,policy_version,retention_days) VALUES($1,$2,$3,'awaiting',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, [id, req.params.id, req.user.participantId, purpose, recipients, retention, controller, privacyContact, privacyUrl || null, video, audio, POLICY_VERSION, days]); }
       catch (e) { if (e.code === '23505') return fail(res, 409, 'A recording request is already in progress'); throw e; }
       await audit(req.params.id, id, req.user.participantId, 'host', 'recording.requested', { video, audio, policy: POLICY_VERSION });
       // the host's own agreement, recorded like anyone else's
@@ -144,10 +145,11 @@ export function registerRecording({ app, io, db, auth, member, fail, room, getRo
         await audit(req.params.id, s?.id || null, req.user.participantId, 'host', 'recording.start_refused', { status: st.status, pending: st.pending, declined: st.declined });
         return res.status(409).json({ error: st.status === 'blocked' ? 'A participant declined, so recording cannot start' : 'Not everyone in the meeting has consented yet', ...st });
       }
+      let recId; try { recId = await media.onStart(s, req.user.participantId); } catch (e) { if (e.code === 'STORAGE_NOT_READY') return fail(res, 503, e.message); if (e.code === 'ALREADY_STARTED') return fail(res, 409, 'Recording has already started'); throw e; }   // no secure place to put the media = no recording
       await db.query(`UPDATE recording_sessions SET status='recording', started_at=now(), recorder_participant=$2 WHERE id=$1 AND status='ready'`, [s.id, req.user.participantId]);
       await audit(req.params.id, s.id, req.user.participantId, 'host', 'recording.started', { video: s.want_video, audio: s.want_audio });
       await broadcast(req.params.id);
-      res.json({ recordingId: s.id, ...(await publicState(req.params.id)) });
+      res.json({ ...(await publicState(req.params.id)), recordingId: recId, sessionId: s.id });
     } catch (e) { console.error('[recording] start failed:', e.message); fail(res, 500, 'Could not start recording'); }
   });
 

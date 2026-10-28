@@ -142,9 +142,9 @@ test.describe('Qorlla Meet G2 interface and accessibility', () => {
 
   test('the consent question cannot be dismissed with Escape (Agree or Decline is required) but is keyboard-operable', async ({ browser }) => {
     const a = await open(browser, 'Alice'); const b = await open(browser, 'Bob', a.code);
-    await a.page.click('#recordBtn'); await a.page.fill('#rc_purpose', 'Minutes'); await a.page.fill('#rc_recipients', 'Team'); await a.page.fill('#rc_retention', '30 days'); await a.page.fill('#rc_privacyContact', 'p@example.com');
+    await a.page.click('#recordBtn'); await a.page.fill('#rc_purpose', 'Minutes'); await a.page.fill('#rc_recipients', 'Team'); await a.page.selectOption('#rc_days', '30'); await a.page.fill('#rc_privacyContact', 'p@example.com');
     await a.page.keyboard.press('Escape'); await expect(a.page.locator('#rcModal')).toHaveCount(0);                                                                                                     // the host's own form IS dismissible
-    await a.page.click('#recordBtn'); await a.page.fill('#rc_purpose', 'Minutes'); await a.page.fill('#rc_recipients', 'Team'); await a.page.fill('#rc_retention', '30 days'); await a.page.fill('#rc_privacyContact', 'p@example.com'); await a.page.getByRole('button', { name: 'Send request' }).click();
+    await a.page.click('#recordBtn'); await a.page.fill('#rc_purpose', 'Minutes'); await a.page.fill('#rc_recipients', 'Team'); await a.page.selectOption('#rc_days', '30'); await a.page.fill('#rc_privacyContact', 'p@example.com'); await a.page.getByRole('button', { name: 'Send request' }).click();
     await expect(b.page.locator('#rcModal')).toBeVisible(); await b.page.keyboard.press('Escape'); await expect(b.page.locator('#rcModal')).toBeVisible();
     await b.page.keyboard.press('Space'); await expect(b.page.locator('#rcVideo, #rcAudio').first()).toBeChecked();                                               // checkboxes toggle from the keyboard
     await a.ctx.close(); await b.ctx.close();

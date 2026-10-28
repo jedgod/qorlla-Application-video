@@ -128,3 +128,8 @@ Rollback: switch the affected feature OFF, `docker compose up -d` the previous i
 
 ## Meet recording consent (v4.7) - upgrade and rollback
 Apply `qorlla-meet-video/sql/v4_7_recording_consent.sql` before `005_app_role.sql` (compose mounts it as `005b_recording_consent.sql`); on an existing database run it once as the owner, then re-run 005_app_role to make consents/audit append-only. Rules, endpoints and limits: `docs/MEET_RECORDING_POLICY.md`. Rollback: stop Meet, drop the three `recording_*` tables.
+
+## Meet recording storage (v4.0.3) - configuration, upgrade and rollback
+Required to be able to record at all (otherwise `POST .../recording/start` answers 503): `RECORDING_MASTER_KEYS` (JSON `{"k1":"<base64 32 bytes>"}`), `RECORDING_ACTIVE_KEY_ID`, `RECORDING_STORE_DIR` (a private directory on a persistent volume, backed up like any data that must survive restarts). Optional: `RECORDING_ADMIN_SECRET` (enables the legal-hold admin endpoint), `RECORDING_RETENTION_DEFAULT_DAYS`, `RECORDING_MAX_BYTES`, `RECORDING_LINK_SECONDS`, `HOST_RECONNECT_GRACE_MS`, `MEETING_RATE_LIMIT`.
+Apply `qorlla-meet-video/sql/v4_9_recording_storage.sql` as the owner after v4_7 and before 005_app_role (compose mounts it). **Back up the master keys separately from the recordings; losing a key makes its recordings unrecoverable.** Rollback: stop Meet, drop the new tables/columns listed at the top of the SQL file; the object directory can then be deleted.
+Acceptance tests: `scripts/start-recording-test-meet.cjs` (test Meet with short clocks on :3310), then `E2E_BASE=http://localhost:3310 E2E_MEET_PATH=/ npx playwright test -c qorlla-portal/e2e/playwright.config.cjs meet-recording-storage`; and `node --test tests/recording-store.test.mjs`.

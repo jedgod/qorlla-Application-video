@@ -192,7 +192,8 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
     const { rows: [n] } = await db.query('SELECT count(*)::int AS n FROM meeting_polls WHERE meeting_id=$1', [req.params.id]); if (n.n >= 100) return fail(res, 409, 'Too many polls in this meeting');
     const id = randomUUID(), launch = req.body.launch === true;
     await db.query('INSERT INTO meeting_polls(id,meeting_id,created_by,question,kind,options,scale,anonymous,live_results,quiz,correct,explanation,duration_sec,status,opened_at,closes_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',
-      [id, req.params.id, req.user.participantId, c.question, c.kind, JSON.stringify(c.options), c.scale, c.anonymous, c.liveResults, c.quiz, c.correct && JSON.stringify(c.correct), c.explanation, c.durationSec, launch ? 'open' : 'draft', launch ? new Date() : null, launch && c.durationSec ? new Date(Date.now() + c.durationSec * 1000) : null]);
+      [id, req.params.id, req.user.participantId, c.question, c.kind, JSON.stringify(c.options), c.scale, c.anonymous, c.liveResults, c.quiz, c.correct && JSON.stringify(c.correct), c.explanation, c.durationSec, launch ? 'open' : 'draft', null, null]);
+    if (launch) await db.query("UPDATE meeting_polls SET opened_at=now(), closes_at=CASE WHEN duration_sec IS NULL THEN NULL ELSE now()+duration_sec*interval '1 second' END WHERE id=$1", [id]);   // times come from the database clock
     audit(req.params.id, req.user.participantId, launch ? 'poll.launched' : 'poll.drafted', { poll: id }); changed(req.params.id);
     res.status(201).json(await pollView((await db.query('SELECT * FROM meeting_polls WHERE id=$1', [id])).rows[0], req));
   }, 'Could not create the poll'));

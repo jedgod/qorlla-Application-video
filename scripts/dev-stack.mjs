@@ -24,6 +24,7 @@ const docker = (...a) => spawnSync('docker', a, { encoding: 'utf8' });
 // secrets are generated once and kept, so restarts keep working (Meet encrypts host-recovery material with the escrow key)
 const secretsFile = path.join(state, 'secrets.json');
 const secrets = fs.existsSync(secretsFile) ? JSON.parse(fs.readFileSync(secretsFile, 'utf8')) : { jwt: crypto.randomBytes(24).toString('hex'), bridge: crypto.randomBytes(24).toString('hex'), escrow: crypto.randomBytes(32).toString('base64'), dbPassword: crypto.randomBytes(12).toString('hex') };
+if (!secrets.recordingKey) secrets.recordingKey = crypto.randomBytes(32).toString('base64');
 fs.writeFileSync(secretsFile, JSON.stringify(secrets), { mode: 0o600 });
 
 if (docker('version').status !== 0) { console.error('Docker is required for Meet\'s database. Start Docker Desktop and try again.'); process.exit(1); }
@@ -47,10 +48,12 @@ if (has !== 't') {
   if (r.status !== 0) { console.error('Recording-consent migration failed:', r.stderr); process.exit(1); } }
 { const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_8_collab.sql')), encoding: 'utf8' });
   if (r.status !== 0) { console.error('Collaboration migration failed:', r.stderr); process.exit(1); } }
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_9_recording_storage.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Recording-storage migration failed:', r.stderr); process.exit(1); } }
 
 const children = [];
 const run = (name, cmd, args, cwd, env) => { const c = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(c); for (const s of [c.stdout, c.stderr]) s.on('data', (d) => process.stdout.write(String(d).split('\n').filter(Boolean).map((l) => `[${name}] ${l}\n`).join(''))); c.on('exit', (code) => { console.log(`[${name}] exited (${code})`); }); return c; };
-run('meet', process.execPath, ['server/index.js'], path.join(root, 'qorlla-meet-video'), { PORT: String(MEET_PORT), DATABASE_URL: `postgres://qorlla:${secrets.dbPassword}@127.0.0.1:${DB_PORT}/qorlla_meet`, JWT_SECRET: secrets.jwt, QORLLA_BRIDGE_SECRET: secrets.bridge, RECOVERY_ESCROW_KEY: secrets.escrow, NODE_ENV: 'development', RETURN_ORIGINS: process.env.RETURN_ORIGINS || `http://localhost:${MAIN_PORT},http://127.0.0.1:${MAIN_PORT}` });
+run('meet', process.execPath, ['server/index.js'], path.join(root, 'qorlla-meet-video'), { PORT: String(MEET_PORT), DATABASE_URL: `postgres://qorlla:${secrets.dbPassword}@127.0.0.1:${DB_PORT}/qorlla_meet`, JWT_SECRET: secrets.jwt, QORLLA_BRIDGE_SECRET: secrets.bridge, RECOVERY_ESCROW_KEY: secrets.escrow, NODE_ENV: 'development', RECORDING_MASTER_KEYS: JSON.stringify({ dev1: secrets.recordingKey }), RECORDING_ACTIVE_KEY_ID: 'dev1', RECORDING_STORE_DIR: path.join(state, 'recordings'), RETURN_ORIGINS: process.env.RETURN_ORIGINS || `http://localhost:${MAIN_PORT},http://127.0.0.1:${MAIN_PORT}` });
 run('main', process.execPath, ['server.js'], root, { PORT: String(MAIN_PORT), DATA_DIR: path.join(state, 'data'), MEET_PROBE_URL: `http://127.0.0.1:${MEET_PORT}` });
 console.log(`\nQorlla is starting:\n  app   http://localhost:${MAIN_PORT}/qorlla.html\n  Meet  http://localhost:${MEET_PORT}/   (New meeting opens it automatically)\n  Ctrl+C stops both. Meet's database keeps its data in the Docker volume qorlla-meet-dev-data.\n`);
 const stop = () => { for (const c of children) try { c.kill(); } catch (e) { /* already gone */ } process.exit(0); };
