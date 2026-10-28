@@ -274,3 +274,18 @@ test('the topic and category are on the start screen, come from the scheduled me
   await context.request.post(MAIN + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/start', { data: { topic: 'Q4 priorities', category: 'training', waitingRoom: false } });
   const pf2 = await (await context.request.get(MAIN + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/preflight')).json(); expect(pf2.topic).toBe('Q4 priorities'); expect(pf2.category).toBe('training'); expect(pf2.title).toBe('Sprint planning');
 });
+
+test('the camera-name picker stays inside the preview, clear of the snapshot and settings buttons, at every laptop size and in both dialogs', async ({ browser }) => {
+  test.setTimeout(90000);
+  for (const vp of [{ width: 1366, height: 768 }, { width: 1280, height: 720 }, { width: 1024, height: 700 }, { width: 390, height: 844 }]) {
+    const ctx = await browser.newContext({ viewport: vp }); await organiser(ctx, MAIN); const page = await ctx.newPage();
+    for (const mode of ['start', 'join']) {
+      if (mode === 'start') await openStart(page); else { await page.goto(MAIN + '/qorlla.html#home'); await page.locator('.action-btn[data-act="join"]').click(); await expect(page.locator('#startDialog')).toBeVisible(); }
+      await page.check('#sdPreview'); await expect(page.locator('#sdVideo')).toBeVisible();
+      const m = await page.evaluate(() => { const r = (s) => document.querySelector(s).getBoundingClientRect(), p = r('.sd-prev'), s = r('#sdPrevCam'), a = r('#sdSnap'), b = r('#sdPrevSet'); const hit = (x, y) => !(x.right <= y.left || y.right <= x.left || x.bottom <= y.top || y.bottom <= x.top);
+        return { inside: s.left >= p.left && s.right <= p.right && s.top >= p.top && s.bottom <= p.bottom, clear: !hit(s, a) && !hit(s, b), btnInside: a.right <= p.right && b.right <= p.right }; });
+      expect(m, vp.width + 'x' + vp.height + ' ' + mode).toEqual({ inside: true, clear: true, btnInside: true }); await page.click('#sdCancel');
+    }
+    await ctx.close();
+  }
+});
