@@ -88,6 +88,15 @@ function advance(m, now, roomActive) {
     else if (now > end + IDLE_MS) finalize(m, m.viaMeet && !m.meetActivity ? 'unverified' : 'missed', end);
 }
 
+/** Read-only: has this meeting reached the end of its life (so it belongs in History, not in the schedule)? Never changes the record. */
+function isFinished(m, now = Date.now()) {
+    if (m.status === 'completed') return true;
+    if (m.status === 'active') return false;
+    const sched = Date.parse(m.startTime), end = (Number.isFinite(sched) ? sched : now) + (m.durationMinutes || 45) * 60000;
+    if (m.actualStartAt) return now - (m.lastActivityAt || m.actualStartAt) > IDLE_MS;
+    return !m.viaMeet && now > end + IDLE_MS;                                      // a Meet-hosted meeting with no news yet is not assumed over
+}
+
 // ---- views --------------------------------------------------------------------------------------------------------------------------------------
 function banner(m, user, now = Date.now()) {
     const st = statsOf(m, now), start = m.actualStartAt || null, end = m.actualEndAt || null;
@@ -189,4 +198,4 @@ function registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRoo
     function express_json() { return require('express').json({ limit: '64kb' }); }
 }
 
-module.exports = { registerHistory, recordJoin, recordAccount, recordLeave, finalize, advance, statusOf, localStats, statsOf, banner, details, reportCsv, cleanMeta, cleanAgenda, cleanCategory, cleanActionItems, CATEGORIES, FINAL };
+module.exports = { isFinished, registerHistory, recordJoin, recordAccount, recordLeave, finalize, advance, statusOf, localStats, statsOf, banner, details, reportCsv, cleanMeta, cleanAgenda, cleanCategory, cleanActionItems, CATEGORIES, FINAL };

@@ -1241,12 +1241,12 @@
   // =====================================================================
   // HOME
   // =====================================================================
-  function upcomingItems() {
-    return Promise.all([api('/calendar'), api('/schedule')]).then(function (r) {
+  function upcomingItems(withFinished) {                                                       // meetings that have finished live in History; the Calendar keeps them on their day
+    return Promise.all([api('/calendar'), api('/schedule' + (withFinished ? '?include=finished' : ''))]).then(function (r) {
       var items = r[0].map(function (e) {
         return { id: e.id, title: e.title, date: e.date, start: e.start, end: e.end, host: e.host, kind: 'event' };
       }).concat(r[1].map(function (s) {
-        return { id: s.id, title: s.title, date: s.date, start: s.time, end: addMinutes(s.time, s.duration), host: I18n.t('You'), meetingId: s.meetingId, syncStatus: s.syncStatus, kind: 'meeting' };
+        return { id: s.id, title: s.title, date: s.date, start: s.time, end: addMinutes(s.time, s.duration), host: I18n.t('You'), meetingId: s.meetingId, syncStatus: s.syncStatus, finished: !!s.finished, kind: 'meeting' };
       }));
       items.sort(function (a, b) { return (a.date + a.start).localeCompare(b.date + b.start); });
       return items;
@@ -1538,7 +1538,7 @@
     var cursor = opts && opts.month ? parseYmd(opts.month + '-01') : new Date();
     cursor = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
     var selected = (opts && opts.day) || ymd(new Date());
-    return upcomingItems().then(function (items) {
+    return upcomingItems(true).then(function (items) {
       var byDay = {};
       items.forEach(function (i) { (byDay[i.date] = byDay[i.date] || []).push(i); });
       var todayStr = ymd(new Date());
@@ -1588,7 +1588,7 @@
                   h('div', { class: 'muted', text: t12(it.start) + ' – ' + t12(it.end) + (it.kind === 'event' ? ' · ' + (it.host || '') : ' · ID ' + it.meetingId) })
                 ]),
                 h('div', { class: 'row' }, [
-                  it.kind === 'meeting' ? (canJoin(it)
+                  it.kind === 'meeting' ? (it.finished ? h('span', { class: 'muted', text: I18n.t('Ended - see History') }) : canJoin(it)
                     ? h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Start'), onclick: function () { openStart(it); } })
                     : h('span', { class: 'muted', text: syncLabel(it) })) : null,
                   it.kind === 'event' ? h('button', { class: 'icon-sm', type: 'button', 'aria-label': 'Delete event', onclick: function () {

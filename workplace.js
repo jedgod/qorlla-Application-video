@@ -23,7 +23,7 @@ const MAX_IMAGE_CHARS = 6 * 1024 * 1024;
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const nowIso = () => new Date().toISOString();
 
-module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, updateMeeting, closeMeeting, auth, mailer, notify }) {
+module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, updateMeeting, closeMeeting, isMeetingFinished, auth, mailer, notify }) {
     const dir = path.join(dataDir, 'workplace');
     const seedDir = path.join(__dirname, 'seed');
     const router = express.Router();
@@ -133,7 +133,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
             const items = load(mine(req), name);
             const sorted = sort ? items.slice().sort(sort) : items;
             if (!decorate) return res.json(sorted);
-            try { res.json(await decorate(sorted)); } catch (err) { console.error('Decorate failed:', err.message); res.status(502).json({ error: 'Meeting status unavailable.' }); }
+            try { res.json(await decorate(sorted, req)); } catch (err) { console.error('Decorate failed:', err.message); res.status(502).json({ error: 'Meeting status unavailable.' }); }
         });
 
         if (create) {
@@ -385,7 +385,12 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
             if (!meetSync.enabled || !item) return;
             await meetSync.cancel(item.id);
         },
-        decorate: async (items) => (meetSync.enabled ? meetSync.decorate(items) : items),
+        // The schedule lists CURRENT meetings only: one that has finished (ended, missed or cancelled) lives in History. ?include=finished returns everything (Calendar).
+        decorate: async (items, req) => {
+            const all = meetSync.enabled ? await meetSync.decorate(items) : items;
+            const done = (i) => typeof isMeetingFinished === 'function' && !!i.meetingId && isMeetingFinished(i.meetingId);
+            return req && req.query && req.query.include === 'finished' ? all.map((i) => (done(i) ? { ...i, finished: true } : i)) : all.filter((i) => !done(i));
+        },
         create: async (item, body, user) => {
             const startTime = new Date(`${item.date}T${item.time}:00`);
             const meeting = allocateMeeting({

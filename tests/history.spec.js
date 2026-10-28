@@ -111,8 +111,8 @@ test.describe('metadata and lifecycle (built-in room)', () => {
     // Reschedule: a NEW meeting, the record is untouched
     const c2 = page.locator('.hist-row', { hasText: 'Design sync' }); await c2.getByRole('button', { name: 'Reschedule' }).click(); const dlg = page.locator('dialog.sf[open]'); await expect(dlg).toBeVisible(); await expect(dlg.locator('input.sq-title.big')).toHaveValue('Design sync');
     await expect(dlg.locator('input[aria-label="Meeting topic"]')).toHaveValue('Navigation redesign'); await dlg.locator('button[type=submit], .sf-save, button.primary').first().click();
-    await expect.poll(async () => (await (await hc.request.get('/api/workplace/schedule')).json()).filter((x) => x.title === 'Design sync').length, { timeout: 15000 }).toBe(2);
-    const items = (await (await hc.request.get('/api/workplace/schedule')).json()).filter((x) => x.title === 'Design sync'); const fresh = items.find((x) => x.meetingId !== s.meetingId); expect(fresh.topic).toBe('Navigation redesign'); expect(fresh.rescheduledFrom).toBe(s.meetingId);
+    await expect.poll(async () => (await (await hc.request.get('/api/workplace/schedule?include=finished')).json()).filter((x) => x.title === 'Design sync').length, { timeout: 15000 }).toBe(2);
+    const items = (await (await hc.request.get('/api/workplace/schedule?include=finished')).json()).filter((x) => x.title === 'Design sync'); const fresh = items.find((x) => x.meetingId !== s.meetingId); expect(fresh.topic).toBe('Navigation redesign'); expect(fresh.rescheduledFrom).toBe(s.meetingId);
     expect((await hist(hc)).filter((x) => x.title === 'Design sync')).toHaveLength(1); expect((await hc.request.get('/api/meetings/validate/' + encodeURIComponent(fresh.meetingId))).status()).toBe(200); expect((await hc.request.get('/api/meetings/validate/' + encodeURIComponent(s.meetingId))).status()).toBe(404);
     await hc.close();
   });
@@ -148,5 +148,28 @@ test.describe('Meet-hosted meeting', () => {
     const d = await (await hc.request.get(MAIN + '/api/history/meetings/' + encodeURIComponent(item.meetingId))).json(); expect(d.attendees.map((x) => x.name).sort()).toEqual(['Gail Guest', 'Hostess']); expect(d.attendanceSource).toBe('Qorlla Meet'); for (const a of d.attendees) expect(a.seconds).toBeGreaterThanOrEqual(1);
     expect((await hc.request.post(MAIN + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/start', { data: {} })).status()).toBe(404);           // not restartable
     for (const c of [hc, gc]) await c.close();
+  });
+});
+
+test.describe('finished meetings leave the schedule', () => {
+  test('ended, missed and cancelled meetings are not on the Schedule page or Home; upcoming and running ones are; History has the finished ones; Calendar keeps them as Ended', async ({ browser }) => {
+    test.setTimeout(150000);
+    const hc = await browser.newContext(); await signedIn(hc, '', 'Hostess');
+    const tomorrow = ymd(new Date(Date.now() + 864e5)), old = ymd(new Date(Date.now() - 2 * 864e5));
+    const ended = await schedule(hc, { title: 'Ended one', topic: 'Done', date: ymd(new Date()) }); const running = await schedule(hc, { title: 'Running one', date: ymd(new Date()) });
+    await schedule(hc, { title: 'Missed one', date: old, time: '10:00' }); const gone = await schedule(hc, { title: 'Cancelled one', date: tomorrow }); await hc.request.delete('/api/workplace/schedule/' + gone.id);
+    await schedule(hc, { title: 'Upcoming one', date: tomorrow });
+    const hp = await hc.newPage(); await enter(hp, ended.meetingId, 'Hostess'); await hp.waitForTimeout(800); await hp.click('#endCallBtn'); await expect.poll(async () => (await hist(hc)).some((x) => x.title === 'Ended one'), { timeout: 15000 }).toBe(true);
+    const rp = await hc.newPage(); await enter(rp, running.meetingId, 'Hostess');                                           // still running in this page
+    const titles = async (qs = '') => (await (await hc.request.get('/api/workplace/schedule' + qs)).json()).map((x) => x.title).sort();
+    expect(await titles()).toEqual(['Running one', 'Upcoming one']);                                                         // current only
+    expect(await titles('?include=finished')).toEqual(['Ended one', 'Missed one', 'Running one', 'Upcoming one']);          // (the cancelled one was deleted)
+    expect((await hist(hc)).map((x) => x.title).sort()).toEqual(['Cancelled one', 'Ended one', 'Missed one']);
+    const page = await hc.newPage(); await page.goto('/qorlla.html#schedule'); await expect(page.locator('.card.ev', { hasText: 'Upcoming one' })).toBeVisible(); await expect(page.locator('.card.ev', { hasText: 'Running one' })).toBeVisible();
+    for (const t of ['Ended one', 'Missed one', 'Cancelled one']) await expect(page.locator('.card.ev', { hasText: t })).toHaveCount(0);
+    await page.goto('/qorlla.html#home'); await expect(page.locator('#homeMeetings')).toContainText('Running one'); await expect(page.locator('#homeMeetings')).not.toContainText('Ended one');
+    await expect(page.locator('.hist-row', { hasText: 'Ended one' })).toBeVisible(); await expect(page.locator('.hist-row', { hasText: 'Missed one' })).toBeVisible();
+    // a finished meeting ends when its time is over: a record moved into the past is history as soon as it is finished, and cannot come back
+    await hp.close(); await hc.close();
   });
 });

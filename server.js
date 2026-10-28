@@ -66,6 +66,7 @@ app.use('/api/workplace', require('./workplace')({
         if (f.durationMinutes) m.durationMinutes = f.durationMinutes;
         saveSnapshotSoon();
     },
+    isMeetingFinished: (id) => { const m = meetingsState.get(normalizeId(id)); return !!m && hist.isFinished(m, Date.now()); },
     closeMeeting: (id) => {
         const m = meetingsState.get(normalizeId(id)); if (!m || m.status === 'completed') return;
         hist.finalize(m, m.actualStartAt ? 'host_ended' : 'cancelled'); clearLimit(m.meetingId); saveSnapshotSoon();
