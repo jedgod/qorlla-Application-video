@@ -15,6 +15,7 @@ const bcrypt = require('bcryptjs');
 const store = require('./store');
 const { cleanMeta, cleanAgenda, cleanCategory } = require('./history');
 const ML = require('./meeting-limit');
+const { invitationText } = require('./invitation');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -398,7 +399,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
                 startTime: isNaN(startTime) ? undefined : startTime.toISOString(),
                 durationMinutes: item.duration,
                 hostId: user.id, hostName: user.displayName, previousMeetingId: item.rescheduledFrom || undefined, limitExempt: ML.isExempt(user),
-                meta: cleanMeta({ title: item.title, topic: item.topic, description: item.description, agenda: item.agenda, category: item.category })
+                meta: { ...cleanMeta({ title: item.title, topic: item.topic, description: item.description, agenda: item.agenda, category: item.category }), whenText: item.date + ' ' + item.time + (item.timezone ? ' (' + item.timezone + ')' : '') + ', ' + item.duration + ' min' }
             });
             const out = { ...item, hostId: user.id, ownerName: user.displayName, meetingId: meeting.meetingId, createdAt: nowIso() };
             // Invitation emails go through the same guarded path as Mail (verified sender, daily limit, Reply-To the host). The outcome is stored so
@@ -406,7 +407,8 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
             if (item.invitees && item.invitees.length && body.notify !== false) {
                 const base = (mailer.baseUrl || '').replace(/\/+$/, '');
                 const when = item.date + ' ' + item.time + (item.timezone ? ' (' + item.timezone + ')' : '') + ', ' + item.duration + ' min';
-                const text = user.displayName + ' invited you to a Qorlla meeting.\n\nTitle: ' + item.title + '\nWhen: ' + when + (item.location ? '\nWhere: ' + item.location : '') + '\nMeeting ID: ' + meeting.meetingId + (base ? '\nJoin: ' + base + '/guest/meeting/' + encodeURIComponent(meeting.meetingId) + '/prejoin' : '') + (body.passcode ? '\n\nThis meeting needs a passcode. Ask the host for it.' : '') + (item.description ? '\n\n' + item.description.slice(0, 600) : '') + '\n\nYou do not need an account to join.';
+                const pcOk = typeof body.passcode === 'string' && body.passcode.length >= 8 && body.passcode.length <= 128;
+                const text = invitationText({ host: user.displayName, title: item.title, topic: item.topic, when, where: item.location, meetingId: meeting.meetingId, link: base ? base + '/guest/meeting/' + encodeURIComponent(meeting.meetingId) + '/prejoin' : '', passcode: pcOk ? body.passcode : '', needsPasscode: !!body.passcode, agenda: item.agenda, description: item.description });
                 try { out.inviteResults = await sendExternal(item.invitees, { subject: user.displayName + ' invited you: ' + item.title, body: text }, user); }
                 catch (err) { out.inviteResults = item.invitees.map((to) => ({ to, status: 'failed' })); }
             }

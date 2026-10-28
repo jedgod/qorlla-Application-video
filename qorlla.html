@@ -263,6 +263,9 @@
   @media (max-height: 740px) and (min-width: 851px) { dialog.sd select.sd-prevlab { max-width: calc(100% - 100px); } }
   dialog.sd .sd-prevcard { position: relative; } dialog.sd .sd-cammenu { position: fixed; z-index: 5; width: min(250px, calc(100% - 20px)); background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(15,23,42,.28); padding: 10px 12px; display: flex; flex-direction: column; gap: 5px; }
   dialog.sd .sd-cammenu.hidden { display: none; } dialog.sd .sd-cammenu h4 { margin: 0 0 2px; font-size: 13px; } dialog.sd .sd-cammenu select { width: 100%; } dialog.sd .sd-check { display: flex; gap: 6px; align-items: center; font-size: 12px; margin-top: 2px; } dialog.sd .sd-cammenu .chip { align-self: flex-end; }
+  dialog.sd #sdInviteMsg:empty { display: none; }
+  @media (max-height: 820px) and (min-width: 851px) { dialog.sd .sd-left > .sd-s.hint:not(#sdInviteMsg) { display: none; } dialog.sd .sd-link input, dialog.sd .sd-pass input { height: 30px; } }
+  @media (max-height: 740px) and (min-width: 851px) { dialog.sd .sd-left .f { margin: 0; } dialog.sd .sd-left input[type=text], dialog.sd .sd-left input[type=password], dialog.sd .sd-left select { height: 28px; } dialog.sd .sd-left #sdPassNote { font-size: 10px; line-height: 1.2; } dialog.sd .sd-quick { margin: 0; } dialog.sd .sd-quick legend { margin: 0; } dialog.sd .sd-left, dialog.sd .sd-right { gap: 2px; } dialog.sd .sd-id strong { font-size: 16px; } }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 21px; margin-bottom: 4px; letter-spacing: -.4px; }
   dialog .sub { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
@@ -731,6 +734,8 @@
         <div class="sd-s f">Invitation link</div>
         <div class="sd-s sd-link"><input type="text" id="sdLink" readonly aria-label="Invitation link"><button type="button" class="chip" id="sdCopyInvite">Copy invitation</button></div>
         <p class="sd-s hint">Share this link with the people you want to invite.</p>
+        <div class="sd-s sd-link"><input type="text" id="sdEmails" aria-label="Email addresses to invite" placeholder="Invite by email: name@example.com, another@example.com" autocomplete="off" maxlength="900"><button type="button" class="chip" id="sdSendInvite">Send</button></div>
+        <p class="sd-s hint" id="sdInviteMsg" role="status"></p>
       </div>
       <div class="sd-right">
         <section aria-labelledby="sdPrevH" class="sd-card sd-prevcard">
@@ -970,6 +975,7 @@
       $('sdRemoveWrap').style.display = p.passcodeRequired ? '' : 'none';
       var up = p.meet && p.meet.reachable; netRow('meet', up ? 'Ready (' + p.meet.ms + ' ms)' : 'Limited - the basic room will be used', up ? 'ok' : 'warn'); $('sdRecheck').hidden = up;
       $('sdWait').disabled = !up; if (!up) { $('sdWait').checked = false; $('sdPassNote').textContent += ' The waiting room needs Qorlla Meet and is unavailable in the basic room.'; }
+      var mailOn = !!(p.mail && p.mail.configured); $('sdSendInvite').disabled = !mailOn; $('sdEmails').disabled = !mailOn; $('sdInviteMsg').textContent = mailOn ? '' : 'Email is not set up on this server (SMTP_URL and SMTP_FROM). Copy the invitation instead.';
       sd.ready = true; $('sdGo').disabled = false;
       return fetch(url + '/invitation', { cache: 'no-store' }).then(function (x) { return x.ok ? x.json() : {}; }).then(function (inv) { if (inv.url) { sd.invUrl = inv.url; $('sdLink').value = inv.url; $('sdCopyInvite').disabled = false; } });
     }).catch(function (e) {
@@ -993,6 +999,20 @@
     var pw = $('sdPass').value, m = sd.m;
     return ($('sdTitleIn').value || m.title || 'Qorlla meeting') + '\nMeeting ID: ' + m.meetingId + '\nJoin: ' + sd.invUrl + (pw ? '\nPassword: ' + pw : '');
   }
+  $('sdSendInvite').addEventListener('click', function () {
+    var msg = $('sdInviteMsg'), emails = $('sdEmails').value.split(/[\s,;]+/).filter(Boolean), pw = $('sdPass').value;
+    if (!emails.length) { msg.textContent = 'Enter at least one email address.'; $('sdEmails').focus(); return; }
+    if (pw && (pw.length < 6 || pw.length > 32)) { msg.textContent = 'The password must be 6 to 32 characters.'; $('sdPass').focus(); return; }
+    var btn = $('sdSendInvite'); btn.disabled = true; msg.textContent = 'Sending…';
+    fetch('/api/meetings/' + encodeURIComponent(sd.m.meetingId) + '/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emails: emails, passcode: pw || undefined }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (r) {
+        if (!r.ok) { msg.textContent = r.d.error || 'The invitation could not be sent.'; return; }
+        var ok = r.d.results.filter(function (x) { return x.status === 'sent'; }).map(function (x) { return x.email; }), bad = r.d.results.filter(function (x) { return x.status !== 'sent'; });
+        msg.textContent = (ok.length ? 'Sent to ' + ok.join(', ') + (pw ? ' (with the passcode)' : '') + '. ' : '') + (bad.length ? 'Not sent: ' + bad.map(function (x) { return x.email + ' (' + String(x.status).replace(/_/g, ' ') + ')'; }).join(', ') + '.' : '');
+        if (ok.length && !bad.length) $('sdEmails').value = '';
+      }).catch(function () { msg.textContent = 'Could not reach the server.'; }).then(function () { btn.disabled = false; });
+  });
   $('sdCopyId').addEventListener('click', function () { copyText(sd.m.meetingId, I18n.t('Meeting ID copied')); });
   $('sdCopyInvite').addEventListener('click', function () { copyText(invitationText(), I18n.t('Invitation copied')); });
   $('sdPassToggle').addEventListener('click', function () { var show = $('sdPass').type === 'password'; $('sdPass').type = show ? 'text' : 'password'; this.textContent = show ? 'Hide' : 'Show'; this.setAttribute('aria-pressed', String(show)); });

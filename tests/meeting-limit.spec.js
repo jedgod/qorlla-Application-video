@@ -29,6 +29,7 @@ test.describe('rules', () => {
 });
 
 test.describe('free plan, built-in room and Meet-hosted meetings', () => {
+  test.describe.configure({ mode: 'serial' });                  // one shared test server per describe: never split across workers
   let main; test.beforeAll(async () => { main = await startMain(5294, { MEETING_LIMIT_UNIT_MS: '500', MEETING_LIMIT_EXEMPT_USERS: 'vip*' }); }); test.afterAll(() => main && main.stop());
   const reg = async (ctx, username, name) => { const r = await ctx.request.post(main.base + '/api/auth/register', { data: { username, displayName: name, password: 'Limit-pass-9917!x' } }); expect(r.status()).toBe(201); };
   const sched = async (ctx, title) => (await (await ctx.request.post(main.base + '/api/workplace/schedule', { data: { title, date: ymd(new Date()), time: '23:00', duration: 30 } })).json());
