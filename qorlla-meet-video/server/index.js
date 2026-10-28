@@ -258,7 +258,9 @@ app.get('/api/meetings/:id',auth,member,async(req,res)=>{
  const {rows:[m]}=await db.query('SELECT id,meeting_code,title,created_at,notes,locked FROM meetings WHERE id=$1',[req.params.id]);
  const {rows:messages}=await db.query('SELECT p.display_name AS name, x.id,x.body,x.created_at FROM messages x JOIN participants p ON p.id=x.participant_id WHERE x.meeting_id=$1 ORDER BY x.created_at DESC LIMIT 100',[req.params.id]);
  const {rows:polls}=await db.query('SELECT id,question,options FROM polls WHERE meeting_id=$1 ORDER BY created_at DESC LIMIT 30',[req.params.id]);
- res.json({...m,messages:messages.reverse(),polls,online:activeList(req.params.id)});
+ // a meeting that was scheduled elsewhere shows the ID people were given (its registered alias), not Meet's internal code
+ const {rows:[al]}=await db.query('SELECT alias_code FROM meeting_code_aliases WHERE meeting_id=$1 ORDER BY alias_code LIMIT 1',[req.params.id]).catch(()=>({rows:[]}));
+ res.json({...m,...(al?{meeting_code:al.alias_code}:{}),messages:messages.reverse(),polls,online:activeList(req.params.id)});
 });
 app.post('/api/meetings/:id/lock',auth,member,async(req,res)=>{
  if(req.user.role!=='host')return fail(res,403,'Host only');

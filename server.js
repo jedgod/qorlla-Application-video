@@ -157,6 +157,8 @@ meetingsState.get('858 9833 3712').evergreen = true;   // the seeded demo meetin
 const { createGuestSessions, createGuestRouter, rateLimit } = require('./guest-sessions');
 const meetingById = (id) => meetingsState.get(normalizeId(id));
 const guestSessions = createGuestSessions({ getMeeting: meetingById });
+const { createMeetLaunch } = require('./meet-launch');
+const meetLaunch = createMeetLaunch({ dataDir: DATA_DIR, probePort: () => probeMeetPort() });
 const hostKeyHash = (key) => crypto.createHash('sha256').update(String(key)).digest('hex');
 function verifyHostKey(meeting, key) {
     if (!meeting || !meeting.hostKeyHash || !key) return false;
@@ -230,7 +232,48 @@ function attachActor(req, res, next) {
     req.isMeetingHost = (id, allowEnded) => actorIsHost(req.actor, id, allowEnded);
     next();
 }
-app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getMeeting: meetingById, getAccount: (req) => auth.getUser(req), verifyHostKey, checkPasscode, admitAccount }));
+// Entering a meeting that Qorlla Meet can host: the invitee is taken straight into the current Meet video page (not the old built-in room).
+async function meetHandoff(meeting, who, req) {
+    try {
+        if (!meetLaunch.enabled()) return null;
+        const pub = await meetPublicBase(req); if (!pub) return null;
+        const link = await meetLaunch.ensureLink(meeting, meeting.hostName || meeting.ownerName || 'Host');
+        const session = await meetLaunch.join(link, { name: who.name });
+        return { url: meetLaunch.url(pub, session, { returnUrl: req.protocol + '://' + req.get('host') + '/guest/welcome' }) };
+    } catch (e) { console.warn('[Meet hand-off] ' + e.message + ' - falling back to the built-in room'); return null; }
+}
+app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getMeeting: meetingById, getAccount: (req) => auth.getUser(req), verifyHostKey, checkPasscode, admitAccount, handoff: meetHandoff }));
+
+// The organiser starts their own meeting: straight into Qorlla Meet as its host. Never returns a credential - only where to go.
+app.post('/api/meetings/:id/meet-launch', async (req, res) => {
+    const user = auth.getUser(req); if (!user) return res.status(401).json({ error: 'Sign in to start this meeting.' });
+    const meeting = meetingById(req.params.id);
+    if (!meeting || meeting.status === 'completed') return res.status(404).json({ error: 'This meeting is not available.' });
+    if (meeting.hostId !== user.id) return res.status(403).json({ error: 'Only the person who scheduled this meeting can start it. Use Join instead.' });
+    try {
+        if (!meetLaunch.enabled()) return res.status(409).json({ mode: 'builtin', reason: 'meet_not_configured' });
+        const pub = await meetPublicBase(req); if (!pub) return res.status(409).json({ mode: 'builtin', reason: 'meet_not_running' });
+        const link = await meetLaunch.ensureLink(meeting, user.displayName);
+        const name = String((req.body && req.body.name) || user.displayName || 'Host').trim().slice(0, 70) || 'Host';
+        const session = await meetLaunch.join(link, { name, host: true });
+        const ret = String((req.body && req.body.returnUrl) || '');
+        res.json({ mode: 'meet', url: meetLaunch.url(pub, session, { mic: !(req.body && req.body.mic === false), camera: !(req.body && req.body.camera === false), returnUrl: /^https?:\/\//.test(ret) ? ret : '' }) });
+    } catch (e) { console.warn('[Meet launch] ' + e.message); res.status(409).json({ mode: 'builtin', reason: 'meet_unavailable', error: e.message }); }
+});
+
+// The host sets or removes the meeting password (stored hashed: it can be shown only at the moment it is set).
+app.put('/api/meetings/:id/passcode', (req, res) => {
+    const user = auth.getUser(req); if (!user) return res.status(401).json({ error: 'Sign in first.' });
+    const meeting = meetingById(req.params.id);
+    if (!meeting || meeting.status === 'completed') return res.status(404).json({ error: 'This meeting is not available.' });
+    if (meeting.hostId !== user.id) return res.status(403).json({ error: 'Only the host can change the password.' });
+    const pc = req.body && req.body.passcode;
+    if (pc === null || pc === '') { delete meeting.passcodeHash; }
+    else if (typeof pc !== 'string' || pc.length < 6 || pc.length > 32) return res.status(400).json({ error: 'The password must be 6 to 32 characters.' });
+    else meeting.passcodeHash = hashPasscode(pc);
+    saveSnapshotSoon();
+    res.json({ passcodeRequired: !!meeting.passcodeHash });
+});
 
 // --- Mount service files ---
 const appointmentsRouter = require('./appointments');
@@ -722,10 +765,14 @@ async function probeMeetPort() {
     meetProbe = { at: Date.now(), port };
     return port;
 }
-app.get('/meet-config.js', async (req, res) => {
+async function meetPublicBase(req) {
     let url = '';
     try { const u = new URL(process.env.MEET_PUBLIC_URL || ''); if (/^https?:$/.test(u.protocol)) url = u.origin + '/'; } catch (e) { /* unset */ }
     if (!url) { const port = await probeMeetPort(); if (port) url = req.protocol + '://' + req.hostname + ':' + port + '/'; }
+    return url;
+}
+app.get('/meet-config.js', async (req, res) => {
+    const url = await meetPublicBase(req);
     res.set('Cache-Control', 'no-store').type('application/javascript').send('window.QORLLA_MEET_URL=' + JSON.stringify(url) + ';');
 });
 // Brand logo used by login.html

@@ -158,6 +158,7 @@
 
   /* ---------- Dialog ---------- */
   dialog { border: 0; border-radius: 22px; padding: 26px; width: min(400px, 92vw); box-shadow: 0 30px 80px rgba(10,20,40,.35); margin: auto; }
+  .si-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0 10px; } .si-row strong { font-size: 20px; letter-spacing: .5px; } .si-row .muted { font-size: 13px; }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 21px; margin-bottom: 4px; letter-spacing: -.4px; }
   dialog .sub { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
@@ -600,6 +601,13 @@
       <label class="f" for="mid"><span data-i18n="Meeting ID">Meeting ID</span></label>
       <input type="text" id="mid" inputmode="numeric" placeholder="000 0000 0000" autocomplete="off">
     </div>
+    <div id="startInfo" style="display:none">
+      <div class="f"><span data-i18n="Meeting ID">Meeting ID</span></div>
+      <div class="si-row"><strong id="siId"></strong><button type="button" class="chip" id="siCopyId">Copy ID</button></div>
+      <div class="f"><span>Meeting password</span></div>
+      <div class="si-row"><span id="siPassText" class="muted"></span></div>
+      <div class="si-row"><button type="button" class="chip" id="siGen">Generate new password</button><button type="button" class="chip" id="siRemove" style="display:none">Remove password</button><button type="button" class="chip" id="siInvite">Copy invitation</button></div>
+    </div>
     <div id="titleWrap" style="display:none">
       <label class="f" for="ttl">Meeting title</label>
       <input type="text" id="ttl" maxlength="160" placeholder="Qorlla Team Meeting" autocomplete="off">
@@ -768,9 +776,51 @@
     var q = new URLSearchParams(params).toString();
     window.location.href = VIDEO_PAGE + (q ? '?' + q : '');
   }
-  var dlgMode = 'join';
+  var dlgMode = 'join', dlgMeeting = null, shownPass = '';
+  function startOrJoin(m, joinable) { if (joinable && m.kind !== 'event') openStart(m); else openDialog('join', joinable ? m.meetingId : null); }
+  var PASS_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  function newPassword() { var a = new Uint32Array(10); crypto.getRandomValues(a); return Array.prototype.map.call(a, function (n) { return PASS_CHARS[n % PASS_CHARS.length]; }).join(''); }
+  function putPass(pw) {
+    return fetch('/api/meetings/' + encodeURIComponent(dlgMeeting.meetingId) + '/passcode', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passcode: pw }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw new Error(d.error || 'Could not change the password'); return d; }); });
+  }
+  function paintPass(required) {
+    $('siPassText').textContent = shownPass ? shownPass : required ? '•••••••••• (set when the meeting was created; it is stored hashed, so it can only be shown when you generate a new one)' : 'No password - anyone with the ID or link can join.';
+    $('siGen').textContent = required ? 'Generate new password' : 'Add a password'; $('siRemove').style.display = required ? '' : 'none';
+  }
+  /** The organiser's start screen: the meeting ID and password (like the guest pre-join page), then straight into the video meeting as host. */
+  function openStart(m) {
+    dlgMode = 'start'; dlgMeeting = m; shownPass = '';
+    $('dlgTitle').textContent = I18n.t('Start meeting'); $('dlgSub').textContent = m.title || '';
+    $('dlgGo').textContent = I18n.t('Start'); $('idWrap').style.display = 'none'; $('titleWrap').style.display = 'none'; $('startInfo').style.display = 'block';
+    $('siId').textContent = m.meetingId; paintPass(false); $('siGen').disabled = false;
+    fetch('/api/meetings/validate/' + encodeURIComponent(m.meetingId)).then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) { paintPass(!!d.passcodeRequired); }).catch(function () { /* keep the default text */ });
+    $('nm').value = myName(); $('joinDialog').showModal(); $('dlgGo').focus();
+  }
+  function invitationText() {
+    return (dlgMeeting.title || 'Qorlla meeting') + '\nMeeting ID: ' + dlgMeeting.meetingId + (shownPass ? '\nPassword: ' + shownPass : '') + '\nJoin: ' + meetingLink(dlgMeeting.meetingId);
+  }
+  function copyText(t, msg) { if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { toast(msg, 'ok'); }, function () { toast(t); }); else toast(t); }
+  document.addEventListener('click', function (e) {
+    var id = e.target && e.target.id; if (!dlgMeeting || dlgMode !== 'start') return;
+    if (id === 'siCopyId') copyText(dlgMeeting.meetingId, I18n.t('Meeting ID copied'));
+    else if (id === 'siInvite') copyText(invitationText(), I18n.t('Invitation copied'));
+    else if (id === 'siGen') { var pw = newPassword(); $('siGen').disabled = true; putPass(pw).then(function () { shownPass = pw; paintPass(true); }).catch(function (er) { toast(er.message, 'err'); }).then(function () { $('siGen').disabled = false; }); }
+    else if (id === 'siRemove') { putPass(null).then(function () { shownPass = ''; paintPass(false); }).catch(function (er) { toast(er.message, 'err'); }); }
+  });
+  function startNow(name) {
+    var mic = $('mic').checked, cam = $('cam').checked, m = dlgMeeting; $('dlgGo').disabled = true;
+    fetch('/api/meetings/' + encodeURIComponent(m.meetingId) + '/meet-launch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, mic: mic, camera: cam, returnUrl: location.href.split('#')[0] }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (r) {
+        $('dlgGo').disabled = false;
+        if (r.ok && r.d.mode === 'meet' && r.d.url) { window.location.href = r.d.url; return; }       // straight into the meeting as host
+        if (r.d && r.d.mode === 'builtin') { var p = { start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', meetingId: m.meetingId }; if (name) p.name = name; go(p); return; }
+        toast((r.d && r.d.error) || I18n.t('Could not start the meeting'), 'err');
+      }).catch(function () { $('dlgGo').disabled = false; toast(I18n.t('Could not start the meeting'), 'err'); });
+  }
   function openDialog(mode, meetingId) {
-    dlgMode = mode;
+    $('startInfo').style.display = 'none'; dlgMode = mode;
     $('dlgTitle').textContent = mode === 'new' ? I18n.t('Start a new meeting') : I18n.t('Join meeting');
     $('dlgSub').textContent = mode === 'new' ? I18n.t('You will be the host of a new room.') : I18n.t('Enter the meeting ID to jump in.');
     $('dlgGo').textContent = mode === 'new' ? I18n.t('Start') : I18n.t('Join');
@@ -786,6 +836,7 @@
     e.preventDefault();
     var name = $('nm').value.trim();
     if (name) store('zw_name', name);
+    if (dlgMode === 'start') { startNow(name || myName()); return; }
     var p = { start: dlgMode, mic: $('mic').checked ? 'true' : 'false', camera: $('cam').checked ? 'true' : 'false' };
     if (name) p.name = name;
     if (dlgMode === 'new' && $('ttl').value.trim()) p.title = $('ttl').value.trim(); // passcodes are set in the Meet lobby, never in URLs
@@ -793,6 +844,8 @@
       var id = $('mid').value.trim();
       if (!id) { $('mid').focus(); return; }
       p.meetingId = id; // public 12-digit code (spaces/hyphens accepted) or Meet UUID
+      var dg = id.replace(/\D/g, '');
+      if (VIDEO_PAGE && dg.length === 11) { window.location.href = '/guest/meeting/' + encodeURIComponent(dg.slice(0, 3) + ' ' + dg.slice(3, 7) + ' ' + dg.slice(7)) + '/prejoin'; return; }   // a Qorlla meeting ID: the pre-join page checks the password and enters the video meeting
     }
     go(p);
   });
@@ -894,8 +947,8 @@
   function meetingCard(m) {
     var joinable = m.kind === 'meeting' && m.meetingId && canJoin(m);
     return h('div', { class: 'meeting', role: 'button', tabindex: '0',
-      onclick: function () { openDialog('join', joinable ? m.meetingId : null); },
-      onkeydown: function (e) { if (e.key === 'Enter' && e.target === e.currentTarget) openDialog('join', joinable ? m.meetingId : null); } }, [
+      onclick: function () { startOrJoin(m, joinable); },
+      onkeydown: function (e) { if (e.key === 'Enter' && e.target === e.currentTarget) startOrJoin(m, joinable); } }, [
       h('div', { class: 'meeting-bar' }),
       h('div', { class: 'meeting-info' }, [
         h('div', { class: 'meeting-title', text: m.title }),
@@ -903,7 +956,7 @@
         h('div', { class: 'meeting-meta' }, ['Host: ' + (m.host || I18n.t('You')) + (joinable ? ' · ID ' + m.meetingId : '')])
       ]),
       m.kind === 'meeting' ? meetingActions(m, function () { show('home'); }) : null,
-      h('div', { class: 'join-pill' }, [icon(IC.video), I18n.t('Join')])
+      h('div', { class: 'join-pill' }, [icon(IC.video), I18n.t(m.kind === 'meeting' && joinable ? 'Start' : 'Join')])
     ]);
   }
 
@@ -1200,7 +1253,7 @@
                 ]),
                 h('div', { class: 'row' }, [
                   it.kind === 'meeting' ? (canJoin(it)
-                    ? h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Join'), onclick: function () { openDialog('join', it.meetingId); } })
+                    ? h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Start'), onclick: function () { openStart(it); } })
                     : h('span', { class: 'muted', text: syncLabel(it) })) : null,
                   it.kind === 'event' ? h('button', { class: 'icon-sm', type: 'button', 'aria-label': 'Delete event', onclick: function () {
                     api('/calendar/' + it.id, { method: 'DELETE' }).then(function () { show('calendar', { month: monthKey, day: selected }); }).catch(fail);
@@ -1430,11 +1483,7 @@
   // Used on the Home "today" list and on the Schedule page.
   // =====================================================================
   function meetingLink(id) { return location.origin + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin'; }   // works without an account; passcode (if any) is asked on the pre-join page
-  function startScheduled(m) {
-    var p = { start: 'join', mic: $('mic').checked ? 'true' : 'false', camera: $('cam').checked ? 'true' : 'false', meetingId: m.meetingId };
-    if (myName()) p.name = myName();
-    go(p);
-  }
+  function startScheduled(m) { openStart(m); }
   function copyMeetingLink(m) {
     var url = meetingLink(m.meetingId);
     if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { toast(I18n.t('Meeting link copied'), 'ok'); }, function () { toast(url); });
@@ -1539,7 +1588,7 @@
           ]),
           h('div', { class: 'row' }, [
             canJoin(s)
-              ? h('button', { class: 'btn small primary', type: 'button', onclick: function () { openDialog('join', s.meetingId); } }, [icon(IC.video), I18n.t('Join')])
+              ? h('button', { class: 'btn small primary', type: 'button', onclick: function () { openStart(s); } }, [icon(IC.video), I18n.t('Start')])
               : h('span', { class: 'muted', text: syncLabel(s) }),
             meetingActions({ id: s.id, title: s.title, meetingId: s.meetingId, syncStatus: s.syncStatus, chatId: s.chatId }, function () { show('schedule', { list: true }); })
           ])

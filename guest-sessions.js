@@ -139,7 +139,7 @@ function createGuestSessions({ getMeeting, now = () => Date.now() }) {
  * Express router mounted at /api/guest.
  * deps: { express, sessions, getMeeting, getAccount(req), verifyHostKey(meeting, key) }
  */
-function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHostKey, checkPasscode, admitAccount }) {
+function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHostKey, checkPasscode, admitAccount, handoff }) {
     const router = express.Router();
     const limit = rateLimit(30);
     const NOT_OPEN = { eligible: false, error: 'This meeting was not found, has ended, or is not open to guests.' };
@@ -180,7 +180,8 @@ function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHo
                 if (pc.required && !pc.ok) return denyPasscode(res, pc);
                 admitAccount(meeting.meetingId, account.id);
             }
-            return res.json({ kind: 'account', meeting: { meetingId: meeting.meetingId } });
+            const meetA = meeting.hostId !== account.id && handoff ? await handoff(meeting, { name: account.displayName || body.displayName || 'Guest' }, req) : null;
+            return res.json({ kind: 'account', meeting: { meetingId: meeting.meetingId }, ...(meetA ? { meet: meetA } : {}) });
         }
         if (!sessions.eligibility(meeting)) return res.status(404).json(NOT_OPEN);
         const isHost = verifyHostKey(meeting, body.hostKey);
@@ -194,7 +195,8 @@ function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHo
         try { out = sessions.issue({ meetingId: meeting.meetingId, displayName: body.displayName, role }); }
         catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
         res.set('Set-Cookie', sessions.cookieHeader(req, out.token, out.session));
-        res.status(201).json({ kind: 'guest', session: view(out.session) });
+        const meetG = !isHost && handoff ? await handoff(meeting, { name: out.session.name }, req) : null;              // invitees enter the current Meet video page
+        res.status(201).json({ kind: 'guest', session: view(out.session), ...(meetG ? { meet: meetG } : {}) });
     });
 
     router.post('/sessions/refresh', limit, (req, res) => {

@@ -74,7 +74,7 @@
       $('pjGo').disabled = true;
       fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: id, displayName: name, passcode: $('pjPass').value || undefined }) })
         .then(function (r) { if (!r.ok) { var e = new Error('refused'); e.status = r.status; throw e; } return r.json(); })
-        .then(function () { location.href = '/index.html?meeting=' + encodeURIComponent(id); })
+        .then(function (d) { location.href = (d && d.meet && d.meet.url) || '/index.html?meeting=' + encodeURIComponent(id); })   // straight into the current Meet video page when Meet is available
         .catch(function (e) { $('pjGo').disabled = false; $('pjMsg').textContent = (e && (e.status === 403 || e.status === 429)) ? T(e.status === 429 ? 'Too many wrong passcodes. Try again in a few minutes.' : 'Incorrect passcode.') : T('This meeting ID is not valid or the meeting has ended.'); $('pjMsg').className = 'msg err'; });
     });
   }
