@@ -168,6 +168,9 @@
   document.addEventListener('click', (e) => { if (!appsMenu.contains(e.target)) setApps(false); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { setApps(false); appsBtn.focus(); } });
 
+  // arriving from a meeting that was closed (or warned) by the free-plan time limit: show the warning and keep it in view
+  try { if (new URLSearchParams(location.search).get('reason') === 'meeting-limit') { const w = document.getElementById('limitWarning'); if (w) { w.textContent = 'Upgrade to have full access to Qorlla packages. Your free plan meeting limit (30 minutes plus a 10 minute grace period) has been reached.'; w.style.display = 'block'; w.setAttribute('role', 'alert'); w.scrollIntoView && w.scrollIntoView({ block: 'center' }); } } } catch (e) { /* no query string support */ }
+
   render();
   loadCatalog();
 })();

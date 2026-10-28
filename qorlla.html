@@ -1960,7 +1960,7 @@
   }
   // history lives under /api/history (not /api/workplace)
   function api2(path, opts) { opts = opts || {}; var init = { method: opts.method || 'GET', headers: {} }; if (opts.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
-    return fetch(BASE + '/api' + path, init).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (r.status === 401) throw new Error('Please sign in.'); if (!r.ok) throw new Error(j.error || 'Request failed'); return j; }); }); }
+    return fetch(BASE + '/api' + path, init).then(function (r) { return r.json().then(function (j) { return { j: j, json: true }; }, function () { return { j: {}, json: false }; }).then(function (x) { var j = x.j; if (r.status === 401) throw new Error('Please sign in.'); if (!r.ok) throw new Error(j.error || (r.status === 404 && !x.json ? 'This server does not have Meeting History yet (it is running an older version). Restart it, then try again.' : 'Request failed (HTTP ' + r.status + ')')); return j; }); }); }
 
   /** One meeting as an expandable card. Collapsed: title, topic, date, duration, attendees, status. Expanded (loaded on demand): the full record. */
   function histRow(b, reload, collapseOthers) {

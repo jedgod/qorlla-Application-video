@@ -68,7 +68,7 @@ app.use('/api/workplace', require('./workplace')({
     },
     closeMeeting: (id) => {
         const m = meetingsState.get(normalizeId(id)); if (!m || m.status === 'completed') return;
-        hist.finalize(m, m.actualStartAt ? 'host_ended' : 'cancelled'); saveSnapshotSoon();
+        hist.finalize(m, m.actualStartAt ? 'host_ended' : 'cancelled'); clearLimit(m.meetingId); saveSnapshotSoon();
         io.to(m.meetingId).emit('meeting_terminated_by_host', { summaryMessage: 'The host deleted this scheduled meeting.' });
         guestSessions.revokeMeeting(m.meetingId, 'meeting_ended');
     },
@@ -160,6 +160,7 @@ const meetingById = (id) => meetingsState.get(normalizeId(id));
 const guestSessions = createGuestSessions({ getMeeting: meetingById });
 const { createMeetLaunch } = require('./meet-launch');
 const hist = require('./history');
+const ML = require('./meeting-limit');
 const meetLaunch = createMeetLaunch({ dataDir: DATA_DIR, probePort: () => probeMeetPort() });
 const hostKeyHash = (key) => crypto.createHash('sha256').update(String(key)).digest('hex');
 function verifyHostKey(meeting, key) {
@@ -240,7 +241,7 @@ async function meetHandoff(meeting, who, req) {
     try {
         if (!meetLaunch.enabled() || !(await meetPublicBase(req))) return settingsOf(meeting).waitingRoom ? { blocked: true } : null;
         const pub = await meetPublicBase(req);
-        const link = await meetLaunch.ensureLink(meeting, meeting.hostName || meeting.ownerName || 'Host', { title: meeting.topic, settings: settingsOf(meeting) });
+        const link = await meetLaunch.ensureLink(meeting, meeting.hostName || meeting.ownerName || 'Host', { title: meeting.topic, settings: settingsOf(meeting), limits: ML.limitsFor(meeting.limitExempt) });
         const session = await meetLaunch.join(link, { name: who.name });
         meeting.viaMeet = true; if (who.accountId) hist.recordAccount(meeting, who.accountId); saveSnapshotSoon();
         return { url: meetLaunch.url(pub, session, { mic: who.mic !== false, camera: who.camera !== false, prefs: who.prefs, returnUrl: req.protocol + '://' + req.get('host') + (who.account ? '/qorlla.html' : '/guest/welcome') }) };
@@ -292,7 +293,7 @@ async function doStart(meeting, user, b, req) {
     try {
         if (!meetLaunch.enabled()) return unavailable('meet_not_configured');
         const pub = await meetPublicBase(req); if (!pub) return unavailable('meet_not_running');
-        const link = await meetLaunch.ensureLink(meeting, user.displayName, { title: meeting.topic, settings });
+        const link = await meetLaunch.ensureLink(meeting, user.displayName, { title: meeting.topic, settings, limits: ML.limitsFor(meeting.limitExempt) });
         const name = String(b.name || user.displayName || 'Host').trim().slice(0, 70) || 'Host';
         const session = await meetLaunch.join(link, { name, host: true });
         meeting.viaMeet = true; hist.recordAccount(meeting, user.id); saveSnapshotSoon();
@@ -386,7 +387,7 @@ app.get('/index.html', (req, res) => {
 // ==========================================
 // MEETING PREPARATION FLOW (REST API)
 // ==========================================
-function allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone, meta, hostName, previousMeetingId }) {
+function allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone, meta, hostName, previousMeetingId, limitExempt }) {
     const rawId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
     const formattedMeetingId = `${rawId.substring(0, 3)} ${rawId.substring(3, 7)} ${rawId.substring(7, 11)}`;
 
@@ -400,7 +401,7 @@ function allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone, 
         timezone: timezone || "GMT-4:00 (Eastern Time)",
         status: 'scheduled',
         title: String(topic).slice(0, 200), topicText: '', description: '', agenda: [], category: '', hostName: String(hostName || '').slice(0, 70),
-        scheduledStartAt: startTime || new Date().toISOString(), previousMeetingId: previousMeetingId || undefined, ...(meta || {}),
+        scheduledStartAt: startTime || new Date().toISOString(), previousMeetingId: previousMeetingId || undefined, limitExempt: !!limitExempt, ...(meta || {}),
         documents: [],
         notes: "",
         chatHistory: []
@@ -422,7 +423,7 @@ app.post('/api/meetings/create', limitCreate, (req, res) => {
         return res.status(400).json({ error: "Missing required topic or host registration identifier." });
     }
 
-    const newMeeting = allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone, hostName: account ? account.displayName : '', meta: hist.cleanMeta({ topic: req.body.meetingTopic, description: req.body.description, agenda: req.body.agenda, category: req.body.category }) });
+    const newMeeting = allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone, limitExempt: ML.isExempt(account), hostName: account ? account.displayName : '', meta: hist.cleanMeta({ topic: req.body.meetingTopic, description: req.body.description, agenda: req.body.agenda, category: req.body.category }) });
     // Anonymous hosts prove they are the host with this one-time key (only its hash is stored); accounts do not need it.
     let hostKey;
     if (!account) { hostKey = crypto.randomBytes(24).toString('base64url'); newMeeting.hostKeyHash = hostKeyHash(hostKey); }
@@ -531,6 +532,23 @@ function rosterOf(roomId) {
     return room ? Array.from(room.values()) : [];
 }
 
+// Free-plan time limit for the built-in room (Meet-hosted meetings get the same limits from Meet, see meet-launch.js)
+const limitTimers = new Map();                                                              // meetingId -> cancel function
+function clearLimit(id) { const c = limitTimers.get(id); if (c) { c(); limitTimers.delete(id); } }
+function armLimit(m) {
+    const limits = ML.limitsFor(m.limitExempt); if (!limits || limitTimers.has(m.meetingId) || m.status === 'completed' || !m.actualStartAt) return;
+    limitTimers.set(m.meetingId, ML.arm({ startedAt: m.actualStartAt, limits,
+        emit: (r) => io.to(m.meetingId).emit('upgrade_reminder', { ...r, upgradeUrl: '/pricing?reason=meeting-limit' }),
+        close: () => {
+            limitTimers.delete(m.meetingId); if (m.status === 'completed') return;
+            const room = activeRooms.get(m.meetingId);
+            if (room) for (const p of room.values()) { const s = io.sockets.sockets.get(p.socketId); if (s && s.attKey) { hist.recordLeave(m, s.attKey); s.attKey = null; } }
+            hist.finalize(m, 'time_limit'); saveSnapshotSoon();
+            io.to(m.meetingId).emit('meeting_limit_reached', { message: ML.UPGRADE_MESSAGE, upgradeUrl: '/pricing?reason=meeting-limit' });
+            if (room) { for (const sid of room.keys()) { const s = io.sockets.sockets.get(sid); if (s) { s.leave(m.meetingId); s.currentRoom = null; } } activeRooms.delete(m.meetingId); }
+            guestSessions.revokeMeeting(m.meetingId, 'meeting_ended');
+        } }));
+}
 function leaveCurrentRoom(socket) {
     const roomId = socket.currentRoom;
     if (!roomId) return;
@@ -625,6 +643,7 @@ io.on('connection', (socket) => {
         socket.currentRoom = cleanId;
         socket.attKey = joiningAccount ? 'a:' + joiningAccount.id : gs ? 'g:' + gs.sid : 's:' + socket.id;
         hist.recordJoin(currentMeeting, { key: socket.attKey, name: safeName, accountId: joiningAccount && joiningAccount.id });
+        armLimit(currentMeeting);
         console.log(`[User Joined Room]: ${safeName} entered ${cleanId}`);
 
         io.to(cleanId).emit('room_state_updated', {
@@ -745,7 +764,7 @@ io.on('connection', (socket) => {
             const meeting = meetingsState.get(roomId);
             if (meeting) {
                 for (const p of room.values()) { const s = io.sockets.sockets.get(p.socketId); if (s && s.attKey) { hist.recordLeave(meeting, s.attKey); s.attKey = null; } }
-                hist.finalize(meeting, 'host_ended');
+                hist.finalize(meeting, 'host_ended'); clearLimit(roomId);
                 saveSnapshotSoon();
                 console.log(`[Post-Processing Engine]: Meeting ${roomId} marked closed.`);
             }

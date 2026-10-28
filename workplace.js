@@ -14,6 +14,7 @@ const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
 const store = require('./store');
 const { cleanMeta, cleanAgenda, cleanCategory } = require('./history');
+const ML = require('./meeting-limit');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -391,7 +392,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
                 topic: item.title,
                 startTime: isNaN(startTime) ? undefined : startTime.toISOString(),
                 durationMinutes: item.duration,
-                hostId: user.id, hostName: user.displayName, previousMeetingId: item.rescheduledFrom || undefined,
+                hostId: user.id, hostName: user.displayName, previousMeetingId: item.rescheduledFrom || undefined, limitExempt: ML.isExempt(user),
                 meta: cleanMeta({ title: item.title, topic: item.topic, description: item.description, agenda: item.agenda, category: item.category })
             });
             const out = { ...item, hostId: user.id, ownerName: user.displayName, meetingId: meeting.meetingId, createdAt: nowIso() };

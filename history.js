@@ -131,7 +131,7 @@ function registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRoo
                 if (a) {
                     m.meetActivity = a; if (a.startedAt) m.actualStartAt = Date.parse(a.startedAt);
                     if (a.startedAt && m.status === 'scheduled') m.status = 'active';
-                    if (a.endedAt) finalize(m, 'host_ended', Date.parse(a.endedAt));
+                    if (a.endedAt) finalize(m, a.endReason === 'time_limit' ? 'time_limit' : 'host_ended', Date.parse(a.endedAt));
                     else if (a.startedAt && !a.online && a.lastLeftAt && now - Date.parse(a.lastLeftAt) > IDLE_MS) finalize(m, 'idle', Date.parse(a.lastLeftAt));
                     if (m.status === 'completed') m.actualEndAt = m.actualEndAt || Date.parse(a.endedAt || a.lastLeftAt || new Date(now).toISOString());
                     if (a.online) m.lastActivityAt = now;

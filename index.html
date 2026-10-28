@@ -1028,6 +1028,21 @@
           if (targetAction === 'mute' && micOn) { setMic(false); toast('The host muted you'); }
           else if (targetAction === 'unmute_request' && !micOn) toast('The host asks you to unmute (press M or use the mic button)');
         });
+        socket.on('upgrade_reminder', (r) => {          // free-plan time limit: a banner with a countdown and an Upgrade link
+          let b = document.getElementById('limitBanner');
+          if (!b) { b = document.createElement('div'); b.id = 'limitBanner'; b.setAttribute('role', 'status'); b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:12px;z-index:90;display:flex;gap:12px;align-items:center;max-width:min(720px,calc(100vw - 24px));padding:8px 14px;border-radius:10px;color:#fff;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.35)';
+            const t = document.createElement('span'); t.id = 'limitText'; const a = document.createElement('a'); a.id = 'limitUp'; a.textContent = 'Upgrade'; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.style.cssText = 'flex:none;background:#fff;color:#7c2d12;border-radius:8px;padding:4px 12px;font-weight:700;text-decoration:none'; b.append(t, a); document.body.append(b); }
+          b.style.background = r.phase === 'final' ? '#991b1b' : '#78350f'; document.getElementById('limitUp').href = r.upgradeUrl || '/pricing';
+          const left = Date.now() + Number(r.remainingMs || 0), paint = () => { const s = Math.max(0, Math.round((left - Date.now()) / 1000)); document.getElementById('limitText').textContent = r.message + '  (' + String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0') + ' left)'; };
+          clearInterval(window.__limitIv); paint(); window.__limitIv = setInterval(paint, 1000);
+        });
+        socket.on('meeting_limit_reached', ({ message, upgradeUrl }) => {       // the meeting is closed: say why and offer the plans
+          clearInterval(window.__limitIv); document.getElementById('limitBanner')?.remove(); leaveRoom(false);
+          const wrap = document.createElement('div'); wrap.id = 'limitModal'; wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true'); wrap.setAttribute('aria-labelledby', 'limitTitle'); wrap.style.cssText = 'position:fixed;inset:0;z-index:100;background:rgba(5,8,14,.75);display:flex;align-items:center;justify-content:center;padding:12px';
+          wrap.innerHTML = '<div style="background:#fff;color:#0f172a;border-radius:16px;max-width:460px;width:100%;padding:22px"><h2 id="limitTitle" style="margin:0 0 8px;font-size:20px">Meeting time limit reached</h2><p id="limitMsg" style="margin:0 0 8px;font-size:16px;font-weight:600"></p><p style="margin:0 0 16px;font-size:13px;color:#475569">This meeting was closed because the free plan time limit was reached. Everyone was disconnected. Upgrade to keep meeting without interruptions.</p><div style="display:flex;gap:10px"><a id="limitPlans" target="_blank" rel="noopener noreferrer" style="background:#2563eb;color:#fff;border-radius:10px;padding:8px 16px;font-weight:700;text-decoration:none">See plans</a><button id="limitClose" type="button" style="border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:8px 16px">Close</button></div></div>';
+          document.body.append(wrap); document.getElementById('limitMsg').textContent = message || 'Upgrade to have full access to Qorlla packages'; document.getElementById('limitPlans').href = upgradeUrl || '/pricing'; document.getElementById('limitPlans').focus();
+          document.getElementById('limitClose').onclick = () => wrap.remove(); wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') wrap.remove(); });
+        });
         socket.on('meeting_terminated_by_host', ({ summaryMessage }) => {
           leaveRoom(false);
           toast(summaryMessage || 'The host ended the meeting.');

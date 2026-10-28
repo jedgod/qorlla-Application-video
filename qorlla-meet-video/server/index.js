@@ -17,6 +17,7 @@ import pg from 'pg';
 import { Server } from 'socket.io';
 import { recoveryService } from './recovery-service.mjs';
 import { registerCollab } from './collab.mjs';
+import { makeLimit } from './limit.mjs';
 import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
 import { registerRecording } from './recording.mjs';
@@ -140,8 +141,9 @@ app.post('/api/integrations/scheduled-meetings',bridgeAuth,async(req,res)=>{
    if(!found.rows.length&&candidate!==legacyCode){meetingCode=candidate;break;}
   }
   if(!meetingCode)throw Error('Unable to allocate meeting code');
+  const lim=k=>Number.isFinite(Number(req.body?.[k]))&&Number(req.body[k])>0?Math.round(Number(req.body[k])):0;
   const bs=k=>typeof req.body?.[k]==='boolean'?req.body[k]:null;     // admission settings from the scheduling backend (null = column default)
-  await client.query('INSERT INTO meetings(id,title,host_secret_hash,meeting_code,passcode_hash,waiting_room,join_before_host,lock_on_host_join) VALUES($1,$2,$3,$4,$5,COALESCE($6,false),COALESCE($7,true),COALESCE($8,false))',[id,title,await bcrypt.hash(hostSecret,HOST_SECRET_COST),meetingCode,req.body?.passcodeHash??null,bs('waitingRoom'),bs('joinBeforeHost'),bs('lockOnHostJoin')]);
+  await client.query('INSERT INTO meetings(id,title,host_secret_hash,meeting_code,passcode_hash,waiting_room,join_before_host,lock_on_host_join,time_limit_ms,grace_ms) VALUES($1,$2,$3,$4,$5,COALESCE($6,false),COALESCE($7,true),COALESCE($8,false),NULLIF($9::bigint,0),NULLIF($10::bigint,0))',[id,title,await bcrypt.hash(hostSecret,HOST_SECRET_COST),meetingCode,req.body?.passcodeHash??null,bs('waitingRoom'),bs('joinBeforeHost'),bs('lockOnHostJoin'),lim('limitMs'),lim('graceMs')]);
   await client.query('INSERT INTO external_meeting_links(source_system,source_id,meeting_id,scheduled_at) VALUES($1,$2,$3,$4)',['qorlla-main',sourceId,id,scheduledAt]);
   if(legacyCode)await client.query('INSERT INTO meeting_code_aliases(alias_code,meeting_id) VALUES($1,$2)',[legacyCode,id]);
   await client.query('COMMIT');
@@ -198,6 +200,7 @@ app.patch('/api/integrations/scheduled-meetings/:sourceId',bridgeAuth,async(req,
  if(req.body?.passcodeHash!==undefined)await client.query('UPDATE meetings SET passcode_hash=$1 WHERE id=$2 AND ended_at IS NULL',[req.body.passcodeHash,rows[0].meeting_id]);
  if(scheduledAt!==undefined)await client.query('UPDATE external_meeting_links SET scheduled_at=$1 WHERE source_system=$2 AND source_id=$3',[scheduledAt,'qorlla-main',req.params.sourceId]);
  for(const [k,col] of [['waitingRoom','waiting_room'],['joinBeforeHost','join_before_host'],['lockOnHostJoin','lock_on_host_join']])if(typeof req.body?.[k]==='boolean')await client.query('UPDATE meetings SET '+col+'=$1 WHERE id=$2 AND ended_at IS NULL',[req.body[k],rows[0].meeting_id]);
+ for(const [k,col] of [['limitMs','time_limit_ms'],['graceMs','grace_ms']])if(req.body?.[k]!==undefined){const n=Number(req.body[k]);await client.query('UPDATE meetings SET '+col+'=$1 WHERE id=$2 AND ended_at IS NULL',[Number.isFinite(n)&&n>0?Math.round(n):null,rows[0].meeting_id]);}
  await client.query('COMMIT');res.json({ok:true,meetingId:rows[0].meeting_id});
  }catch(e){await client.query('ROLLBACK').catch(()=>{});console.error(e);fail(res,500,'Schedule update failed');}finally{client.release();}
 });
@@ -206,7 +209,7 @@ app.patch('/api/integrations/scheduled-meetings/:sourceId',bridgeAuth,async(req,
 app.get('/api/integrations/scheduled-meetings/:sourceId/activity',bridgeAuth,async(req,res)=>{
  if(!validSource(req.params.sourceId))return fail(res,400,'Invalid source');
  try{
-  const {rows:[m]}=await db.query("SELECT m.id,m.ended_at FROM external_meeting_links l JOIN meetings m ON m.id=l.meeting_id WHERE l.source_system='qorlla-main' AND l.source_id=$1",[req.params.sourceId]);
+  const {rows:[m]}=await db.query("SELECT m.id,m.ended_at,m.end_reason FROM external_meeting_links l JOIN meetings m ON m.id=l.meeting_id WHERE l.source_system='qorlla-main' AND l.source_id=$1",[req.params.sourceId]);
   if(!m)return fail(res,404,'Not registered');
   const {rows}=await db.query("SELECT p.id AS pid,p.display_name AS name,p.role,s.connected_at,s.disconnected_at FROM participant_sessions s JOIN participants p ON p.id=s.participant_id WHERE s.meeting_id=$1 ORDER BY s.connected_at",[m.id]);
   const here=active.get(m.id),now=Date.now(),byName=new Map(),events=[];
@@ -220,7 +223,7 @@ app.get('/api/integrations/scheduled-meetings/:sourceId/activity',bridgeAuth,asy
   events.sort((x,y)=>x[0]-y[0]||x[1]-y[1]);const open=new Map();let peak=0;
   for(const [,d,k] of events){open.set(k,(open.get(k)||0)+d);peak=Math.max(peak,[...open.values()].filter(v=>v>0).length);}
   const att=[...byName.values()];
-  res.set('Cache-Control','no-store').json({startedAt:rows.length?new Date(rows[0].connected_at).toISOString():null,endedAt:m.ended_at?new Date(m.ended_at).toISOString():null,
+  res.set('Cache-Control','no-store').json({startedAt:rows.length?new Date(rows[0].connected_at).toISOString():null,endedAt:m.ended_at?new Date(m.ended_at).toISOString():null,endReason:m.end_reason||null,
    lastLeftAt:att.length?new Date(Math.max(...att.map(x=>x.lastLeft))).toISOString():null,online:att.filter(x=>x.open).length,unique:att.length,peak,
    attendees:att.map(x=>({name:x.name,role:x.role,firstJoin:new Date(x.firstJoin).toISOString(),lastLeft:new Date(x.lastLeft).toISOString(),seconds:x.seconds,sessions:x.sessions}))});
  }catch(e){console.error('[history] activity failed:',e.message);fail(res,500,'Activity unavailable');}
@@ -348,7 +351,7 @@ app.get('/api/resolve/:code',async(req,res)=>{
 });
 app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
  if(req.user.role!=='host') return fail(res,403,'Host only');
- await db.query('UPDATE meetings SET ended_at=now() WHERE id=$1',[req.params.id]);
+ await db.query("UPDATE meetings SET ended_at=now(), end_reason='host_ended' WHERE id=$1",[req.params.id]);
  recording.stopFor(req.params.id,'meeting_ended',req.user.participantId).catch(()=>{});
  io.to(room(req.params.id)).emit('meeting-ended');
  audit(req.params.id,req.user.participantId,'meeting.ended'); res.json({ok:true});
@@ -357,7 +360,9 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
+let limiter;
 const recording = registerRecording({ app, io, db, auth, member, fail, room, audit: recAudit, media: recMedia, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
+limiter = makeLimit({ io, db, room, audit, upgradeUrl: process.env.UPGRADE_URL || '/pricing?reason=meeting-limit', onEnd: (id) => recording.stopFor(id, 'meeting_ended') });
 app.get('/api/health',async(_req,res)=>{try{await db.query('SELECT 1');res.json({ok:true});}catch{res.status(503).json({ok:false});}});
 const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:message});
 io.use(async(socket,next)=>{
@@ -383,7 +388,7 @@ io.on('connection',socket=>{
  const prior=roster.get(pid);
  if(prior && prior!==socket.id) io.sockets.sockets.get(prior)?.disconnect(true);
  roster.set(pid,socket.id); socket.join(room(id));
- socket.data.sess=randomUUID();db.query('INSERT INTO participant_sessions(id,meeting_id,participant_id) VALUES($1,$2,$3)',[socket.data.sess,id,pid]).catch(e=>console.error('[history] session open failed:',e.message));
+ socket.data.sess=randomUUID();db.query('INSERT INTO participant_sessions(id,meeting_id,participant_id) VALUES($1,$2,$3)',[socket.data.sess,id,pid]).then(()=>limiter.arm(id)).catch(e=>console.error('[history] session open failed:',e.message));
  if(u.role==='host'){
   recording.hostBack(id,pid).catch(()=>{});
   db.query("UPDATE participants SET admission='admitted',wait_reason=NULL WHERE meeting_id=$1 AND admission='waiting' AND wait_reason='host_absent'",[id]).then(r=>{if(r.rowCount)io.to(room(id)).emit('waiting-changed',{});}).catch(()=>{});

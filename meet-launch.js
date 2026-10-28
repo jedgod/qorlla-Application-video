@@ -50,7 +50,7 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
     async function ensureLink(meeting, ownerName, desired = {}) {
         if (!enabled()) throw unavailable('No bridge secret is configured');
         const digits = digitsOf(meeting.meetingId);
-        const title = String(desired.title || meeting.topic || 'Meeting').slice(0, 160), ms = meetSettings(desired.settings || {});
+        const title = String(desired.title || meeting.topic || 'Meeting').slice(0, 160), ms = { ...meetSettings(desired.settings || {}), limitMs: (desired.limits && desired.limits.limitMs) || 0, graceMs: (desired.limits && desired.limits.graceMs) || 0 };
         if (links[digits] && links[digits].meetUuid) return syncLink(digits, title, ms);
         if (inflight.has(digits)) return inflight.get(digits);                                   // concurrent first uses register once
         const job = (async () => {
@@ -80,7 +80,8 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
     /** After a settings change in the pre-meeting screen: update Meet too if this meeting is already registered there. */
     async function updateIfLinked(meeting, desired) {
         const digits = digitsOf(meeting.meetingId); if (!enabled() || !links[digits]) return false;
-        await syncLink(digits, String(desired.title || meeting.topic || 'Meeting').slice(0, 160), meetSettings(desired.settings || {})); return true;
+        const old = links[digits].settings || {};
+        await syncLink(digits, String(desired.title || meeting.topic || 'Meeting').slice(0, 160), { ...meetSettings(desired.settings || {}), limitMs: old.limitMs || 0, graceMs: old.graceMs || 0 }); return true;
     }
 
     /** Joins `name` to the Meet meeting; { host: true } uses the host credential. Returns { token, meetingId, participantId, admission } for the browser. */

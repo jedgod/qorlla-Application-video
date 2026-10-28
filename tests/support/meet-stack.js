@@ -9,10 +9,10 @@ const MEET = 'http://localhost:3310';
 const root = path.resolve(__dirname, '..', '..');
 const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
-async function startMain(port) {
+async function startMain(port, extraEnv = {}) {
   const secrets = JSON.parse(fs.readFileSync(path.join(root, '.dev-stack', 'secrets.json'), 'utf8'));
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qstack-'));
-  const child = spawn(process.execPath, ['server.js'], { cwd: root, stdio: 'ignore', env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, MEET_PROBE_URL: MEET, QORLLA_BRIDGE_SECRET: secrets.bridge, MEET_DETECT: '', MEET_PUBLIC_URL: '' } });
+  const child = spawn(process.execPath, ['server.js'], { cwd: root, stdio: 'ignore', env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, MEET_PROBE_URL: MEET, ...extraEnv, QORLLA_BRIDGE_SECRET: secrets.bridge, MEET_DETECT: '', MEET_PUBLIC_URL: '' } });
   const base = 'http://localhost:' + port;
   for (let i = 0; i < 60; i++) { try { if ((await fetch(base + '/')).ok) break; } catch (e) { /* not yet */ } await new Promise((r) => setTimeout(r, 500)); }
   const meetOk = await fetch(MEET + '/api/config').then((r) => r.ok).catch(() => false);
