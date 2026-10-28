@@ -950,6 +950,7 @@
     sp.style.display = canSink ? '' : 'none'; $('sdSpkNote').textContent = canSink ? '' : 'This browser plays the test tone through your default speakers.';
   }
   function stopPreview() {
+    sd.gen = (sd.gen || 0) + 1;                                                              // anything still opening is discarded when it arrives
     cancelAnimationFrame(sd.raf); sd.raf = 0; if (sd.ctx) { try { sd.ctx.close(); } catch (e) { /* closed */ } sd.ctx = null; }
     if (sd.stream) { sd.stream.getTracks().forEach(function (t) { t.stop(); }); sd.stream = null; }
     $('sdVideo').srcObject = null; $('sdVideo').hidden = true; $('sdPrevHint').hidden = false; $('sdMeter').style.width = '0';
@@ -966,10 +967,11 @@
     spk.forEach(function (d, i) { if (d.deviceId !== 'default') sp.appendChild(new Option(d.label || 'Speakers ' + (i + 1), d.deviceId)); });
   }
   function startPreview() {
-    stopPreview();
+    stopPreview(); var gen = sd.gen;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { netRow('cam', 'Not supported by this browser', 'bad'); netRow('mic', 'Not supported by this browser', 'bad'); return Promise.resolve(); }
     var cam = $('sdCamSel').value, mic = $('sdMicSel').value;
     return navigator.mediaDevices.getUserMedia({ video: cam ? { deviceId: { exact: cam } } : true, audio: mic ? { deviceId: { exact: mic } } : true }).then(function (s) {
+      if (gen !== sd.gen || !$('startDialog').open) { s.getTracks().forEach(function (t) { t.stop(); }); return; }   // superseded or the screen was closed meanwhile: release at once
       sd.stream = s; var v = $('sdVideo'); v.srcObject = s; v.hidden = false; $('sdPrevHint').hidden = true;
       netRow('cam', 'Working', 'ok'); netRow('mic', 'Working', 'ok');
       try {
