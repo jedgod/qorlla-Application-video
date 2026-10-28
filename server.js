@@ -54,6 +54,8 @@ app.get('/.well-known/jwks.json', (req, res) => res.set('Cache-Control', 'public
 app.use('/api/auth', auth.router);
 
 // Workplace carries whiteboard images, so it parses its own (larger) JSON bodies
+// A short reference on every Phone response: a user can quote it to support and the matching server log line (statuses only, never PINs or call content) can be found.
+app.use(['/api/phone', '/api/workplace/phone-settings', '/api/workplace/phone-audit', '/api/workplace/phone-help', '/api/workplace/phone-tickets'], (req, res, next) => { res.set('X-Correlation-Id', crypto.randomBytes(5).toString('hex')); next(); });
 app.use('/api/workplace', require('./workplace')({
     dataDir: DATA_ROOT,
     allocateMeeting: (m) => allocateMeeting(m),
@@ -269,6 +271,19 @@ function dialInNumbers() {
     catch (e) { return []; }
 }
 const phoneUser = (req, res) => { const u = auth.getUser(req); if (!u) { res.status(401).json({ error: 'Sign in first.' }); return null; } return u; };
+app.get('/api/phone/diagnostics', async (req, res) => {
+    const u = phoneUser(req, res); if (!u) return; const ref = res.get('X-Correlation-Id'), checks = [];
+    const add = (id, label, status, detail) => checks.push({ id, label, status, detail });
+    add('api', 'Phone API', 'ok', 'This request reached the Phone service and you are signed in.');
+    try { const m = await meetLaunch.ping(); m && m.ok !== false && (m.reachable !== false) ? add('meet', 'Meeting dial-in (Qorlla Meet)', 'ok', 'Qorlla Meet answered.') : add('meet', 'Meeting dial-in (Qorlla Meet)', 'fail', 'Qorlla Meet did not answer. Phone PINs and dial-in need it.'); }
+    catch (e) { add('meet', 'Meeting dial-in (Qorlla Meet)', 'fail', 'Qorlla Meet is not reachable from this server.'); }
+    const numbers = dialInNumbers(), provider = process.env.PHONE_PROVIDER || '';
+    add('numbers', 'Dial-in numbers', numbers.length ? 'ok' : 'unavailable', numbers.length ? numbers.length + ' provisioned number(s).' : 'None provisioned. An administrator adds real numbers with PHONE_DIAL_IN_NUMBERS.');
+    add('provider', 'Telephone provider', !provider ? 'unavailable' : provider === 'test' ? 'warn' : 'ok', !provider ? 'Not connected, so calls, number provisioning, forwarding and voicemail are unavailable.' : provider === 'test' ? 'A test simulation is active. It is not a carrier.' : 'A provider is configured.');
+    add('audio', 'Audio bridge for phone callers', 'unavailable', 'Not built: telephone audio cannot yet be mixed into the video meeting.');
+    console.log(JSON.stringify({ phone_diagnostics: ref, user: u.id, checks: checks.map((c) => [c.id, c.status]) }));
+    res.set('Cache-Control', 'no-store').json({ correlationId: ref, checkedAt: new Date().toISOString(), checks });
+});
 app.get('/api/phone/overview', (req, res) => {
     const u = phoneUser(req, res); if (!u) return;
     const cfg = ML.config(process.env), exempt = ML.isExempt(u, process.env), since = Date.now() - 30 * 86400000; let meetings = 0, ms = 0;

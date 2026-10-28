@@ -229,22 +229,62 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
             return { ...item, createdAt: nowIso() };
         }
     });
-    const PHONE_DEFAULTS = { callerIdName: '', missedAlerts: true, forwardEnabled: false, forwardTo: '', voicemailEnabled: false, voicemailGreeting: '' };
-    router.get('/phone-settings', requireUser, (req, res) => res.set('Cache-Control', 'no-store').json({ ...PHONE_DEFAULTS, ...(store.readJson(file(userKey('phonesettings', req.user)), {}) || {}) }));
+    // Per-account call preferences. They are validated here, whatever the page sends. Security-sensitive changes are written to an audit trail
+    // (what changed and when, never the numbers or the greeting text). Forwarding and voicemail are stored but do nothing until a carrier is connected.
+    const PHONE_DEFAULTS = { callerIdName: '', callWaiting: true, doNotDisturb: false, defaultCountry: 'US', missedAlerts: true, notifyIncoming: true, notifyVoicemail: true, notifyReminders: true, notifyChannel: 'browser',
+        forwardEnabled: false, forwardTo: '', voicemailEnabled: false, voicemailGreeting: '', ringtone: 'classic', echoCancellation: true, noiseSuppression: true, micLabel: '', speakerLabel: '', blockedNumbers: [], spamProtection: true, historyRetentionDays: 90 };
+    const PHONE_BOOLS = ['callWaiting', 'doNotDisturb', 'missedAlerts', 'notifyIncoming', 'notifyVoicemail', 'notifyReminders', 'forwardEnabled', 'voicemailEnabled', 'echoCancellation', 'noiseSuppression', 'spamProtection'];
+    const PHONE_TEXT = { callerIdName: 40, voicemailGreeting: 300, micLabel: 80, speakerLabel: 80 };
+    const PHONE_ENUMS = { ringtone: ['classic', 'soft', 'chime'], notifyChannel: ['browser', 'email', 'both'], historyRetentionDays: [0, 30, 90, 365] };
+    const PHONE_SENSITIVE = ['forwardEnabled', 'forwardTo', 'voicemailEnabled', 'blockedNumbers', 'spamProtection', 'doNotDisturb'];
+    const readPhone = (user) => ({ ...PHONE_DEFAULTS, ...(store.readJson(file(userKey('phonesettings', user)), {}) || {}) });
+    router.get('/phone-settings', requireUser, (req, res) => res.set('Cache-Control', 'no-store').json(readPhone(req.user)));
+    router.get('/phone-audit', requireUser, (req, res) => res.set('Cache-Control', 'no-store').json((store.readJson(file(userKey('phoneaudit', req.user)), []) || []).slice(-50).reverse()));
     router.put('/phone-settings', requireUser, (req, res) => {
-        const b = req.body || {}, cur = { ...PHONE_DEFAULTS, ...(store.readJson(file(userKey('phonesettings', req.user)), {}) || {}) };
-        const next = {
-            callerIdName: 'callerIdName' in b ? str(b.callerIdName, 40) : cur.callerIdName,
-            missedAlerts: 'missedAlerts' in b ? b.missedAlerts === true : cur.missedAlerts,
-            forwardEnabled: 'forwardEnabled' in b ? b.forwardEnabled === true : cur.forwardEnabled,
-            forwardTo: 'forwardTo' in b ? normPhone(str(b.forwardTo, 30)) : cur.forwardTo,
-            voicemailEnabled: 'voicemailEnabled' in b ? b.voicemailEnabled === true : cur.voicemailEnabled,
-            voicemailGreeting: 'voicemailGreeting' in b ? str(b.voicemailGreeting, 300) : cur.voicemailGreeting
-        };
-        if (next.forwardTo && !E164.test(next.forwardTo)) return bad(res, 'The forwarding number must be international, such as +12025550100.');
+        const b = req.body || {}, cur = readPhone(req.user), next = { ...cur };
+        for (const k of PHONE_BOOLS) if (k in b) { if (typeof b[k] !== 'boolean') return bad(res, k + ' must be true or false.'); next[k] = b[k]; }
+        for (const k of Object.keys(PHONE_TEXT)) if (k in b) next[k] = str(b[k], PHONE_TEXT[k]);
+        for (const k of Object.keys(PHONE_ENUMS)) if (k in b) { if (!PHONE_ENUMS[k].includes(b[k])) return bad(res, k + ' is not a valid choice.'); next[k] = b[k]; }
+        if ('defaultCountry' in b) { if (!/^[A-Z]{2}$/.test(String(b.defaultCountry))) return bad(res, 'The country is not valid.'); next.defaultCountry = b.defaultCountry; }
+        if ('forwardTo' in b) { next.forwardTo = normPhone(str(b.forwardTo, 30)); if (next.forwardTo && !E164.test(next.forwardTo)) return bad(res, 'The forwarding number must be international, such as +12025550100.'); }
         if (next.forwardEnabled && !next.forwardTo) return bad(res, 'Enter the number to forward calls to.');
+        if ('blockedNumbers' in b) {
+            if (!Array.isArray(b.blockedNumbers) || b.blockedNumbers.length > 100) return bad(res, 'You can block up to 100 numbers.');
+            const list = [...new Set(b.blockedNumbers.map((x) => normPhone(str(String(x), 30))))]; const badNum = list.find((x) => !E164.test(x));
+            if (badNum !== undefined) return bad(res, 'Blocked numbers must be international, such as +12025550100.'); next.blockedNumbers = list;
+        }
+        const changed = PHONE_SENSITIVE.filter((k) => JSON.stringify(next[k]) !== JSON.stringify(cur[k]));
         save(userKey('phonesettings', req.user), next);
-        res.json({ ...next, active: false, note: 'Saved. Forwarding and voicemail take effect once carrier calling is connected; nothing is forwarded or recorded today.' });
+        if (changed.length) { const log = store.readJson(file(userKey('phoneaudit', req.user)), []) || []; log.push({ at: nowIso(), changed, blocked: next.blockedNumbers.length }); save(userKey('phoneaudit', req.user), log.slice(-200)); }
+        const carrier = ['forwardEnabled', 'forwardTo', 'voicemailEnabled', 'voicemailGreeting'].some((k) => k in b);
+        res.json({ ...next, active: false, note: carrier ? 'Saved. Forwarding and voicemail take effect once carrier calling is connected; nothing is forwarded or recorded today.' : 'Saved.' });
+    });
+
+    // Help Center articles (plain data, see phone-help.js) and support tickets (stored per account; emailed to SUPPORT_EMAIL when that and mail are configured)
+    const HELP = require('./phone-help');
+    router.get('/phone-help/articles', requireUser, (req, res) => {
+        const q = str(req.query.q, 80).toLowerCase(), cat = str(req.query.category, 40);
+        const list = HELP.ARTICLES.filter((a) => (!cat || a.category === cat) && (!q || (a.title + ' ' + a.summary + ' ' + a.keywords + ' ' + a.steps.join(' ')).toLowerCase().includes(q)));
+        res.set('Cache-Control', 'no-store').json({ categories: HELP.CATEGORIES, articles: list });
+    });
+    router.get('/phone-help/articles/:slug', requireUser, (req, res) => { const a = HELP.ARTICLES.find((x) => x.slug === req.params.slug); if (!a) return missing(res); res.json(a); });
+    crud('phone-tickets', {
+        sort: (x, y) => String(y.createdAt).localeCompare(String(x.createdAt)),
+        sanitize(body) {
+            const v = { subject: str(body.subject, 120), category: HELP.CATEGORIES.includes(body.category) ? body.category : 'Troubleshooting', description: str(body.description, 2000), reference: /^[a-f0-9]{6,20}$/.test(String(body.reference || '')) ? String(body.reference) : '' };
+            if (!v.subject) return { error: 'Add a short subject.' }; if (v.description.length < 10) return { error: 'Describe the problem in a few words (at least 10 characters).' };
+            if (/\b\d{8}\b/.test(v.description + ' ' + v.subject)) return { error: 'Please remove PINs and passwords (8-digit numbers) from the ticket.' };
+            return { value: v };
+        },
+        create: async (item, body, user) => {
+            if (load(userKey('phone-tickets', user), 'phone-tickets').length >= 50) throw new Error('You have 50 open tickets. Delete some before sending more.');
+            const out = { ...item, ref: 'T-' + crypto.randomBytes(3).toString('hex').toUpperCase(), status: 'open', createdAt: nowIso(), notified: false };
+            const to = process.env.SUPPORT_EMAIL || '';
+            if (mailer.enabled && mailer.isValidAddress(to)) {
+                try { const r = await mailer.send({ to, subject: '[Qorlla Phone ' + out.ref + '] ' + item.subject, replyTo: user.emailVerified && user.email ? user.email : undefined, text: 'From: ' + user.displayName + ' (@' + user.username + ')\nCategory: ' + item.category + (item.reference ? '\nDiagnostics reference: ' + item.reference : '') + '\n\n' + item.description }); out.notified = r.status === 'sent'; } catch (e) { out.notified = false; }
+            }
+            return out;
+        }
     });
 
     // ---------- external email ----------

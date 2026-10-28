@@ -36,3 +36,19 @@ To make it real you need: a provider account and compliance review, a provider a
 | Call details, Copy Invitation | PASS | `/api/meetings/:id/invitation-text` (host only, never contains the passcode). |
 | Recurrence labels | PASS | A repeating series is separate meetings (own Meeting ID, attendance, History) sharing a `seriesId`; labels show "Recurring (N occurrences)", the pattern, and "2 of N". Wall-clock times are stored as typed, so a 5:00 PM series stays 5:00 PM across daylight saving. Not built: one Meeting ID shared by the whole series, edit-whole-series, RRULE in the .ics. |
 | Telephony billing, number provisioning, forwarding/voicemail delivery | BLOCKED | Need a provider. |
+
+## Phone Settings, Help Center and Diagnostics (v1.1 slice)
+
+| Area | Status | Notes |
+|---|---|---|
+| Phone Settings page (8 sections) | PASS (UI + API) | Calling & Caller ID, Audio & Devices, Meeting Dial-in, Privacy & Security, Notifications, Call History, Plans & Billing, Admin Controls. `GET/PUT /api/workplace/phone-settings`, validated server-side, private per account. |
+| Microphone / speaker / ringtone tests | PASS (Chromium, fake devices) | Browser APIs only; nothing is captured until a test button is pressed; device names appear after the user allows access. Not run on real hardware or Safari. |
+| Audit trail | PASS | `GET /api/workplace/phone-audit`: what changed and when for forwarding, voicemail, blocked numbers, spam protection and do-not-disturb. Never the numbers or text. |
+| Forwarding, voicemail, blocked numbers, spam protection, call waiting, DND, caller ID name | PARTIAL | Stored and validated; they take effect only when carrier calling is connected (the page says so). |
+| Telephone PIN create / replace / revoke | PASS | Host only (server-enforced), shown once. |
+| Help Center (14 articles, search, categories) | PASS | `GET /api/workplace/phone-help/articles[/:slug]`, content in `phone-help.js`, written to the build's real behaviour. |
+| Diagnostics | PASS | `GET /api/phone/diagnostics`: Phone API, Meet, dial-in numbers, provider, audio bridge, plus a browser audio-device check. Every `/api/phone/*` response carries `X-Correlation-Id`; failures show "(ref …)". No credentials, PINs or call content. |
+| Support tickets | PARTIAL | Stored per account (`/api/workplace/phone-tickets`), PIN-like numbers rejected, emailed to `SUPPORT_EMAIL` when set and mail works. There is no support-staff console or status workflow: tickets stay "open". |
+| Admin Controls (shared numbers, extensions, queues, routing, business hours, spending limits) | BLOCKED | No administrator roles exist in this build and no provider; the page lists each item as unavailable and offers no way for an individual to change organization settings. |
+| Plans & billing (international calling, spending limits, invoices) | BLOCKED | No billing or provider connected. |
+| Browsers | PARTIAL | Chromium all tests; Firefox: API and Help tests. Edge, Safari and a screen-reader audit not done. |
