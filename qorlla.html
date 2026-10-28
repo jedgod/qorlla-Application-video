@@ -223,6 +223,15 @@
   @media (max-height: 700px) and (min-width: 851px) { dialog.sd .sd-prev { width: 120px; } }
   @media (max-height: 740px) and (min-width: 851px) { dialog.sd .sd-prev { width: 96px; } dialog.sd .sd-prev p { display: none; } dialog.sd .note-box { display: none; } dialog.sd .sd-left, dialog.sd .sd-right { gap: 4px; } dialog.sd .sd-head { padding-top: 10px; padding-bottom: 4px; }
     dialog.sd input[type=text], dialog.sd input[type=password] { height: 32px; } dialog.sd .sd-card { padding: 6px 10px; } dialog.sd .sd-quick { margin: 2px 0; } dialog.sd .hint { margin: 0; } }
+  dialog.sd .sd-prev { position: relative; aspect-ratio: 16 / 10; width: 100%; max-width: none; margin: 0; border-radius: 12px; } dialog.sd .sd-prev video { transform: none; }
+  dialog.sd .sd-prevlab { position: absolute; left: 8px; bottom: 8px; background: rgba(15,23,42,.78); color: #fff; font-size: 11px; padding: 3px 9px; border-radius: 8px; }
+  dialog.sd .sd-prevbtns { position: absolute; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 6px; } dialog.sd .sd-prevbtns button { width: 30px; height: 30px; border: 0; border-radius: 50%; background: rgba(15,23,42,.8); color: #fff; display: grid; place-items: center; cursor: pointer; } dialog.sd .sd-prevbtns button:disabled { opacity: .5; cursor: not-allowed; }
+  dialog.sd #sdTest { align-self: stretch; } dialog.sd .sd-prev p { max-width: 70%; }
+  @media (max-height: 740px) and (min-width: 851px) { dialog.sd .sd-prev { aspect-ratio: 16 / 7; width: 100%; } dialog.sd .sd-prev p { display: block; font-size: 10px; } dialog.sd .sd-prevlab { display: none; } dialog.sd .sd-prevbtns { flex-direction: row; } dialog.sd .sd-prevbtns button { width: 26px; height: 26px; } }
+  dialog.sd .sd-prev { flex: none; height: auto; min-height: 0; }
+  @media (max-height: 820px) and (min-width: 851px) { dialog.sd .sd-prev { aspect-ratio: 16 / 8.4; } dialog.sd .note-box { display: none; } dialog.sd .sd-left, dialog.sd .sd-right { gap: 4px; } dialog.sd .sd-head { padding-top: 10px; padding-bottom: 4px; }
+    dialog.sd input[type=text], dialog.sd input[type=password] { height: 32px; } dialog.sd .sd-card { padding: 6px 10px; } dialog.sd .sd-quick { margin: 2px 0; } dialog.sd .hint { margin: 0; } dialog.sd .sd-body { padding-bottom: 6px; } }
+  @media (max-height: 740px) and (min-width: 851px) { dialog.sd .sd-prev { aspect-ratio: 16 / 6; } }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 21px; margin-bottom: 4px; letter-spacing: -.4px; }
   dialog .sub { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
@@ -711,7 +720,7 @@
       <div class="sd-right">
         <section aria-labelledby="sdPrevH" class="sd-card">
           <h3 id="sdPrevH">Camera preview</h3>
-          <div class="sd-prev"><video id="sdVideo" autoplay muted playsinline hidden aria-label="Camera preview"></video><p id="sdPrevHint">Your camera and microphone stay off until you choose to test them.</p></div>
+          <div class="sd-prev"><video id="sdVideo" autoplay muted playsinline hidden aria-label="Camera preview"></video><p id="sdPrevHint">Your camera and microphone stay off until you choose to test them.</p><span class="sd-prevlab">Camera preview</span><div class="sd-prevbtns"><button type="button" id="sdSnap" aria-label="Take a snapshot" title="Take a snapshot" disabled><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button><button type="button" id="sdPrevSet" aria-label="Choose camera and microphone" title="Choose camera and microphone"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.6 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.6-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/></svg></button></div></div>
           <button type="button" class="chip" id="sdTest">Test microphone and camera</button>
         </section>
         <section aria-labelledby="sdDevH" class="sd-card">
@@ -971,7 +980,7 @@
     sd.gen = (sd.gen || 0) + 1;                                                              // anything still opening is discarded when it arrives
     cancelAnimationFrame(sd.raf); sd.raf = 0; if (sd.ctx) { try { sd.ctx.close(); } catch (e) { /* closed */ } sd.ctx = null; }
     if (sd.stream) { sd.stream.getTracks().forEach(function (t) { t.stop(); }); sd.stream = null; }
-    $('sdVideo').srcObject = null; $('sdVideo').hidden = true; $('sdPrevHint').hidden = false; $('sdMeter').style.width = '0';
+    $('sdSnap').disabled = true; $('sdVideo').srcObject = null; $('sdVideo').hidden = true; $('sdPrevHint').hidden = false; $('sdMeter').style.width = '0';
   }
   function fillDevices(devs) {
     var pick = function (id, kind, cur) {
@@ -991,7 +1000,7 @@
     return navigator.mediaDevices.getUserMedia({ video: cam ? { deviceId: { exact: cam } } : true, audio: mic ? { deviceId: { exact: mic } } : true }).then(function (s) {
       if (gen !== sd.gen || !$('startDialog').open) { s.getTracks().forEach(function (t) { t.stop(); }); return; }   // superseded or the screen was closed meanwhile: release at once
       sd.stream = s; var v = $('sdVideo'); v.srcObject = s; v.hidden = false; $('sdPrevHint').hidden = true;
-      netRow('cam', 'Working', 'ok'); netRow('mic', 'Working', 'ok');
+      netRow('cam', 'Working', 'ok'); netRow('mic', 'Working', 'ok'); $('sdSnap').disabled = false;
       try {
         sd.ctx = new (window.AudioContext || window.webkitAudioContext)(); var an = sd.ctx.createAnalyser(); sd.ctx.createMediaStreamSource(s).connect(an); var buf = new Uint8Array(an.frequencyBinCount);
         (function tick() { an.getByteFrequencyData(buf); var peak = 0; for (var i = 0; i < buf.length; i++) peak = Math.max(peak, buf[i]); $('sdMeter').style.width = Math.min(100, peak / 2.2) + '%'; sd.raf = requestAnimationFrame(tick); })();
@@ -1004,6 +1013,8 @@
     });
   }
   $('sdTest').addEventListener('click', function () { startPreview(); });
+  $('sdPrevSet').addEventListener('click', function () { $('sdCamSel').disabled ? startPreview() : $('sdCamSel').focus(); });
+  $('sdSnap').addEventListener('click', function () { var vd = $('sdVideo'); if (!sd.stream || !vd.videoWidth) return; var c = document.createElement('canvas'); c.width = vd.videoWidth; c.height = vd.videoHeight; c.getContext('2d').drawImage(vd, 0, 0); var a = document.createElement('a'); a.href = c.toDataURL('image/png'); a.download = 'camera-preview.png'; document.body.appendChild(a); a.click(); a.remove(); toast('Snapshot saved', 'ok'); });
   $('sdPreview').addEventListener('change', function () { if (this.checked) startPreview(); else stopPreview(); });
   ['sdCamSel', 'sdMicSel'].forEach(function (id) { $(id).addEventListener('change', function () { if (sd.stream) startPreview(); }); });
   $('sdRefresh').addEventListener('click', function () { if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) navigator.mediaDevices.enumerateDevices().then(fillDevices); });
