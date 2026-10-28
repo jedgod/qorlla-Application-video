@@ -82,24 +82,50 @@ test.describe('metadata and lifecycle (built-in room)', () => {
     await hc.close();
   });
 
-  test('History page: banner shows topic, date, duration, attendees, peak and status; details expand; search works; Reschedule makes a NEW meeting and leaves the record alone', async ({ browser }) => {
-    test.setTimeout(120000);
+  test('Workspace page: History Meetings is a dropdown beneath the day meetings with expandable cards; filters, search, state kept, Reschedule makes a NEW meeting', async ({ browser }) => {
+    test.setTimeout(150000);
     const hc = await browser.newContext(); await signedIn(hc, '', 'Hostess'); const s = await schedule(hc, { title: 'Design sync', topic: 'Navigation redesign' });
     const hp = await hc.newPage(); await enter(hp, s.meetingId, 'Hostess'); await hp.waitForTimeout(800); await hp.click('#endCallBtn'); await expect.poll(async () => (await hist(hc)).length, { timeout: 15000 }).toBe(1);
-    const page = await hc.newPage(); await page.goto('/qorlla.html#home'); await page.locator('.nav-item[data-view=history]').click();
-    const card = page.locator('.hist-card', { hasText: 'Design sync' }); await expect(card).toBeVisible(); await expect(card.locator('.hist-chip.s-completed')).toHaveText(/Completed/i); await expect(card.locator('.hist-topic')).toHaveText('Topic: Navigation redesign');
-    await expect(card.locator('.hist-stat', { hasText: 'DURATION' })).toBeVisible(); await expect(card.locator('.hist-stat', { hasText: 'ATTENDEES' }).locator('strong')).toHaveText('1'); await expect(card.locator('.hist-stat', { hasText: 'PEAK' }).locator('strong')).toHaveText('1'); await expect(card).toContainText('Host: Hostess');
-    await card.getByRole('button', { name: 'View details' }).click(); await expect(card.locator('.hist-more')).toContainText('Review connection stability'); await expect(card.locator('.hist-more')).toContainText('Connection');
-    await card.locator('.hist-more textarea').fill('We chose option B.'); await card.getByRole('button', { name: 'Save outcome' }).click(); await expect(page.locator('#toast')).toContainText('Saved');
-    await expect.poll(async () => (await hist(hc))[0].outcomeSummary).toContain('option B');
-    await page.fill('.hist-filter input[type=search]', 'zzz-nothing'); await expect(page.locator('.hist-list')).toContainText('No meetings match'); await page.fill('.hist-filter input[type=search]', 'navigation'); await expect(card).toBeVisible();
-    await card.getByRole('button', { name: 'Reschedule' }).click(); const dlg = page.locator('dialog.sf[open]'); await expect(dlg).toBeVisible(); await expect(dlg.locator('input.sq-title.big')).toHaveValue('Design sync'); await expect(dlg).toContainText('Navigation redesign' ).catch(() => {});
+    await schedule(hc, { title: 'Nobody came', topic: 'Ops updates', date: ymd(new Date(Date.now() - 2 * 864e5)), time: '10:00', category: 'other' });
+    const page = await hc.newPage(); await page.goto('/qorlla.html#home');
+    const panel = page.locator('.hist-panel'); const toggle = panel.locator('.hist-toggle'); await expect(panel).toBeVisible(); await expect(toggle).toContainText('History Meetings'); await expect(toggle).toHaveAttribute('aria-expanded', 'true'); await expect(toggle).toHaveAttribute('aria-controls', 'histBodyHome');
+    await expect(panel.locator('.hist-count')).toHaveText('2'); const card = panel.locator('.hist-row', { hasText: 'Design sync' }); await expect(card).toBeVisible();
+    // collapsed card: title, topic, date, duration, attendees, status
+    await expect(card.locator('.hist-title')).toHaveText('Design sync'); await expect(card.locator('.hist-topic')).toHaveText('Topic: Navigation redesign'); await expect(card.locator('.hist-chip')).toHaveText(/Completed/); await expect(card.locator('.hist-meta')).toContainText('1 attendee'); await expect(card.locator('.hist-date')).toContainText(String(new Date().getFullYear()));
+    const head = card.locator('.hist-rowhead'); await expect(head).toHaveAttribute('aria-expanded', 'false'); await expect(card.locator('.hist-body')).toBeHidden();
+    await head.focus(); await page.keyboard.press('Enter'); await expect(head).toHaveAttribute('aria-expanded', 'true'); await expect(card.locator('.hist-body')).toContainText('Review connection stability'); await expect(card.locator('.hist-body')).toContainText('Connection'); await expect(card.locator('.hist-body')).toContainText('Peak attendance'); await expect(card.locator('.hist-body')).toContainText('Hostess');
+    await expect(card.getByRole('link', { name: 'Export report' })).toBeVisible(); await expect(card.getByRole('button', { name: 'Reschedule' })).toBeVisible();
+    // two cards expand independently
+    const other = panel.locator('.hist-row', { hasText: 'Nobody came' }); await other.locator('.hist-rowhead').click(); await expect(other.locator('.hist-body')).toContainText('Did not start'); await expect(card.locator('.hist-body')).toBeVisible();
+    // outcome
+    await card.locator('.hist-body textarea').fill('We chose option B.'); await card.getByRole('button', { name: 'Save outcome' }).click(); await expect(page.locator('#toast')).toContainText('Saved'); await expect.poll(async () => (await hist(hc)).find((x) => x.title === 'Design sync').outcomeSummary).toContain('option B');
+    // filters and search
+    await panel.locator('.hist-filterchip[data-status=missed]').click(); await expect(panel.locator('.hist-row')).toHaveCount(1); await expect(panel.locator('.hist-row')).toContainText('Nobody came'); await expect(panel.locator('.hist-filterchip[data-status=missed]')).toHaveAttribute('aria-pressed', 'true');
+    await panel.locator('.hist-filterchip[data-status=cancelled]').click(); await expect(panel.locator('.hist-list')).toContainText('No meetings match'); await panel.locator('.hist-filterchip[data-status=""]').click(); await expect(panel.locator('.hist-row')).toHaveCount(2);
+    await panel.locator('input[type=search]').fill('navigation'); await expect(panel.locator('.hist-row')).toHaveCount(1); await panel.locator('input[type=search]').fill(''); await expect(panel.locator('.hist-row')).toHaveCount(2);
+    // the open/closed state is remembered while moving around the page
+    await page.locator('.nav-item[data-view=notes]').click(); await page.locator('.nav-item[data-view=home]').click();
+    await expect(panel.locator('.hist-toggle')).toHaveAttribute('aria-expanded', 'true'); await expect(panel.locator('.hist-row', { hasText: 'Design sync' }).locator('.hist-body')).toBeVisible();
+    await toggle.click(); await expect(toggle).toHaveAttribute('aria-expanded', 'false'); await expect(panel.locator('.hist-panelbody')).toBeHidden(); await page.locator('.nav-item[data-view=notes]').click(); await page.locator('.nav-item[data-view=home]').click(); await expect(page.locator('.hist-toggle')).toHaveAttribute('aria-expanded', 'false');
+    await page.locator('.hist-toggle').click(); await expect(page.locator('.hist-panelbody')).toBeVisible();
+    // Reschedule: a NEW meeting, the record is untouched
+    const c2 = page.locator('.hist-row', { hasText: 'Design sync' }); await c2.getByRole('button', { name: 'Reschedule' }).click(); const dlg = page.locator('dialog.sf[open]'); await expect(dlg).toBeVisible(); await expect(dlg.locator('input.sq-title.big')).toHaveValue('Design sync');
     await expect(dlg.locator('input[aria-label="Meeting topic"]')).toHaveValue('Navigation redesign'); await dlg.locator('button[type=submit], .sf-save, button.primary').first().click();
     await expect.poll(async () => (await (await hc.request.get('/api/workplace/schedule')).json()).filter((x) => x.title === 'Design sync').length, { timeout: 15000 }).toBe(2);
     const items = (await (await hc.request.get('/api/workplace/schedule')).json()).filter((x) => x.title === 'Design sync'); const fresh = items.find((x) => x.meetingId !== s.meetingId); expect(fresh.topic).toBe('Navigation redesign'); expect(fresh.rescheduledFrom).toBe(s.meetingId);
-    expect((await hist(hc)).length).toBe(1); expect((await hist(hc))[0].meetingId).toBe(s.meetingId); expect((await hist(hc))[0].status).toBe('completed');   // the original record is untouched, the new one is not history yet
-    expect((await hc.request.get('/api/meetings/validate/' + encodeURIComponent(fresh.meetingId))).status()).toBe(200); expect((await hc.request.get('/api/meetings/validate/' + encodeURIComponent(s.meetingId))).status()).toBe(404);
+    expect((await hist(hc)).filter((x) => x.title === 'Design sync')).toHaveLength(1); expect((await hc.request.get('/api/meetings/validate/' + encodeURIComponent(fresh.meetingId))).status()).toBe(200); expect((await hc.request.get('/api/meetings/validate/' + encodeURIComponent(s.meetingId))).status()).toBe(404);
     await hc.close();
+  });
+
+  test('server paging and errors: limit/offset work; a failing history request shows an error with Try again; a person with no history sees the empty state', async ({ browser }) => {
+    test.setTimeout(90000);
+    const hc = await browser.newContext(); await signedIn(hc, '', 'Pager'); for (let n = 0; n < 3; n++) await schedule(hc, { title: 'Old ' + n, date: ymd(new Date(Date.now() - (n + 2) * 864e5)), time: '10:00' });
+    const p1 = await (await hc.request.get('/api/history/meetings?limit=2')).json(); expect(p1.total).toBe(3); expect(p1.meetings).toHaveLength(2); const p2 = await (await hc.request.get('/api/history/meetings?limit=2&offset=2')).json(); expect(p2.meetings).toHaveLength(1);
+    expect(new Set([...p1.meetings, ...p2.meetings].map((x) => x.meetingId)).size).toBe(3);
+    const ec = await browser.newContext(); await signedIn(ec, '', 'Empty'); const ep = await ec.newPage(); await ep.goto('/qorlla.html#home'); await expect(ep.locator('.hist-list')).toContainText('No finished meetings yet'); await expect(ep.locator('.hist-count')).toHaveText('0');
+    let fail = 1; await ep.route('**/api/history/meetings**', (r) => (fail-- > 0 ? r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'History is unavailable' }) }) : r.continue()));
+    await ep.reload(); await expect(ep.locator('.hist-err')).toContainText('History is unavailable'); await ep.getByRole('button', { name: 'Try again' }).click(); await expect(ep.locator('.hist-list')).toContainText('No finished meetings yet');
+    await hc.close(); await ec.close();
   });
 });
 

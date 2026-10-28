@@ -158,8 +158,8 @@ function registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRoo
             && (!q || (b.title + ' ' + b.topic + ' ' + b.hostName).toLowerCase().includes(q))
             && (!from || Date.parse(b.actualStartAt || b.scheduledStartAt) >= from) && (!to || Date.parse(b.actualStartAt || b.scheduledStartAt) <= to));
         rows.sort((a, b) => Date.parse(b.actualStartAt || b.scheduledStartAt || 0) - Date.parse(a.actualStartAt || a.scheduledStartAt || 0));
-        const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
-        res.json({ total: rows.length, meetings: rows.slice(offset, offset + 100), categories: CATEGORIES });
+        const offset = Math.max(0, parseInt(req.query.offset, 10) || 0), limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+        res.json({ total: rows.length, offset, limit, meetings: rows.slice(offset, offset + limit), categories: CATEGORIES });
     });
     app.get('/api/history/meetings/:id', async (req, res) => {
         const u = me(req, res); if (!u) return; const m = find(req);

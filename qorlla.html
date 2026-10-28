@@ -244,6 +244,18 @@
   .hist-outcome { background: #f8fafc; border-radius: 12px; padding: 10px 14px; margin: 8px 0; } .hist-outcome p { margin: 4px 0 0; } .hist-actions { margin-top: 10px; flex-wrap: wrap; } .hist-actions a.btn { text-decoration: none; }
   .hist-more { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 6px; } .hist-sec h4 { margin: 12px 0 6px; } .hist-more textarea, .hist-more input[type=text] { width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; box-sizing: border-box; }
   .hist-item { display: flex; gap: 8px; align-items: center; margin: 4px 0; } .hist-item input[type=text] { width: 140px; } .hist-table { width: 100%; border-collapse: collapse; font-size: 13px; } .hist-table th, .hist-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  .hist-panel { padding: 14px 16px; margin-top: 16px; } .hist-toggle { display: flex; align-items: center; gap: 12px; width: 100%; background: none; border: 0; padding: 4px 0; cursor: pointer; text-align: left; font: inherit; color: inherit; } .hist-tt { display: flex; flex-direction: column; flex: 0 1 auto; } .hist-tt strong { font-size: 20px; } .hist-ico { display: grid; place-items: center; } .hist-ico svg { width: 24px; height: 24px; }
+  .hist-count { background: #eef2f7; border-radius: 999px; min-width: 26px; height: 26px; display: inline-grid; place-items: center; font-size: 13px; padding: 0 8px; } .hist-toggle .hist-chev { margin-left: auto; } .hist-chev svg { width: 20px; height: 20px; transition: transform .15s; transform: rotate(90deg); } .hist-toggle[aria-expanded=true] .hist-chev svg, .hist-row.open > .hist-rowhead .hist-chev svg { transform: rotate(-90deg); }
+  .hist-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 8px; } .hist-filterchip { border: 0; background: #eef2f7; border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; } .hist-filterchip[aria-pressed=true] { background: #1d4ed8; color: #fff; }
+  .hist-filter { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; } .hist-filter input[type=search] { flex: 1 1 200px; } .hist-filter input { height: 34px; border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; background: #fff; font: inherit; font-size: 13px; }
+  .hist-list { display: flex; flex-direction: column; gap: 12px; } .hist-row { border: 1px solid var(--line); border-radius: 16px; background: #fff; } .hist-rowhead { display: flex; justify-content: space-between; gap: 10px; width: 100%; background: none; border: 0; padding: 14px 16px; cursor: pointer; text-align: left; font: inherit; color: inherit; border-radius: 16px; }
+  .hist-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; } .hist-title { font-size: 18px; } .hist-topic { color: #52658b; font-size: 14px; } .hist-date { color: #52658b; font-size: 14px; margin-top: 6px; } .hist-meta { display: flex; gap: 14px; font-size: 14px; } .hist-meta span { display: inline-flex; align-items: center; gap: 5px; } .hist-meta svg { width: 14px; height: 14px; }
+  .hist-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; } .hist-chip { font-size: 13px; font-weight: 500; padding: 2px 12px; border-radius: 999px; background: #e0f2fe; color: #075985; } .hist-chip.s-completed { background: #d9f5e5; color: #0f7a3d; } .hist-chip.s-missed { background: #eef2f7; color: #334155; } .hist-chip.s-cancelled { background: #fee2e2; color: #991b1b; } .hist-chip.s-partial { background: #ede9fe; color: #5b21b6; }
+  .hist-body { padding: 0 16px 14px; border-top: 1px solid var(--line); } .hist-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px 16px; padding: 12px 0 4px; } .hist-kv { display: flex; flex-direction: column; font-size: 14px; } .hist-k { font-size: 11px; letter-spacing: .5px; color: #64748b; text-transform: uppercase; }
+  .hist-sec h4 { margin: 12px 0 6px; } .hist-body textarea, .hist-body input[type=text] { width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; box-sizing: border-box; } .hist-item { display: flex; gap: 8px; align-items: center; margin: 4px 0; } .hist-item input[type=text] { width: 140px; }
+  .hist-table { width: 100%; border-collapse: collapse; font-size: 13px; } .hist-table th, .hist-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); } .hist-actions { margin-top: 12px; flex-wrap: wrap; } .hist-actions a.btn { text-decoration: none; } .hist-note { font-size: 12px; } .hist-err { display: flex; gap: 10px; align-items: center; color: #b91c1c; } .hist-status { font-size: 12px; margin: 8px 0 0; }
+  .hist-rowhead:focus-visible, .hist-toggle:focus-visible, .hist-filterchip:focus-visible { outline: 2px solid #4a90ff; outline-offset: 2px; }
+  .hist-panel .hidden { display: none !important; }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 21px; margin-bottom: 4px; letter-spacing: -.4px; }
   dialog .sub { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
@@ -681,6 +693,7 @@
       <span data-i18n="Your calendar and scheduled meetings, together.">Your calendar and scheduled meetings, together.</span>
     </div>
   </div>
+  <div id="homeHistory"></div>
 </template>
 
 <dialog id="startDialog" aria-labelledby="sdTitle" class="sd">
@@ -815,6 +828,7 @@
     cal: '<rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
     send: '<path d="m22 2-11 11M22 2l-7 20-4-9-9-4Z"/>',
     chevL: '<path d="m15 18-6-6 6-6"/>', chevR: '<path d="m9 18 6-6-6-6"/>',
+    history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5"/><path d="M3.5 4v4.5H8M12 8v4.5l3 1.8"/>',
     undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>'
   };
 
@@ -1210,6 +1224,7 @@
       embedLogin('home');
       return;
     }
+    var hh = viewEl.querySelector('#homeHistory'); if (hh) hh.appendChild(historySection({ collapsible: true }));
     return upcomingItems().then(function (items) {
       var today = ymd(new Date());
       var list = items.filter(function (i) { return i.date === today; });
@@ -1891,108 +1906,140 @@
   // History: meetings that have ended, from the same meeting records (title, topic, who came, how long, what was decided)
   // =====================================================================
   var HIST_STATUS = { completed: 'Completed', partial: 'Partial', missed: 'Missed', cancelled: 'Cancelled' };
-  function fmtDur(s) { if (s == null) return '—'; var hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60); return hh ? hh + 'h ' + mm + 'm' : mm ? mm + 'm' : (s % 60) + 's'; }
+  var histExpanded = {};                                                                      // meetingId -> true: expanded cards survive moving around the page
+  function fmtDur(s) { if (s == null) return '\u2014'; var hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60); return hh ? hh + 'h ' + mm + 'm' : mm ? mm + 'm' : (s % 60) + 's'; }
+  var shortDay = function (iso) { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); };
+  var clock = function (iso) { return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); };
   function fmtWhen(b) {
     var a = b.actualStartAt || b.scheduledStartAt; if (!a) return '';
-    var d = new Date(a), day = d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }), tm = function (x) { return new Date(x).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); };
-    return day + ' \u2022 ' + tm(a) + (b.actualEndAt ? ' \u2013 ' + tm(b.actualEndAt) : '');
+    return new Date(a).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) + ' \u2022 ' + clock(a) + (b.actualEndAt ? ' \u2013 ' + clock(b.actualEndAt) : '');
   }
   function summaryText(b, d) {
     return [b.title, b.topic ? 'Topic: ' + b.topic : '', fmtWhen(b), 'Status: ' + (HIST_STATUS[b.status] || b.status) + ' \u00b7 Duration ' + fmtDur(b.durationSeconds) + ' \u00b7 Attendees ' + b.uniqueAttendeeCount + ' \u00b7 Peak ' + b.peakConcurrentCount,
       b.hostName ? 'Host: ' + b.hostName : '', d && d.outcome ? '\nOutcome: ' + d.outcome : b.outcomeSummary ? '\nOutcome: ' + b.outcomeSummary : ''].filter(Boolean).join('\n');
   }
-  function histCard(b, reload) {
-    var more = h('div', { class: 'hist-more hidden', id: 'hm-' + b.meetingId.replace(/\D/g, '') });
-    var loaded = false, tog = h('button', { class: 'btn small', type: 'button', 'aria-expanded': 'false', text: I18n.t('View details'), onclick: function () {
-      var open = more.classList.toggle('hidden') === false; tog.setAttribute('aria-expanded', String(open)); if (open && !loaded) { loaded = true; loadDetails(); }
-    } });
-    var stat = function (label, value) { return h('div', { class: 'hist-stat' }, [h('span', { class: 'hist-k', text: label }), h('strong', { text: value })]); };
-    var det = null;
-    function loadDetails() {
-      more.textContent = I18n.t('Loading…');
-      api2('/history/meetings/' + encodeURIComponent(b.meetingId)).then(function (d) { det = d; paintDetails(d); }).catch(function (e) { more.textContent = e.message; loaded = false; });
+  // history lives under /api/history (not /api/workplace)
+  function api2(path, opts) { opts = opts || {}; var init = { method: opts.method || 'GET', headers: {} }; if (opts.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
+    return fetch(BASE + '/api' + path, init).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (r.status === 401) throw new Error('Please sign in.'); if (!r.ok) throw new Error(j.error || 'Request failed'); return j; }); }); }
+
+  /** One meeting as an expandable card. Collapsed: title, topic, date, duration, attendees, status. Expanded (loaded on demand): the full record. */
+  function histRow(b, reload, collapseOthers) {
+    var id = b.meetingId.replace(/\D/g, ''), bodyId = 'hb-' + id, det = null, loaded = false;
+    var body = h('div', { class: 'hist-body hidden', id: bodyId, role: 'region', 'aria-label': b.title });
+    var head = h('button', { class: 'hist-rowhead', type: 'button', 'aria-expanded': 'false', 'aria-controls': bodyId, 'aria-label': b.title + ', ' + (HIST_STATUS[b.status] || b.status) + '. ' + I18n.t('Show details') }, [
+      h('span', { class: 'hist-main' }, [
+        h('strong', { class: 'hist-title', text: b.title }),
+        b.topic ? h('span', { class: 'hist-topic', text: I18n.t('Topic') + ': ' + b.topic }) : null,
+        h('span', { class: 'hist-date', text: shortDay(b.actualStartAt || b.scheduledStartAt) }),
+        h('span', { class: 'hist-meta' }, [h('span', {}, [icon(IC.clock), fmtDur(b.durationSeconds)]), h('span', {}, [icon(IC.users), b.uniqueAttendeeCount + ' ' + I18n.t(b.uniqueAttendeeCount === 1 ? 'attendee' : 'attendees')])])
+      ]),
+      h('span', { class: 'hist-side' }, [h('span', { class: 'hist-chip s-' + b.status, text: I18n.t(HIST_STATUS[b.status] || b.status) }), h('span', { class: 'hist-chev', 'aria-hidden': 'true' }, [icon(IC.chevR)])])
+    ]);
+    var card = h('article', { class: 'hist-row', 'data-id': id }, [head, body]);
+    function setOpen(open) {
+      body.classList.toggle('hidden', !open); head.setAttribute('aria-expanded', String(open)); card.classList.toggle('open', open); histExpanded[id] = open;
+      if (open && !loaded) { loaded = true; load(); }
     }
-    function paintDetails(d) {
-      more.textContent = '';
+    head.addEventListener('click', function () { var open = body.classList.contains('hidden'); if (open && collapseOthers) collapseOthers(card); setOpen(open); });
+    card._collapse = function () { setOpen(false); };
+    function load() { body.textContent = I18n.t('Loading\u2026'); api2('/history/meetings/' + encodeURIComponent(b.meetingId)).then(function (d) { det = d; paint(d); }).catch(function (e) { body.textContent = ''; body.appendChild(h('div', { class: 'hist-err' }, [h('span', { text: e.message }), h('button', { class: 'btn small', type: 'button', text: I18n.t('Try again'), onclick: load })])); }); }
+    function paint(d) {
+      body.textContent = '';
       var sec = function (t, kids) { return h('section', { class: 'hist-sec' }, [h('h4', { text: t })].concat(kids)); };
-      if (d.description) more.appendChild(sec(I18n.t('Description'), [h('p', { text: d.description })]));
-      if (d.agenda && d.agenda.length) more.appendChild(sec(I18n.t('Agenda'), [h('ol', {}, d.agenda.map(function (x) { return h('li', { text: x }); }))]));
-      var outcome = h('textarea', { rows: '3', maxlength: '4000', 'aria-label': I18n.t('Meeting outcome'), placeholder: I18n.t('What was decided or concluded?') }); outcome.value = d.outcome || ''; outcome.readOnly = !d.isHost;
-      var items = (d.actionItems || []).map(function (x) { return { text: x.text, owner: x.owner, due: x.due, done: x.done }; });
-      var itemsBox = h('div', { class: 'hist-items' });
+      var kv = function (k, val) { return h('div', { class: 'hist-kv' }, [h('span', { class: 'hist-k', text: k }), h('span', { text: val })]); };
+      body.appendChild(h('div', { class: 'hist-facts' }, [
+        kv(I18n.t('Host'), d.hostName || '\u2014'), kv(I18n.t('Status'), I18n.t(HIST_STATUS[d.status] || d.status)), d.category ? kv(I18n.t('Category'), d.category) : null,
+        kv(I18n.t('Scheduled'), d.scheduledStartAt ? shortDay(d.scheduledStartAt) + ', ' + clock(d.scheduledStartAt) : '\u2014'),
+        kv(I18n.t('Actual'), d.actualStartAt ? clock(d.actualStartAt) + (d.actualEndAt ? ' \u2013 ' + clock(d.actualEndAt) : '') : I18n.t('Did not start')),
+        kv(I18n.t('Duration'), fmtDur(d.durationSeconds)), kv(I18n.t('Peak attendance'), String(d.peakConcurrentCount)), kv(I18n.t('Unique attendees'), String(d.uniqueAttendeeCount))]));
+      if (d.description) body.appendChild(sec(I18n.t('Description'), [h('p', { text: d.description })]));
+      if (d.agenda && d.agenda.length) body.appendChild(sec(I18n.t('Agenda'), [h('ol', {}, d.agenda.map(function (x) { return h('li', { text: x }); }))]));
+      var outcome = h('textarea', { rows: '3', maxlength: '4000', 'aria-label': I18n.t('Meeting outcome'), placeholder: d.isHost ? I18n.t('What was decided or concluded?') : '' }); outcome.value = d.outcome || ''; outcome.readOnly = !d.isHost;
+      var items = (d.actionItems || []).map(function (x) { return { text: x.text, owner: x.owner, due: x.due, done: x.done }; }), itemsBox = h('div', { class: 'hist-items' });
       function drawItems() {
         itemsBox.textContent = '';
-        items.forEach(function (x, i) {
+        items.forEach(function (x, k) {
           var cb = h('input', { type: 'checkbox', 'aria-label': I18n.t('Done') + ': ' + x.text }); cb.checked = x.done; cb.disabled = !d.isHost; cb.onchange = function () { x.done = cb.checked; };
           var owner = h('input', { type: 'text', maxlength: '80', placeholder: I18n.t('Owner'), 'aria-label': I18n.t('Owner') }); owner.value = x.owner || ''; owner.readOnly = !d.isHost; owner.oninput = function () { x.owner = owner.value; };
-          itemsBox.appendChild(h('div', { class: 'hist-item' }, [cb, h('span', { class: 'grow', text: x.text }), owner].concat(d.isHost ? [h('button', { class: 'icon-sm', type: 'button', 'aria-label': I18n.t('Remove'), onclick: function () { items.splice(i, 1); drawItems(); } }, [icon(IC.x)])] : [])));
+          itemsBox.appendChild(h('div', { class: 'hist-item' }, [cb, h('span', { class: 'grow', text: x.text }), owner].concat(d.isHost ? [h('button', { class: 'icon-sm', type: 'button', 'aria-label': I18n.t('Remove'), onclick: function () { items.splice(k, 1); drawItems(); } }, [icon(IC.x)])] : [])));
         });
         if (!items.length) itemsBox.appendChild(h('p', { class: 'muted', text: I18n.t('No follow-up items.') }));
       }
       drawItems();
-      more.appendChild(sec(I18n.t('Meeting outcome'), [outcome]));
+      body.appendChild(sec(I18n.t('Meeting outcome'), [outcome]));
       var newItem = h('input', { type: 'text', maxlength: '300', placeholder: I18n.t('Add an action item'), 'aria-label': I18n.t('Add an action item') });
       var addItem = function () { var t = newItem.value.trim(); if (!t) return; items.push({ text: t, owner: '', due: '', done: false }); newItem.value = ''; drawItems(); };
       newItem.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addItem(); } });
-      more.appendChild(sec(I18n.t('Action items'), [itemsBox].concat(d.isHost ? [h('div', { class: 'row' }, [newItem, h('button', { class: 'btn small', type: 'button', text: I18n.t('Add'), onclick: addItem })])] : [])));
+      body.appendChild(sec(I18n.t('Decisions and action items'), [itemsBox].concat(d.isHost ? [h('div', { class: 'row' }, [newItem, h('button', { class: 'btn small', type: 'button', text: I18n.t('Add'), onclick: addItem })])] : [])));
       if (d.isHost) {
-        more.appendChild(h('div', { class: 'row' }, [h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Save outcome'), onclick: function () {
-          api2('/history/meetings/' + encodeURIComponent(b.meetingId), { method: 'PATCH', body: { outcome: outcome.value, actionItems: items } }).then(function (nd) { det = nd; toast(I18n.t('Saved'), 'ok'); reload(true); }).catch(fail);
-        } })]));
         var tbl = h('table', { class: 'hist-table' }, [h('thead', {}, [h('tr', {}, ['Attendee', 'First joined', 'Last left', 'Time', 'Joins'].map(function (t) { return h('th', { text: I18n.t(t) }); }))]),
-          h('tbody', {}, (d.attendees || []).map(function (a) { return h('tr', {}, [a.name, new Date(a.firstJoin).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }), new Date(a.lastLeft).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }), fmtDur(a.seconds), String(a.sessions)].map(function (t) { return h('td', { text: t }); })); }))]);
-        more.appendChild(sec(I18n.t('Attendance') + ' (' + (d.attendanceSource || '') + ')', [(d.attendees || []).length ? tbl : h('p', { class: 'muted', text: I18n.t('No attendance was recorded.') })]));
-        more.appendChild(sec(I18n.t('Recording'), [h('p', { class: 'muted', text: d.recordings && d.recordings.note || '' })]));
+          h('tbody', {}, (d.attendees || []).map(function (a) { return h('tr', {}, [a.name, clock(a.firstJoin), clock(a.lastLeft), fmtDur(a.seconds), String(a.sessions)].map(function (t) { return h('td', { text: t }); })); }))]);
+        body.appendChild(sec(I18n.t('Attendance report') + ' (' + (d.attendanceSource || '') + ')', [(d.attendees || []).length ? tbl : h('p', { class: 'muted', text: I18n.t('No attendance was recorded.') })]));
       }
-    }
-    var actions = [tog, h('button', { class: 'btn small', type: 'button', text: I18n.t('Copy summary'), onclick: function () { var t = summaryText(b, det); if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { toast(I18n.t('Summary copied'), 'ok'); }, function () { toast(t); }); else toast(t); } })];
-    if (b.isHost) {
-      actions.push(h('a', { class: 'btn small', href: BASE + '/api/history/meetings/' + encodeURIComponent(b.meetingId) + '/report', download: '', text: I18n.t('Download report') }));
-      actions.push(h('button', { class: 'btn small', type: 'button', text: I18n.t('Reschedule'), title: I18n.t('Creates a NEW meeting with a new ID; this record stays as it was'), onclick: function () {
-        (det ? Promise.resolve(det) : api2('/history/meetings/' + encodeURIComponent(b.meetingId))).then(function (d) {
+      body.appendChild(h('p', { class: 'muted hist-note', text: I18n.t('Notes, poll results and recordings are available inside the meeting itself. They are not linked into History yet.') }));
+      var acts = [];
+      if (d.isHost) {
+        acts.push(h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Save outcome'), onclick: function () {
+          api2('/history/meetings/' + encodeURIComponent(b.meetingId), { method: 'PATCH', body: { outcome: outcome.value, actionItems: items } }).then(function (nd) { det = nd; toast(I18n.t('Saved'), 'ok'); reload(true); }).catch(fail);
+        } }));
+        acts.push(h('a', { class: 'btn small', href: BASE + '/api/history/meetings/' + encodeURIComponent(b.meetingId) + '/report', download: '', text: I18n.t('Export report') }));
+        acts.push(h('button', { class: 'btn small', type: 'button', text: I18n.t('Reschedule'), title: I18n.t('Creates a NEW meeting with a new ID; this record stays as it was'), onclick: function () {
           var m = newSchedModel(); m.title = d.title; m.topic = d.topic || ''; m.category = d.category || ''; m.description = d.description || ''; m.agenda = (d.agenda || []).join('\n'); m.rescheduledFrom = d.meetingId; m.showAgenda = !!(d.agenda && d.agenda.length);
           openSchedFull(m, null, null);
-        }).catch(fail);
-      } }));
+        } }));
+      }
+      acts.push(h('button', { class: 'btn small', type: 'button', text: I18n.t('Copy summary'), onclick: function () { var t = summaryText(b, det || d); if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { toast(I18n.t('Summary copied'), 'ok'); }, function () { toast(t); }); else toast(t); } }));
+      body.appendChild(h('div', { class: 'row hist-actions' }, acts));
     }
-    return h('article', { class: 'card hist-card', 'aria-label': b.title }, [
-      h('div', { class: 'hist-head' }, [h('span', { class: 'hist-chip s-' + b.status, text: I18n.t(HIST_STATUS[b.status] || b.status) }), b.category ? h('span', { class: 'hist-chip cat', text: b.category }) : null]),
-      h('h3', { class: 'hist-title', text: b.title }),
-      b.topic ? h('p', { class: 'hist-topic', text: I18n.t('Topic') + ': ' + b.topic }) : null,
-      h('p', { class: 'muted', text: fmtWhen(b) }),
-      h('div', { class: 'hist-stats' }, [stat(I18n.t('DURATION'), fmtDur(b.durationSeconds)), stat(I18n.t('ATTENDEES'), String(b.uniqueAttendeeCount)), stat(I18n.t('PEAK'), String(b.peakConcurrentCount))]),
-      b.outcomeSummary ? h('div', { class: 'hist-outcome' }, [h('strong', { text: I18n.t('Meeting outcome') }), h('p', { text: b.outcomeSummary })]) : null,
-      h('div', { class: 'muted', text: I18n.t('Host') + ': ' + (b.hostName || '—') }),
-      h('div', { class: 'row hist-actions' }, actions), more
-    ]);
+    if (histExpanded[id]) setOpen(true);
+    return card;
   }
-  // history lives under /api/history (not /api/workplace)
-  function api2(path, opts) { opts = opts || {}; var init = { method: opts.method || 'GET', headers: {} }; if (opts.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
-    return fetch(BASE + '/api' + path, init).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (r.status === 401) throw new Error('Please sign in.'); if (!r.ok) throw new Error(j.error || 'Request failed'); return j; }); }); }
+
+  /** The History Meetings section. collapsible: a dropdown on the home page (state remembered); otherwise a plain page section. */
+  function historySection(opts) {
+    opts = opts || {};
+    var f = { q: '', status: '', from: '', to: '' }, offset = 0, total = 0, timer = 0, seq = 0, STORE = 'zw_hist_open';
+    var open = opts.collapsible ? store(STORE) !== '0' : true;
+    var count = h('span', { class: 'hist-count', 'aria-label': I18n.t('Meetings in history') , text: '\u2026' });
+    var list = h('div', { class: 'hist-list', 'aria-live': 'polite' }), more = h('button', { class: 'btn small hidden', type: 'button', text: I18n.t('Show more') }), status = h('p', { class: 'muted hist-status' });
+    var chips = h('div', { class: 'hist-chips', role: 'group', 'aria-label': I18n.t('Filter by status') });
+    [['', 'All meetings'], ['completed', 'Completed'], ['missed', 'Missed'], ['cancelled', 'Cancelled'], ['partial', 'Partial']].forEach(function (c) {
+      var b = h('button', { type: 'button', class: 'hist-filterchip', 'data-status': c[0], 'aria-pressed': String(c[0] === ''), text: I18n.t(c[1]) });
+      b.addEventListener('click', function () { f.status = c[0]; Array.prototype.forEach.call(chips.children, function (x) { x.setAttribute('aria-pressed', String(x === b)); }); reset(); }); chips.appendChild(b);
+    });
+    var search = h('input', { type: 'search', placeholder: I18n.t('Search title or topic'), 'aria-label': I18n.t('Search title or topic') });
+    search.addEventListener('input', function () { f.q = search.value; clearTimeout(timer); timer = setTimeout(reset, 250); });
+    var from = h('input', { type: 'date', 'aria-label': I18n.t('From date') }), to = h('input', { type: 'date', 'aria-label': I18n.t('To date') });
+    from.addEventListener('change', function () { f.from = from.value; reset(); }); to.addEventListener('change', function () { f.to = to.value; reset(); });
+    var bodyId = 'histBody' + (opts.collapsible ? 'Home' : 'Page');
+    var body = h('div', { class: 'hist-panelbody' + (open ? '' : ' hidden'), id: bodyId }, [chips, h('div', { class: 'hist-filter', role: 'search' }, [search, from, to]), list, status, more]);
+    var toggle = opts.collapsible ? h('button', { class: 'hist-toggle', type: 'button', 'aria-expanded': String(open), 'aria-controls': bodyId }, [
+      h('span', { class: 'hist-ico', 'aria-hidden': 'true' }, [icon(IC.history)]), h('span', { class: 'hist-tt' }, [h('strong', { text: I18n.t('History Meetings') }), h('span', { class: 'muted', text: I18n.t('Past meetings and activity reports') })]), count,
+      h('span', { class: 'hist-chev big', 'aria-hidden': 'true' }, [icon(IC.chevR)])]) : null;
+    if (toggle) toggle.addEventListener('click', function () { open = !open; body.classList.toggle('hidden', !open); toggle.setAttribute('aria-expanded', String(open)); store(STORE, open ? '1' : '0'); });
+    var collapseOthers = function (except) { if (window.matchMedia('(max-width: 700px)').matches) Array.prototype.forEach.call(list.children, function (c) { if (c !== except && c._collapse) c._collapse(); }); };   // phones: one card open at a time
+    function fetchPage() {
+      var mine = ++seq, qs = Object.keys(f).filter(function (k) { return f[k]; }).map(function (k) { return k + '=' + encodeURIComponent(f[k]); }).concat(['limit=10', 'offset=' + offset]).join('&');
+      return api2('/history/meetings?' + qs).then(function (d) {
+        if (mine !== seq) return; total = d.total; if (!f.status && !f.q && !f.from && !f.to) count.textContent = String(d.total);
+        d.meetings.forEach(function (b) { list.appendChild(histRow(b, reload, collapseOthers)); }); offset += d.meetings.length;
+        status.textContent = total ? I18n.t('Showing {a} of {b}', { a: offset, b: total }) : '';
+        more.classList.toggle('hidden', offset >= total);
+        if (!total) list.appendChild(emptyState(f.status || f.q || f.from || f.to ? I18n.t('No meetings match these filters.') : I18n.t('No finished meetings yet. A meeting appears here once it has ended.')));
+      }).catch(function (e) { if (mine !== seq) return; list.textContent = ''; list.appendChild(h('div', { class: 'hist-err' }, [h('span', { text: e.message }), h('button', { class: 'btn small', type: 'button', text: I18n.t('Try again'), onclick: reset })])); });
+    }
+    function reset() { offset = 0; list.textContent = ''; list.appendChild(h('p', { class: 'muted hist-loading', text: I18n.t('Loading…') })); return fetchPage().then(function () { var l = list.querySelector('.hist-loading'); if (l) l.remove(); }); }
+    function reload(quiet) { return quiet ? Promise.resolve() : reset(); }
+    more.addEventListener('click', function () { more.disabled = true; fetchPage().then(function () { more.disabled = false; }); });
+    var root = h('section', { class: 'card hist-panel', 'aria-label': I18n.t('History Meetings') }, [toggle, body]);
+    reset();
+    return root;
+  }
   VIEWS.history = function () {
     if (!state.user) return gate(I18n.t('History'), 'meeting history');
-    var f = { q: '', status: '', category: '', from: '', to: '', host: '' }, timer = 0, list = h('div', { class: 'hist-list', 'aria-live': 'polite' });
-    var input = function (key, attrs) { var el = h('input', attrs); el.addEventListener('input', function () { f[key] = el.value; clearTimeout(timer); timer = setTimeout(load, 250); }); return el; };
-    var select = function (key, label, opts) { var el = h('select', { 'aria-label': label }, [h('option', { value: '', text: label })].concat(opts.map(function (o) { return h('option', { value: o[0], text: o[1] }); }))); el.addEventListener('change', function () { f[key] = el.value; load(); }); return el; };
     viewEl.appendChild(pageHead(I18n.t('History'), I18n.t('Meetings that have ended: what they were about, who came, how long they lasted and what was decided.')));
-    viewEl.appendChild(h('div', { class: 'hist-filter', role: 'search' }, [
-      input('q', { type: 'search', placeholder: I18n.t('Search title, topic or host'), 'aria-label': I18n.t('Search title, topic or host') }),
-      select('status', I18n.t('Any status'), Object.keys(HIST_STATUS).map(function (k) { return [k, HIST_STATUS[k]]; })),
-      select('category', I18n.t('Any category'), ['team', 'training', 'presentation', 'interview', 'webinar', 'other'].map(function (c) { return [c, c.charAt(0).toUpperCase() + c.slice(1)]; })),
-      input('from', { type: 'date', 'aria-label': I18n.t('From date') }), input('to', { type: 'date', 'aria-label': I18n.t('To date') })
-    ]));
-    viewEl.appendChild(list);
-    function load(quiet) {
-      var qs = Object.keys(f).filter(function (k) { return f[k]; }).map(function (k) { return k + '=' + encodeURIComponent(f[k]); }).join('&');
-      return api2('/history/meetings' + (qs ? '?' + qs : '')).then(function (d) {
-        if (quiet) return; list.textContent = '';
-        if (!d.meetings.length) list.appendChild(emptyState(Object.keys(f).some(function (k) { return f[k]; }) ? I18n.t('No meetings match these filters.') : I18n.t('No finished meetings yet. A meeting appears here once it has ended.')));
-        d.meetings.forEach(function (b) { list.appendChild(histCard(b, load)); });
-      });
-    }
-    return load();
+    viewEl.appendChild(historySection({ collapsible: false }));
   };
-
   VIEWS.notes = function (opts) {
     if (!state.user) return gate('My Notes', 'your notes');
     return api('/notes').then(function (notes) {
