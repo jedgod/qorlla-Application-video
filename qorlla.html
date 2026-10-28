@@ -232,6 +232,11 @@
   @media (max-height: 820px) and (min-width: 851px) { dialog.sd .sd-prev { aspect-ratio: 16 / 8.4; } dialog.sd .note-box { display: none; } dialog.sd .sd-left, dialog.sd .sd-right { gap: 4px; } dialog.sd .sd-head { padding-top: 10px; padding-bottom: 4px; }
     dialog.sd input[type=text], dialog.sd input[type=password] { height: 32px; } dialog.sd .sd-card { padding: 6px 10px; } dialog.sd .sd-quick { margin: 2px 0; } dialog.sd .hint { margin: 0; } dialog.sd .sd-body { padding-bottom: 6px; } }
   @media (max-height: 740px) and (min-width: 851px) { dialog.sd .sd-prev { aspect-ratio: 16 / 6; } }
+  #startDialog[data-mode=join] .sd-s, #startDialog:not([data-mode=join]) .sd-j { display: none !important; }
+  dialog.sd .sd-fld { display: flex; flex-direction: column; gap: 4px; } dialog.sd .sd-clear { position: relative; } dialog.sd .sd-clear input { width: 100%; padding-right: 34px; } dialog.sd .sd-clear button { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; border: 0; border-radius: 50%; background: #cbd5e1; color: #fff; font-size: 11px; cursor: pointer; }
+  dialog.sd .sd-pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #c7d2fe; background: #eef2ff; color: #1d4ed8; border-radius: 10px; padding: 6px 12px; font-weight: 600; flex: 1; } dialog.sd .sd-prevchk { flex-basis: 100%; }
+  dialog.sd .sd-info { background: #eff6ff; color: #1e3a8a; border-radius: 10px; padding: 8px 10px; font-size: 12px; margin: 4px 0 0; }
+  #startDialog[data-mode=join] .sd-quick { flex-wrap: wrap; } #startDialog[data-mode=join] .sd-body { padding-bottom: 12px; }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 21px; margin-bottom: 4px; letter-spacing: -.4px; }
   dialog .sub { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
@@ -666,31 +671,6 @@
   </div>
 </template>
 
-<dialog id="joinDialog">
-  <form method="dialog" id="joinForm">
-    <h2 id="dlgTitle"><span data-i18n="Join meeting">Join meeting</span></h2>
-    <p class="sub" id="dlgSub"><span data-i18n="Enter the meeting ID to jump in.">Enter the meeting ID to jump in.</span></p>
-    <div id="idWrap">
-      <label class="f" for="mid"><span data-i18n="Meeting ID">Meeting ID</span></label>
-      <input type="text" id="mid" inputmode="numeric" placeholder="000 0000 0000" autocomplete="off">
-    </div>
-    <div id="titleWrap" style="display:none">
-      <label class="f" for="ttl">Meeting title</label>
-      <input type="text" id="ttl" maxlength="160" placeholder="Qorlla Team Meeting" autocomplete="off">
-    </div>
-    <label class="f" for="nm">Your name</label>
-    <input type="text" id="nm" placeholder="Your name" autocomplete="name">
-    <div class="chk">
-      <label><input type="checkbox" id="mic" checked> Mic on</label>
-      <label><input type="checkbox" id="cam" checked> Camera on</label>
-    </div>
-    <div class="btns">
-      <button type="button" id="dlgCancel"><span data-i18n="Cancel">Cancel</span></button>
-      <button type="submit" class="primary" id="dlgGo"><span data-i18n="Join">Join</span></button>
-    </div>
-  </form>
-</dialog>
-
 <dialog id="startDialog" aria-labelledby="sdTitle" class="sd">
   <form id="startForm" novalidate>
     <header class="sd-head">
@@ -700,22 +680,24 @@
     </header>
     <div class="sd-body"><div class="sd-grid">
       <div class="sd-left">
-        <label class="f" for="sdTitleIn">Meeting title</label><input type="text" id="sdTitleIn" maxlength="160" autocomplete="off">
-        <div class="f">Meeting ID</div>
-        <div class="sd-id"><strong id="sdId"></strong><span id="sdBadge" class="sd-badge" hidden>Unconfirmed</span><button type="button" class="chip" id="sdCopyId">Copy ID</button></div>
-        <label class="f" for="sdPass">Meeting password <span class="muted">(optional)</span></label>
-        <div class="sd-pass"><input type="password" id="sdPass" maxlength="32" autocomplete="new-password" placeholder="Enter meeting password"><button type="button" class="chip" id="sdPassToggle" aria-pressed="false">Show</button><button type="button" class="chip" id="sdPassGen">Generate</button></div>
+        <div class="sd-j sd-fld"><label class="f" for="sdMid">Meeting ID</label><div class="sd-clear"><input type="text" id="sdMid" inputmode="numeric" maxlength="40" placeholder="000 0000 0000" autocomplete="off"><button type="button" id="sdMidClear" aria-label="Clear the meeting ID" hidden>&#10005;</button></div><p class="hint">Enter the 11-digit meeting ID or paste the invitation link from your host.</p></div>
+        <div class="sd-s sd-fld"><label class="f" for="sdTitleIn">Meeting title</label><input type="text" id="sdTitleIn" maxlength="160" autocomplete="off"></div>
+        <div class="sd-s f">Meeting ID</div>
+        <div class="sd-s sd-id"><strong id="sdId"></strong><span id="sdBadge" class="sd-badge" hidden>Unconfirmed</span><button type="button" class="chip" id="sdCopyId">Copy ID</button></div>
+        <label class="f" for="sdPass" id="sdPassLab">Meeting password <span class="muted">(optional)</span></label>
+        <div class="sd-pass"><input type="password" id="sdPass" maxlength="32" autocomplete="new-password" placeholder="Enter meeting password"><button type="button" class="chip" id="sdPassToggle" aria-pressed="false">Show</button><button type="button" class="chip sd-s" id="sdPassGen">Generate</button></div>
         <p class="hint" id="sdPassNote"></p>
-        <label class="hint" id="sdRemoveWrap" style="display:none"><input type="checkbox" id="sdRemovePass"> Remove the current password</label>
-        <label class="f" for="sdName">Your display name</label><input type="text" id="sdName" maxlength="70" autocomplete="name">
+        <label class="hint sd-s" id="sdRemoveWrap" style="display:none"><input type="checkbox" id="sdRemovePass"> Remove the current password</label>
+        <label class="f" for="sdName" id="sdNameLab">Your display name</label><input type="text" id="sdName" maxlength="70" autocomplete="name">
         <fieldset class="sd-quick"><legend>Quick settings</legend>
-          <label><input type="checkbox" id="sdMic" checked> Mic on</label>
-          <label><input type="checkbox" id="sdCam" checked> Camera on</label>
-          <label><input type="checkbox" id="sdPreview"> Show camera preview before joining</label>
+          <label class="sd-pill"><input type="checkbox" id="sdMic" checked> <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Mic on</label>
+          <label class="sd-pill"><input type="checkbox" id="sdCam" checked> <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="12" height="12" rx="2.5"/><path d="m15 10 6-3.5v11L15 14"/></svg> Camera on</label>
+          <label class="sd-prevchk"><input type="checkbox" id="sdPreview"> <span id="sdPreviewLab">Show camera preview before joining</span></label>
         </fieldset>
-        <div class="f">Invitation link</div>
-        <div class="sd-link"><input type="text" id="sdLink" readonly aria-label="Invitation link"><button type="button" class="chip" id="sdCopyInvite">Copy invitation</button></div>
-        <p class="hint">Share this link with the people you want to invite.</p>
+        <p class="sd-j sd-info">By joining, you agree to follow the meeting rules set by the host, including any recording or AI transcription policies.</p>
+        <div class="sd-s f">Invitation link</div>
+        <div class="sd-s sd-link"><input type="text" id="sdLink" readonly aria-label="Invitation link"><button type="button" class="chip" id="sdCopyInvite">Copy invitation</button></div>
+        <p class="sd-s hint">Share this link with the people you want to invite.</p>
       </div>
       <div class="sd-right">
         <section aria-labelledby="sdPrevH" class="sd-card">
@@ -724,17 +706,17 @@
           <button type="button" class="chip" id="sdTest">Test microphone and camera</button>
         </section>
         <section aria-labelledby="sdDevH" class="sd-card">
-          <div class="sd-dh"><h3 id="sdDevH">Select devices</h3><button type="button" class="sd-refresh" id="sdRefresh" aria-label="Refresh device list" title="Refresh device list">&#8635;</button></div>
+          <div class="sd-dh"><h3 id="sdDevH">Select devices <span class="muted sd-j">(optional)</span></h3><button type="button" class="sd-refresh" id="sdRefresh" aria-label="Refresh device list" title="Refresh device list">&#8635;</button></div>
           <div class="sd-dev"><span class="sd-di"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="12" height="12" rx="2.5"/><path d="m15 10 6-3.5v11L15 14"/></svg></span><select id="sdCamSel" aria-label="Camera" disabled><option>Test your devices to choose</option></select></div>
           <div class="sd-dev"><span class="sd-di"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><select id="sdMicSel" aria-label="Microphone" disabled><option>Test your devices to choose</option></select><div class="sd-meter" aria-hidden="true"><i id="sdMeter"></i></div></div>
           <div class="sd-dev sd-spk"><span class="sd-di"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></span><select id="sdSpkSel" aria-label="Speakers"><option value="">Default speakers</option></select><button type="button" class="chip" id="sdSpkTest">Test</button></div>
           <p class="hint" id="sdSpkNote"></p>
         </section>
-        <details class="sd-card sd-ready" id="sdReady">
+        <details class="sd-card sd-ready sd-s" id="sdReady">
           <summary id="sdNetH">Readiness <span id="sdReadySum" class="muted"></span></summary>
           <button type="button" class="chip" id="sdRecheck" hidden>Re-check</button><ul class="sd-net" id="sdNet" aria-live="polite"><li data-k="net"><span>Meeting lookup</span><b>Checking…</b></li><li data-k="meet"><span>Meeting server (Qorlla Meet)</span><b>Checking…</b></li><li data-k="cam"><span>Camera</span><b>Not tested</b></li><li data-k="mic"><span>Microphone</span><b>Not tested</b></li></ul>
         </details>
-        <details id="sdSec" class="sd-card" open>
+        <details id="sdSec" class="sd-card sd-s" open>
           <summary>Security and admission</summary>
           <label><input type="checkbox" id="sdWait" checked> Enable waiting room for guests</label><p class="hint">Guests are held until you admit them one by one. Enforced by Qorlla Meet.</p>
           <label><input type="checkbox" id="sdBefore"> Allow participants to join before the host <span class="muted">(not recommended)</span></label>
@@ -906,7 +888,7 @@
     var q = new URLSearchParams(params).toString();
     window.location.href = VIDEO_PAGE + (q ? '?' + q : '');
   }
-  var dlgMode = 'join';
+  var dlgMode = 'join', joinPrefill = '';
   function startOrJoin(m, joinable) { if (joinable && m.kind !== 'event') openStart(m); else openDialog('join', joinable ? m.meetingId : null); }
 
   // =====================================================================
@@ -960,7 +942,7 @@
     $('sdTitleIn').value = m.title || ''; $('sdName').value = myName(); $('sdPass').value = ''; $('sdPass').type = 'password'; $('sdPassToggle').textContent = 'Show'; $('sdPassToggle').setAttribute('aria-pressed', 'false');
     $('sdGo').textContent = 'Start meeting'; $('sdRemovePass').checked = false; $('sdRemoveWrap').style.display = 'none';
     $('sdSub').textContent = m.date ? 'Scheduled for ' + prettyDate(m.date) + ((m.start || m.time) ? ' · ' + t12(m.start || m.time) : '') : 'Configure your Qorlla meeting';
-    $('sdMic').checked = true; $('sdCam').checked = true; $('sdPreview').checked = false; stopPreview(); resetDevices(); loadDeviceList();
+    setMode('start'); $('sdMic').checked = store('zw_mic') !== '0'; $('sdCam').checked = store('zw_cam') !== '0'; $('sdPreview').checked = false; stopPreview(); resetDevices(); loadDeviceList();
     $('sdSec').open = !window.matchMedia('(max-width: 700px)').matches;                       // on phones the advanced options start collapsed
     netRow('cam', 'Not tested'); netRow('mic', 'Not tested');
     $('startDialog').showModal(); $('sdTitleIn').focus(); runPreflight();
@@ -1046,7 +1028,8 @@
 
   // ---- start: the server applies title, password and admission policy, then we go straight into Meet as host ----
   $('startForm').addEventListener('submit', function (e) {
-    e.preventDefault(); if (sd.busy || !sd.ready) return;                                               // a repeated click never starts a second meeting
+    e.preventDefault(); if (sd.busy || !sd.ready) return;
+    if ($('startDialog').dataset.mode === 'join') { joinSubmit(); return; }                                               // a repeated click never starts a second meeting
     var title = $('sdTitleIn').value.trim(), name = $('sdName').value.trim(), pw = $('sdPass').value, err = $('sdErr'); $('sdRetry').hidden = true;
     if (!title) { err.textContent = 'Give the meeting a title.'; $('sdTitleIn').focus(); return; }
     if (!name) { err.textContent = 'Enter your display name.'; $('sdName').focus(); return; }
@@ -1082,36 +1065,50 @@
         pendingNew = { meetingId: r.d.meeting.meetingId, title: r.d.meeting.topic, kind: 'meeting', instant: true }; openStart(pendingNew);
       }).catch(function (e) { toast(e.message || 'The meeting could not be created.', 'err'); });
   }
+  // ---- Join meeting: the same screen as Start, with the host-only parts replaced by the meeting ID and password the guest needs ----
+  function setMode(mode) {
+    var d = $('startDialog'); d.dataset.mode = mode; var j = mode === 'join';
+    $('sdTitle').textContent = j ? 'Join meeting' : 'Start meeting'; $('sdSub').textContent = j ? 'Enter the meeting details to join a Qorlla meeting.' : 'Configure your Qorlla meeting';
+    $('sdPassLab').innerHTML = j ? 'Meeting password <span class="muted">(optional)</span>' : 'Meeting password <span class="muted">(optional)</span>'; $('sdNameLab').textContent = j ? 'Your name' : 'Your display name';
+    $('sdPass').autocomplete = j ? 'off' : 'new-password'; $('sdPreviewLab').textContent = j ? 'Preview my camera before joining' : 'Show camera preview before joining';
+    $('sdGo').textContent = j ? 'Join meeting' : 'Start meeting'; $('sdGo').disabled = false; $('sdRetry').hidden = true; $('sdErr').textContent = '';
+    if (j) $('sdPassNote').textContent = 'Leave empty if no password is required.';
+  }
+  function openJoin(meetingId) {
+    sd.m = null; sd.busy = false; sd.ready = true; setMode('join'); stopPreview(); resetDevices(); loadDeviceList();
+    $('sdMid').value = meetingId || ''; $('sdMidClear').hidden = !$('sdMid').value; $('sdPass').value = ''; $('sdPass').type = 'password'; $('sdPassToggle').textContent = 'Show'; $('sdPassToggle').setAttribute('aria-pressed', 'false');
+    $('sdName').value = myName(); $('sdMic').checked = store('zw_mic') !== '0'; $('sdCam').checked = store('zw_cam') !== '0'; $('sdPreview').checked = false; $('sdSec').open = false;
+    $('startDialog').showModal(); ($('sdMid').value ? $('sdName') : $('sdMid')).focus();
+  }
+  $('sdMid').addEventListener('input', function () { $('sdMidClear').hidden = !this.value; });
+  $('sdMidClear').addEventListener('click', function () { $('sdMid').value = ''; this.hidden = true; $('sdMid').focus(); });
+  function joinSubmit() {
+    var err = $('sdErr'), id = $('sdMid').value.trim(), name = $('sdName').value.trim(), pw = $('sdPass').value, mic = $('sdMic').checked, cam = $('sdCam').checked;
+    if (!id) { err.textContent = 'Enter the meeting ID.'; $('sdMid').focus(); return; }
+    if (!name) { err.textContent = 'Enter your name.'; $('sdName').focus(); return; }
+    err.textContent = ''; store('zw_name', name); store('zw_mic', mic ? '1' : '0'); store('zw_cam', cam ? '1' : '0');
+    var camLabel = '', micLabel = ''; if (sd.stream) { var vt = sd.stream.getVideoTracks()[0], at = sd.stream.getAudioTracks()[0]; camLabel = vt ? vt.label : ''; micLabel = at ? at.label : ''; }
+    var spkOpt = $('sdSpkSel').selectedOptions[0], spkLabel = spkOpt && $('sdSpkSel').value ? spkOpt.textContent : '';
+    var dg = (id.match(/\d+/g) || []).join('');
+    var link = /^https?:\/\//i.test(id) ? /[?&](?:meeting|id|meetingId)=([^&#]+)/.exec(id) : null; if (link) dg = decodeURIComponent(link[1]).replace(/\D/g, '');
+    var p = { start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', name: name, meetingId: dg.length === 11 ? dg : id };
+    if (dg.length !== 11) { stopPreview(); go(p); return; }                                  // Meet's own codes keep their old path
+    var fmt = dg.slice(0, 3) + ' ' + dg.slice(3, 7) + ' ' + dg.slice(7);
+    stopPreview(); sd.busy = true; $('sdGo').disabled = true; $('sdGo').textContent = 'Joining…';
+    fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: fmt, displayName: name, passcode: pw || undefined, mic: mic, camera: cam, prefs: { camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel } }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
+      .then(function (r) {
+        if (r.ok) { if (r.d.meet && r.d.meet.url) { window.location.href = r.d.meet.url; return; } p.meetingId = fmt; goBuiltin(p); return; }
+        var msg = r.status === 403 ? (r.d.passcodeRequired ? (pw ? 'That password is not correct.' : 'This meeting needs a password.') : (r.d.error || 'You cannot join this meeting.'))
+          : r.status === 404 ? 'This meeting ID is not valid, or the meeting has ended.' : (r.d.error || 'The meeting could not be joined (HTTP ' + r.status + ').');
+        sd.busy = false; $('sdGo').disabled = false; $('sdGo').textContent = 'Join meeting'; err.textContent = msg; if (r.status === 403 && r.d.passcodeRequired) $('sdPass').focus();
+      }).catch(function () { sd.busy = false; $('sdGo').disabled = false; $('sdGo').textContent = 'Join meeting'; err.textContent = 'Could not reach the server. Check your connection.'; });
+  }
   function openDialog(mode, meetingId) {
     if (mode === 'new') { newMeeting(); return; }
-    dlgMode = mode;
-    $('dlgTitle').textContent = mode === 'new' ? I18n.t('Start a new meeting') : I18n.t('Join meeting');
-    $('dlgSub').textContent = mode === 'new' ? I18n.t('You will be the host of a new room.') : I18n.t('Enter the meeting ID to jump in.');
-    $('dlgGo').textContent = mode === 'new' ? I18n.t('Start') : I18n.t('Join');
-    $('idWrap').style.display = mode === 'new' ? 'none' : 'block';
-    $('titleWrap').style.display = mode === 'new' ? 'block' : 'none';
-    if (meetingId) $('mid').value = meetingId;
-    $('nm').value = myName();
-    $('joinDialog').showModal();
-    (mode === 'new' ? $('nm') : $('mid')).focus();
+    openJoin(meetingId); return;
+    // (old small dialog removed)
   }
-  $('dlgCancel').addEventListener('click', function () { $('joinDialog').close(); });
-  $('joinForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var name = $('nm').value.trim();
-    if (name) store('zw_name', name);
-    var p = { start: dlgMode, mic: $('mic').checked ? 'true' : 'false', camera: $('cam').checked ? 'true' : 'false' };
-    if (name) p.name = name;
-    if (dlgMode === 'new' && $('ttl').value.trim()) p.title = $('ttl').value.trim(); // passcodes are set in the Meet lobby, never in URLs
-    if (dlgMode === 'join') {
-      var id = $('mid').value.trim();
-      if (!id) { $('mid').focus(); return; }
-      p.meetingId = id; // public 12-digit code (spaces/hyphens accepted) or Meet UUID
-      var dg = id.replace(/\D/g, '');
-      if (VIDEO_PAGE && dg.length === 11) { window.location.href = '/guest/meeting/' + encodeURIComponent(dg.slice(0, 3) + ' ' + dg.slice(3, 7) + ' ' + dg.slice(7)) + '/prejoin'; return; }   // a Qorlla meeting ID: the pre-join page checks the password and enters the video meeting
-    }
-    go(p);
-  });
 
   // ---------- state ----------
   var state = { view: 'home', cache: {} };
@@ -2376,8 +2373,6 @@
   $('avatarBtn').addEventListener('click', function () { show('settings'); });
   $('aiClose').addEventListener('click', function () { $('aiPanel').classList.add('hidden'); });
   $('aiNew').addEventListener('click', function () { $('aiThread').textContent = ''; $('aiIntro').style.display = ''; });
-  $('mic').checked = store('zw_mic') !== '0';
-  $('cam').checked = store('zw_cam') !== '0';
 
   window.addEventListener('beforeunload', function () { if (cleanup) { try { cleanup(); } catch (e) {} } });
   window.addEventListener('hashchange', function () { var v = location.hash.slice(1); if (v && v !== state.view && VIEWS[v]) show(v); });

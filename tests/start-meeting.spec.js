@@ -219,3 +219,29 @@ test('devices are listed and selectable from the start; choosing one activates i
   const before = await page.evaluate(() => window.__gum.length); await page.selectOption('#sdCamSel', { index: 0 }); await expect.poll(() => page.evaluate(() => window.__gum.length)).toBeGreaterThan(before);
   await page.keyboard.press('Escape');
 });
+
+test.describe('Join meeting screen', () => {
+  const openJoin = async (page) => { await page.goto(MAIN + '/qorlla.html#home'); await page.locator('.action-btn[data-act="join"]').click(); await expect(page.locator('#startDialog')).toBeVisible(); };
+  test('same screen as the design: ID, password with eye, name, Mic/Camera pills, preview tick, host-rules note, preview and device rows; no host-only parts', async ({ page, context }) => {
+    await organiser(context, MAIN); await openJoin(page);
+    await expect(page.locator('#sdTitle')).toHaveText('Join meeting'); await expect(page.locator('#sdMid')).toBeFocused(); await expect(page.locator('#sdMid')).toHaveAttribute('placeholder', '000 0000 0000');
+    await expect(page.locator('#sdName')).toHaveValue('Stryker'); await expect(page.locator('#sdGo')).toHaveText('Join meeting'); await expect(page.locator('.sd-info')).toContainText('meeting rules set by the host');
+    for (const hidden of ['#sdTitleIn', '#sdId', '#sdLink', '#sdSec', '#sdReady', '#sdPassGen', '#sdCopyInvite']) await expect(page.locator(hidden)).toBeHidden();
+    await expect(page.locator('#sdPassToggle')).toBeVisible(); await expect(page.locator('#sdPassNote')).toHaveText('Leave empty if no password is required.'); await expect(page.locator('#sdPreviewLab')).toHaveText('Preview my camera before joining');
+    await expect(page.locator('#sdMidClear')).toBeHidden(); await page.fill('#sdMid', '123'); await expect(page.locator('#sdMidClear')).toBeVisible(); await page.click('#sdMidClear'); await expect(page.locator('#sdMid')).toHaveValue('');
+    await expect(page.locator('.sd-prev')).toBeVisible(); expect(await page.locator('.sd-dev').count()).toBe(3);
+    const m = await page.evaluate(() => { const d = document.getElementById('startDialog').getBoundingClientRect(), b = document.querySelector('.sd-body'); return { scroll: b.scrollHeight - b.clientHeight, inside: d.top >= 0 && d.bottom <= innerHeight }; }); expect(m.inside).toBe(true); expect(m.scroll).toBeLessThanOrEqual(0);
+    await page.click('#sdCancel'); await expect(page.locator('#startDialog')).toBeHidden();
+  });
+  test('signed-in user: wrong password stays on the screen with an inline message; the right one joins', async ({ page, context, browser }) => {
+    test.setTimeout(60000);
+    const oc = await browser.newContext(); const { item } = await organiser(oc, MAIN); await oc.request.put(MAIN + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/passcode', { data: { passcode: 'secret-door' } });
+    await organiser(context, MAIN); await openJoin(page);
+    await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('Enter the meeting ID');
+    await page.fill('#sdMid', '000 0000 0000'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('not valid');
+    await page.fill('#sdMid', item.meetingId); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('needs a password'); await expect(page.locator('#sdPass')).toBeFocused();
+    await page.fill('#sdPass', 'wrong-guess'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('not correct'); await expect(page.locator('#startDialog')).toBeVisible();
+    await page.fill('#sdPass', 'secret-door'); await page.click('#sdGo'); await expect(page).toHaveURL(/localhost:3310|\/index\.html\?start=join/);   // into the meeting: Meet when it is running, else the basic room
+    await oc.close();
+  });
+});

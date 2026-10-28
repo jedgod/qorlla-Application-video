@@ -26,7 +26,7 @@ test.describe('menu and chat button', () => {
     await expect(items(page)).toHaveText(['Start meeting', 'Copy meeting link', 'Edit', 'Delete']);
     expect(await items(page).nth(3).evaluate((e) => getComputedStyle(e).color)).toBe('rgb(225, 29, 72)');
     expect(await menu(page).evaluate((m) => { const r = m.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; })).toBe(true);
-    await expect(page.locator('#joinDialog')).not.toBeVisible();                                              // opening the menu did not trigger the card's own Join
+    await expect(page.locator('#startDialog')).not.toBeVisible();                                              // opening the menu did not trigger the card's own Join
     void s;
   });
 
@@ -154,7 +154,7 @@ test.describe('starting and joining from Home', () => {
   test('Join from Home with a meeting ID enters that meeting; the camera and microphone choices carry over', async ({ page, context, browser, baseURL }) => {
     await signedIn(context, 'jn'); const host = await browser.newContext({ baseURL }); const hp = await host.newPage();
     await hp.goto('/index.html'); await hp.fill('#displayName', 'Host Hal'); await hp.click('#startMeetingBtn'); await expect(hp.locator('#meetingBar')).toBeVisible(); const id = (await hp.locator('#meetingIdLabel').textContent()).trim();
-    await page.goto('/qorlla.html#home'); await page.locator('.action-btn[data-act="join"]').click(); await page.fill('#mid', id); await page.uncheck('#cam'); await page.click('#dlgGo');
+    await page.goto('/qorlla.html#home'); await page.locator('.action-btn[data-act="join"]').click(); await page.fill('#sdMid', id); await page.uncheck('#sdCam'); await page.click('#sdGo');
     await expect(page).toHaveURL(/\/index\.html\?start=join/); expect(new URL(page.url()).searchParams.get('cam')).toBe('0');
     await expect(page.locator('#meetingBar')).toBeVisible(); await expect(page.locator('#meetingIdLabel')).toHaveText(id); await expect(hp.locator('#videoGrid .tile')).toHaveCount(2);
     await host.close();

@@ -239,7 +239,7 @@ async function meetHandoff(meeting, who, req) {
         const pub = await meetPublicBase(req);
         const link = await meetLaunch.ensureLink(meeting, meeting.hostName || meeting.ownerName || 'Host', { title: meeting.topic, settings: settingsOf(meeting) });
         const session = await meetLaunch.join(link, { name: who.name });
-        return { url: meetLaunch.url(pub, session, { returnUrl: req.protocol + '://' + req.get('host') + '/guest/welcome' }) };
+        return { url: meetLaunch.url(pub, session, { mic: who.mic !== false, camera: who.camera !== false, prefs: who.prefs, returnUrl: req.protocol + '://' + req.get('host') + (who.account ? '/qorlla.html' : '/guest/welcome') }) };
     } catch (e) {
         console.warn('[Meet hand-off] ' + e.message);
         if (e.code === 'REFUSED') return { blocked: true, status: 423, error: /locked/i.test(e.message) ? 'This meeting is locked. Ask the host.' : 'This meeting is not available.' };   // Meet said no: never route around it through the built-in room
