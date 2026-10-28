@@ -151,19 +151,27 @@ test.describe('dial-in against the real Meet server', () => {
     test.setTimeout(120000);
     const m = await meeting(browser, { title: 'Dial me' }); await dial(m, FROM1, { callId: ('ui-1' + RUN) });
     const page = await m.ctx.newPage(); await page.context().grantPermissions(['clipboard-read', 'clipboard-write']); await page.goto(B() + '/qorlla.html#home'); await page.locator('.nav-item[data-view=phone]').click();
-    await expect(page.locator('[role=tab][aria-selected=true]')).toHaveText('Dial Pad'); await page.locator('.ph-key[data-key="4"]').click(); await page.locator('.ph-key[data-key="*"]').click(); await expect(page.locator('.ph-display')).toHaveText('4*'); await page.keyboard.press('Backspace'); await expect(page.locator('.ph-display')).toHaveText('4');
-    await page.locator('.ph-key[data-key="7"]').focus(); await page.keyboard.press('5'); await expect(page.locator('.ph-display')).toHaveText('45'); await page.getByRole('button', { name: 'Delete' }).click(); await expect(page.locator('.ph-display')).toHaveText('4');
-    await page.getByRole('button', { name: 'Copy number' }).click(); expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('4');
-    await expect(page.locator('#phCall')).toBeDisabled(); await expect(page.locator('#phCallNote')).toContainText('requires a connected telephony provider');
-    await page.locator('#phTab-join').click(); await expect(page.locator('.ph-table')).toContainText('+12125550100'); await expect(page.locator('.ph-table')).toContainText('Toll-free'); await expect(page.locator('.ph-table')).not.toContainText('555,'); await expect(page.locator('.ph-meeting', { hasText: 'Dial me' })).toBeVisible();
+    await expect(page.locator('[role=tab][aria-selected=true]')).toHaveText('Dial Pad'); await expect(page.locator('.qp-grid .qp-card')).toHaveCount(4);   // three columns: dial pad, join by phone, and the number + recent calls on the right
+    const num = page.locator('#qpDialNumber'); await page.locator('.ph-key[data-key="4"]').click(); await page.locator('.ph-key[data-key="5"]').click(); await expect(num).toHaveValue('45'); await page.getByRole('button', { name: 'Delete last digit' }).click(); await expect(num).toHaveValue('4');
+    await page.locator('.ph-key[data-key="7"]').focus(); await page.keyboard.press('8'); await expect(num).toHaveValue('48'); await expect(page.locator('#qpDialHint')).toContainText('valid phone number');
+    await page.getByRole('button', { name: 'Copy number', exact: true }).click(); expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('48');
+    await num.fill('(202) 555-0123'); await expect(page.locator('#qpDialHint')).toContainText('Will call +12025550123'); await page.locator('#qpDialCountry').selectOption('GB'); await expect(page.locator('#qpDialHint')).toContainText('Will call +442025550123');
+    await expect(page.locator('#phCall')).toBeDisabled(); await expect(page.locator('#phCallNote')).toContainText('requires a connected telephony provider'); await expect(page.locator('#qpCallerId')).toBeDisabled();
+    const dir = page.locator('.qp-dir'); await expect(dir).toContainText('+12125550100'); await expect(dir).toContainText('Toll-free'); await expect(dir).not.toContainText('555,');   // only real numbers
+    const mid = page.locator('#phone-meeting-id'); await mid.fill('12345678901234'); await expect(mid).toHaveValue('123 4567 8901'); const pinBox = page.locator('#phone-pin'); await expect(pinBox).toHaveAttribute('type', 'password'); await page.getByRole('button', { name: 'Show PIN' }).click(); await expect(pinBox).toHaveAttribute('type', 'text');
+    await page.locator('#qpShowHow').click(); await expect(page.locator('#qpHow')).toContainText('followed by #'); await expect(page.locator('#qpHow')).toContainText('123 4567 8901');
+    await expect(page.locator('#qpNumber')).toContainText('No Qorlla number assigned'); await page.locator('#qpReqNum').click(); await expect(page.locator('#qpReqMsg')).toContainText('provider');   // honest: no number can be requested without a provider
+    await page.locator('.qp-host summary').click(); await expect(page.locator('.ph-meeting', { hasText: 'Dial me' })).toBeVisible();
     const box = page.locator('.ph-meeting', { hasText: 'Dial me' }); await box.getByRole('button', { name: 'Create phone PIN' }).click(); await expect(box.locator('.ph-pinv')).toHaveText(/^\d{8}$/); const pin = await box.locator('.ph-pinv').textContent();
     await box.getByRole('button', { name: 'Copy phone invitation' }).click(); const inv = await page.evaluate(() => navigator.clipboard.readText()); expect(inv).toContain('+12125550100'); expect(inv).toContain('PIN: ' + pin + '#'); expect(inv).toContain('Meeting ID: ' + m.digits + '#');
     expect((await dial(m, FROM2, { pin })).body.result).toBe('connected');                                                              // the PIN shown on the page really works
-    await page.locator('#phTab-recent').click(); await expect(page.locator('.ph-table')).toContainText('Phone ••••4567'); await expect(page.locator('.ph-table')).toContainText('Dial me');
-    await page.locator('#phTab-contacts').click(); await expect(page.locator('#phContacts')).toContainText('not available yet');
-    await page.locator('#phTab-settings').click(); await expect(page.locator('#phStatus')).toContainText('Telephony provider'); await expect(page.locator('#phStatus')).toContainText('2 provisioned'); await expect(page.locator('#phStatus')).toContainText('not built');
-    await page.locator('#phTab-dial').focus(); await page.keyboard.press('ArrowRight'); await expect(page.locator('[role=tab][aria-selected=true]')).toHaveText('Join Meeting');   // tabs by keyboard
-    await box.getByRole('button', { name: 'Revoke PIN' }).click().catch(() => {}); await m.ctx.close();
+    await page.reload(); await page.locator('.nav-item[data-view=phone]').click(); const rc = page.locator('#recent-calls'); await expect(rc).toContainText('Dial me'); await expect(rc).toContainText('Phone ••••4567');
+    await rc.getByRole('button', { name: 'Calls', exact: true }).click(); await expect(page.locator('#phNoCalls')).toContainText('need a telephony provider'); await rc.getByRole('button', { name: 'Meeting Calls' }).click(); await rc.getByLabel('Search calls').fill('zzz'); await expect(page.locator('#phNoCalls')).toContainText('No calls match'); await rc.getByLabel('Search calls').fill('');
+    await page.locator('#phTab-contacts').click(); await expect(page.locator('#phContacts')).toContainText('not available yet'); await expect(page.locator('.qp-grid')).toBeHidden();
+    await page.locator('#phSettingsBtn').click(); await expect(page.locator('#phStatus')).toContainText('Telephony provider'); await expect(page.locator('#phStatus')).toContainText('2 provisioned'); await expect(page.locator('#phStatus')).toContainText('not built');
+    await page.locator('#phTab-dial').focus(); await page.keyboard.press('ArrowRight'); await expect(page.locator('[role=tab][aria-selected=true]')).toHaveText('Join Meeting'); await expect(page.locator('.qp-grid')).toBeVisible();   // tabs by keyboard
+    await page.setViewportSize({ width: 390, height: 800 }); await page.locator('#phTab-dial').click(); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);   // no horizontal overflow on a phone
+    await box.getByRole('button', { name: 'Revoke PIN' }).click({ timeout: 1500 }).catch(() => {}); await m.ctx.close();
   });
 });
 
