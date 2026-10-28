@@ -256,8 +256,16 @@ async function meetHandoff(meeting, who, req) {
 app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getMeeting: meetingById, getAccount: (req) => auth.getUser(req), verifyHostKey, checkPasscode, admitAccount, handoff: meetHandoff }));
 // ---- Qorlla Phone: dial-in numbers, phone PINs for meetings, calls. There is NO telephone carrier in this repository: numbers come only from configuration
 // (PHONE_DIAL_IN_NUMBERS, a JSON list of real provisioned numbers), outbound calling and number provisioning answer 503 until a provider is connected.
+// Regions the Join-by-phone page offers. Listing a country here does NOT mean a number exists there: "provisioned" is true only when a real number is configured for it.
+const PHONE_COUNTRIES = [['US', 'United States', '1'], ['CA', 'Canada', '1'], ['GB', 'United Kingdom', '44'], ['IE', 'Ireland', '353'], ['GH', 'Ghana', '233'], ['NG', 'Nigeria', '234'], ['KE', 'Kenya', '254'], ['UG', 'Uganda', '256'], ['TZ', 'Tanzania', '255'], ['ZA', 'South Africa', '27'], ['EG', 'Egypt', '20'], ['SN', 'Senegal', '221'], ['CI', "C\u00F4te d'Ivoire", '225'],
+    ['IN', 'India', '91'], ['SG', 'Singapore', '65'], ['JP', 'Japan', '81'], ['AU', 'Australia', '61'], ['NZ', 'New Zealand', '64'], ['AE', 'United Arab Emirates', '971'], ['DE', 'Germany', '49'], ['FR', 'France', '33'], ['ES', 'Spain', '34'], ['IT', 'Italy', '39'], ['NL', 'Netherlands', '31'], ['SE', 'Sweden', '46'], ['CH', 'Switzerland', '41'], ['PT', 'Portugal', '351'], ['PL', 'Poland', '48'], ['BR', 'Brazil', '55'], ['MX', 'Mexico', '52']];
+const countryOf = (n) => {
+    const c = String(n.country).trim().toLowerCase(); let hit = PHONE_COUNTRIES.find((x) => x[0].toLowerCase() === c || x[1].toLowerCase() === c);
+    if (!hit) { const d = String(n.number).slice(1); hit = PHONE_COUNTRIES.filter((x) => d.startsWith(x[2])).sort((a, b) => b[2].length - a[2].length)[0]; }
+    return hit ? hit[0] : '';
+};
 function dialInNumbers() {
-    try { return JSON.parse(process.env.PHONE_DIAL_IN_NUMBERS || '[]').filter((n) => n && /^\+[1-9]\d{6,14}$/.test(String(n.number || '')) && n.country).slice(0, 40).map((n) => ({ country: String(n.country).slice(0, 60), label: String(n.label || '').slice(0, 60), number: String(n.number), tollFree: !!n.tollFree })); }
+    try { return JSON.parse(process.env.PHONE_DIAL_IN_NUMBERS || '[]').filter((n) => n && /^\+[1-9]\d{6,14}$/.test(String(n.number || '')) && n.country).slice(0, 40).map((n) => ({ country: String(n.country).slice(0, 60), label: String(n.label || '').slice(0, 60), number: String(n.number), tollFree: !!n.tollFree })).map((n) => ({ ...n, code: countryOf(n) })); }
     catch (e) { return []; }
 }
 const phoneUser = (req, res) => { const u = auth.getUser(req); if (!u) { res.status(401).json({ error: 'Sign in first.' }); return null; } return u; };
@@ -270,7 +278,7 @@ app.get('/api/phone/overview', (req, res) => {
 });
 app.get('/api/phone/dial-in-numbers', (req, res) => {
     if (!phoneUser(req, res)) return; const numbers = dialInNumbers(), provider = process.env.PHONE_PROVIDER || null;
-    res.set('Cache-Control', 'no-store').json({ configured: numbers.length > 0, numbers, provider, carrierCalling: false, note: numbers.length ? null : 'No dial-in numbers have been provisioned for this workspace. Qorlla never shows a number that is not real.' });
+    res.set('Cache-Control', 'no-store').json({ configured: numbers.length > 0, numbers, countries: PHONE_COUNTRIES.map(([code, name, dial]) => ({ code, name, dial, provisioned: numbers.some((n) => n.code === code) })), provider, carrierCalling: false, note: numbers.length ? null : 'No dial-in numbers have been provisioned for this workspace. Qorlla never shows a number that is not real.' });
 });
 app.post('/api/phone/calls', (req, res) => { if (!phoneUser(req, res)) return; res.status(503).json({ error: 'Carrier calling is not enabled: it needs a connected telephony provider and provisioned calling permissions.' }); });
 app.post('/api/phone/numbers/provision', (req, res) => { if (!phoneUser(req, res)) return; res.status(503).json({ error: 'Number provisioning needs a connected telephony provider. No number was created.' }); });

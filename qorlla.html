@@ -2264,8 +2264,9 @@
         if (checking) return dir.appendChild(h('p', { class: 'muted', text: I18n.t('Checking the meeting ID\u2026') }));
         if (found === false) return dir.appendChild(h('p', { class: 'muted', id: 'qpDirNone', text: I18n.t('No active meeting has this ID, so there are no dial-in details to show.') }));
         if (found === null) return dir.appendChild(h('p', { class: 'muted', text: I18n.t('The meeting could not be checked right now. Try again in a moment.') }));
-        var mine = all.filter(function (n) { return n.country === countrySel.value; }), list = showAll ? all : mine.slice(0, 2);
+        var mine = all.filter(function (n) { return n.code === countrySel.value; }), list = showAll ? all : mine.slice(0, 2);
         dir.appendChild(h('strong', { text: I18n.t('Dial-in numbers') }));
+        if (!list.length) dir.appendChild(h('p', { class: 'muted', id: 'qpDirNoCountry', text: I18n.t('No dial-in number is provisioned for') + ' ' + (countrySel.selectedOptions[0] ? countrySel.selectedOptions[0].textContent : '') + ' ' + I18n.t('yet.') + ' ' + I18n.t('Choose View more international numbers to see the others.') }));
         list.forEach(function (n) { dir.appendChild(h('div', { class: 'qp-num' }, [h('span', { class: 'qp-ph', 'aria-hidden': 'true', text: '\u260E' }), h('span', { class: 'qp-n', text: n.number }), h('span', { class: 'muted', text: (showAll ? n.country + ' ' : '') + (n.label ? '(' + n.label + ')' : '') + (n.tollFree ? ' ' + I18n.t('Toll-free') : '') }), copyIcon(n.number, I18n.t('Copy number') + ' ' + n.number)])); });
         more.classList.toggle('hidden', !showAll && all.length === mine.length); more.textContent = showAll ? I18n.t('Show fewer numbers') : I18n.t('View more international numbers'); more.setAttribute('aria-expanded', String(showAll));
       }
@@ -2273,8 +2274,8 @@
       function loadInfo() {
         infoErr = null; info = null; paintDir(); countrySel.textContent = '';
         getInfo().then(function () {
-          var seen = {}; (info.numbers || []).forEach(function (n) { seen[n.country] = 1; }); var cs = Object.keys(seen);
-          if (!cs.length) { countrySel.appendChild(h('option', { text: I18n.t('No dial-in numbers provisioned') })); countrySel.disabled = true; } else { countrySel.disabled = false; cs.forEach(function (c) { countrySel.appendChild(h('option', { value: c, text: c })); }); }
+          var cs = info.countries || [], first = cs.filter(function (c) { return c.provisioned; })[0] || cs.filter(function (c) { return c.code === 'US'; })[0] || cs[0];
+          if (!cs.length) { countrySel.appendChild(h('option', { text: I18n.t('Unavailable') })); countrySel.disabled = true; } else { countrySel.disabled = false; cs.forEach(function (c) { countrySel.appendChild(h('option', { value: c.code, selected: first && c.code === first.code, text: c.name + ' (+' + c.dial + ')' + (c.provisioned ? '' : '') })); }); }
           paintDir();
         }).catch(function (e) { infoErr = e; countrySel.appendChild(h('option', { text: I18n.t('Unavailable') })); countrySel.disabled = true; paintDir(); });
       }

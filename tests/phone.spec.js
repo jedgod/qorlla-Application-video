@@ -194,7 +194,7 @@ test('Join Meeting: a failing request is told apart from an empty one (stale ser
   test.setTimeout(90000);
   const main = await startMain(5296, { PHONE_DIAL_IN_NUMBERS: NUMBERS, PHONE_PROVIDER: 'test' });
   try {
-    const ctx = await browser.newContext(); await organiser(ctx, main.base); const page = await ctx.newPage();
+    const ctx = await browser.newContext(); const { item: item0 } = await organiser(ctx, main.base); const page = await ctx.newPage();
     await page.route('**/api/phone/dial-in-numbers', (r) => r.fulfill({ status: 404, contentType: 'text/html', body: '<h1>Not found</h1>' }));   // what an old server that was not restarted answers
     await page.route('**/api/workplace/schedule', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'The schedule is unavailable.' }) }));
     await page.goto(main.base + '/qorlla.html#home'); await page.locator('.nav-item[data-view=phone]').click(); await page.locator('#phTab-join').click();
@@ -202,6 +202,8 @@ test('Join Meeting: a failing request is told apart from an empty one (stale ser
     await expect(page.locator('#qpMineErr')).toContainText('schedule is unavailable'); await expect(page.locator('#qpMineNone')).toHaveCount(0);   // an error is not shown as "no meetings"
     await page.unroute('**/api/phone/dial-in-numbers'); await page.unroute('**/api/workplace/schedule');
     await page.locator('#qpDirErr ~ button').click(); await expect(page.locator('#qpJoinCountry')).toBeEnabled(); await expect(page.locator('#qpDirHint')).toBeVisible();
+    const opts = await page.locator('#qpJoinCountry option').allTextContents(); expect(opts.length).toBeGreaterThan(20); expect(opts).toContain('United States (+1)'); expect(opts).toContain('Ghana (+233)');   // the selector is populated with supported regions even with no number provisioned for them
+    await page.locator('#phone-meeting-id').fill(item0.meetingId); await page.locator('#qpJoinCountry').selectOption('GH'); await expect(page.locator('#qpDirNoCountry')).toContainText('No dial-in number is provisioned for Ghana');
     await page.locator('#qpMineErr ~ button').click(); await expect(page.locator('#qpMineErr')).toHaveCount(0); await expect(page.locator('.qp-pick').first()).toBeVisible();   // recovered: the organiser's meeting is listed
     await page.locator('#qpMeetings [data-m=history]').click(); await expect(page.locator('#qpMineNone')).toContainText('No finished meetings'); await expect(page.getByRole('button', { name: 'Create phone PIN' })).toHaveCount(0);
     await ctx.close();
