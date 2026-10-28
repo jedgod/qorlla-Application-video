@@ -227,7 +227,7 @@
   dialog.sd .sd-prevlab { position: absolute; left: 8px; bottom: 8px; background: rgba(15,23,42,.78); color: #fff; font-size: 11px; padding: 3px 9px; border-radius: 8px; }
   dialog.sd .sd-prevbtns { position: absolute; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 6px; } dialog.sd .sd-prevbtns button { width: 30px; height: 30px; border: 0; border-radius: 50%; background: rgba(15,23,42,.8); color: #fff; display: grid; place-items: center; cursor: pointer; } dialog.sd .sd-prevbtns button:disabled { opacity: .5; cursor: not-allowed; }
   dialog.sd #sdTest { align-self: stretch; } dialog.sd .sd-prev p { max-width: 70%; }
-  @media (max-height: 740px) and (min-width: 851px) { dialog.sd .sd-prev { aspect-ratio: 16 / 7; width: 100%; } dialog.sd .sd-prev p { display: block; font-size: 10px; } dialog.sd .sd-prevlab { display: none; } dialog.sd .sd-prevbtns { flex-direction: row; } dialog.sd .sd-prevbtns button { width: 26px; height: 26px; } }
+  @media (max-height: 740px) and (min-width: 851px) { dialog.sd .sd-prev { aspect-ratio: 16 / 7; width: 100%; } dialog.sd .sd-prev p { display: block; font-size: 10px; } dialog.sd .sd-prevbtns { flex-direction: row; } dialog.sd .sd-prevbtns button { width: 26px; height: 26px; } }
   dialog.sd .sd-prev { flex: none; height: auto; min-height: 0; }
   @media (max-height: 820px) and (min-width: 851px) { dialog.sd .sd-prev { aspect-ratio: 16 / 8.4; } dialog.sd .note-box { display: none; } dialog.sd .sd-left, dialog.sd .sd-right { gap: 4px; } dialog.sd .sd-head { padding-top: 10px; padding-bottom: 4px; }
     dialog.sd input[type=text], dialog.sd input[type=password] { height: 32px; } dialog.sd .sd-card { padding: 6px 10px; } dialog.sd .sd-quick { margin: 2px 0; } dialog.sd .hint { margin: 0; } dialog.sd .sd-body { padding-bottom: 6px; } }
@@ -694,7 +694,7 @@
           <label class="sd-pill"><input type="checkbox" id="sdCam" checked> <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="12" height="12" rx="2.5"/><path d="m15 10 6-3.5v11L15 14"/></svg> Camera on</label>
           <label class="sd-prevchk"><input type="checkbox" id="sdPreview"> <span id="sdPreviewLab">Show camera preview before joining</span></label>
         </fieldset>
-        <p class="sd-j sd-info">By joining, you agree to follow the meeting rules set by the host, including any recording or AI transcription policies.</p>
+        <p class="sd-j sd-info">Joining is not consent to be recorded. If the host asks to record, you will be asked separately and can decline; AI features need their own consent.</p>
         <div class="sd-s f">Invitation link</div>
         <div class="sd-s sd-link"><input type="text" id="sdLink" readonly aria-label="Invitation link"><button type="button" class="chip" id="sdCopyInvite">Copy invitation</button></div>
         <p class="sd-s hint">Share this link with the people you want to invite.</p>
@@ -702,7 +702,7 @@
       <div class="sd-right">
         <section aria-labelledby="sdPrevH" class="sd-card">
           <h3 id="sdPrevH">Camera preview</h3>
-          <div class="sd-prev"><video id="sdVideo" autoplay muted playsinline hidden aria-label="Camera preview"></video><p id="sdPrevHint">Your camera and microphone stay off until you choose to test them.</p><span class="sd-prevlab">Camera preview</span><div class="sd-prevbtns"><button type="button" id="sdSnap" aria-label="Take a snapshot" title="Take a snapshot" disabled><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button><button type="button" id="sdPrevSet" aria-label="Choose camera and microphone" title="Choose camera and microphone"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.6 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.6-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/></svg></button></div></div>
+          <div class="sd-prev"><video id="sdVideo" autoplay muted playsinline hidden aria-label="Camera preview"></video><p id="sdPrevHint">Your camera and microphone stay off until you choose to test them.</p><select class="sd-prevlab" id="sdPrevCam" aria-label="Camera used for the preview"><option value="">Camera preview</option></select><div class="sd-prevbtns"><button type="button" id="sdSnap" aria-label="Take a snapshot" title="Take a snapshot" disabled><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button><button type="button" id="sdPrevSet" aria-label="Choose camera and microphone" title="Choose camera and microphone"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.6 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.6-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/></svg></button></div></div>
           <button type="button" class="chip" id="sdTest">Test microphone and camera</button>
         </section>
         <section aria-labelledby="sdDevH" class="sd-card">
@@ -983,7 +983,15 @@
     pick('sdCamSel', 'videoinput', vt && vt.label); pick('sdMicSel', 'audioinput', at && at.label);
     var sp = $('sdSpkSel'), spk = devs.filter(function (d) { return d.kind === 'audiooutput'; }); sp.textContent = ''; sp.appendChild(new Option('Default speakers', ''));
     spk.forEach(function (d, i) { if (d.deviceId !== 'default') sp.appendChild(new Option(d.label || 'Speakers ' + (i + 1), d.deviceId)); });
+    syncPrevCam();
   }
+  // the compact camera picker over the preview mirrors the Camera selector (names come from the browser)
+  function syncPrevCam() {
+    var src = $('sdCamSel'), dst = $('sdPrevCam'); dst.textContent = '';
+    if (src.disabled || !src.options.length || !src.value && src.options.length === 1 && !src.options[0].value) { dst.appendChild(new Option('Camera preview', '')); dst.disabled = true; return; }
+    Array.prototype.forEach.call(src.options, function (o) { dst.appendChild(new Option(o.textContent, o.value)); }); dst.selectedIndex = src.selectedIndex; dst.disabled = false;
+  }
+  $('sdPrevCam').addEventListener('change', function () { var src = $('sdCamSel'); src.selectedIndex = this.selectedIndex; src.dispatchEvent(new Event('change')); });
   function loadDeviceList() {      // lists what is plugged in WITHOUT opening anything; names appear once the browser has been given permission
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve();
     return navigator.mediaDevices.enumerateDevices().then(function (d) { if (!sd.stream) fillDevices(d); }).catch(function () { /* keep the placeholders */ });
@@ -1014,7 +1022,7 @@
   $('sdPreview').addEventListener('change', function () { if (this.checked) startPreview(); else stopPreview(); });
   ['sdCamSel', 'sdMicSel'].forEach(function (id) { $(id).addEventListener('change', function () {
     var idx = $(id).selectedIndex;                                                          // before permission the ids may be blank: remember the position and re-apply it once the real list is known
-    startPreview().then(function () { var s = $(id); if (s.options[idx] && s.selectedIndex !== idx) { s.selectedIndex = idx; if (s.value) startPreview(); } });
+    startPreview().then(function () { var s = $(id); if (s.options[idx] && s.selectedIndex !== idx) { s.selectedIndex = idx; if (s.value) startPreview(); } syncPrevCam(); });
   }); });
   $('sdSpkSel').addEventListener('change', function () { $('sdSpkTest').click(); });         // picking speakers plays the test tone through them
   $('sdRefresh').addEventListener('click', function () { if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) navigator.mediaDevices.enumerateDevices().then(fillDevices); });
@@ -1092,15 +1100,15 @@
     var dg = (id.match(/\d+/g) || []).join('');
     var link = /^https?:\/\//i.test(id) ? /[?&](?:meeting|id|meetingId)=([^&#]+)/.exec(id) : null; if (link) dg = decodeURIComponent(link[1]).replace(/\D/g, '');
     var p = { start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', name: name, meetingId: dg.length === 11 ? dg : id };
-    if (dg.length !== 11) { stopPreview(); go(p); return; }                                  // Meet's own codes keep their old path
+    if (dg.length !== 11) { err.textContent = 'Enter the 11-digit meeting ID (spaces are fine).'; $('sdMid').focus(); return; }
     var fmt = dg.slice(0, 3) + ' ' + dg.slice(3, 7) + ' ' + dg.slice(7);
     stopPreview(); sd.busy = true; $('sdGo').disabled = true; $('sdGo').textContent = 'Joining…';
     fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: fmt, displayName: name, passcode: pw || undefined, mic: mic, camera: cam, prefs: { camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel } }) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
       .then(function (r) {
         if (r.ok) { if (r.d.meet && r.d.meet.url) { window.location.href = r.d.meet.url; return; } p.meetingId = fmt; goBuiltin(p); return; }
-        var msg = r.status === 403 ? (r.d.passcodeRequired ? (pw ? 'That password is not correct.' : 'This meeting needs a password.') : (r.d.error || 'You cannot join this meeting.'))
-          : r.status === 404 ? 'This meeting ID is not valid, or the meeting has ended.' : (r.d.error || 'The meeting could not be joined (HTTP ' + r.status + ').');
+        var msg = r.status === 403 ? (r.d.passcodeRequired ? (pw ? 'We could not join that meeting. Check the meeting ID and password.' : 'This meeting needs a password.') : (r.d.error || 'You cannot join this meeting.'))
+          : r.status === 404 ? 'We could not join that meeting. Check the meeting ID and password.' : (r.d.error || 'The meeting could not be joined (HTTP ' + r.status + ').');
         sd.busy = false; $('sdGo').disabled = false; $('sdGo').textContent = 'Join meeting'; err.textContent = msg; if (r.status === 403 && r.d.passcodeRequired) $('sdPass').focus();
       }).catch(function () { sd.busy = false; $('sdGo').disabled = false; $('sdGo').textContent = 'Join meeting'; err.textContent = 'Could not reach the server. Check your connection.'; });
   }

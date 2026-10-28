@@ -28,5 +28,9 @@ module.exports = defineConfig({
     trace: 'on-first-retry',
     headless: true
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // opt-in second browser: E2E_FIREFOX=1 npx playwright test --project=firefox   (fake camera/microphone through Firefox preferences)
+    ...(process.env.E2E_FIREFOX ? [{ name: 'firefox', use: { ...devices['Desktop Firefox'], launchOptions: { firefoxUserPrefs: { 'media.navigator.streams.fake': true, 'media.navigator.permission.disabled': true } } } }] : [])
+  ]
 });

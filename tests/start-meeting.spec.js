@@ -225,7 +225,7 @@ test.describe('Join meeting screen', () => {
   test('same screen as the design: ID, password with eye, name, Mic/Camera pills, preview tick, host-rules note, preview and device rows; no host-only parts', async ({ page, context }) => {
     await organiser(context, MAIN); await openJoin(page);
     await expect(page.locator('#sdTitle')).toHaveText('Join meeting'); await expect(page.locator('#sdMid')).toBeFocused(); await expect(page.locator('#sdMid')).toHaveAttribute('placeholder', '000 0000 0000');
-    await expect(page.locator('#sdName')).toHaveValue('Stryker'); await expect(page.locator('#sdGo')).toHaveText('Join meeting'); await expect(page.locator('.sd-info')).toContainText('meeting rules set by the host');
+    await expect(page.locator('#sdName')).toHaveValue('Stryker'); await expect(page.locator('#sdGo')).toHaveText('Join meeting'); await expect(page.locator('.sd-info')).toContainText('not consent to be recorded');
     for (const hidden of ['#sdTitleIn', '#sdId', '#sdLink', '#sdSec', '#sdReady', '#sdPassGen', '#sdCopyInvite']) await expect(page.locator(hidden)).toBeHidden();
     await expect(page.locator('#sdPassToggle')).toBeVisible(); await expect(page.locator('#sdPassNote')).toHaveText('Leave empty if no password is required.'); await expect(page.locator('#sdPreviewLab')).toHaveText('Preview my camera before joining');
     await expect(page.locator('#sdMidClear')).toBeHidden(); await page.fill('#sdMid', '123'); await expect(page.locator('#sdMidClear')).toBeVisible(); await page.click('#sdMidClear'); await expect(page.locator('#sdMid')).toHaveValue('');
@@ -238,10 +238,22 @@ test.describe('Join meeting screen', () => {
     const oc = await browser.newContext(); const { item } = await organiser(oc, MAIN); await oc.request.put(MAIN + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/passcode', { data: { passcode: 'secret-door' } });
     await organiser(context, MAIN); await openJoin(page);
     await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('Enter the meeting ID');
-    await page.fill('#sdMid', '000 0000 0000'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('not valid');
-    await page.fill('#sdMid', item.meetingId); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('needs a password'); await expect(page.locator('#sdPass')).toBeFocused();
-    await page.fill('#sdPass', 'wrong-guess'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('not correct'); await expect(page.locator('#startDialog')).toBeVisible();
+    await page.fill('#sdMid', '000 0000 0000'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('Check the meeting ID and password'); await page.fill('#sdMid', '12345'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('11-digit');
+    await page.fill('#sdMid', item.meetingId.replace(/ /g, '')); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('needs a password'); await expect(page.locator('#sdPass')).toBeFocused();
+    await page.fill('#sdPass', 'wrong-guess'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('Check the meeting ID and password'); await expect(page.locator('#startDialog')).toBeVisible();
     await page.fill('#sdPass', 'secret-door'); await page.click('#sdGo'); await expect(page).toHaveURL(/localhost:3310|\/index\.html\?start=join/);   // into the meeting: Meet when it is running, else the basic room
     await oc.close();
   });
+});
+
+test('join preview: the camera name sits over the preview, mirrors the Camera selector and updates when the device changes; no tracks leak', async ({ page, context }) => {
+  test.setTimeout(60000);
+  await organiser(context, MAIN); await page.addInitScript(() => { window.__streams = []; const o = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getUserMedia = (c) => o(c).then((s) => { window.__streams.push(s); return s; }); });
+  await page.goto(MAIN + '/qorlla.html#home'); await page.locator('.action-btn[data-act="join"]').click(); await expect(page.locator('#sdPrevCam')).toBeVisible();
+  await page.check('#sdPreview'); await expect(page.locator('#sdVideo')).toBeVisible(); await expect(page.locator('#sdPrevCam')).toBeEnabled();
+  const same = await page.evaluate(() => { const a = document.getElementById('sdCamSel'), b = document.getElementById('sdPrevCam'); return JSON.stringify([...a.options].map((o) => o.textContent)) === JSON.stringify([...b.options].map((o) => o.textContent)) && a.selectedIndex === b.selectedIndex; }); expect(same).toBe(true);
+  const box = await page.locator('#sdPrevCam').boundingBox(), prev = await page.locator('.sd-prev').boundingBox(); expect(box.x - prev.x).toBeLessThan(30); expect(prev.y + prev.height - (box.y + box.height)).toBeLessThan(30);   // bottom-left of the preview
+  const n = await page.locator('#sdPrevCam option').count(); if (n > 1) { await page.selectOption('#sdPrevCam', { index: 1 }); await expect(page.locator('#sdCamSel')).toHaveValue(await page.locator('#sdPrevCam').inputValue()); }
+  await page.selectOption('#sdCamSel', { index: 0 }); await expect.poll(() => page.evaluate(() => document.getElementById('sdPrevCam').selectedIndex)).toBe(0);
+  await page.click('#sdCancel'); await expect.poll(() => page.evaluate(() => window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended'))), { timeout: 5000 }).toBe(true);
 });
