@@ -59,7 +59,7 @@ test('nothing is captured until asked; the preview, device lists, meter, speaker
   const played = await page.evaluate(() => new Promise((ok) => { const P = HTMLMediaElement.prototype.play; HTMLMediaElement.prototype.play = function () { ok(true); return P.call(this); }; document.getElementById('sdSpkTest').click(); setTimeout(() => ok(false), 3000); })); expect(played).toBe(true);
   // closing (Escape) stops every track
   await page.keyboard.press('Escape'); await expect(page.locator('#startDialog')).toBeHidden();
-  expect(await page.evaluate(() => (window.__streams || []).every((s) => s.getTracks().every((t) => t.readyState === 'ended')))).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window.__streams || []).every((s) => s.getTracks().every((t) => t.readyState === 'ended'))), { timeout: 5000 }).toBe(true);   // the dialog's close event runs a moment after it disappears
 });
 
 test('the form: required fields, password show/generate, copy, security options collapse on phones, labelled and keyboard operable', async ({ page, context }) => {
@@ -205,4 +205,17 @@ test('layout: wide camera preview (like the reference), device icons beside each
     expect(m.scroll, vp.width + 'x' + vp.height).toBeLessThanOrEqual(0); expect(m.w / m.h).toBeGreaterThan(1.5); expect(m.w).toBeGreaterThan(300); expect(m.offX).toBeLessThan(3); expect(m.offY).toBeLessThan(3); expect(m.rows).toEqual([true, true, true]);
     await ctx.close();
   }
+});
+
+test('devices are listed and selectable from the start; choosing one activates it, and the speaker choice plays the tone', async ({ page, context }) => {
+  test.setTimeout(60000);
+  await organiser(context, MAIN);
+  await page.addInitScript(() => { window.__gum = []; const o = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getUserMedia = (c) => { window.__gum.push(JSON.stringify(c)); return o(c); }; });
+  await openStart(page);
+  await expect(page.locator('#sdCamSel')).toBeEnabled(); await expect(page.locator('#sdMicSel')).toBeEnabled(); expect(await page.locator('#sdCamSel option').count()).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__gum.length)).toBe(0);                                  // listing devices opens nothing
+  await page.selectOption('#sdMicSel', { index: 0 }); await expect(page.locator('#sdVideo')).toBeVisible(); expect(await page.evaluate(() => window.__gum.length)).toBeGreaterThan(0);   // choosing activates it
+  await expect(page.locator('#sdNet [data-k=mic] b')).toHaveText('Working'); await expect(page.locator('#sdSnap')).toBeEnabled();
+  const before = await page.evaluate(() => window.__gum.length); await page.selectOption('#sdCamSel', { index: 0 }); await expect.poll(() => page.evaluate(() => window.__gum.length)).toBeGreaterThan(before);
+  await page.keyboard.press('Escape');
 });

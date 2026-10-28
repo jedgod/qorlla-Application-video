@@ -952,7 +952,7 @@
     $('sdTitleIn').value = m.title || ''; $('sdName').value = myName(); $('sdPass').value = ''; $('sdPass').type = 'password'; $('sdPassToggle').textContent = 'Show'; $('sdPassToggle').setAttribute('aria-pressed', 'false');
     $('sdGo').textContent = 'Start meeting'; $('sdRemovePass').checked = false; $('sdRemoveWrap').style.display = 'none';
     $('sdSub').textContent = m.date ? 'Scheduled for ' + prettyDate(m.date) + ((m.start || m.time) ? ' · ' + t12(m.start || m.time) : '') : 'Configure your Qorlla meeting';
-    $('sdMic').checked = true; $('sdCam').checked = true; $('sdPreview').checked = false; stopPreview(); resetDevices();
+    $('sdMic').checked = true; $('sdCam').checked = true; $('sdPreview').checked = false; stopPreview(); resetDevices(); loadDeviceList();
     $('sdSec').open = !window.matchMedia('(max-width: 700px)').matches;                       // on phones the advanced options start collapsed
     netRow('cam', 'Not tested'); netRow('mic', 'Not tested');
     $('startDialog').showModal(); $('sdTitleIn').focus(); runPreflight();
@@ -985,6 +985,7 @@
   function fillDevices(devs) {
     var pick = function (id, kind, cur) {
       var s = $(id); var keep = s.value; s.textContent = ''; var list = devs.filter(function (d) { return d.kind === kind; });
+      if (!list.length) s.appendChild(new Option('None found', ''));
       list.forEach(function (d, i) { var o = new Option(d.label || (kind === 'videoinput' ? 'Camera ' : kind === 'audioinput' ? 'Microphone ' : 'Speakers ') + (i + 1), d.deviceId); s.appendChild(o); });
       if (kind !== 'audiooutput') { s.disabled = !list.length; if (cur) { var m = list.filter(function (d) { return d.label === cur; })[0]; if (m) s.value = m.deviceId; } else if (keep) s.value = keep; }
     };
@@ -993,7 +994,12 @@
     var sp = $('sdSpkSel'), spk = devs.filter(function (d) { return d.kind === 'audiooutput'; }); sp.textContent = ''; sp.appendChild(new Option('Default speakers', ''));
     spk.forEach(function (d, i) { if (d.deviceId !== 'default') sp.appendChild(new Option(d.label || 'Speakers ' + (i + 1), d.deviceId)); });
   }
+  function loadDeviceList() {      // lists what is plugged in WITHOUT opening anything; names appear once the browser has been given permission
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve();
+    return navigator.mediaDevices.enumerateDevices().then(function (d) { if (!sd.stream) fillDevices(d); }).catch(function () { /* keep the placeholders */ });
+  }
   function startPreview() {
+    if (!$('startDialog').open) return Promise.resolve();                                   // never open a device for a screen that is not showing
     stopPreview(); var gen = sd.gen;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { netRow('cam', 'Not supported by this browser', 'bad'); netRow('mic', 'Not supported by this browser', 'bad'); return Promise.resolve(); }
     var cam = $('sdCamSel').value, mic = $('sdMicSel').value;
@@ -1016,7 +1022,11 @@
   $('sdPrevSet').addEventListener('click', function () { $('sdCamSel').disabled ? startPreview() : $('sdCamSel').focus(); });
   $('sdSnap').addEventListener('click', function () { var vd = $('sdVideo'); if (!sd.stream || !vd.videoWidth) return; var c = document.createElement('canvas'); c.width = vd.videoWidth; c.height = vd.videoHeight; c.getContext('2d').drawImage(vd, 0, 0); var a = document.createElement('a'); a.href = c.toDataURL('image/png'); a.download = 'camera-preview.png'; document.body.appendChild(a); a.click(); a.remove(); toast('Snapshot saved', 'ok'); });
   $('sdPreview').addEventListener('change', function () { if (this.checked) startPreview(); else stopPreview(); });
-  ['sdCamSel', 'sdMicSel'].forEach(function (id) { $(id).addEventListener('change', function () { if (sd.stream) startPreview(); }); });
+  ['sdCamSel', 'sdMicSel'].forEach(function (id) { $(id).addEventListener('change', function () {
+    var idx = $(id).selectedIndex;                                                          // before permission the ids may be blank: remember the position and re-apply it once the real list is known
+    startPreview().then(function () { var s = $(id); if (s.options[idx] && s.selectedIndex !== idx) { s.selectedIndex = idx; if (s.value) startPreview(); } });
+  }); });
+  $('sdSpkSel').addEventListener('change', function () { $('sdSpkTest').click(); });         // picking speakers plays the test tone through them
   $('sdRefresh').addEventListener('click', function () { if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) navigator.mediaDevices.enumerateDevices().then(fillDevices); });
   $('sdSpkTest').addEventListener('click', function () {
     var n = 8000 * 0.7, wav = new Uint8Array(44 + n * 2), dv = new DataView(wav.buffer), w = function (o, s) { for (var i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
@@ -1034,9 +1044,10 @@
     if (!name) { err.textContent = 'Enter your display name.'; $('sdName').focus(); return; }
     if (pw && (pw.length < 6 || pw.length > 32)) { err.textContent = 'The password must be 6 to 32 characters.'; $('sdPass').focus(); return; }
     err.textContent = ''; store('zw_name', name);
+    var spkOpt = $('sdSpkSel').selectedOptions[0], spkLabel = spkOpt && $('sdSpkSel').value ? spkOpt.textContent : '';
     var camLabel = '', micLabel = ''; if (sd.stream) { var vt = sd.stream.getVideoTracks()[0], at = sd.stream.getAudioTracks()[0]; camLabel = vt ? vt.label : ''; micLabel = at ? at.label : ''; }
     var mic = $('sdMic').checked, cam = $('sdCam').checked, m = sd.m;
-    var body = { requestId: sd.requestId, name: name, title: title, mic: mic, camera: cam, camLabel: camLabel, micLabel: micLabel, returnUrl: location.href.split('#')[0],
+    var body = { requestId: sd.requestId, name: name, title: title, mic: mic, camera: cam, camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel, returnUrl: location.href.split('#')[0],
       waitingRoom: $('sdWait').checked, joinBeforeHost: $('sdBefore').checked, lockAfterJoin: $('sdLock').checked };
     if (pw) body.password = pw; else if ($('sdRemovePass').checked) body.removePassword = true;
     stopPreview();                                                                          // release the camera and microphone so Meet can use them

@@ -96,7 +96,7 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
         const q = new URLSearchParams({ mic: mic ? 'true' : 'false', camera: camera ? 'true' : 'false' });
         if (returnUrl) q.set('return', returnUrl);
         const payload = { token: session.token, meetingId: session.meetingId, participantId: session.participantId };
-        if (prefs && (prefs.camLabel || prefs.micLabel)) payload.prefs = { camLabel: String(prefs.camLabel || '').slice(0, 120), micLabel: String(prefs.micLabel || '').slice(0, 120) };
+        if (prefs && (prefs.camLabel || prefs.micLabel || prefs.spkLabel)) payload.prefs = { camLabel: String(prefs.camLabel || '').slice(0, 120), micLabel: String(prefs.micLabel || '').slice(0, 120), spkLabel: String(prefs.spkLabel || '').slice(0, 120) };
         return publicBase + '?' + q.toString() + '#qs=' + Buffer.from(JSON.stringify(payload)).toString('base64url');
     }
     const forget = (meetingId) => { const d = digitsOf(meetingId); if (links[d]) { delete links[d]; persist(); } };
