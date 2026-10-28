@@ -235,45 +235,101 @@ function attachActor(req, res, next) {
 // Entering a meeting that Qorlla Meet can host: the invitee is taken straight into the current Meet video page (not the old built-in room).
 async function meetHandoff(meeting, who, req) {
     try {
-        if (!meetLaunch.enabled()) return null;
-        const pub = await meetPublicBase(req); if (!pub) return null;
-        const link = await meetLaunch.ensureLink(meeting, meeting.hostName || meeting.ownerName || 'Host');
+        if (!meetLaunch.enabled() || !(await meetPublicBase(req))) return settingsOf(meeting).waitingRoom ? { blocked: true } : null;
+        const pub = await meetPublicBase(req);
+        const link = await meetLaunch.ensureLink(meeting, meeting.hostName || meeting.ownerName || 'Host', { title: meeting.topic, settings: settingsOf(meeting) });
         const session = await meetLaunch.join(link, { name: who.name });
         return { url: meetLaunch.url(pub, session, { returnUrl: req.protocol + '://' + req.get('host') + '/guest/welcome' }) };
-    } catch (e) { console.warn('[Meet hand-off] ' + e.message + ' - falling back to the built-in room'); return null; }
+    } catch (e) {
+        console.warn('[Meet hand-off] ' + e.message);
+        if (e.code === 'REFUSED') return { blocked: true, status: 423, error: /locked/i.test(e.message) ? 'This meeting is locked. Ask the host.' : 'This meeting is not available.' };   // Meet said no: never route around it through the built-in room
+        return settingsOf(meeting).waitingRoom ? { blocked: true } : null;     // the built-in room has no waiting room: never use it where the host asked for one
+    }
 }
 app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getMeeting: meetingById, getAccount: (req) => auth.getUser(req), verifyHostKey, checkPasscode, admitAccount, handoff: meetHandoff }));
 
-// The organiser starts their own meeting: straight into Qorlla Meet as its host. Never returns a credential - only where to go.
-app.post('/api/meetings/:id/meet-launch', async (req, res) => {
-    const user = auth.getUser(req); if (!user) return res.status(401).json({ error: 'Sign in to start this meeting.' });
+// ---- The organiser's pre-meeting screen (v4.0.2b) --------------------------------------------------------------------------------------------------
+// Admission policy lives in meeting.settings and is ENFORCED by Qorlla Meet (waiting room, join before host, lock when the host joins): the page only edits it.
+// Meetings that never went through the start screen keep today's behaviour (no waiting room).
+const SETTINGS_RECOMMENDED = { waitingRoom: true, joinBeforeHost: false, lockAfterJoin: false };
+const settingsOf = (m) => ({ waitingRoom: false, joinBeforeHost: true, lockAfterJoin: false, ...((m && m.settings) || {}) });
+function hostMeeting(req, res) {
+    const user = auth.getUser(req); if (!user) { res.status(401).json({ error: 'Sign in first.' }); return null; }
     const meeting = meetingById(req.params.id);
-    if (!meeting || meeting.status === 'completed') return res.status(404).json({ error: 'This meeting is not available.' });
-    if (meeting.hostId !== user.id) return res.status(403).json({ error: 'Only the person who scheduled this meeting can start it. Use Join instead.' });
+    if (!meeting || meeting.status === 'completed') { res.status(404).json({ error: 'This meeting is not available.' }); return null; }
+    if (meeting.hostId !== user.id) { res.status(403).json({ error: 'Only the person who scheduled this meeting can do this.' }); return null; }
+    req.hostUser = user; return meeting;
+}
+const bool = (x) => typeof x === 'boolean';
+function readSettings(b) {
+    const out = {}; for (const k of ['waitingRoom', 'joinBeforeHost', 'lockAfterJoin']) { if (b[k] === undefined) continue; if (!bool(b[k])) return { error: k + ' must be true or false' }; out[k] = b[k]; }
+    return { value: out };
+}
+function applyHostChanges(meeting, b) {                                                   // validates everything first, then applies (all or nothing)
+    const s = readSettings(b || {}); if (s.error) return s;
+    let title; if (b.title !== undefined) { title = String(b.title).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 160); if (!title) return { error: 'The meeting needs a title.' }; }
+    const pw = b.password;
+    if (pw !== undefined && pw !== null && pw !== '' && (typeof pw !== 'string' || pw.length < 6 || pw.length > 32)) return { error: 'The password must be 6 to 32 characters.' };
+    if (Object.keys(s.value).length) meeting.settings = { ...SETTINGS_RECOMMENDED, ...(meeting.settings || {}), ...s.value };
+    if (title !== undefined) meeting.topic = title;
+    if (b.removePassword === true || pw === null) delete meeting.passcodeHash; else if (typeof pw === 'string' && pw) meeting.passcodeHash = hashPasscode(pw);
+    saveSnapshotSoon(); return { ok: true };
+}
+const startRequests = new Map();                                                          // requestId -> promise of the answer: a repeated click gets the same answer, not a second start
+async function doStart(meeting, user, b, req) {
+    const changed = applyHostChanges(meeting, b); if (changed.error) return { status: 400, body: { error: changed.error } };
+    if (!meeting.settings) meeting.settings = { ...SETTINGS_RECOMMENDED }, saveSnapshotSoon();   // starting from this screen means the policy was reviewed
+    const settings = settingsOf(meeting);
+    const unavailable = (reason, error) => settings.waitingRoom
+        ? { status: 409, body: { mode: 'blocked', reason, error: 'Qorlla Meet is not available, so the waiting room cannot be enforced. Turn the waiting room off to start in the basic room, or try again.' } }
+        : { status: 409, body: { mode: 'builtin', reason, ...(error ? { error } : {}) } };
     try {
-        if (!meetLaunch.enabled()) return res.status(409).json({ mode: 'builtin', reason: 'meet_not_configured' });
-        const pub = await meetPublicBase(req); if (!pub) return res.status(409).json({ mode: 'builtin', reason: 'meet_not_running' });
-        const link = await meetLaunch.ensureLink(meeting, user.displayName);
-        const name = String((req.body && req.body.name) || user.displayName || 'Host').trim().slice(0, 70) || 'Host';
+        if (!meetLaunch.enabled()) return unavailable('meet_not_configured');
+        const pub = await meetPublicBase(req); if (!pub) return unavailable('meet_not_running');
+        const link = await meetLaunch.ensureLink(meeting, user.displayName, { title: meeting.topic, settings });
+        const name = String(b.name || user.displayName || 'Host').trim().slice(0, 70) || 'Host';
         const session = await meetLaunch.join(link, { name, host: true });
-        const ret = String((req.body && req.body.returnUrl) || '');
-        res.json({ mode: 'meet', url: meetLaunch.url(pub, session, { mic: !(req.body && req.body.mic === false), camera: !(req.body && req.body.camera === false), returnUrl: /^https?:\/\//.test(ret) ? ret : '' }) });
-    } catch (e) { console.warn('[Meet launch] ' + e.message); res.status(409).json({ mode: 'builtin', reason: 'meet_unavailable', error: e.message }); }
-});
-
-// The host sets or removes the meeting password (stored hashed: it can be shown only at the moment it is set).
-app.put('/api/meetings/:id/passcode', (req, res) => {
-    const user = auth.getUser(req); if (!user) return res.status(401).json({ error: 'Sign in first.' });
-    const meeting = meetingById(req.params.id);
-    if (!meeting || meeting.status === 'completed') return res.status(404).json({ error: 'This meeting is not available.' });
-    if (meeting.hostId !== user.id) return res.status(403).json({ error: 'Only the host can change the password.' });
-    const pc = req.body && req.body.passcode;
-    if (pc === null || pc === '') { delete meeting.passcodeHash; }
-    else if (typeof pc !== 'string' || pc.length < 6 || pc.length > 32) return res.status(400).json({ error: 'The password must be 6 to 32 characters.' });
-    else meeting.passcodeHash = hashPasscode(pc);
-    saveSnapshotSoon();
-    res.json({ passcodeRequired: !!meeting.passcodeHash });
-});
+        const ret = String(b.returnUrl || '');
+        return { status: 200, body: { mode: 'meet', settings, url: meetLaunch.url(pub, session, { mic: b.mic !== false, camera: b.camera !== false, returnUrl: /^https?:\/\//.test(ret) ? ret : '', prefs: { camLabel: b.camLabel, micLabel: b.micLabel } }) } };
+    } catch (e) { console.warn('[Meet start] ' + e.message); return unavailable('meet_unavailable', e.message); }
+}
+for (const base of ['/api/meetings', '/api/v1/meetings']) {
+    // start: apply title / password / admission settings, then straight into Meet as host. Never returns a credential - only where to go.
+    app.post([base + '/:id/start', base + '/:id/meet-launch'], async (req, res) => {
+        const meeting = hostMeeting(req, res); if (!meeting) return;
+        const rid = String((req.body && req.body.requestId) || '').slice(0, 80), key = meeting.meetingId + ':' + rid;
+        let p = rid && startRequests.get(key);
+        if (!p) { p = doStart(meeting, req.hostUser, req.body || {}, req); if (rid) { startRequests.set(key, p); setTimeout(() => startRequests.delete(key), 30000).unref(); } }
+        const out = await p; res.status(out.status).json(out.body);
+    });
+    // preflight: everything the start screen needs to show, from the server (never invented in the browser)
+    app.get(base + '/:id/preflight', async (req, res) => {
+        const meeting = hostMeeting(req, res); if (!meeting) return;
+        const meet = await meetLaunch.ping(), explicit = !!meeting.settings;
+        res.set('Cache-Control', 'no-store').json({ meetingId: meeting.meetingId, title: meeting.topic || '', scheduledFor: meeting.startTime || null, kind: meeting.startTime ? 'scheduled' : 'instant', passcodeRequired: !!meeting.passcodeHash,
+            settings: explicit ? settingsOf(meeting) : SETTINGS_RECOMMENDED, recommended: SETTINGS_RECOMMENDED, explicit, meet: { ...meet, public: !!(await meetPublicBase(req)) }, serverTime: new Date().toISOString() });
+    });
+    app.get(base + '/:id/invitation', (req, res) => {
+        const meeting = hostMeeting(req, res); if (!meeting) return;
+        const id = meeting.meetingId, url = req.protocol + '://' + req.get('host') + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin';
+        res.set('Cache-Control', 'no-store').json({ id, title: meeting.topic || '', url, passcodeRequired: !!meeting.passcodeHash, scheduledFor: meeting.startTime || null });   // the password is never returned: it is stored hashed
+    });
+    // settings: title, password and admission policy; pushed to Meet when the meeting is already there
+    app.patch(base + '/:id/settings', async (req, res) => {
+        const meeting = hostMeeting(req, res); if (!meeting) return;
+        const changed = applyHostChanges(meeting, req.body || {}); if (changed.error) return res.status(400).json({ error: changed.error });
+        try { await meetLaunch.updateIfLinked(meeting, { title: meeting.topic, settings: settingsOf(meeting) }); } catch (e) { console.warn('[Meet settings] ' + e.message); }
+        res.json({ title: meeting.topic || '', settings: settingsOf(meeting), passcodeRequired: !!meeting.passcodeHash });
+    });
+    // the host sets or removes the meeting password (stored hashed: it can be shown only at the moment it is set)
+    app.put(base + '/:id/passcode', (req, res) => {
+        const meeting = hostMeeting(req, res); if (!meeting) return;
+        const pc = req.body && req.body.passcode;
+        if (pc !== null && pc !== '' && (typeof pc !== 'string' || pc.length < 6 || pc.length > 32)) return res.status(400).json({ error: 'The password must be 6 to 32 characters.' });
+        applyHostChanges(meeting, { password: pc === '' ? null : pc });
+        res.json({ passcodeRequired: !!meeting.passcodeHash });
+    });
+}
 
 // --- Mount service files ---
 const appointmentsRouter = require('./appointments');

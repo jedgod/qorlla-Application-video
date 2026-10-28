@@ -248,7 +248,7 @@ export function initCollab(h) {
     const groups = [
       { id: 'collab', title: 'Collaboration', items: [{ label: 'Reactions', reactions: true }, soon('Whiteboard'), soon('Breakout rooms'), soon('Shared files'), soon('Q&A')] },
       { id: 'intel', title: 'Meeting intelligence', items: [soon('AI meeting summary', 'Planned v4.2 — needs its own consent'), soon('Live transcription', 'Planned v4.2 — needs its own consent'), soon('Translated captions', 'Planned v4.2')] },
-      { id: 'manage', title: 'Meeting management', items: [{ label: 'Copy invitation link', run: () => $('copyLink').click() }, { label: 'Export notes (Markdown)', run: () => exportNotes('md') }, { label: 'Meeting information', info: () => state.meetingInfo || '' }, soon('Attendance report'), soon('Lock meeting / remove people')] },
+      { id: 'manage', title: 'Meeting management', items: [{ label: 'Copy invitation link', run: () => $('copyLink').click() }, ...(state.role === 'host' && state.settings ? [{ toggle: 'waitingRoom', label: 'Waiting room: hold guests until I admit them' }, { toggle: 'locked', label: 'Lock meeting: nobody new can join' }, { toggle: 'joinBeforeHost', label: 'Guests may join before the host' }] : []), { label: 'Export notes (Markdown)', run: () => exportNotes('md') }, { label: 'Meeting information', info: () => state.meetingInfo || '' }, soon('Attendance report'), soon('Lock meeting / remove people')] },
       { id: 'sec', title: 'Security and recording', items: [{ label: state.role === 'host' ? 'Recording and consent…' : 'About recording', run: () => (state.role === 'host' ? $('recordBtn').click() : notify('Recording only happens if everyone present agrees. You will be asked, and you can withdraw at any time.')) }, ...(state.role === 'host' ? [{ label: 'Recordings (download or delete)…', run: openRecordings }] : []), { label: 'Calls and chat are encrypted in transit', info: () => 'Audio and video use WebRTC (DTLS-SRTP); the page uses HTTPS in production. Recordings are not stored by Qorlla.' }] },
       { id: 'tools', title: 'Tools and settings', items: [{ label: 'Settings and keyboard shortcuts', run: () => $('settingsBtn').click() }, { label: 'Panel position and lock', info: () => 'On wide screens use the arrow buttons at the top of this panel to dock it left, right, top or bottom, and the lock to keep it stable.' }] },
     ];
@@ -257,6 +257,11 @@ export function initCollab(h) {
       const body = el('div', 'mg-b', '', { id: 'mg-' + g.id, role: 'region', 'aria-labelledby': 'mgh-' + g.id }); body.hidden = gi !== 0;
       for (const it of g.items) {
         if (it.reactions) { const row = el('div', 'emoji'); for (const e of ['👍', '👏', '❤️', '🎉', '😂']) { const b = el('button', '', e, { 'aria-label': 'React with ' + e }); b.onclick = () => state.socket?.emit('reaction', e); row.append(b); } body.append(el('p', '', 'Reactions'), row); }
+        else if (it.toggle) {
+          const lab = el('label', 'rc-check'), cb = el('input', '', '', { type: 'checkbox' }); cb.checked = !!state.settings[it.toggle]; lab.append(cb, document.createTextNode(' ' + it.label));
+          cb.onchange = async () => { cb.disabled = true; try { const r = await fetch(BASE + 'api/meetings/' + state.meetingId + '/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.token }, body: JSON.stringify({ [it.toggle]: cb.checked }) }); const j = await r.json(); if (!r.ok) throw Error(j.error); Object.assign(state.settings, j); announce(it.label.split(':')[0] + (cb.checked ? ' on' : ' off')); } catch (e) { cb.checked = !cb.checked; notify(e.message); } cb.disabled = false; };
+          body.append(lab);
+        }
         else if (it.soon) { const b = el('button', 'mg-i', '', { disabled: '', 'aria-disabled': 'true' }); b.append(el('span', '', it.label), el('small', 'muted', it.note)); body.append(b); }
         else if (it.info) { const d = el('div', 'mg-info'); d.append(el('strong', '', it.label), el('p', 'muted', it.info())); body.append(d); }
         else { const b = el('button', 'mg-i', it.label); b.onclick = it.run; body.append(b); }

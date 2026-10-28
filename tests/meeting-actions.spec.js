@@ -66,7 +66,7 @@ test.describe('actions', () => {
   test('Start meeting enters the meeting with its ID in the built-in room; it is disabled while Meet has not synced the meeting', async ({ page, context }) => {
     await signedIn(context); const s = await schedule(context);
     await page.goto('/qorlla.html#home'); await card(page, 'Weekly sync').getByRole('button', { name: 'More actions' }).click(); await items(page).first().click();
-    await expect(page.locator('#dlgTitle')).toContainText('Start meeting'); await expect(page.locator('#siId')).toHaveText(s.meetingId); await page.click('#dlgGo');     // the organiser's start screen (ID and password) first; no Meet here, so the built-in room
+    await expect(page.locator('#sdTitle')).toContainText('Start meeting'); await expect(page.locator('#sdId')).toHaveText(s.meetingId); await expect(page.locator('#sdPassNote')).not.toHaveText('Checking…'); await page.uncheck('#sdWait'); await page.click('#sdGo');     // the organiser's start screen (ID and password) first; no Meet here, so the built-in room
     await expect(page).toHaveURL(/\/index\.html\?start=join/); const u = new URL(page.url()); expect(u.searchParams.get('meeting')).toBe(s.meetingId); expect(u.searchParams.get('name')).toBe('Stryker');
     await expect(page.locator('#meetingBar')).toBeVisible(); await expect(page.locator('#meetingIdLabel')).toHaveText(s.meetingId); await expect(page.locator('#endCallBtn')).toHaveText('End for Everyone');   // the owner is the host
     // pending sync: the item is disabled and says why

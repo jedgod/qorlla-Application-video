@@ -76,7 +76,7 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
   const participant = async (req, res, next) => {
     try {
       if (req.user.meetingId !== req.params.id) return fail(res, 403, 'Wrong meeting');
-      const { rows } = await db.query('SELECT m.ended_at FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2', [req.params.id, req.user.participantId]);
+      const { rows } = await db.query("SELECT m.ended_at FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2 AND p.admission='admitted'", [req.params.id, req.user.participantId]);
       if (!rows.length) return fail(res, 403, 'Meeting unavailable'); req.ended = !!rows[0].ended_at; next();
     } catch { fail(res, 500, 'Database unavailable'); }
   };

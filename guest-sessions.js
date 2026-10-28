@@ -181,6 +181,7 @@ function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHo
                 admitAccount(meeting.meetingId, account.id);
             }
             const meetA = meeting.hostId !== account.id && handoff ? await handoff(meeting, { name: account.displayName || body.displayName || 'Guest' }, req) : null;
+            if (meetA && meetA.blocked) return res.status(meetA.status || 503).json({ error: meetA.error || 'The host requires a waiting room and it is temporarily unavailable. Try again in a moment.' });
             return res.json({ kind: 'account', meeting: { meetingId: meeting.meetingId }, ...(meetA ? { meet: meetA } : {}) });
         }
         if (!sessions.eligibility(meeting)) return res.status(404).json(NOT_OPEN);
@@ -189,13 +190,14 @@ function createGuestRouter({ express, sessions, getMeeting, getAccount, verifyHo
             const pc = await checkPasscode(meeting, body.passcode, req);
             if (pc.required && !pc.ok) return denyPasscode(res, pc);
         }
+        const meetG = !isHost && handoff ? await handoff(meeting, { name: cleanName(body.displayName) || 'Guest' }, req) : null;   // invitees enter the current Meet video page
+        if (meetG && meetG.blocked) return res.status(meetG.status || 503).json({ error: meetG.error || 'The host requires a waiting room and it is temporarily unavailable. Try again in a moment.' });
         sessions.revokeRequest(req, 'replaced');                                    // never reuse an incoming token
         const role = isHost ? 'host' : 'participant';
         let out;
         try { out = sessions.issue({ meetingId: meeting.meetingId, displayName: body.displayName, role }); }
         catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
         res.set('Set-Cookie', sessions.cookieHeader(req, out.token, out.session));
-        const meetG = !isHost && handoff ? await handoff(meeting, { name: out.session.name }, req) : null;              // invitees enter the current Meet video page
         res.status(201).json({ kind: 'guest', session: view(out.session), ...(meetG ? { meet: meetG } : {}) });
     });
 

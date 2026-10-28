@@ -159,6 +159,55 @@
   /* ---------- Dialog ---------- */
   dialog { border: 0; border-radius: 22px; padding: 26px; width: min(400px, 92vw); box-shadow: 0 30px 80px rgba(10,20,40,.35); margin: auto; }
   .si-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0 10px; } .si-row strong { font-size: 20px; letter-spacing: .5px; } .si-row .muted { font-size: 13px; }
+  dialog.sd { width: min(960px, 96vw); max-height: 94vh; overflow: auto; padding: 22px; }
+  .sd-head { display: flex; gap: 12px; align-items: center; } .sd-head > div { flex: 1; } .sd-head h2 { margin: 0; } .sd-ico { width: 46px; height: 46px; border-radius: 12px; background: #2563eb; color: #fff; display: grid; place-items: center; }
+  .sd-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 10px; } @media (min-width: 820px) { .sd-grid { grid-template-columns: 1.05fr 1fr; } }
+  .sd-left, .sd-right { display: flex; flex-direction: column; gap: 6px; min-width: 0; } .sd-left input[type=text], .sd-left input[type=password], .sd-card select { width: 100%; }
+  .sd-id { display: flex; gap: 10px; align-items: center; } .sd-id strong { font-size: 24px; letter-spacing: .5px; }
+  .sd-pass, .sd-link, .sd-spk { display: flex; gap: 6px; align-items: center; } .sd-pass input, .sd-link input, .sd-spk select { flex: 1; min-width: 0; }
+  .sd-quick { border: 0; padding: 0; margin: 8px 0; display: flex; gap: 14px; flex-wrap: wrap; } .sd-quick legend { font-weight: 600; font-size: 13px; padding: 0; margin-bottom: 4px; }
+  .sd-card { border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px; background: #f8fafc; display: flex; flex-direction: column; gap: 6px; } .sd-card h3, .sd-card summary { margin: 0; font-size: 14px; font-weight: 700; cursor: default; } .sd-card summary { cursor: pointer; }
+  .sd-prev { aspect-ratio: 16 / 9; background: #0f172a; border-radius: 10px; overflow: hidden; display: grid; place-items: center; } .sd-prev video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); } .sd-prev p { color: #cbd5e1; font-size: 12px; padding: 10px; margin: 0; text-align: center; }
+  .sd-meter { height: 8px; background: #e2e8f0; border-radius: 6px; overflow: hidden; } .sd-meter i { display: block; height: 100%; width: 0; background: #22c55e; transition: width .08s; }
+  .sd-net { list-style: none; margin: 0; padding: 0; } .sd-net li { display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0; } .sd-net b.ok { color: #15803d; } .sd-net b.bad { color: #b91c1c; }
+  .hint { font-size: 12px; color: #64748b; margin: 0 0 4px; } .note-box { font-size: 12px; background: #eff6ff; border-radius: 10px; padding: 8px 10px; margin: 4px 0 0; color: #1e3a8a; }
+  .sd-err { color: #b91c1c; min-height: 1.2em; margin: 8px 0 0; font-size: 13px; } .sd-card label { font-size: 13px; display: block; }
+  /* compact, centred start screen */
+  dialog.sd { width: min(780px, 94vw); max-height: 92vh; padding: 14px 18px; margin: auto; font-size: 13px; border-radius: 18px; }
+  dialog.sd .sub { font-size: 12px; margin: 0; } dialog.sd .sd-head h2 { font-size: 18px; } dialog.sd .sd-ico { width: 36px; height: 36px; border-radius: 10px; } dialog.sd .sd-ico svg { width: 20px; height: 20px; }
+  dialog.sd .sd-grid { gap: 12px; margin-top: 6px; } dialog.sd .sd-left, dialog.sd .sd-right { gap: 4px; }
+  dialog.sd .f { font-size: 12px; font-weight: 700; margin: 4px 0 0; }
+  dialog.sd input[type=text], dialog.sd input[type=password] { height: 32px; font-size: 13px; border-radius: 8px; padding: 0 10px; border: 1px solid var(--line); box-sizing: border-box; }
+  dialog.sd select { height: 30px; font-size: 12px; border-radius: 8px; }
+  dialog.sd .chip { padding: 3px 9px; font-size: 12px; } dialog.sd .sd-id strong { font-size: 18px; }
+  dialog.sd .sd-quick { margin: 4px 0; gap: 10px; } dialog.sd .sd-quick label, dialog.sd .sd-card label { font-size: 12px; }
+  dialog.sd .sd-card { padding: 8px 10px; border-radius: 10px; gap: 4px; } dialog.sd .sd-card h3, dialog.sd .sd-card summary { font-size: 13px; }
+  dialog.sd .sd-prev { aspect-ratio: 16 / 7; border-radius: 8px; } dialog.sd .sd-prev p { font-size: 11px; padding: 6px; }
+  dialog.sd .sd-net li { font-size: 12px; padding: 1px 0; } dialog.sd .hint, dialog.sd .note-box { font-size: 11px; } dialog.sd .note-box { padding: 6px 8px; }
+  dialog.sd .btns button { height: 34px; font-size: 13px; padding: 0 16px; border-radius: 10px; } dialog.sd .sd-err { margin: 4px 0 0; font-size: 12px; min-height: 0; }
+  dialog.sd { width: min(840px, 94vw); } dialog.sd .f { text-transform: none; letter-spacing: 0; color: inherit; }
+  dialog.sd .sd-card > label.f { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }   /* names stay for screen readers; the selects carry their own text */
+  dialog.sd .sd-prev { aspect-ratio: 16 / 5.5; } dialog.sd .sd-net { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; }
+  dialog.sd #sdSec .hint { display: none; } dialog.sd .sd-card .sd-meter { height: 5px; } dialog.sd .sd-card { margin: 0; }
+  dialog.sd[open] { display: flex; flex-direction: column; overflow: hidden; padding: 0; } dialog.sd form { display: flex; flex-direction: column; min-height: 0; max-height: 92vh; }
+  dialog.sd .sd-head { flex: none; padding: 14px 20px 8px; } dialog.sd .sd-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 20px 12px; }
+  dialog.sd .sd-foot { flex: none; display: flex; justify-content: flex-end; gap: 10px; padding: 10px 20px; border-top: 1px solid #e5eaf3; background: #fff; margin: 0; }
+  dialog.sd .sd-card { background: #f5f7fc; } dialog.sd .sd-net b.warn { color: #b45309; } dialog.sd .sd-err { margin: 6px 0 0; } dialog.sd .primary:disabled { opacity: .5; cursor: not-allowed; }
+  @media (max-width: 850px) { dialog.sd { width: calc(100vw - 24px); } }
+  /* compact, centred start screen: everything fits one window without scrolling */
+  dialog.sd { width: min(860px, 94vw); max-height: 94vh; padding: 14px 18px 12px; border-radius: 18px; font-size: 13px; margin: auto; }
+  dialog.sd h2 { font-size: 19px; } dialog.sd .sub { margin: 0; font-size: 12px; } .sd-ico { width: 38px; height: 38px; border-radius: 10px; } .sd-ico svg { width: 22px; height: 22px; }
+  dialog.sd input[type=text], dialog.sd input[type=password], dialog.sd select { padding: 6px 10px; font-size: 13px; border-radius: 10px; }
+  dialog.sd .f { font-size: 12px; margin: 6px 0 2px; font-weight: 600; } dialog.sd .chip { padding: 3px 10px; font-size: 12px; }
+  .sd-grid { gap: 14px; margin-top: 6px; } .sd-left, .sd-right { gap: 2px; } .sd-id strong { font-size: 19px; }
+  .sd-quick { margin: 6px 0 4px; gap: 12px; } .sd-quick legend { font-size: 12px; margin-bottom: 2px; }
+  .sd-card { padding: 8px 10px; border-radius: 12px; gap: 3px; } .sd-card h3, .sd-card summary { font-size: 13px; }
+  .sd-prev { aspect-ratio: auto; height: 118px; } .sd-prev p { font-size: 11px; padding: 6px; }
+  .sd-net { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; } .sd-net li { font-size: 12px; }
+  .hint { font-size: 11px; margin: 0 0 2px; } .note-box { font-size: 11px; padding: 6px 8px; } .sd-err { margin: 4px 0 0; min-height: 1em; font-size: 12px; }
+  dialog.sd .btns { margin-top: 6px; } dialog.sd .btns button { padding: 8px 18px; font-size: 13px; }
+  .sd-card label { font-size: 12px; } .sd-card .f { margin-top: 3px; }
+  @media (max-width: 819px) { dialog.sd { width: 96vw; } .sd-prev { height: 140px; } }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 21px; margin-bottom: 4px; letter-spacing: -.4px; }
   dialog .sub { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
@@ -601,13 +650,6 @@
       <label class="f" for="mid"><span data-i18n="Meeting ID">Meeting ID</span></label>
       <input type="text" id="mid" inputmode="numeric" placeholder="000 0000 0000" autocomplete="off">
     </div>
-    <div id="startInfo" style="display:none">
-      <div class="f"><span data-i18n="Meeting ID">Meeting ID</span></div>
-      <div class="si-row"><strong id="siId"></strong><button type="button" class="chip" id="siCopyId">Copy ID</button></div>
-      <div class="f"><span>Meeting password</span></div>
-      <div class="si-row"><span id="siPassText" class="muted"></span></div>
-      <div class="si-row"><button type="button" class="chip" id="siGen">Generate new password</button><button type="button" class="chip" id="siRemove" style="display:none">Remove password</button><button type="button" class="chip" id="siInvite">Copy invitation</button></div>
-    </div>
     <div id="titleWrap" style="display:none">
       <label class="f" for="ttl">Meeting title</label>
       <input type="text" id="ttl" maxlength="160" placeholder="Qorlla Team Meeting" autocomplete="off">
@@ -622,6 +664,64 @@
       <button type="button" id="dlgCancel"><span data-i18n="Cancel">Cancel</span></button>
       <button type="submit" class="primary" id="dlgGo"><span data-i18n="Join">Join</span></button>
     </div>
+  </form>
+</dialog>
+
+<dialog id="startDialog" aria-labelledby="sdTitle" class="sd">
+  <form id="startForm" novalidate>
+    <header class="sd-head">
+      <span class="sd-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="12" height="12" rx="2.5"/><path d="m15 10 6-3.5v11L15 14"/></svg></span>
+      <div><h2 id="sdTitle">Start meeting</h2><p class="sub" id="sdSub">Configure your Qorlla meeting</p></div>
+      <button type="button" class="icon-sm" id="sdClose" aria-label="Close">&#10005;</button>
+    </header>
+    <div class="sd-body"><div class="sd-grid">
+      <div class="sd-left">
+        <label class="f" for="sdTitleIn">Meeting title</label><input type="text" id="sdTitleIn" maxlength="160" autocomplete="off">
+        <div class="f">Meeting ID</div>
+        <div class="sd-id"><strong id="sdId"></strong><button type="button" class="chip" id="sdCopyId">Copy ID</button></div>
+        <label class="f" for="sdPass">Meeting password <span class="muted">(optional)</span></label>
+        <div class="sd-pass"><input type="password" id="sdPass" maxlength="32" autocomplete="new-password" placeholder="Enter meeting password"><button type="button" class="chip" id="sdPassToggle" aria-pressed="false">Show</button><button type="button" class="chip" id="sdPassGen">Generate</button></div>
+        <p class="hint" id="sdPassNote"></p>
+        <label class="hint" id="sdRemoveWrap" style="display:none"><input type="checkbox" id="sdRemovePass"> Remove the current password</label>
+        <label class="f" for="sdName">Your display name</label><input type="text" id="sdName" maxlength="70" autocomplete="name">
+        <fieldset class="sd-quick"><legend>Quick settings</legend>
+          <label><input type="checkbox" id="sdMic" checked> Mic on</label>
+          <label><input type="checkbox" id="sdCam" checked> Camera on</label>
+          <label><input type="checkbox" id="sdPreview"> Show camera preview before joining</label>
+        </fieldset>
+        <div class="f">Invitation link</div>
+        <div class="sd-link"><input type="text" id="sdLink" readonly aria-label="Invitation link"><button type="button" class="chip" id="sdCopyInvite">Copy invitation</button></div>
+        <p class="hint">Share this link with the people you want to invite.</p>
+      </div>
+      <div class="sd-right">
+        <section aria-labelledby="sdPrevH" class="sd-card">
+          <h3 id="sdPrevH">Camera preview</h3>
+          <div class="sd-prev"><video id="sdVideo" autoplay muted playsinline hidden aria-label="Camera preview"></video><p id="sdPrevHint">Your camera and microphone stay off until you choose to test them.</p></div>
+          <button type="button" class="chip" id="sdTest">Test microphone and camera</button>
+        </section>
+        <section aria-labelledby="sdDevH" class="sd-card">
+          <h3 id="sdDevH">Select devices</h3>
+          <label class="f" for="sdCamSel">Camera</label><select id="sdCamSel" disabled><option>Test your devices to choose</option></select>
+          <label class="f" for="sdMicSel">Microphone</label><select id="sdMicSel" disabled><option>Test your devices to choose</option></select>
+          <div class="sd-meter" aria-hidden="true"><i id="sdMeter"></i></div>
+          <label class="f" for="sdSpkSel">Speakers</label><div class="sd-spk"><select id="sdSpkSel"><option value="">Default speakers</option></select><button type="button" class="chip" id="sdSpkTest">Test speakers</button></div>
+          <p class="hint" id="sdSpkNote"></p>
+        </section>
+        <section aria-labelledby="sdNetH" class="sd-card">
+          <h3 id="sdNetH">Readiness</h3>
+          <button type="button" class="chip" id="sdRecheck" hidden>Re-check</button><ul class="sd-net" id="sdNet" aria-live="polite"><li data-k="net"><span>Connection</span><b>Checking…</b></li><li data-k="meet"><span>Qorlla Meet</span><b>Checking…</b></li><li data-k="cam"><span>Camera</span><b>Not tested</b></li><li data-k="mic"><span>Microphone</span><b>Not tested</b></li></ul>
+        </section>
+        <details id="sdSec" class="sd-card" open>
+          <summary>Security and admission</summary>
+          <label><input type="checkbox" id="sdWait" checked> Enable waiting room for guests</label><p class="hint">Guests are held until you admit them one by one. Enforced by Qorlla Meet.</p>
+          <label><input type="checkbox" id="sdBefore"> Allow participants to join before the host <span class="muted">(not recommended)</span></label>
+          <label><input type="checkbox" id="sdLock"> Lock the meeting after I join</label>
+          <p class="note-box">Recording never starts automatically. If you turn it on later, everyone present is asked for consent first.</p>
+        </details>
+      </div>
+    </div>
+    <p class="sd-err" role="alert"><span id="sdErr"></span> <button type="button" class="chip" id="sdRetry" hidden>Retry</button></p></div>
+    <div class="btns sd-foot"><button type="button" id="sdCancel">Cancel</button><button type="submit" class="primary" id="sdGo">Start meeting</button></div>
   </form>
 </dialog>
 
@@ -776,51 +876,151 @@
     var q = new URLSearchParams(params).toString();
     window.location.href = VIDEO_PAGE + (q ? '?' + q : '');
   }
-  var dlgMode = 'join', dlgMeeting = null, shownPass = '';
+  var dlgMode = 'join';
   function startOrJoin(m, joinable) { if (joinable && m.kind !== 'event') openStart(m); else openDialog('join', joinable ? m.meetingId : null); }
+
+  // =====================================================================
+  // The organiser's pre-meeting screen: server-provided meeting facts, opt-in device checks, admission policy, then straight into Meet as host
+  // =====================================================================
+  var sd = { m: null, stream: null, raf: 0, ctx: null, requestId: '', busy: false, invUrl: '' };
   var PASS_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
   function newPassword() { var a = new Uint32Array(10); crypto.getRandomValues(a); return Array.prototype.map.call(a, function (n) { return PASS_CHARS[n % PASS_CHARS.length]; }).join(''); }
-  function putPass(pw) {
-    return fetch('/api/meetings/' + encodeURIComponent(dlgMeeting.meetingId) + '/passcode', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passcode: pw }) })
-      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw new Error(d.error || 'Could not change the password'); return d; }); });
+  function copyText(t, msg) { if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { toast(msg, 'ok'); }, function () { toast(t); }); else toast(t); }
+  function netRow(k, text, cls) { var b = $('sdNet').querySelector('[data-k=' + k + '] b'); if (b) { b.textContent = text; b.className = cls || ''; } }
+  function jget(url) { return fetch(url, { cache: 'no-store' }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); }); }
+
+  // Meeting initialisation is strict: the ID, invitation and Start stay unconfirmed until the server has answered the preflight; a failure keeps the form and offers Retry.
+  function fail(msg) { $('sdErr').textContent = msg; $('sdRetry').hidden = false; $('sdGo').disabled = true; $('sdRecheck').hidden = false; }
+  function runPreflight() {
+    var m = sd.m, t0 = Date.now(), ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 8000);
+    sd.ready = false; $('sdGo').disabled = true; $('sdRetry').hidden = true; $('sdRecheck').hidden = true; $('sdErr').textContent = '';
+    netRow('net', navigator.onLine === false ? 'Offline' : 'Checking…', navigator.onLine === false ? 'bad' : ''); netRow('meet', 'Checking…'); $('sdPassNote').textContent = 'Checking…';
+    $('sdId').textContent = m.meetingId + ' (unconfirmed)'; $('sdCopyId').disabled = true; $('sdCopyInvite').disabled = true; $('sdLink').value = '';
+    var url = '/api/meetings/' + encodeURIComponent(m.meetingId);
+    return fetch(url + '/preflight', { cache: 'no-store', signal: ctl.signal }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; });
+    }).then(function (r) {
+      clearTimeout(timer);
+      if (!r.ok) {
+        netRow('net', 'Server answered (' + r.status + ')', 'bad'); netRow('meet', 'Not checked', 'bad'); $('sdPassNote').textContent = '';
+        fail(r.d.error || (r.status === 404 ? 'The server does not know this meeting action - restart it so it runs the current version.' : 'Could not load the meeting (HTTP ' + r.status + ').')); return;
+      }
+      var p = r.d; netRow('net', 'Ready (' + (Date.now() - t0) + ' ms)', 'ok');
+      if (!$('sdTitleIn').value) $('sdTitleIn').value = p.title; $('sdId').textContent = p.meetingId; $('sdCopyId').disabled = false;
+      $('sdWait').checked = !!p.settings.waitingRoom; $('sdBefore').checked = !!p.settings.joinBeforeHost; $('sdLock').checked = !!p.settings.lockAfterJoin;
+      $('sdPassNote').textContent = p.passcodeRequired ? 'A password is set (stored securely, so it cannot be shown). Type a new one to change it.' : 'No password set. ' + (p.settings.waitingRoom ? 'Guests are admitted from the waiting room.' : 'Anyone with the ID or link can join - consider a password or the waiting room.');
+      $('sdRemoveWrap').style.display = p.passcodeRequired ? '' : 'none';
+      var up = p.meet && p.meet.reachable; netRow('meet', up ? 'Ready (' + p.meet.ms + ' ms)' : 'Limited - the basic room will be used', up ? 'ok' : 'warn'); $('sdRecheck').hidden = up;
+      sd.ready = true; $('sdGo').disabled = false;
+      return fetch(url + '/invitation', { cache: 'no-store' }).then(function (x) { return x.ok ? x.json() : {}; }).then(function (inv) { if (inv.url) { sd.invUrl = inv.url; $('sdLink').value = inv.url; $('sdCopyInvite').disabled = false; } });
+    }).catch(function (e) {
+      clearTimeout(timer); var to = e && e.name === 'AbortError';
+      netRow('net', to ? 'Timed out' : 'Could not reach the server', 'bad'); netRow('meet', 'Not checked', 'bad'); $('sdPassNote').textContent = '';
+      fail(to ? 'The server did not answer in time.' : 'Could not reach the server. Check your connection.');
+    });
   }
-  function paintPass(required) {
-    $('siPassText').textContent = shownPass ? shownPass : required ? '•••••••••• (set when the meeting was created; it is stored hashed, so it can only be shown when you generate a new one)' : 'No password - anyone with the ID or link can join.';
-    $('siGen').textContent = required ? 'Generate new password' : 'Add a password'; $('siRemove').style.display = required ? '' : 'none';
-  }
-  /** The organiser's start screen: the meeting ID and password (like the guest pre-join page), then straight into the video meeting as host. */
+  $('sdRetry').addEventListener('click', runPreflight); $('sdRecheck').addEventListener('click', runPreflight);
   function openStart(m) {
-    dlgMode = 'start'; dlgMeeting = m; shownPass = '';
-    $('dlgTitle').textContent = I18n.t('Start meeting'); $('dlgSub').textContent = m.title || '';
-    $('dlgGo').textContent = I18n.t('Start'); $('idWrap').style.display = 'none'; $('titleWrap').style.display = 'none'; $('startInfo').style.display = 'block';
-    $('siId').textContent = m.meetingId; paintPass(false); $('siGen').disabled = false;
-    fetch('/api/meetings/validate/' + encodeURIComponent(m.meetingId)).then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) { paintPass(!!d.passcodeRequired); }).catch(function () { /* keep the default text */ });
-    $('nm').value = myName(); $('joinDialog').showModal(); $('dlgGo').focus();
+    sd.m = m; sd.busy = false; sd.ready = false; sd.requestId = crypto.randomUUID(); sd.invUrl = meetingLink(m.meetingId);
+    $('sdTitleIn').value = m.title || ''; $('sdName').value = myName(); $('sdPass').value = ''; $('sdPass').type = 'password'; $('sdPassToggle').textContent = 'Show'; $('sdPassToggle').setAttribute('aria-pressed', 'false');
+    $('sdGo').textContent = 'Start meeting'; $('sdRemovePass').checked = false; $('sdRemoveWrap').style.display = 'none';
+    $('sdSub').textContent = m.date ? 'Scheduled for ' + prettyDate(m.date) + ((m.start || m.time) ? ' · ' + t12(m.start || m.time) : '') : 'Configure your Qorlla meeting';
+    $('sdMic').checked = true; $('sdCam').checked = true; $('sdPreview').checked = false; stopPreview(); resetDevices();
+    $('sdSec').open = !window.matchMedia('(max-width: 700px)').matches;                       // on phones the advanced options start collapsed
+    netRow('cam', 'Not tested'); netRow('mic', 'Not tested');
+    $('startDialog').showModal(); $('sdTitleIn').focus(); runPreflight();
   }
   function invitationText() {
-    return (dlgMeeting.title || 'Qorlla meeting') + '\nMeeting ID: ' + dlgMeeting.meetingId + (shownPass ? '\nPassword: ' + shownPass : '') + '\nJoin: ' + meetingLink(dlgMeeting.meetingId);
+    var pw = $('sdPass').value, m = sd.m;
+    return ($('sdTitleIn').value || m.title || 'Qorlla meeting') + '\nMeeting ID: ' + m.meetingId + '\nJoin: ' + sd.invUrl + (pw ? '\nPassword: ' + pw : '');
   }
-  function copyText(t, msg) { if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { toast(msg, 'ok'); }, function () { toast(t); }); else toast(t); }
-  document.addEventListener('click', function (e) {
-    var id = e.target && e.target.id; if (!dlgMeeting || dlgMode !== 'start') return;
-    if (id === 'siCopyId') copyText(dlgMeeting.meetingId, I18n.t('Meeting ID copied'));
-    else if (id === 'siInvite') copyText(invitationText(), I18n.t('Invitation copied'));
-    else if (id === 'siGen') { var pw = newPassword(); $('siGen').disabled = true; putPass(pw).then(function () { shownPass = pw; paintPass(true); }).catch(function (er) { toast(er.message, 'err'); }).then(function () { $('siGen').disabled = false; }); }
-    else if (id === 'siRemove') { putPass(null).then(function () { shownPass = ''; paintPass(false); }).catch(function (er) { toast(er.message, 'err'); }); }
+  $('sdCopyId').addEventListener('click', function () { copyText(sd.m.meetingId, I18n.t('Meeting ID copied')); });
+  $('sdCopyInvite').addEventListener('click', function () { copyText(invitationText(), I18n.t('Invitation copied')); });
+  $('sdPassToggle').addEventListener('click', function () { var show = $('sdPass').type === 'password'; $('sdPass').type = show ? 'text' : 'password'; this.textContent = show ? 'Hide' : 'Show'; this.setAttribute('aria-pressed', String(show)); });
+  $('sdPassGen').addEventListener('click', function () { $('sdPass').value = newPassword(); $('sdPass').type = 'text'; $('sdPassToggle').textContent = 'Hide'; $('sdPassToggle').setAttribute('aria-pressed', 'true'); $('sdRemovePass').checked = false; });
+  $('sdClose').addEventListener('click', function () { $('startDialog').close(); });
+  $('sdCancel').addEventListener('click', function () { $('startDialog').close(); });
+  $('startDialog').addEventListener('close', function () { stopPreview(); });
+
+  // ---- devices: nothing is opened until the person asks (the test button or the preview tick box) ----
+  function resetDevices() {
+    ['sdCamSel', 'sdMicSel'].forEach(function (id) { var s = $(id); s.textContent = ''; s.appendChild(new Option('Test your devices to choose', '')); s.disabled = true; });
+    var sp = $('sdSpkSel'); sp.textContent = ''; sp.appendChild(new Option('Default speakers', '')); sp.disabled = false;
+    var canSink = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
+    sp.style.display = canSink ? '' : 'none'; $('sdSpkNote').textContent = canSink ? '' : 'This browser plays the test tone through your default speakers.';
+  }
+  function stopPreview() {
+    cancelAnimationFrame(sd.raf); sd.raf = 0; if (sd.ctx) { try { sd.ctx.close(); } catch (e) { /* closed */ } sd.ctx = null; }
+    if (sd.stream) { sd.stream.getTracks().forEach(function (t) { t.stop(); }); sd.stream = null; }
+    $('sdVideo').srcObject = null; $('sdVideo').hidden = true; $('sdPrevHint').hidden = false; $('sdMeter').style.width = '0';
+  }
+  function fillDevices(devs) {
+    var pick = function (id, kind, cur) {
+      var s = $(id); var keep = s.value; s.textContent = ''; var list = devs.filter(function (d) { return d.kind === kind; });
+      list.forEach(function (d, i) { var o = new Option(d.label || (kind === 'videoinput' ? 'Camera ' : kind === 'audioinput' ? 'Microphone ' : 'Speakers ') + (i + 1), d.deviceId); s.appendChild(o); });
+      if (kind !== 'audiooutput') { s.disabled = !list.length; if (cur) { var m = list.filter(function (d) { return d.label === cur; })[0]; if (m) s.value = m.deviceId; } else if (keep) s.value = keep; }
+    };
+    var vt = sd.stream && sd.stream.getVideoTracks()[0], at = sd.stream && sd.stream.getAudioTracks()[0];
+    pick('sdCamSel', 'videoinput', vt && vt.label); pick('sdMicSel', 'audioinput', at && at.label);
+    var sp = $('sdSpkSel'), spk = devs.filter(function (d) { return d.kind === 'audiooutput'; }); sp.textContent = ''; sp.appendChild(new Option('Default speakers', ''));
+    spk.forEach(function (d, i) { if (d.deviceId !== 'default') sp.appendChild(new Option(d.label || 'Speakers ' + (i + 1), d.deviceId)); });
+  }
+  function startPreview() {
+    stopPreview();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { netRow('cam', 'Not supported by this browser', 'bad'); netRow('mic', 'Not supported by this browser', 'bad'); return Promise.resolve(); }
+    var cam = $('sdCamSel').value, mic = $('sdMicSel').value;
+    return navigator.mediaDevices.getUserMedia({ video: cam ? { deviceId: { exact: cam } } : true, audio: mic ? { deviceId: { exact: mic } } : true }).then(function (s) {
+      sd.stream = s; var v = $('sdVideo'); v.srcObject = s; v.hidden = false; $('sdPrevHint').hidden = true;
+      netRow('cam', 'Working', 'ok'); netRow('mic', 'Working', 'ok');
+      try {
+        sd.ctx = new (window.AudioContext || window.webkitAudioContext)(); var an = sd.ctx.createAnalyser(); sd.ctx.createMediaStreamSource(s).connect(an); var buf = new Uint8Array(an.frequencyBinCount);
+        (function tick() { an.getByteFrequencyData(buf); var peak = 0; for (var i = 0; i < buf.length; i++) peak = Math.max(peak, buf[i]); $('sdMeter').style.width = Math.min(100, peak / 2.2) + '%'; sd.raf = requestAnimationFrame(tick); })();
+      } catch (e) { /* no level meter */ }
+      return navigator.mediaDevices.enumerateDevices().then(fillDevices);
+    }).catch(function (e) {
+      var denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+      netRow('cam', denied ? 'Blocked - allow access in the browser' : 'Not found', 'bad'); netRow('mic', denied ? 'Blocked - allow access in the browser' : 'Not found', 'bad');
+      $('sdPrevHint').textContent = denied ? 'Camera and microphone access is blocked. You can still start without them.' : 'No camera or microphone was found. You can still start without them.';
+    });
+  }
+  $('sdTest').addEventListener('click', function () { startPreview(); });
+  $('sdPreview').addEventListener('change', function () { if (this.checked) startPreview(); else stopPreview(); });
+  ['sdCamSel', 'sdMicSel'].forEach(function (id) { $(id).addEventListener('change', function () { if (sd.stream) startPreview(); }); });
+  $('sdSpkTest').addEventListener('click', function () {
+    var n = 8000 * 0.7, wav = new Uint8Array(44 + n * 2), dv = new DataView(wav.buffer), w = function (o, s) { for (var i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, 8000, true); dv.setUint32(28, 16000, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, 'data'); dv.setUint32(40, n * 2, true);
+    for (var i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.sin(2 * Math.PI * 523 * i / 8000) * 9000 * Math.min(1, i / 300, (n - i) / 300), true);
+    var a = new Audio(URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }))); var sink = $('sdSpkSel').value;
+    (sink && a.setSinkId ? a.setSinkId(sink) : Promise.resolve()).catch(function () { /* default output */ }).then(function () { return a.play(); }).catch(function () { toast('Could not play the test sound.', 'err'); });
   });
-  function startNow(name) {
-    var mic = $('mic').checked, cam = $('cam').checked, m = dlgMeeting; $('dlgGo').disabled = true;
-    fetch('/api/meetings/' + encodeURIComponent(m.meetingId) + '/meet-launch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, mic: mic, camera: cam, returnUrl: location.href.split('#')[0] }) })
+
+  // ---- start: the server applies title, password and admission policy, then we go straight into Meet as host ----
+  $('startForm').addEventListener('submit', function (e) {
+    e.preventDefault(); if (sd.busy || !sd.ready) return;                                               // a repeated click never starts a second meeting
+    var title = $('sdTitleIn').value.trim(), name = $('sdName').value.trim(), pw = $('sdPass').value, err = $('sdErr'); $('sdRetry').hidden = true;
+    if (!title) { err.textContent = 'Give the meeting a title.'; $('sdTitleIn').focus(); return; }
+    if (!name) { err.textContent = 'Enter your display name.'; $('sdName').focus(); return; }
+    if (pw && (pw.length < 6 || pw.length > 32)) { err.textContent = 'The password must be 6 to 32 characters.'; $('sdPass').focus(); return; }
+    err.textContent = ''; store('zw_name', name);
+    var camLabel = '', micLabel = ''; if (sd.stream) { var vt = sd.stream.getVideoTracks()[0], at = sd.stream.getAudioTracks()[0]; camLabel = vt ? vt.label : ''; micLabel = at ? at.label : ''; }
+    var mic = $('sdMic').checked, cam = $('sdCam').checked, m = sd.m;
+    var body = { requestId: sd.requestId, name: name, title: title, mic: mic, camera: cam, camLabel: camLabel, micLabel: micLabel, returnUrl: location.href.split('#')[0],
+      waitingRoom: $('sdWait').checked, joinBeforeHost: $('sdBefore').checked, lockAfterJoin: $('sdLock').checked };
+    if (pw) body.password = pw; else if ($('sdRemovePass').checked) body.removePassword = true;
+    stopPreview();                                                                          // release the camera and microphone so Meet can use them
+    sd.busy = true; $('sdGo').disabled = true; $('sdGo').textContent = 'Starting…';
+    fetch('/api/meetings/' + encodeURIComponent(m.meetingId) + '/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (r) {
-        $('dlgGo').disabled = false;
         if (r.ok && r.d.mode === 'meet' && r.d.url) { window.location.href = r.d.url; return; }       // straight into the meeting as host
-        if (r.d && r.d.mode === 'builtin') { var p = { start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', meetingId: m.meetingId }; if (name) p.name = name; go(p); return; }
-        toast((r.d && r.d.error) || I18n.t('Could not start the meeting'), 'err');
-      }).catch(function () { $('dlgGo').disabled = false; toast(I18n.t('Could not start the meeting'), 'err'); });
-  }
+        if (r.d.mode === 'builtin') { var p = { start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', meetingId: m.meetingId, name: name }; go(p); return; }
+        throw new Error(r.d.error || 'The meeting could not be started.');
+      }).catch(function (er) {                                                              // keep everything the person typed; offer a retry
+        sd.busy = false; sd.requestId = crypto.randomUUID(); $('sdGo').disabled = false; $('sdGo').textContent = 'Retry start'; $('sdErr').textContent = er.message || 'The meeting could not be started.';
+      });
+  });
   function openDialog(mode, meetingId) {
-    $('startInfo').style.display = 'none'; dlgMode = mode;
+    dlgMode = mode;
     $('dlgTitle').textContent = mode === 'new' ? I18n.t('Start a new meeting') : I18n.t('Join meeting');
     $('dlgSub').textContent = mode === 'new' ? I18n.t('You will be the host of a new room.') : I18n.t('Enter the meeting ID to jump in.');
     $('dlgGo').textContent = mode === 'new' ? I18n.t('Start') : I18n.t('Join');
@@ -836,7 +1036,6 @@
     e.preventDefault();
     var name = $('nm').value.trim();
     if (name) store('zw_name', name);
-    if (dlgMode === 'start') { startNow(name || myName()); return; }
     var p = { start: dlgMode, mic: $('mic').checked ? 'true' : 'false', camera: $('cam').checked ? 'true' : 'false' };
     if (name) p.name = name;
     if (dlgMode === 'new' && $('ttl').value.trim()) p.title = $('ttl').value.trim(); // passcodes are set in the Meet lobby, never in URLs

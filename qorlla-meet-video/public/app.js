@@ -12,8 +12,9 @@ function tile(id,name,isLocal=false){let el=document.getElementById('tile-'+id);
 function setVideo(id,stream,muted=false){const el=tile(id,state.names.get(id)||id,id===state.participantId);let v=el.querySelector('video');if(!v){v=document.createElement('video');v.autoplay=true;v.playsInline=true;v.muted=muted;el.prepend(v);}v.srcObject=stream;el.querySelector('.avatar').style.display=stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')?'none':'grid';v.play().catch(()=>{});if(id!==state.participantId)recAddAudio(id,stream);}
 function renderPeople(){const root=$('peopleList');root.replaceChildren();for(const id of state.roster){const p=document.createElement('div');p.className='person';p.textContent=(state.names.get(id)||id.slice(0,8))+(id===state.participantId?' (You)':'');root.append(p);}}
 function openTab(tab){shell.tab=tab;document.querySelectorAll('[data-tab]').forEach(b=>{const on=b.dataset.tab===tab;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1;});document.querySelectorAll('.tab-view').forEach(v=>v.classList.toggle('hidden',v.id!=='tab-'+tab));}
-async function startMeeting(payload){Object.assign(state,{token:payload.token,meetingId:payload.meetingId,participantId:payload.participantId});const claims=JSON.parse(atob(payload.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));state.role=claims.role;$('recordBtn').classList.toggle('hidden',claims.role!=='host');state.name=claims.name;state.names.set(state.participantId,state.name);state.start=Date.now();sessionStorage.setItem('qorlla-session',JSON.stringify({token:state.token,meetingId:state.meetingId,participantId:state.participantId}));const data=await api('/meetings/'+state.meetingId);$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=(c=>/^\d{11}$/.test(c)?c.slice(0,3)+' '+c.slice(3,7)+' '+c.slice(7):c)(data.meeting_code||state.meetingId.slice(0,8));state.meetingInfo='Meeting ID: '+(data.meeting_code||state.meetingId);$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);try{const cfg=await api('/config');state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];}catch{}await startMedia();connect();collab.load();}
-async function startMedia(){try{state.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:{width:{ideal:1280},height:{ideal:720}}});}catch(e){notify('Media unavailable: '+e.message);state.stream=new MediaStream();state.mic=false;state.cam=false;}setVideo(state.participantId,state.stream,true);updateControls();}
+async function startMeeting(payload){Object.assign(state,{token:payload.token,meetingId:payload.meetingId,participantId:payload.participantId});const claims=JSON.parse(atob(payload.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));state.role=claims.role;$('recordBtn').classList.toggle('hidden',claims.role!=='host');state.name=claims.name;state.names.set(state.participantId,state.name);state.start=Date.now();sessionStorage.setItem('qorlla-session',JSON.stringify({token:state.token,meetingId:state.meetingId,participantId:state.participantId}));await waitForAdmission();                                                                    // a guest in the waiting room cannot see anything until the host admits them
+  const data=await api('/meetings/'+state.meetingId);state.settings=data.waiting_room===undefined?null:{waitingRoom:data.waiting_room,joinBeforeHost:data.join_before_host,lockOnHostJoin:data.lock_on_host_join,locked:data.locked};$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=(c=>/^\d{11}$/.test(c)?c.slice(0,3)+' '+c.slice(3,7)+' '+c.slice(7):c)(data.meeting_code||state.meetingId.slice(0,8));state.meetingInfo='Meeting ID: '+(data.meeting_code||state.meetingId);$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);try{const cfg=await api('/config');state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];}catch{}await startMedia();connect();collab.load();loadWaiting();}
+async function startMedia(){try{state.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:{width:{ideal:1280},height:{ideal:720}}});await applyDevicePrefs();}catch(e){notify('Media unavailable: '+e.message);state.stream=new MediaStream();state.mic=false;state.cam=false;}setVideo(state.participantId,state.stream,true);updateControls();}
 function updateControls(){
   const set=(id,label,off,pressed)=>{const b=$(id);b.querySelector('span').textContent=label;b.classList.toggle('off',!!off);b.setAttribute('aria-pressed',String(!!pressed));};
   set('micBtn',state.mic?'Mute':'Unmute',!state.mic,!state.mic);set('camBtn',state.cam?'Stop video':'Start video',!state.cam,!state.cam);
@@ -22,7 +23,7 @@ function updateControls(){
 function connect(){state.socket=io({path:BASE+'socket.io',auth:{token:state.token},transports:['websocket','polling']});const s=state.socket;s.on('connect',()=>{state.reconnected=!!state.everConnected;state.everConnected=true;net.signaling='connected';net.lostAt=0;renderNet();if(state.reconnected)collab.load();s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});});s.on('connect_error',e=>{if(!net.lostAt)net.lostAt=Date.now();net.signaling=!s.active||!s.io.reconnection()?'disconnected':(state.everConnected?'reconnecting':'connecting');renderNet();if(!state.everConnected)notify('Connection error: '+e.message);});s.on('disconnect',reason=>{net.lostAt=Date.now();net.signaling=s.active&&s.io.reconnection()?'reconnecting':'disconnected';renderNet();if(reason==='io server disconnect')notify('You were disconnected from the meeting (another session may have joined as you).');});s.on('roster',ids=>{state.roster=new Set([...ids,state.participantId]);renderPeople();
   for(const id of [...state.peers.keys()])if(!state.roster.has(id))removePeer(id);                                  // people who left while we were offline
   for(const id of ids)if(id!==state.participantId){if(state.reconnected)dropPeer(id);createPeer(id,true);}          // after a reconnect every peer connection is rebuilt (the tile stays: no duplicates)
-  state.reconnected=false;renderNet();});s.on('participant-online',p=>{s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});announce(p.name+' joined');state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{announce((state.names.get(p.participantId)||'A participant')+' left');state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();renderNet();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('names',map=>{for(const [pid,n] of Object.entries(map)){state.names.set(pid,n);const t=$('tile-'+pid);if(t&&pid!==state.participantId){t.querySelector('.nameplate').textContent=n;t.querySelector('.avatar').textContent=n.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();}}renderPeople();});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('media-state',({participantId,sharing,mic,cam})=>{const t=$('tile-'+participantId);if(t&&participantId!==state.participantId){t.classList.toggle('sharing-remote',!!sharing);setTileMedia(participantId,mic,cam);}});s.on('hand',({participantId,raised})=>{setHand(participantId,raised);if(raised)announce((state.names.get(participantId)||'Someone')+' raised their hand');});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));collab.attach(s);s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
+  state.reconnected=false;renderNet();});s.on('participant-online',p=>{s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});announce(p.name+' joined');state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{announce((state.names.get(p.participantId)||'A participant')+' left');state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();renderNet();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('names',map=>{for(const [pid,n] of Object.entries(map)){state.names.set(pid,n);const t=$('tile-'+pid);if(t&&pid!==state.participantId){t.querySelector('.nameplate').textContent=n;t.querySelector('.avatar').textContent=n.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();}}renderPeople();});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('media-state',({participantId,sharing,mic,cam})=>{const t=$('tile-'+participantId);if(t&&participantId!==state.participantId){t.classList.toggle('sharing-remote',!!sharing);setTileMedia(participantId,mic,cam);}});s.on('hand',({participantId,raised})=>{setHand(participantId,raised);if(raised)announce((state.names.get(participantId)||'Someone')+' raised their hand');});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));collab.attach(s);s.on('waiting-changed',()=>loadWaiting());s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
 // One RTCPeerConnection per remote participant. The side that makes the offer owns the pair's "epoch"; every signal carries it, so messages from an
 // older connection (before a reconnect) are ignored instead of corrupting the new one. ICE restarts reuse the epoch; a rebuilt connection gets a new one.
 const ICE_GRACE_MS=4000,MAX_RESTARTS=3;
@@ -139,8 +140,8 @@ const originalLeave=leave;
 // The handoff return destination is constrained to the same hostname.
 if(query.has('meeting'))$('meetingId').value=query.get('meeting');
 // Hand-off from Qorlla Workplace: the session arrives in the URL fragment (never sent to a server); take it and remove it from the address bar at once.
-{const m=/[#&]qs=([A-Za-z0-9_-]+)/.exec(location.hash||'');if(m){try{const p=JSON.parse(atob(m[1].replace(/-/g,'+').replace(/_/g,'/')));if(p&&p.token&&p.meetingId&&p.participantId)sessionStorage.setItem('qorlla-session',JSON.stringify({token:p.token,meetingId:p.meetingId,participantId:p.participantId}));}catch(e){/* ignore a malformed hand-off */}try{history.replaceState(null,'',location.pathname+location.search);}catch(e){/* ignore */}}}
-const cached=sessionStorage.getItem('qorlla-session');if(cached){try{startMeeting(JSON.parse(cached)).catch(()=>sessionStorage.removeItem('qorlla-session'));}catch{sessionStorage.removeItem('qorlla-session');}}
+{const m=/[#&]qs=([A-Za-z0-9_-]+)/.exec(location.hash||'');if(m){try{const p=JSON.parse(atob(m[1].replace(/-/g,'+').replace(/_/g,'/')));if(p&&p.token&&p.meetingId&&p.participantId){sessionStorage.setItem('qorlla-session',JSON.stringify({token:p.token,meetingId:p.meetingId,participantId:p.participantId}));if(p.prefs)sessionStorage.setItem('qorlla-prefs',JSON.stringify({camLabel:String(p.prefs.camLabel||'').slice(0,120),micLabel:String(p.prefs.micLabel||'').slice(0,120)}));}}catch(e){/* ignore a malformed hand-off */}try{history.replaceState(null,'',location.pathname+location.search);}catch(e){/* ignore */}}}
+const cached=sessionStorage.getItem('qorlla-session');if(cached){try{startMeeting(JSON.parse(cached)).catch(e=>{sessionStorage.removeItem('qorlla-session');if(e&&/did not let you in/.test(e.message))error(e);});}catch{sessionStorage.removeItem('qorlla-session');}}
 
 // Qorlla main-page integration: prefill fields and honor initial device preferences.
 const initialName=query.get('name')||query.get('displayName');
@@ -533,3 +534,49 @@ function openSettings(){
 // labels for controls that only had placeholders or icons
 document.querySelectorAll('[data-emoji]').forEach(b=>b.setAttribute('aria-label','React with '+b.dataset.emoji));
 
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// Admission (v4.0.2b): the waiting room for guests, and the host's list of people waiting. The SERVER decides; this only shows it.
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+async function waitForAdmission(){
+  const panel=$('waiting');state.cancelWait=false;
+  for(;;){
+    const a=await api('/meetings/'+state.meetingId+'/admission');
+    if(a.status==='admitted'){panel.classList.add('hidden');return;}
+    if(a.status==='denied'){panel.classList.add('hidden');sessionStorage.removeItem('qorlla-session');$('landing').classList.remove('hidden');throw Error('The host did not let you in.');}
+    $('landing').classList.add('hidden');panel.classList.remove('hidden');
+    const msg=a.reason==='host_absent'?'Waiting for the host to start the meeting…':'Waiting for the host to let you in…';
+    if($('waitingMsg').textContent!==msg){$('waitingMsg').textContent=msg;announce(msg);}
+    await new Promise(r=>setTimeout(r,2000));
+    if(state.cancelWait)throw Error('Left the waiting room.');
+  }
+}
+$('waitLeave').onclick=()=>{state.cancelWait=true;leave();};
+let lastWaiting=0;
+async function loadWaiting(){if(state.role!=='host')return;let d;try{d=await api('/meetings/'+state.meetingId+'/waiting');}catch(e){return;}renderWaiting(d.waiting||[]);}
+function renderWaiting(list){
+  let box=$('waitingBox');if(!box){box=document.createElement('div');box.id='waitingBox';box.className='waiting-box';$('peopleList').before(box);}
+  box.textContent='';document.querySelector('[data-tab=people]').textContent=list.length?'People ('+list.length+' waiting)':'People';
+  if(list.length>lastWaiting){const n=list[list.length-1].name;notify(n+' is waiting to join');announce(n+' is waiting to join');}
+  lastWaiting=list.length;if(!list.length){box.classList.add('hidden');return;}box.classList.remove('hidden');
+  const act=async(body)=>{try{await api('/meetings/'+state.meetingId+'/admit','POST',body);}catch(e){notify(e.message);}loadWaiting();};
+  const head=rcEl('div','wb-head');head.append(rcEl('h4','','Waiting room ('+list.length+')'));const all=rcEl('button','','Admit all');all.onclick=()=>act({all:true,allow:true});head.append(all);box.append(head);
+  const ul=rcEl('ul','wb-list');for(const p of list){const li=rcEl('li');li.append(rcEl('span','',p.name+(p.reason==='host_absent'?' (waiting for host)':'')));
+    const ok=rcEl('button','rc-primary','Admit'),no=rcEl('button','rc-secondary','Deny');ok.setAttribute('aria-label','Admit '+p.name);no.setAttribute('aria-label','Deny '+p.name);ok.onclick=()=>act({participantId:p.participantId,allow:true});no.onclick=()=>act({participantId:p.participantId,allow:false});li.append(ok,no);ul.append(li);}
+  box.append(ul);
+}
+// The pre-meeting screen can hand over the names of the camera and microphone the person chose (device IDs differ per site, labels do not).
+async function applyDevicePrefs(){
+  let prefs=null;try{prefs=JSON.parse(sessionStorage.getItem('qorlla-prefs')||'null');}catch(e){/* none */}
+  if(!prefs||!state.stream)return;
+  try{
+    const devs=await navigator.mediaDevices.enumerateDevices();
+    const want=(kind,label)=>label?devs.find(d=>d.kind===kind&&d.label===label):null;
+    const cam=want('videoinput',prefs.camLabel),mic=want('audioinput',prefs.micLabel),c={};
+    if(mic&&mic.label!==state.stream.getAudioTracks()[0]?.label)c.audio={deviceId:{exact:mic.deviceId},echoCancellation:true,noiseSuppression:true};
+    if(cam&&cam.label!==state.stream.getVideoTracks()[0]?.label)c.video={deviceId:{exact:cam.deviceId},width:{ideal:1280},height:{ideal:720}};
+    if(!c.audio&&!c.video)return;
+    const extra=await navigator.mediaDevices.getUserMedia(c);
+    for(const t of extra.getTracks()){const old=t.kind==='audio'?state.stream.getAudioTracks()[0]:state.stream.getVideoTracks()[0];if(old){state.stream.removeTrack(old);old.stop();}state.stream.addTrack(t);}
+  }catch(e){/* keep the default devices */}
+  finally{sessionStorage.removeItem('qorlla-prefs');}
+}

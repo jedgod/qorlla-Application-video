@@ -30,7 +30,7 @@ export function registerRecordingStorage({ app, db, auth, fail, audit, getRoster
   const participant = async (req, res, next) => {                                // any participant of the meeting, also after it ended
     try {
       if (req.user.meetingId !== req.params.id) return fail(res, 403, 'Wrong meeting');
-      const { rows } = await db.query('SELECT 1 FROM participants WHERE id=$1 AND meeting_id=$2', [req.user.participantId, req.params.id]); if (!rows.length) return fail(res, 403, 'Meeting unavailable'); next();
+      const { rows } = await db.query("SELECT 1 FROM participants WHERE id=$1 AND meeting_id=$2 AND admission='admitted'", [req.user.participantId, req.params.id]); if (!rows.length) return fail(res, 403, 'Meeting unavailable'); next();
     } catch { fail(res, 500, 'Database unavailable'); }
   };
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));

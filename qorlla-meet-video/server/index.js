@@ -88,7 +88,7 @@ const auth = (req,res,next) => { try { req.user=verify((req.headers.authorizatio
 const member = async (req,res,next) => {
  try {
   if (req.user.meetingId !== req.params.id) return fail(res,403,'Wrong meeting');
-  const { rows } = await db.query('SELECT m.ended_at, p.id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2',[req.params.id,req.user.participantId]);
+  const { rows } = await db.query("SELECT m.ended_at, p.id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2 AND p.admission='admitted'",[req.params.id,req.user.participantId]);
   if (!rows.length || rows[0].ended_at) return fail(res,403,'Meeting unavailable');
   next();
  } catch { fail(res,500,'Database unavailable'); }
@@ -140,7 +140,8 @@ app.post('/api/integrations/scheduled-meetings',bridgeAuth,async(req,res)=>{
    if(!found.rows.length&&candidate!==legacyCode){meetingCode=candidate;break;}
   }
   if(!meetingCode)throw Error('Unable to allocate meeting code');
-  await client.query('INSERT INTO meetings(id,title,host_secret_hash,meeting_code,passcode_hash) VALUES($1,$2,$3,$4,$5)',[id,title,await bcrypt.hash(hostSecret,HOST_SECRET_COST),meetingCode,req.body?.passcodeHash??null]);
+  const bs=k=>typeof req.body?.[k]==='boolean'?req.body[k]:null;     // admission settings from the scheduling backend (null = column default)
+  await client.query('INSERT INTO meetings(id,title,host_secret_hash,meeting_code,passcode_hash,waiting_room,join_before_host,lock_on_host_join) VALUES($1,$2,$3,$4,$5,COALESCE($6,false),COALESCE($7,true),COALESCE($8,false))',[id,title,await bcrypt.hash(hostSecret,HOST_SECRET_COST),meetingCode,req.body?.passcodeHash??null,bs('waitingRoom'),bs('joinBeforeHost'),bs('lockOnHostJoin')]);
   await client.query('INSERT INTO external_meeting_links(source_system,source_id,meeting_id,scheduled_at) VALUES($1,$2,$3,$4)',['qorlla-main',sourceId,id,scheduledAt]);
   if(legacyCode)await client.query('INSERT INTO meeting_code_aliases(alias_code,meeting_id) VALUES($1,$2)',[legacyCode,id]);
   await client.query('COMMIT');
@@ -196,6 +197,7 @@ app.patch('/api/integrations/scheduled-meetings/:sourceId',bridgeAuth,async(req,
  if(title!==undefined)await client.query('UPDATE meetings SET title=$1 WHERE id=$2 AND ended_at IS NULL',[title,rows[0].meeting_id]);
  if(req.body?.passcodeHash!==undefined)await client.query('UPDATE meetings SET passcode_hash=$1 WHERE id=$2 AND ended_at IS NULL',[req.body.passcodeHash,rows[0].meeting_id]);
  if(scheduledAt!==undefined)await client.query('UPDATE external_meeting_links SET scheduled_at=$1 WHERE source_system=$2 AND source_id=$3',[scheduledAt,'qorlla-main',req.params.sourceId]);
+ for(const [k,col] of [['waitingRoom','waiting_room'],['joinBeforeHost','join_before_host'],['lockOnHostJoin','lock_on_host_join']])if(typeof req.body?.[k]==='boolean')await client.query('UPDATE meetings SET '+col+'=$1 WHERE id=$2 AND ended_at IS NULL',[req.body[k],rows[0].meeting_id]);
  await client.query('COMMIT');res.json({ok:true,meetingId:rows[0].meeting_id});
  }catch(e){await client.query('ROLLBACK').catch(()=>{});console.error(e);fail(res,500,'Schedule update failed');}finally{client.release();}
 });
@@ -249,18 +251,65 @@ app.post('/api/meetings/:id/join', async(req,res) => {
   if(m.locked && !host) return fail(res,403,'Meeting locked');
   if(!host && m.passcode_hash && !(await bcrypt.compare(passcode,m.passcode_hash))){joinFailed(req.ip,m.id);return fail(res,403,'Invalid passcode');}
   const pid=randomUUID(), role=host?'host':'guest';
-  await db.query('INSERT INTO participants(id,meeting_id,display_name,role) VALUES($1,$2,$3,$4)',[pid,m.id,name,role]);
-  res.json({meetingId:m.id,meetingCode:m.meeting_code,participantId:pid,token:sign({meetingId:m.id,participantId:pid,role,name})});
-  audit(m.id,pid,'participant.joined');
+  // Admission is decided HERE: a waiting room holds every guest until the host lets them in; without 'join before host' guests wait until the host is present.
+  let admission='admitted', waitReason=null;
+  if(!host){
+   if(m.waiting_room){admission='waiting';waitReason='waiting_room';}
+   else if(!m.join_before_host){
+    const hosts=(await db.query("SELECT id FROM participants WHERE meeting_id=$1 AND role='host'",[m.id])).rows.map(r=>r.id);
+    const here=active.get(m.id);if(!hosts.some(h=>here?.has(h))){admission='waiting';waitReason='host_absent';}
+   }
+  }
+  await db.query('INSERT INTO participants(id,meeting_id,display_name,role,admission,wait_reason) VALUES($1,$2,$3,$4,$5,$6)',[pid,m.id,name,role,admission,waitReason]);
+  res.json({meetingId:m.id,meetingCode:m.meeting_code,participantId:pid,admission,token:sign({meetingId:m.id,participantId:pid,role,name})});
+  audit(m.id,pid,admission==='admitted'?'participant.joined':'participant.waiting',{reason:waitReason});
+  if(admission==='waiting')io.to(room(m.id)).emit('waiting-changed',{});
  } catch(e) { if(e.code==='22P02') return fail(res,400,'Invalid meeting ID'); console.error(e); fail(res,500,'Join failed'); }
 });
 app.get('/api/meetings/:id',auth,member,async(req,res)=>{
- const {rows:[m]}=await db.query('SELECT id,meeting_code,title,created_at,notes,locked FROM meetings WHERE id=$1',[req.params.id]);
+ const {rows:[m]}=await db.query('SELECT id,meeting_code,title,created_at,notes,locked,waiting_room,join_before_host,lock_on_host_join FROM meetings WHERE id=$1',[req.params.id]);
+ if(req.user.role!=='host'){delete m.waiting_room;delete m.join_before_host;delete m.lock_on_host_join;}
  const {rows:messages}=await db.query('SELECT p.display_name AS name, x.id,x.body,x.created_at FROM messages x JOIN participants p ON p.id=x.participant_id WHERE x.meeting_id=$1 ORDER BY x.created_at DESC LIMIT 100',[req.params.id]);
  const {rows:polls}=await db.query('SELECT id,question,options FROM polls WHERE meeting_id=$1 ORDER BY created_at DESC LIMIT 30',[req.params.id]);
  // a meeting that was scheduled elsewhere shows the ID people were given (its registered alias), not Meet's internal code
  const {rows:[al]}=await db.query('SELECT alias_code FROM meeting_code_aliases WHERE meeting_id=$1 ORDER BY alias_code LIMIT 1',[req.params.id]).catch(()=>({rows:[]}));
  res.json({...m,...(al?{meeting_code:al.alias_code}:{}),messages:messages.reverse(),polls,online:activeList(req.params.id)});
+});
+// ---- admission control (v4.0.2b) -------------------------------------------------------------------------------------------------------------
+// A person who is waiting (or was denied) can ONLY ask where they stand; every other route and the socket refuse them until the host admits them.
+app.get('/api/meetings/:id/admission',auth,async(req,res)=>{
+ try{
+  if(req.user.meetingId!==req.params.id)return fail(res,403,'Wrong meeting');
+  const {rows}=await db.query('SELECT p.admission,p.wait_reason,m.ended_at FROM participants p JOIN meetings m ON m.id=p.meeting_id WHERE p.id=$1 AND p.meeting_id=$2',[req.user.participantId,req.params.id]);
+  if(!rows.length||rows[0].ended_at)return fail(res,404,'Meeting unavailable');
+  res.set('Cache-Control','no-store').json({status:rows[0].admission,reason:rows[0].wait_reason});
+ }catch{fail(res,503,'Database unavailable');}
+});
+const hostOnlyRoute=(req,res,next)=>req.user.role==='host'?next():fail(res,403,'Host only');
+app.get('/api/meetings/:id/waiting',auth,member,hostOnlyRoute,async(req,res)=>{
+ const {rows}=await db.query("SELECT id AS \"participantId\",display_name AS name,wait_reason AS reason,joined_at AS \"since\" FROM participants WHERE meeting_id=$1 AND admission='waiting' ORDER BY joined_at",[req.params.id]);
+ res.set('Cache-Control','no-store').json({waiting:rows});
+});
+app.post('/api/meetings/:id/admit',auth,member,hostOnlyRoute,async(req,res)=>{
+ const allow=req.body?.allow!==false, all=req.body?.all===true, pid=String(req.body?.participantId||'');
+ if(!all&&!/^[0-9a-f-]{36}$/i.test(pid))return fail(res,400,'participantId required');
+ const {rows}=await db.query("UPDATE participants SET admission=$2,wait_reason=NULL WHERE meeting_id=$1 AND admission='waiting' AND ($3::boolean OR id=$4::uuid) RETURNING id",[req.params.id,allow?'admitted':'denied',all,all?null:pid]);
+ audit(req.params.id,req.user.participantId,allow?'participant.admitted':'participant.denied',{count:rows.length,all});
+ io.to(room(req.params.id)).emit('waiting-changed',{});
+ res.json({changed:rows.length});
+});
+app.patch('/api/meetings/:id/settings',auth,member,hostOnlyRoute,async(req,res)=>{
+ const b=req.body||{},sets=[],vals=[req.params.id];
+ for(const [k,col] of [['waitingRoom','waiting_room'],['joinBeforeHost','join_before_host'],['lockOnHostJoin','lock_on_host_join'],['locked','locked']]){
+  if(b[k]===undefined)continue;if(typeof b[k]!=='boolean')return fail(res,400,k+' must be true or false');
+  vals.push(b[k]);sets.push(col+'=$'+vals.length);
+ }
+ if(!sets.length)return fail(res,400,'Nothing to change');
+ const {rows:[m]}=await db.query('UPDATE meetings SET '+sets.join(',')+' WHERE id=$1 AND ended_at IS NULL RETURNING waiting_room,join_before_host,lock_on_host_join,locked',vals);
+ if(!m)return fail(res,404,'Meeting unavailable');
+ audit(req.params.id,req.user.participantId,'meeting.settings_changed',b);
+ if(b.locked!==undefined)io.to(room(req.params.id)).emit('meeting-locked',{locked:b.locked});
+ res.json({waitingRoom:m.waiting_room,joinBeforeHost:m.join_before_host,lockOnHostJoin:m.lock_on_host_join,locked:m.locked});
 });
 app.post('/api/meetings/:id/lock',auth,member,async(req,res)=>{
  if(req.user.role!=='host')return fail(res,403,'Host only');
@@ -291,7 +340,7 @@ const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:messa
 io.use(async(socket,next)=>{
  try {
   const user=verify(socket.handshake.auth?.token);
-  const {rows}=await db.query('SELECT m.ended_at,p.id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2',[user.meetingId,user.participantId]);
+  const {rows}=await db.query("SELECT m.ended_at,p.id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2 AND p.admission='admitted'",[user.meetingId,user.participantId]);
   if(!rows.length||rows[0].ended_at) throw Error('Meeting unavailable');
   socket.data.user=user;next();
  } catch { next(new Error('Unauthorized')); }
@@ -311,7 +360,11 @@ io.on('connection',socket=>{
  const prior=roster.get(pid);
  if(prior && prior!==socket.id) io.sockets.sockets.get(prior)?.disconnect(true);
  roster.set(pid,socket.id); socket.join(room(id));
- if(u.role==='host')recording.hostBack(id,pid).catch(()=>{});
+ if(u.role==='host'){
+  recording.hostBack(id,pid).catch(()=>{});
+  db.query("UPDATE participants SET admission='admitted',wait_reason=NULL WHERE meeting_id=$1 AND admission='waiting' AND wait_reason='host_absent'",[id]).then(r=>{if(r.rowCount)io.to(room(id)).emit('waiting-changed',{});}).catch(()=>{});
+  db.query('UPDATE meetings SET locked=true WHERE id=$1 AND lock_on_host_join AND NOT locked RETURNING id',[id]).then(r=>{if(r.rowCount)io.to(room(id)).emit('meeting-locked',{locked:true});}).catch(()=>{});
+ }
  socket.emit('roster',activeList(id));
  socket.emit('names',Object.fromEntries(activeList(id).map(p=>[p,names.get(id)?.get(p)||'']).filter(([,n])=>n)));   // who is who, for people already in the meeting
  if(!names.has(id)) names.set(id,new Map()); names.get(id).set(pid,u.name);
