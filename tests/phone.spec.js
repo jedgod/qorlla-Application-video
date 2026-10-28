@@ -158,9 +158,12 @@ test.describe('dial-in against the real Meet server', () => {
     await expect(page.locator('.qp-recent-num').first()).toContainText('48'); await page.getByRole('button', { name: 'Delete last digit' }).click(); await expect(num).toHaveValue('4'); await page.locator('.qp-recent-num').first().click(); await expect(num).toHaveValue('48');   // the right-hand list refills the dial pad
     await num.fill('(202) 555-0123'); await expect(page.locator('#qpDialHint')).toContainText('Will call +12025550123'); await page.locator('#qpDialCountry').selectOption('GB'); await expect(page.locator('#qpDialHint')).toContainText('Will call +442025550123');
     await expect(page.locator('#phCall')).toBeDisabled(); await expect(page.locator('#phCallNote')).toContainText('requires a connected telephony provider'); await expect(page.locator('#qpCallerId')).toBeDisabled();
-    await page.locator('#phTab-join').click(); await expect(page.locator('#dial-pad')).toBeHidden(); const dir = page.locator('.qp-dir'); await expect(dir).toContainText('+12125550100'); await expect(dir).toContainText('Toll-free'); await expect(dir).not.toContainText('555,');   // only real numbers
-    const mid = page.locator('#phone-meeting-id'); await mid.fill('12345678901234'); await expect(mid).toHaveValue('123 4567 8901'); const pinBox = page.locator('#phone-pin'); await expect(pinBox).toHaveAttribute('type', 'password'); await page.getByRole('button', { name: 'Show PIN' }).click(); await expect(pinBox).toHaveAttribute('type', 'text');
-    await page.locator('#qpShowHow').click(); await expect(page.locator('#qpHow')).toContainText('followed by #'); await expect(page.locator('#qpHow')).toContainText('123 4567 8901');
+    await page.locator('#phTab-join').click(); await expect(page.locator('#dial-pad')).toBeHidden(); const mid = page.locator('#phone-meeting-id'); const dir = page.locator('.qp-dir');
+    await expect(page.locator('#qpDirHint')).toContainText('after you enter a valid meeting ID'); await expect(dir).not.toContainText('+1212');   // no numbers before a meeting is chosen
+    await mid.fill('99999999999'); await expect(page.locator('#qpDirNone')).toBeVisible(); await expect(dir).not.toContainText('+1212');   // unknown meeting: nothing to dial
+    await mid.fill(m.digits + '99'); await expect(mid).toHaveValue(m.digits.slice(0, 3) + ' ' + m.digits.slice(3, 7) + ' ' + m.digits.slice(7, 11)); await expect(dir).toContainText('+12125550100'); await expect(dir).toContainText('Toll-free'); await expect(dir).not.toContainText('555,');   // a real meeting resolves; only real numbers
+    await expect(page.locator('#phone-pin')).toHaveCount(0);   // the PIN is typed on the phone, never on this page
+    await page.locator('#qpShowHow').click(); await expect(page.locator('#qpHow')).toContainText('followed by #'); await expect(page.locator('#qpHow')).toContainText(m.digits.slice(0, 3) + ' ' + m.digits.slice(3, 7) + ' ' + m.digits.slice(7, 11));
     await page.locator('#phTab-settings').click(); await expect(page.locator('#qpNumber')).toContainText('No Qorlla number assigned'); await page.locator('#qpReqNum').click(); await expect(page.locator('#qpReqMsg')).toContainText('provider');   // honest: no number can be requested without a provider
     await page.locator('#phTab-join').click(); await expect(page.locator('#qpMeetings')).toBeVisible(); await page.locator('.qp-pick', { hasText: 'Dial me' }).click(); await expect(mid).toHaveValue(m.digits.slice(0, 3) + ' ' + m.digits.slice(3, 7) + ' ' + m.digits.slice(7, 11));   // a click on a meeting fills the Meeting ID
     await expect(page.locator('.ph-meeting', { hasText: 'Dial me' })).toBeVisible();
@@ -183,5 +186,23 @@ test('no provider: the Phone page says so and the dial-in directory is empty, ne
   try {
     const ctx = await browser.newContext(); await organiser(ctx, main.base); const page = await ctx.newPage(); await page.goto(main.base + '/qorlla.html#home'); await page.locator('.nav-item[data-view=phone]').click(); await page.locator('#phTab-join').click(); await expect(page.locator('#phNoNumbers')).toContainText('No dial-in numbers');
     await page.locator('#phTab-settings').click(); await expect(page.locator('#phStatus')).toContainText('not connected'); await expect(page.locator('#phStatus')).toContainText('none provisioned'); await page.locator('#phTab-recent').click(); await expect(page.locator('#phNoCalls')).toBeVisible(); await ctx.close();
+  } finally { main.stop(); }
+});
+
+test('Join Meeting: a failing request is told apart from an empty one (stale server 404, server error, genuinely none), History lists finished meetings without phone actions', async ({ browser }) => {
+  test.setTimeout(90000);
+  const main = await startMain(5296, { PHONE_DIAL_IN_NUMBERS: NUMBERS, PHONE_PROVIDER: 'test' });
+  try {
+    const ctx = await browser.newContext(); await organiser(ctx, main.base); const page = await ctx.newPage();
+    await page.route('**/api/phone/dial-in-numbers', (r) => r.fulfill({ status: 404, contentType: 'text/html', body: '<h1>Not found</h1>' }));   // what an old server that was not restarted answers
+    await page.route('**/api/workplace/schedule', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'The schedule is unavailable.' }) }));
+    await page.goto(main.base + '/qorlla.html#home'); await page.locator('.nav-item[data-view=phone]').click(); await page.locator('#phTab-join').click();
+    await expect(page.locator('#qpDirErr')).toContainText('older version'); await expect(page.locator('#qpJoinCountry')).toBeDisabled(); await expect(page.locator('#qpJoinCountry')).toContainText('Unavailable');
+    await expect(page.locator('#qpMineErr')).toContainText('schedule is unavailable'); await expect(page.locator('#qpMineNone')).toHaveCount(0);   // an error is not shown as "no meetings"
+    await page.unroute('**/api/phone/dial-in-numbers'); await page.unroute('**/api/workplace/schedule');
+    await page.locator('#qpDirErr ~ button').click(); await expect(page.locator('#qpJoinCountry')).toBeEnabled(); await expect(page.locator('#qpDirHint')).toBeVisible();
+    await page.locator('#qpMineErr ~ button').click(); await expect(page.locator('#qpMineErr')).toHaveCount(0); await expect(page.locator('.qp-pick').first()).toBeVisible();   // recovered: the organiser's meeting is listed
+    await page.locator('#qpMeetings [data-m=history]').click(); await expect(page.locator('#qpMineNone')).toContainText('No finished meetings'); await expect(page.getByRole('button', { name: 'Create phone PIN' })).toHaveCount(0);
+    await ctx.close();
   } finally { main.stop(); }
 });
