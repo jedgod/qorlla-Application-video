@@ -194,3 +194,15 @@ test('404 is explained: an old server (route missing) and an unknown meeting are
   await page.unroute('**/api/meetings/*/preflight'); await page.click('#sdRetry'); await expect(page.locator('#sdGo')).toBeEnabled(); await expect(page.locator('#sdBadge')).toBeHidden();
   await ctx.close();
 });
+
+test('layout: square camera preview, device icons beside each selector, centred, no scroll bar on laptop sizes', async ({ browser }) => {
+  test.setTimeout(60000);
+  for (const vp of [{ width: 1366, height: 768 }, { width: 1280, height: 720 }, { width: 1024, height: 700 }]) {
+    const ctx = await browser.newContext({ viewport: vp }); await organiser(ctx, MAIN); const page = await ctx.newPage(); await openStart(page);
+    const m = await page.evaluate(() => { const d = document.getElementById('startDialog').getBoundingClientRect(), b = document.querySelector('.sd-body'), p = document.querySelector('.sd-prev').getBoundingClientRect();
+      const rows = [...document.querySelectorAll('.sd-dev')].map((r) => { const i = r.querySelector('.sd-di').getBoundingClientRect(), s = r.querySelector('select').getBoundingClientRect(); return i.right <= s.left + 1 && Math.abs(i.top + i.height / 2 - (s.top + s.height / 2)) < 4 && !!r.querySelector('.sd-di svg'); });
+      return { scroll: b.scrollHeight - b.clientHeight, w: p.width, h: p.height, offX: Math.abs(d.left + d.width / 2 - innerWidth / 2), offY: Math.abs(d.top + d.height / 2 - innerHeight / 2), rows }; });
+    expect(m.scroll, vp.width + 'x' + vp.height).toBeLessThanOrEqual(0); expect(Math.abs(m.w - m.h)).toBeLessThan(1); expect(m.offX).toBeLessThan(3); expect(m.offY).toBeLessThan(3); expect(m.rows).toEqual([true, true, true]);
+    await ctx.close();
+  }
+});

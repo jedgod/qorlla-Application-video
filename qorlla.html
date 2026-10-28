@@ -213,6 +213,16 @@
   dialog.sd .sd-badge { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 700; }
   dialog.sd .chip { min-width: 84px; text-align: center; } dialog.sd .sd-net { display: block; } dialog.sd .sd-net li { padding: 4px 0; border-bottom: 1px solid #e5eaf3; } dialog.sd .sd-net li:last-child { border: 0; }
   dialog.sd .sd-net b::before { margin-right: 5px; font-weight: 700; } dialog.sd .sd-net b.ok::before { content: '\2713'; } dialog.sd .sd-net b.bad::before { content: '\2715'; } dialog.sd .sd-net b.warn::before { content: '!'; }
+  dialog.sd .sd-prev { aspect-ratio: 1 / 1; width: 170px; margin: 0 auto; border-radius: 12px; } dialog.sd #sdTest { align-self: center; }
+  dialog.sd .sd-dh { display: flex; justify-content: space-between; align-items: center; } dialog.sd .sd-refresh { border: 0; background: none; color: #2458ed; font-size: 18px; cursor: pointer; padding: 0 4px; }
+  dialog.sd .sd-dev { display: flex; align-items: center; gap: 8px; } dialog.sd .sd-dev select { flex: 1; min-width: 0; }
+  dialog.sd .sd-di { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #0f172a; }
+  dialog.sd .sd-dev .sd-meter { flex: none; width: 48px; height: 8px; } dialog.sd .sd-ready summary { cursor: pointer; font-size: 13px; font-weight: 700; } dialog.sd .sd-ready .sd-net { margin-top: 4px; }
+  dialog.sd .sd-body { overflow-y: auto; scrollbar-width: thin; }
+  dialog.sd .sd-body { padding-bottom: 10px; overflow-y: auto; } dialog.sd .sd-right { gap: 6px; }
+  @media (max-height: 700px) and (min-width: 851px) { dialog.sd .sd-prev { width: 120px; } }
+  @media (max-height: 740px) and (min-width: 851px) { dialog.sd .sd-prev { width: 96px; } dialog.sd .sd-prev p { display: none; } dialog.sd .note-box { display: none; } dialog.sd .sd-left, dialog.sd .sd-right { gap: 4px; } dialog.sd .sd-head { padding-top: 10px; padding-bottom: 4px; }
+    dialog.sd input[type=text], dialog.sd input[type=password] { height: 32px; } dialog.sd .sd-card { padding: 6px 10px; } dialog.sd .sd-quick { margin: 2px 0; } dialog.sd .hint { margin: 0; } }
   dialog::backdrop { background: rgba(15,23,42,.5); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 21px; margin-bottom: 4px; letter-spacing: -.4px; }
   dialog .sub { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
@@ -705,17 +715,16 @@
           <button type="button" class="chip" id="sdTest">Test microphone and camera</button>
         </section>
         <section aria-labelledby="sdDevH" class="sd-card">
-          <h3 id="sdDevH">Select devices</h3>
-          <label class="f" for="sdCamSel">Camera</label><select id="sdCamSel" disabled><option>Test your devices to choose</option></select>
-          <label class="f" for="sdMicSel">Microphone</label><select id="sdMicSel" disabled><option>Test your devices to choose</option></select>
-          <div class="sd-meter" aria-hidden="true"><i id="sdMeter"></i></div>
-          <label class="f" for="sdSpkSel">Speakers</label><div class="sd-spk"><select id="sdSpkSel"><option value="">Default speakers</option></select><button type="button" class="chip" id="sdSpkTest">Test speakers</button></div>
+          <div class="sd-dh"><h3 id="sdDevH">Select devices</h3><button type="button" class="sd-refresh" id="sdRefresh" aria-label="Refresh device list" title="Refresh device list">&#8635;</button></div>
+          <div class="sd-dev"><span class="sd-di"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="12" height="12" rx="2.5"/><path d="m15 10 6-3.5v11L15 14"/></svg></span><select id="sdCamSel" aria-label="Camera" disabled><option>Test your devices to choose</option></select></div>
+          <div class="sd-dev"><span class="sd-di"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><select id="sdMicSel" aria-label="Microphone" disabled><option>Test your devices to choose</option></select><div class="sd-meter" aria-hidden="true"><i id="sdMeter"></i></div></div>
+          <div class="sd-dev sd-spk"><span class="sd-di"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></span><select id="sdSpkSel" aria-label="Speakers"><option value="">Default speakers</option></select><button type="button" class="chip" id="sdSpkTest">Test</button></div>
           <p class="hint" id="sdSpkNote"></p>
         </section>
-        <section aria-labelledby="sdNetH" class="sd-card">
-          <h3 id="sdNetH">Readiness</h3>
+        <details class="sd-card sd-ready" id="sdReady">
+          <summary id="sdNetH">Readiness <span id="sdReadySum" class="muted"></span></summary>
           <button type="button" class="chip" id="sdRecheck" hidden>Re-check</button><ul class="sd-net" id="sdNet" aria-live="polite"><li data-k="net"><span>Meeting lookup</span><b>Checking…</b></li><li data-k="meet"><span>Meeting server (Qorlla Meet)</span><b>Checking…</b></li><li data-k="cam"><span>Camera</span><b>Not tested</b></li><li data-k="mic"><span>Microphone</span><b>Not tested</b></li></ul>
-        </section>
+        </details>
         <details id="sdSec" class="sd-card" open>
           <summary>Security and admission</summary>
           <label><input type="checkbox" id="sdWait" checked> Enable waiting room for guests</label><p class="hint">Guests are held until you admit them one by one. Enforced by Qorlla Meet.</p>
@@ -891,7 +900,9 @@
   var PASS_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
   function newPassword() { var a = new Uint32Array(10); crypto.getRandomValues(a); return Array.prototype.map.call(a, function (n) { return PASS_CHARS[n % PASS_CHARS.length]; }).join(''); }
   function copyText(t, msg) { if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { toast(msg, 'ok'); }, function () { toast(t); }); else toast(t); }
-  function netRow(k, text, cls) { var b = $('sdNet').querySelector('[data-k=' + k + '] b'); if (b) { b.textContent = text; b.className = cls || ''; } }
+  function netRow(k, text, cls) { var b = $('sdNet').querySelector('[data-k=' + k + '] b'); if (b) { b.textContent = text; b.className = cls || ''; }
+    var bad = $('sdNet').querySelectorAll('b.bad').length, warn = $('sdNet').querySelectorAll('b.warn').length, chk = Array.prototype.some.call($('sdNet').querySelectorAll('b'), function (x) { return /Checking/.test(x.textContent); });
+    $('sdReady').open = $('sdReady').open || bad > 0; $('sdReadySum').textContent = chk ? '· checking…' : bad ? '· action required' : warn ? '· limited' : '· ready'; }
   function jget(url) { return fetch(url, { cache: 'no-store' }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); }); }
 
   // Meeting initialisation is strict: the ID, invitation and Start stay unconfirmed until the server has answered the preflight; a failure keeps the form and offers Retry.
@@ -995,6 +1006,7 @@
   $('sdTest').addEventListener('click', function () { startPreview(); });
   $('sdPreview').addEventListener('change', function () { if (this.checked) startPreview(); else stopPreview(); });
   ['sdCamSel', 'sdMicSel'].forEach(function (id) { $(id).addEventListener('change', function () { if (sd.stream) startPreview(); }); });
+  $('sdRefresh').addEventListener('click', function () { if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) navigator.mediaDevices.enumerateDevices().then(fillDevices); });
   $('sdSpkTest').addEventListener('click', function () {
     var n = 8000 * 0.7, wav = new Uint8Array(44 + n * 2), dv = new DataView(wav.buffer), w = function (o, s) { for (var i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
     w(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, 8000, true); dv.setUint32(28, 16000, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, 'data'); dv.setUint32(40, n * 2, true);
