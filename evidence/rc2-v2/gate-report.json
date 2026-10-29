@@ -1,0 +1,109 @@
+{
+  "version": "1.9",
+  "result": "BLOCKED",
+  "productionApproved": false,
+  "missing": [
+    "QVE-01",
+    "QVE-02",
+    "QVE-03",
+    "QVE-04",
+    "QVE-05",
+    "QVE-06",
+    "QVE-07",
+    "QVE-08",
+    "QVE-09",
+    "QVE-10",
+    "QVE-11",
+    "QVE-12",
+    "QVE-13",
+    "QVE-14",
+    "QVE-15"
+  ],
+  "problems": {
+    "QVE-01": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date"
+    ],
+    "QVE-02": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date"
+    ],
+    "QVE-03": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date"
+    ],
+    "QVE-04": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date",
+      "needs environment staging, production-like or production (got \"development\")"
+    ],
+    "QVE-05": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date",
+      "needs environment staging, production-like or production (got \"development\")"
+    ],
+    "QVE-06": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date"
+    ],
+    "QVE-07": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date"
+    ],
+    "QVE-08": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date"
+    ],
+    "QVE-09": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date",
+      "needs environment staging, production-like or production (got \"development\")"
+    ],
+    "QVE-10": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date",
+      "needs environment staging, production-like or production (got \"development\")"
+    ],
+    "QVE-11": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date",
+      "needs a reviewer who is not the operator"
+    ],
+    "QVE-12": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date",
+      "needs environment staging, production-like or production (got \"development\")",
+      "needs a reviewer who is not the operator"
+    ],
+    "QVE-13": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date"
+    ],
+    "QVE-14": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date",
+      "needs a reviewer who is not the operator"
+    ],
+    "QVE-15": [
+      "status is \"PENDING\", not PASS",
+      "evidence must describe the artifact (log, report, recording) in at least 20 characters",
+      "timestamp is not a valid date",
+      "needs environment staging, production-like or production (got \"development\")"
+    ]
+  },
+  "reviewRequired": true
+}

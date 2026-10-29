@@ -1,0 +1,18 @@
+revision under test: cb26ae2563ce26da181c1f4883c134b88a445ae8
+clean checkout: yes (git worktree of that exact commit, 0 modified files; node_modules and the test database/secrets were linked/copied in, no source file differs)
+ancestry verified: 1dff4b7 (emergency numbers), 116a16a (identity decision), 781e1e5 (original Redis evidence), b66f57d (original baseline) are all ancestors
+date: 2026-10-29T15:56:34.763Z
+environment class: development (one Windows machine, Docker Desktop)
+OS: Microsoft Windows 11 Pro 10.0.26300; logical cores: 4; RAM GB: 31.7
+node: v22.18.0
+docker server: 29.9.2
+redis image: redis@sha256:02f2cc4882f8bf87c79a220ac958f58c700bdec0dfb9b9ea61b62fb0e8f1bfcf
+coturn image: coturn/coturn@sha256:7df59bcd84800c3978da2dd0d7fb17a8179e77a8bf667f678813120a9f18b094
+openssl: OpenSSL 3.5.7 9 Jun 2026 (Library: OpenSSL 3.5.7 9 Jun 2026)
+certificate trust (Redis TLS test): a private CA generated for the run (2-day lifetime); trusted ONLY through NODE_EXTRA_CA_CERTS in the child process; server certificate SAN = localhost + 127.0.0.1; no certificate verification was disabled anywhere
+
+LOAD NOTE: during this verification OneDrive (OneDrive.exe / OneDrive.Sync.Service.exe) held this 4-core machine at about 100% CPU for over 20 minutes with no tests running. Under that load the default Playwright config (2 workers, 5 s assertion timeout) failed different tests on different runs, including tests that pass in isolation (see runs/chromium-default-config-under-load-4-failed.txt and runs/chromium-retry-3-files-PASS.txt). The full 50-test pass uses runs/playwright.load.config.js: ONE worker and a 15 s assertion timeout. No test code or assertion was changed.
+FIRST ATTEMPT (output overwritten, described here): 3 failures: two were caused by the clean checkout lacking qorlla-meet-video/node_modules (a test fixture, fixed by linking it); one (voice-engine "declining, an unanswered call...") was a 10 s wait timing out on the loaded machine and passed in isolation.
+
+what is covered: engine suite (112 tests: reliability, outbox ordering, groups, history retention/deletion/holds, roles, Redis ACL and TLS, release gate, emergency reservation) on real PostgreSQL + Redis containers; 50 Chromium tests with real WebRTC, a real coturn relay, Phone/hardening/telephony regression; emergency-number rejection in the engine (provisioning, dialing) and in the Dial Pad.
+what is NOT covered: anything that needs real hosts, networks or devices (see certification-evidence.json).

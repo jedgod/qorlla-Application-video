@@ -1,0 +1,167 @@
+{
+  "QVE-01": {
+    "title": "PostgreSQL transactions atomically commit call state and outbox rows",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: atomic state+outbox with a simulated crash before COMMIT (reliability.pg.test.mjs). Missing: real database process crash mid-COMMIT on staging."
+  },
+  "QVE-02": {
+    "title": "Redis down during call creation: event retained, later delivered",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: Redis stopped/started under a stream of events, complete and in order across two replicas; Redis over TLS with a private CA, least-privilege ACL (evidence/rc2/QVE-02-11_redis-tls_local). Missing: staging Redis with a real certificate chain, 2-minute outage under load. Re-run on this revision: Redis TLS 3/3 (evidence/rc2-v2/runs)."
+  },
+  "QVE-03": {
+    "title": "Crash after publish before outbox acknowledgment: replay/dedupe correct",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: per-account in-order delivery with racing workers, poison events, hung publish, dead worker, marking retry. Missing: ordering under load on separate hosts."
+  },
+  "QVE-04": {
+    "title": "Two voice nodes: cross-node call, answer, ICE exchange",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: two in-process replicas and a two-container compose with 15 smoke checks, one machine. Missing: two separate hosts behind a real load balancer."
+  },
+  "QVE-05": {
+    "title": "Server restart: missed events replay, state converges",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: replica killed and replaced mid-call; engine killed and restarted under two real browsers. Missing: staged rolling restart with measured convergence."
+  },
+  "QVE-06": {
+    "title": "Device takeover: stale lease cannot signal or continue media",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: stale generation dropped, takeover in two real browsers. Missing: physical devices."
+  },
+  "QVE-07": {
+    "title": "Concurrent calls and idempotency under load",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: concurrency tests; one load run on one machine (100 pairs, 300 calls, 6000 signals, 0 errors). Missing: independent staging load and 8-hour soak."
+  },
+  "QVE-08": {
+    "title": "Browser permission, hangup, ICE restart and TURN relay",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: Chromium mic refusal, hangup, ICE restart (also both sides at once), relay-only call through a real coturn on this machine. Missing: other browsers, real networks."
+  },
+  "QVE-09": {
+    "title": "Two physical devices on different networks with real audio",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Not done: no physical-device or cross-network test."
+  },
+  "QVE-10": {
+    "title": "Redis/Postgres failure, recovery, backpressure, restart",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: Redis stop/start, database connections killed, fail-closed backlog. Missing: PostgreSQL primary failover with measured RTO/RPO."
+  },
+  "QVE-11": {
+    "title": "AuthZ, WebSocket ticket replay, rate limits, abuse tests (independent reviewer)",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: ticket replay/expiry/origin, token forgery, stranger isolation, least-privilege Postgres and Redis users, Redis TLS refusal cases. Missing: independent security review. Emergency numbers can never be extensions (engine + Dial Pad tests, this revision)."
+  },
+  "QVE-12": {
+    "title": "Metrics, alerts, on-call and rollback drill",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: metrics, strict readiness, alert-rule template. Missing: deployed dashboards, alerts, on-call and rollback drills."
+  },
+  "QVE-13": {
+    "title": "Accessibility and browser compatibility matrix",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: axe checks on the new screens in Chromium. Missing: browser/device matrix, assistive-technology testing."
+  },
+  "QVE-14": {
+    "title": "Privacy, retention, deletion, logs, secret handling review (independent reviewer)",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Local: SDP/ICE never stored, group history retention/deletion/legal hold tested, no secrets in logs asserted. Missing: privacy review incl. one-to-one call history retention."
+  },
+  "QVE-15": {
+    "title": "Qorlla Meet integration: meeting occurrence, host admission, attendance",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "automated (Claude Code)",
+    "reviewer": "",
+    "environment": "development",
+    "revision": "cb26ae2563ce26da181c1f4883c134b88a445ae8",
+    "timestamp": "",
+    "notes": "Blocked: Meet audio bridge is a separate project."
+  }
+}
