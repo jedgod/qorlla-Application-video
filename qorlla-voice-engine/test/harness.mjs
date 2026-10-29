@@ -21,7 +21,8 @@ export function redisContainer() {
   docker('rm', '-f', NAME);
   if (docker('run', '-d', '--name', NAME, '-p', `127.0.0.1:${PORT}:6379`, 'redis:7-alpine').status !== 0) return null;
   const ping = async () => { for (let i = 0; i < 50; i++) { if (docker('exec', NAME, 'redis-cli', 'ping').stdout.includes('PONG')) return true; await wait(100); } return false; };
-  return { url: `redis://127.0.0.1:${PORT}`, ping, stop: () => docker('stop', '-t', '0', NAME), start: () => docker('start', NAME), remove: () => docker('rm', '-f', NAME) };
+  const exec = (...a) => docker('exec', NAME, 'redis-cli', ...a);
+  return { url: `redis://127.0.0.1:${PORT}`, exec, port: PORT, ping, stop: () => docker('stop', '-t', '0', NAME), start: () => docker('start', NAME), remove: () => docker('rm', '-f', NAME) };
 }
 
 export function harness({ db, idp }) {

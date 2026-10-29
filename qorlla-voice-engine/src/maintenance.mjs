@@ -3,7 +3,7 @@
 // two replicas can never process the same call twice. Each change writes its durable events in the same transaction; afterChange() lets the caller kick the outbox worker.
 import { pruneTickets } from './tickets.mjs';
 
-export function startMaintenance({ store, db, reliability = null, afterChange = () => {}, intervalMs = 5000, ringSeconds = 60, leaseGraceSeconds = 120, retentionHours = 168 }) {
+export function startMaintenance({ store, db, reliability = null, history = null, historyRetentionDays = 0, afterChange = () => {}, intervalMs = 5000, ringSeconds = 60, leaseGraceSeconds = 120, retentionHours = 168 }) {
   let busy = false, tick = 0;
   const run = async () => {
     if (busy) return; busy = true;
@@ -11,7 +11,9 @@ export function startMaintenance({ store, db, reliability = null, afterChange = 
       const missed = await store.expireRinging(ringSeconds), stale = await store.expireStaleCalls(leaseGraceSeconds);
       const inv = await store.rooms.expireInvites(ringSeconds), seats = await store.rooms.expireStaleMembers(leaseGraceSeconds);
       if (missed.length || stale.length || inv || seats) afterChange();
-      if (++tick % 60 === 0) { await pruneTickets(db); if (reliability) await reliability.prune(retentionHours); }
+      const t = ++tick;
+      if (t % 60 === 0) { await pruneTickets(db); if (reliability) await reliability.prune(retentionHours); }
+      if (history && (t === 2 || t % 720 === 0)) await history.purgeExpired({ days: historyRetentionDays });        // hourly with the default 5 s tick; also shortly after start. Ended rooms only: never a live call, never the outbox.
     } catch (e) { console.error('voice maintenance failed', e?.code || e?.message || 'unknown'); }
     finally { busy = false; }
   };

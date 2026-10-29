@@ -16,12 +16,12 @@
 | QVE-04 | Two nodes: cross-node call, answer, ICE exchange | Two in-process replicas (Redis) and **two containers** (`scripts/staging-smoke.mjs`, 15 checks: call rings on the other node, SDP both ways, takeover, replay) on one machine | Two separate hosts behind a WSS load balancer |
 | QVE-05 | Restart: missed events replay, state converges | Replica killed mid-call and replaced; offline device resumes on another node and gets exactly its own events; engine killed and restarted under two real browsers mid-call | A staged rolling restart with measured convergence time |
 | QVE-06 | Device takeover: stale lease cannot signal or continue media | Old generation / wrong device dropped, refresh `lease_lost`, fail `device_not_owner`; in two real browsers the first device's microphone and connection stop at once | Physical devices |
-| QVE-07 | Concurrent calls and idempotency under load | 12 concurrent claims, concurrent joins, idempotent retry, 40 concurrent writers vs a polling reader | **A load test.** Not done |
+| QVE-07 | Concurrent calls and idempotency under load | 12 concurrent claims, concurrent joins, idempotent retry, 40 concurrent writers vs a polling reader, concurrent deletions with reads and live activity; `scripts/load-test.mjs` run once on one machine (100 pairs, 300 calls, 6000 relayed signals, 0 errors; it exposed and led to the fix of a slow outbox worker) | **A staging load and soak test** (plan: docs/VOICE_RC2_EVIDENCE_PLAN.md) |
 | QVE-08 | Browser permission, hangup, ICE restart, TURN relay | Chromium: mic refused, hangup, ICE restart (also both sides at once), relay-only call through a real coturn | Other browsers, real devices |
 | QVE-09 | Two physical devices, different networks, real audio | **Not done** | Everything |
 | QVE-10 | Redis/Postgres failure, recovery, backpressure, restart | Redis stop/start, all database connections killed, fail-closed backlog (503) and automatic recovery | A PostgreSQL primary failover; measured RTO/RPO |
-| QVE-11 | AuthZ, ticket replay, rate limits, abuse | Ticket replay/expiry/origin, token forgery, `alg:none`, stranger isolation, forged bus messages, per-socket and per-account limits, least-privilege role (DDL/TRUNCATE denied) | **An independent security review.** Not done |
-| QVE-12 | Metrics, alerts, on-call, rollback drill | Metrics + strict readiness endpoints, draft runbook | Dashboards, alerts, an on-call drill, a rollback rehearsal. **Not done** |
+| QVE-11 | AuthZ, ticket replay, rate limits, abuse | Ticket replay/expiry/origin, token forgery, `alg:none`, stranger isolation (calls, rooms, history, deletion), forged bus messages, per-socket and per-account limits, least-privilege database role (DDL/TRUNCATE denied) and a least-privilege Redis user (everything but publish/subscribe on one channel denied; wrong password refused) | **An independent security review.** Not done |
+| QVE-12 | Metrics, alerts, on-call, rollback drill | JSON and Prometheus metrics, strict readiness endpoint, alert rule template, nginx example, draft runbook | Rules loaded in a live Prometheus, dashboards, an on-call drill, a rollback rehearsal. **Not done** |
 | QVE-13 | Accessibility and browser compatibility | axe on the ring dialog, call bar, takeover banner, group selection, Recent Calls with group rows and the group call detail (Chromium) | A browser/device matrix (Firefox, Safari, mobile), assistive-technology testing |
 | QVE-14 | Privacy, retention, deletion, logs, secrets | SDP/ICE never stored; group history shows a person only their own calls and never names other participants; retention window; the engine log carries no secret, token or ticket (asserted); admin secret never reaches a browser | A privacy and retention review, including a retention/deletion rule for group call history |
 | QVE-15 | Qorlla Meet integration: occurrence, host admission, attendance | **Not done.** `voice_rooms.meeting_ref` is unused groundwork | A server-side bridge into Meet's media plus host-admission rules |
@@ -39,9 +39,22 @@ DR-01 = QVE-01, DR-02 = QVE-02, DR-03 = replay/resume (see QVE-05), DR-04 = QVE-
 7. **Least-privilege database roles** -> `deploy/roles.sql` + `scripts/apply-roles.mjs`; the whole engine (calls, rooms, outbox, replay, maintenance) is tested running as a role that has no DDL, no TRUNCATE and no access to the certification table, and the two-node staging runs that way.
 8. **Outbox worker "separately deployed"** -> each replica runs a worker (`FOR UPDATE SKIP LOCKED`, safe with any number of them). A dedicated worker process is possible (`outbox: false` on the web replicas) but is not set up in the staging compose.
 
+## Group call history audit (Qorlla_Group_History_Audit_RC2): gaps and what was decided
+| Audit point | Status |
+|---|---|
+| History must come from the same transaction as the room change (the package used database triggers) | **Done, differently:** the application writes outcome, stays and timeline in the same transaction as each change. Proven by a failed-transaction test and by a randomized 160-step check of eight invariants after every operation (a joined member always has exactly one open stay, an ended room has none, a finished member always has an outcome, the host is always a joined member...). Triggers would additionally cover writers that bypass the application; there are none today. If any appear, add triggers. |
+| Actor attribution (who invited, kicked, transferred the host) | **Done:** invitations, kicks, ending, leaving and host hand-overs record the actor; a lease expiry or system change honestly has none (tests assert kicks and device claims always have one). Deleted users' actor references are removed (anonymised). |
+| Device claim entries | **Done:** a takeover is on the timeline for the person ("You continued this call on another device"), without adding a stay. |
+| One participation segment per join, closed on every exit path | **Done and tested** (leave, kick, expiry, end, account suspension, rejoin, concurrent). |
+| History before the migration cannot be reconstructed | **Same limit:** best-effort backfill from member rows (one stay per member), idempotent; documented. |
+| Immutable audit (runtime role cannot UPDATE/DELETE) | **Deliberately not done:** retention and the new user-deletion workflow require DELETE, and stays must be closed with UPDATE. The runtime role cannot TRUNCATE or alter any history table (tested). Tamper-proofing against the database owner is not claimed; a SECURITY DEFINER writer role would be the next step if required. |
+| Cursor precision (the package's cursor used millisecond timestamps) | **Done properly:** exact-microsecond cursor, tested with identical timestamps. |
+| Other participants' privacy | **Done:** others are counted, never named; their events appear as "other". |
+| Retention, user deletion, legal hold (new requirement) | **Done and tested**, see VOICE_ENGINE_V1.md. Open: one-to-one call history has no retention rule yet. |
+
 ## Re-running the evidence
 ```
-cd qorlla-voice-engine && npm test      # 89 tests; real PostgreSQL (dev-stack database or VOICE_TEST_DATABASE_URL); Docker for Redis
+cd qorlla-voice-engine && npm test      # 99 tests; real PostgreSQL (dev-stack database or VOICE_TEST_DATABASE_URL); Docker for Redis
 npx playwright test tests/voice-engine.spec.js tests/voice-reliability.spec.js tests/voice-turn.spec.js --project=chromium
 # two-node staging (needs Docker):  see deploy/docker-compose.staging.yml, then  node scripts/staging-smoke.mjs http://127.0.0.1:4601 http://127.0.0.1:4602
 npm run release:gate -- certification-evidence.example.json     # -> BLOCKED

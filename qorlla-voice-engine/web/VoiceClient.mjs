@@ -363,6 +363,11 @@ export class QorllaVoiceClient {
   /** Group call history for Recent Calls: your own calls, newest first. Pass the returned nextCursor to get the next page. */
   groupHistory({ limit = 25, cursor } = {}) { const q = new URLSearchParams({ limit: String(limit) }); if (cursor) q.set('cursor', cursor); return this.api('/history?' + q); }
   groupHistoryDetail(callId) { return this.api('/history/' + encodeURIComponent(callId)); }
+  /** Delete MY record of one finished call. Resolves { deleted, retained }; rejects call_in_progress for a live call. */
+  deleteGroupHistory(callId) { return this.api('/history/' + encodeURIComponent(callId), { method: 'DELETE' }); }
+  /** Delete my record of every finished call (one batch: call again while remaining > 0). */
+  clearGroupHistory() { return this.api('/history?confirm=all', { method: 'DELETE' }); }
+  historyPolicy() { return this.api('/history-policy'); }
 
   // ------------------------------------------------------------------------------------------------ quality numbers and cleanup
   /** Quality numbers from the browser's own statistics (no audio content). Used by diagnostics and tests. */

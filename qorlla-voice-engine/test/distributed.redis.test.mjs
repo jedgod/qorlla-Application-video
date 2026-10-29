@@ -124,3 +124,18 @@ test('DR-07: a slow consumer is closed instead of letting the send buffer grow, 
   await assert.rejects(down.deliverDurable('x', { type: 'state' }), /distributed_bus_unavailable/);                                           // so the outbox keeps the event
   assert.doesNotThrow(() => down.send('x', { type: 'ice' }));                                                                                 // transient signaling never throws
 });
+
+test('Redis security: the engine runs as a least-privilege Redis user (publish/subscribe on its one channel only), and that user cannot do anything else', async (t) => {
+  if (skip(t)) return;
+  const pw = 'acl' + Math.random().toString(36).slice(2, 12), set = redis.exec('ACL', 'SETUSER', 'voicetest', 'on', '>' + pw, 'resetchannels', '&qorlla:voice:v1:signals', '-@all', '+publish', '+subscribe', '+ping', '+hello', '+auth', '+client|setinfo', '+client|setname', '+quit');
+  assert.match(String(set.stdout), /OK/, 'the ACL user was created'); t.after(() => redis.exec('ACL', 'DELUSER', 'voicetest'));
+  const url = redis.url.replace('redis://', 'redis://voicetest:' + pw + '@'), r1 = await h.replica({ redisUrl: url, maintenance: false }), r2 = await h.replica({ redisUrl: url, maintenance: false }); assert.ok(await busUp(r1, r2), 'both replicas connect as the restricted user');
+  const a = await r1.connect('alice', 'acl1'), b = await r2.connect('bob', 'acl1'); await endAll();
+  const d = await r1.dial('alice', ext.bob, 'acl1'); assert.equal(d.status, 201); assert.ok(await until(() => b.of('incoming')[0]), 'the call rings on the other replica through the restricted user'); await r2.answer(d.body.call.id, 'bob', 'acl1');
+  a.send({ type: 'offer', callId: d.body.call.id, generation: 1, sdp: SDP }); assert.ok(await until(() => b.of('offer')[0]), 'and SDP crosses too'); await r1.api('alice', 'POST', '/v1/voice/calls/' + d.body.call.id + '/end', {});
+  const probe = createClient({ url }); probe.on('error', () => {}); await probe.connect();
+  try { for (const cmd of [['GET', 'k'], ['SET', 'k', 'v'], ['KEYS', '*'], ['FLUSHALL'], ['CONFIG', 'GET', 'requirepass'], ['ACL', 'LIST']]) await assert.rejects(probe.sendCommand(cmd), /NOPERM/, cmd[0] + ' must be denied');
+    await assert.rejects(probe.publish('some:other:channel', 'x'), /NOPERM/, 'publishing to any other channel is denied'); } finally { await probe.quit(); }
+  const wrong = createClient({ url: redis.url.replace('redis://', 'redis://voicetest:wrong@'), socket: { reconnectStrategy: false } }); wrong.on('error', () => {}); await assert.rejects(wrong.connect(), /WRONGPASS|invalid username-password/i, 'a wrong password is refused');
+  await r1.stop(); await r2.stop();
+});

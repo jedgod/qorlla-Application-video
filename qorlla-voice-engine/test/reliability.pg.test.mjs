@@ -112,7 +112,7 @@ test('a worker that died holding a claim only delays the event: the lock expires
   if (skip(t)) return; await pause(); t.after(resume);
   await db.pool.query('UPDATE voice_outbox SET delivered_at = now() WHERE delivered_at IS NULL');
   const c = (await store.createCall('alice', ext.carol, 'dead-' + randomUUID(), h.device('alice'))).call; const id = Number((await db.pool.query("SELECT id FROM voice_reliable_events WHERE call_id=$1", [c.id])).rows[0].id);
-  const dead = new OutboxWorker({ db: db.pool, workerId: 'dead', publish: async () => {} }); assert.deepEqual((await dead.claim()).map(Number), [id]);          // claimed, then the process dies
+  const dead = new OutboxWorker({ db: db.pool, workerId: 'dead', publish: async () => {} }); assert.deepEqual((await dead.claim()).map((x) => x.event_id), [id]);          // claimed, then the process dies
   const got = []; const live = new OutboxWorker({ db: db.pool, workerId: 'live', publish: async (a, m) => got.push(m.eventId) });
   assert.equal(await live.runOnce(), 0);                                                                                                        // still locked
   await db.pool.query("UPDATE voice_outbox SET locked_until = now() - interval '1 second' WHERE event_id=$1", [id]);                         // 30 s later

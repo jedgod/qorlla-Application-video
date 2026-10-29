@@ -286,6 +286,7 @@
   .btn.danger { background: #dc2626; color: #fff; border-color: #dc2626; } .btn.danger:hover { background: #b91c1c; }
   .vb { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 12px; background: #0f172a; color: #fff; border-radius: 999px; padding: 8px 10px 8px 16px; box-shadow: 0 10px 30px rgba(15, 23, 42, .4); max-width: calc(100vw - 24px); } .vb.hidden { display: none; } .vb-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; flex: none; } .vb-dot.ring { background: #f59e0b; animation: vbpulse 1.2s infinite; } @keyframes vbpulse { 50% { opacity: .3; } } @media (prefers-reduced-motion: reduce) { .vb-dot.ring { animation: none; } }
   .vm { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 59; display: flex; align-items: center; gap: 12px; background: #fff; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 12px; padding: 10px 14px; box-shadow: 0 10px 30px rgba(15, 23, 42, .25); max-width: calc(100vw - 24px); font-size: 14px; } .vm.hidden, .vb .hidden { display: none; }
+  .qp-confirm { border: 1px solid #fca5a5; background: #fef2f2; color: #7f1d1d; border-radius: 10px; padding: 10px 12px; margin: 8px 0; } .qp-confirm p { margin: 0 0 8px; } .qp-confirm .row { display: flex; gap: 8px; } .qp-privacy { margin-top: 12px; } .qp-privacy p { margin: 4px 0; font-size: 13px; }
   .qp-col-search { width: 100%; box-sizing: border-box; padding: 8px 10px; margin: 6px 0; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
   .qp-gsel { width: 20px; height: 20px; flex: none; accent-color: #2563eb; } .qp-ghead { display: flex; align-items: center; justify-content: space-between; gap: 8px; } .qp-ghead h3 { margin: 0; } .qp-gbar { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
   .vb-text { display: flex; flex-direction: column; min-width: 0; } .vb-text strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .vb-text small { color: #cbd5e1; font-size: 12px; } .vb .btn { white-space: nowrap; } .vb .btn:not(.danger) { background: #1e293b; color: #fff; border-color: #334155; } .vb .btn[aria-pressed=true] { background: #f59e0b; border-color: #f59e0b; color: #0f172a; }
@@ -2440,20 +2441,43 @@
           row.addEventListener('click', function () { selId = c.id; Array.prototype.forEach.call(list.children, function (x) { x.setAttribute('aria-pressed', 'false'); }); row.setAttribute('aria-pressed', 'true'); detail(c, st); }); list.appendChild(row);
         });
       }
+      // Deleting group call history: always asked twice, in the page (not a pop-up), with Cancel focused so a stray Enter cannot delete anything.
+      function inlineConfirm(btn, message, yesId, onYes) {
+        var old = document.getElementById(yesId + 'Box'); if (old) old.remove();
+        var box = h('div', { class: 'qp-confirm', id: yesId + 'Box', role: 'alert' }, [h('p', { text: message }), h('div', { class: 'row' }, [h('button', { type: 'button', class: 'btn small danger', id: yesId, text: I18n.t('Delete'), onclick: function () { box.remove(); onYes(); } }), h('button', { type: 'button', class: 'btn small', id: yesId + 'No', text: I18n.t('Cancel'), onclick: function () { box.remove(); btn.focus(); } })])]);
+        btn.parentNode.insertBefore(box, btn.nextSibling); document.getElementById(yesId + 'No').focus();
+      }
+      function deletedNote(r) { return r.retained ? I18n.t('Removed from your history. A copy is kept for a legal requirement and will be deleted when that ends.') : I18n.t('Deleted.'); }
+      var policyP = h('p', { class: 'muted', id: 'qpGroupPolicy' }), clearBtn = h('button', { type: 'button', class: 'btn small hidden', id: 'qpGroupClear', text: I18n.t('Delete my group call history'), onclick: function () {
+        inlineConfirm(clearBtn, I18n.t('Delete your record of every finished group call permanently? Other participants keep theirs. Calls still in progress are not affected.'), 'qpGroupClearYes', function () {
+          var tot = { deleted: 0, retained: 0 };
+          (function loop() { return voice.client.clearGroupHistory().then(function (r) { tot.deleted += r.deleted; tot.retained += r.retained; if (r.remaining > 0 && r.deleted + r.retained > 0) return loop(); }); })().then(function () { toast(deletedNote(tot)); voiceHistoryDirty(); }).catch(function () { toast(I18n.t('The history could not be deleted.'), 'err'); });
+        });
+      } }), privacy = h('div', { class: 'qp-privacy', id: 'qpGroupPrivacy' }, [policyP, clearBtn]);
       // Group calls: your own history from the voice engine (other people are only counted, never named)
       function groupRows() {
         if (!voice.cfg || !voice.cfg.enabled || !voice.client) return Promise.resolve([]);
+        var showPolicy = function (p) { policyP.textContent = p.retentionEnabled ? I18n.t('Finished group calls are kept for') + ' ' + p.retentionDays + ' ' + I18n.t('days, then deleted automatically.') : I18n.t('Finished group calls are kept until you delete them.'); };
+        if (voice.policy) showPolicy(voice.policy); else voice.client.historyPolicy().then(function (p) { voice.policy = p; showPolicy(p); }).catch(function () {});
         return voice.client.groupHistory({ limit: 50 }).then(function (d) {
+          clearBtn.classList.toggle('hidden', !d.items.length);
           return d.items.map(function (g) { return { id: 'g-' + g.call_id, kind: 'voice', group: true, callId: g.call_id, title: g.room_name || I18n.t('Group call'), name: g.role === 'host' ? I18n.t('Host') : I18n.t('Member'), meetingId: g.participants + ' ' + I18n.t(g.participants === 1 ? 'person' : 'people'), status: g.status, joinedAt: g.created_at, seconds: g.duration_seconds, endReason: g.end_reason }; });
         }).catch(function () { return []; });
       }
-      function groupEventText(e) { var self = e.subject_scope === 'self'; return { invited: 'You were invited', joined: 'You joined', left: 'You left', declined: 'You declined', kicked: 'You were removed by the host', missed: 'The invitation expired', cancelled: 'The call ended before you answered', host_transferred: self ? 'You became the host' : 'The host changed' }[e.event_type] || e.event_type; }
+      function groupEventText(e) { var self = e.subject_scope === 'self'; return { invited: 'You were invited', joined: 'You joined', left: 'You left', declined: 'You declined', kicked: 'You were removed by the host', missed: 'The invitation expired', cancelled: 'The call ended before you answered', host_transferred: self ? 'You became the host' : 'The host changed', device_claimed: 'You continued this call on another device' }[e.event_type] || e.event_type; }
       function groupDetail(c, st) {
         var box = recentDetail; box.textContent = ''; var w = dayWhen(c.joinedAt);
         box.appendChild(h('div', { class: 'qp-jhead' }, [h('div', {}, [h('h2', { id: 'qpCDH', text: I18n.t('Call details') }), h('p', { class: 'muted qp-sub', text: I18n.t('A group call between Qorlla accounts. No phone number was used.') })])]));
         box.appendChild(h('div', { class: 'qp-dhead', id: 'qpGroupDetail' }, [h('span', { class: 'qp-ico', 'aria-hidden': 'true', text: '\u260E' }), h('div', {}, [h('strong', { class: 'qp-dt', text: c.title }), badge(I18n.t('Group call'), 'green')]), h('div', { class: 'qp-dwhen' }, [h('span', { text: w[0] + (w[1] ? ', ' + w[1] : '') }), h('strong', { text: c.seconds ? fmtDur(c.seconds) : '\u2014' })])]));
         var facts = h('div', { class: 'qp-facts', id: 'qpGroupFacts' }, [field(I18n.t('Your role'), c.name), field(I18n.t('Status'), I18n.t(st)), field(I18n.t('People who took part'), c.meetingId), field(I18n.t('How it ended'), c.endReason ? String(c.endReason).replace(/_/g, ' ') : '\u2014')]); box.appendChild(facts);
         var stays = h('div', { id: 'qpGroupStays' }), line = h('div', { id: 'qpGroupTimeline' }); box.appendChild(stays); box.appendChild(line);
+        if (c.status !== 'ongoing' && c.status !== 'ringing') {
+          var del = h('button', { type: 'button', class: 'btn small', id: 'qpGroupDelete', text: I18n.t('Delete this record'), onclick: function () {
+            inlineConfirm(del, I18n.t('Delete your record of this call permanently? Other participants keep theirs.'), 'qpGroupDeleteYes', function () {
+              voice.client.deleteGroupHistory(c.callId).then(function (r) { toast(deletedNote(r)); recentDetail.textContent = ''; voiceHistoryDirty(); }).catch(function (e) { toast(I18n.t(e && e.code === 'call_in_progress' ? 'This call is still in progress.' : 'The record could not be deleted.'), 'err'); });
+            });
+          } }); box.appendChild(del);
+        }
         stays.appendChild(h('p', { class: 'muted', text: I18n.t('Loading\u2026') }));
         voice.client.groupHistoryDetail(c.callId).then(function (d) {
           stays.textContent = ''; line.textContent = '';
@@ -2509,7 +2533,7 @@
       recentDetail.appendChild(h('h2', { id: 'qpCDH', text: I18n.t('Call details') })); recentDetail.appendChild(h('p', { class: 'muted', id: 'qpNoDetail', text: I18n.t('Select a call on the left to see who called, when, how long, and open the meeting in History.') }));
       viewAll._all = false;
       recentCard.appendChild(h('div', { class: 'qp-jhead' }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '\uD83D\uDD52' }), h('div', {}, [h('h2', { id: 'qpRecH', text: I18n.t('Recent Calls') }), h('p', { class: 'muted qp-sub', text: I18n.t('View and manage your recent calls, including meeting calls.') })]), viewAll]));
-      recentCard.appendChild(fb); recentCard.appendChild(h('div', { class: 'qp-row2' }, [search, rangeSel])); recentCard.appendChild(list); recentCard.appendChild(count);
+      recentCard.appendChild(fb); recentCard.appendChild(h('div', { class: 'qp-row2' }, [search, rangeSel])); recentCard.appendChild(list); recentCard.appendChild(count); recentCard.appendChild(privacy);
       recentCard._load = load; load();
     })();
 

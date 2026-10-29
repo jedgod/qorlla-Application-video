@@ -14,11 +14,11 @@ import { OutboxWorker } from './outbox.mjs';
 import { RedisBus } from './bus.mjs';
 import { VoiceRouter } from './router.mjs';
 import { validRoomId } from './rooms.mjs';
-import { createHistory } from './history.mjs';
+import { createHistory, parseRetentionDays } from './history.mjs';
 
 const STATUS = { invalid_recipient: 404, not_found: 404, blocked: 403, forbidden: 403, caller_disabled: 403, voice_disabled: 403, invalid_origin: 403, busy: 409, invalid_transition: 409, idempotency_conflict: 409,
   extension_taken: 409, extensions_exhausted: 503, invalid_input: 400, too_many_tickets: 429, invalid_timeout: 400, overloaded: 503, device_not_owner: 409, lease_lost: 409, call_not_active: 409, room_full: 409,
-  room_exists: 409, already_joined: 409, turn_not_configured: 503, invalid_cursor: 400, replay_unavailable: 503 };
+  room_exists: 409, already_joined: 409, call_in_progress: 409, turn_not_configured: 503, invalid_cursor: 400, replay_unavailable: 503 };
 const GSIGNALS = ['g_offer', 'g_answer', 'g_ice'];
 const validGen = (g) => Number.isSafeInteger(g) && g >= 1;
 
@@ -26,7 +26,8 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   const app = express(); app.disable('x-powered-by'); app.set('trust proxy', env.VOICE_TRUST_PROXY === '1' ? 1 : false);
   app.use(helmet()); app.use(express.json({ limit: '16kb' }));
   const allowed = () => env.VOICE_ALLOWED_ORIGIN || '';
-  const reliability = createReliability(db), history = createHistory(db);
+  const reliability = createReliability(db), history = createHistory({ db, tx: store.tx }), retention = parseRetentionDays(env.VOICE_HISTORY_RETENTION_DAYS);
+  if (retention.warning) console.warn('voice: ' + retention.warning);
   const router = new VoiceRouter();
   const bus = busOption !== undefined ? busOption : (env.REDIS_URL ? new RedisBus({ url: env.REDIS_URL, instanceId, onDelivery: (m) => router.onRemote(m) }) : null);
   if (bus) { router.bus = bus; if (!bus.onDelivery) bus.onDelivery = (m) => router.onRemote(m); }
@@ -34,7 +35,8 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   const kick = () => worker?.kick();
   const sockets = router.sockets, send = (account, payload, device) => router.send(account, payload, device);
   const closeAccount = (account, code = 4001, reason = 'account_changed') => router.send(account, { type: '__close', code, reason });
-  const apiLimit = makeLimiter({ max: 240, windowMs: 60000 }), callLimit = makeLimiter({ max: 20, windowMs: 60000 }), ticketLimit = makeLimiter({ max: 30, windowMs: 60000 }), adminLimit = makeLimiter({ max: 120, windowMs: 60000 });
+  const num = (v, d) => { const x = Number(v); return Number.isInteger(x) && x > 0 ? x : d; };
+  const apiLimit = makeLimiter({ max: num(env.VOICE_API_RATE_PER_MIN, 240), windowMs: 60000 }), callLimit = makeLimiter({ max: num(env.VOICE_CALL_RATE_PER_MIN, 20), windowMs: 60000 }), ticketLimit = makeLimiter({ max: 30, windowMs: 60000 }), adminLimit = makeLimiter({ max: num(env.VOICE_ADMIN_RATE_PER_MIN, 120), windowMs: 60000 });
 
   // Backpressure (DR-07): when the outbox is far behind, new calls and rooms are refused (fail closed) instead of piling up more undelivered work.
   const MAX_PENDING = Number(env.VOICE_OUTBOX_MAX_PENDING || 5000), MAX_AGE = Number(env.VOICE_OUTBOX_MAX_AGE_SECONDS || 300);
@@ -58,7 +60,9 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   const adminAuth = (req, res, next) => {
     const secret = env.VOICE_ADMIN_SECRET; if (!secret || secret.length < 32) return res.status(503).json({ error: 'admin_disabled' });
     if (!adminLimit.take(req.ip || 'x')) return res.status(429).json({ error: 'rate_limited' });
-    if (!secretEquals(req.get('x-voice-admin-secret') || '', secret)) return res.status(401).json({ error: 'unauthorized' });
+    // A metrics scraper (Prometheus) can only send an Authorization header, so GET .../admin/metrics also accepts "Bearer <admin secret>". No other admin route does.
+    const given = req.get('x-voice-admin-secret') || (req.method === 'GET' && req.path === '/v1/voice/admin/metrics' ? (req.get('authorization') || '').replace(/^Bearer\s+/i, '') : '');
+    if (!secretEquals(given, secret)) return res.status(401).json({ error: 'unauthorized' });
     next();
   };
   const route = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { fail(res, e); } };
@@ -128,6 +132,10 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   // ---- group call history (what Recent Calls shows for rooms): only the caller's own calls, newest first, cursor-paginated
   app.get('/v1/voice/history', auth, route(async (req, res) => { res.set('Cache-Control', 'private, no-store').json(await history.list(req.account, { limit: req.query.limit, cursor: req.query.cursor })); }));
   app.get('/v1/voice/history/:id', auth, route(async (req, res) => { const d = await history.detail(req.account, req.params.id); res.set('Cache-Control', 'private, no-store'); if (!d) return res.status(404).json({ error: 'not_found' }); res.json(d); }));
+  // Deleting your own record: one ended call, or all of them (?confirm=all, a batch at a time). A call in progress is refused; a legal hold hides the record from you and keeps it until the hold is released.
+  app.delete('/v1/voice/history/:id', auth, route(async (req, res) => { res.set('Cache-Control', 'no-store').json(await history.remove(req.account, req.params.id)); }));
+  app.delete('/v1/voice/history', auth, route(async (req, res) => { if (req.query.confirm !== 'all') return res.status(400).json({ error: 'invalid_input' }); res.set('Cache-Control', 'no-store').json(await history.clear(req.account)); }));
+  app.get('/v1/voice/history-policy', auth, (_req, res) => res.set('Cache-Control', 'no-store').json({ retentionDays: retention.days, retentionEnabled: retention.days > 0, deletable: 'ended calls only' }));
 
   // ---- durable events: replay after a reconnect, and acknowledgements (the cursor only moves forward and only over this account's own events)
   app.get('/v1/voice/events', auth, route(async (req, res) => {
@@ -198,10 +206,25 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     const enabled = (req.body || {}).enabled; if (!validAccountId(req.params.accountId) || typeof enabled !== 'boolean') return res.status(400).json({ error: 'invalid_input' });
     const r = await store.setEnabled(req.params.accountId, enabled); kick(); if (!enabled) closeAccount(req.params.accountId, 4003, 'voice_disabled'); res.json({ identity: r.identity, endedCalls: r.ended.length });
   }));
+  // Legal holds (administrators only): a held room is never deleted, by retention or by a user; a user's deletion request then only hides the record from them.
+  app.get('/v1/voice/admin/legal-holds', adminAuth, route(async (_req, res) => { res.json({ holds: await history.listHolds() }); }));
+  app.post('/v1/voice/admin/legal-holds', adminAuth, route(async (req, res) => { const { roomId, placedBy, reason } = req.body || {}; res.status(201).json(await history.placeHold(roomId, placedBy, reason)); }));
+  app.delete('/v1/voice/admin/legal-holds/:roomId', adminAuth, route(async (req, res) => { res.json(await history.releaseHold(req.params.roomId)); }));
+  app.post('/v1/voice/admin/history/purge', adminAuth, route(async (_req, res) => { res.json(await history.purgeExpired({ days: retention.days })); }));
   // What an operator alerts on: queue depth and age, failed deliveries, sockets, bus state.
-  app.get('/v1/voice/admin/metrics', adminAuth, route(async (_req, res) => {
-    const q = await reliability.queueStats();
-    res.set('Cache-Control', 'no-store').json({ instance: instanceId, outbox: { ...q, published: worker?.stats.published ?? null, failed: worker?.stats.failed ?? null, maxPending: MAX_PENDING, maxAgeSeconds: MAX_AGE, failClosed: q.pending > MAX_PENDING || q.oldestSeconds > MAX_AGE },
+  app.get('/v1/voice/admin/metrics', adminAuth, route(async (req, res) => {
+    const q = await reliability.queueStats(), hs = await history.stats();
+    if (req.query.format === 'prometheus') {                                    // text exposition for a scraper; the secret header is still required
+      const g = (name, help, v) => `# HELP ${name} ${help}\n# TYPE ${name} gauge\n${name} ${Number(v) || 0}`, rows = [
+        g('qorlla_voice_outbox_pending', 'Durable events not yet published', q.pending), g('qorlla_voice_outbox_oldest_seconds', 'Age of the oldest undelivered event', q.oldestSeconds), g('qorlla_voice_outbox_max_attempts', 'Highest retry count in the outbox', q.maxAttempts),
+        g('qorlla_voice_outbox_published_total', 'Events published by this replica since start', worker?.stats.published), g('qorlla_voice_outbox_failed_total', 'Failed publish attempts by this replica since start', worker?.stats.failed),
+        g('qorlla_voice_outbox_fail_closed', '1 when new calls are being refused for backlog', q.pending > MAX_PENDING || q.oldestSeconds > MAX_AGE ? 1 : 0),
+        g('qorlla_voice_sockets_open', 'Open signaling sockets on this replica', router.total()), g('qorlla_voice_sockets_slow_closed_total', 'Sockets closed for not keeping up', router.slowClosed), g('qorlla_voice_bus_up', '1 when Redis delivery is up (1 also when Redis is not configured)', bus ? (bus.up ? 1 : 0) : 1),
+        g('qorlla_voice_history_legal_holds', 'Rooms under legal hold', hs.legalHolds), g('qorlla_voice_history_deletions_waiting_on_hold', 'User deletion requests waiting for a legal hold to be released', hs.deletionsWaitingOnHold),
+        g('qorlla_voice_history_retention_deleted_rooms_total', 'Rooms deleted by the retention policy', hs.ops.retention?.rooms), g('qorlla_voice_history_retention_days', 'Configured retention (0 = keep for ever)', retention.days)];
+      return res.set('Cache-Control', 'no-store').type('text/plain; version=0.0.4').send(rows.join('\n') + '\n');
+    }
+    res.set('Cache-Control', 'no-store').json({ instance: instanceId, history: { retentionDays: retention.days, ...hs }, outbox: { ...q, published: worker?.stats.published ?? null, failed: worker?.stats.failed ?? null, maxPending: MAX_PENDING, maxAgeSeconds: MAX_AGE, failClosed: q.pending > MAX_PENDING || q.oldestSeconds > MAX_AGE },
       sockets: { open: router.total(), slowClosed: router.slowClosed }, bus: bus ? (bus.up ? 'up' : 'down') : 'off' });
   }));
 
@@ -261,7 +284,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     send(msg.to, { type: msg.type, roomId: msg.roomId, from: account, gen: msg.generation, toGen: ctx.to.generation, ...(type === 'ice' ? { candidate: cleanCandidate(msg.candidate) } : { sdp: msg.sdp }) }, ctx.to.device_id);
   }
   const heartbeat = setInterval(() => { for (const ws of wss.clients) { if (ws.isAlive === false) { ws.terminate(); continue; } ws.isAlive = false; try { ws.ping(); } catch { /* gone */ } } }, 30000); heartbeat.unref?.();
-  const maint = maintenance ? startMaintenance({ store, db, reliability, afterChange: kick, intervalMs: maintenanceMs, ringSeconds: ringSeconds(env), leaseGraceSeconds: Number(env.VOICE_LEASE_GRACE_SECONDS || 120), retentionHours: Number(env.VOICE_EVENT_RETENTION_HOURS || 168) }) : null;
+  const maint = maintenance ? startMaintenance({ store, db, reliability, history, historyRetentionDays: retention.days, afterChange: kick, intervalMs: maintenanceMs, ringSeconds: ringSeconds(env), leaseGraceSeconds: Number(env.VOICE_LEASE_GRACE_SECONDS || 120), retentionHours: Number(env.VOICE_EVENT_RETENTION_HOURS || 168) }) : null;
 
   return {
     app, server, wss, sockets, send, router, bus, worker, reliability, maint, instanceId, kick, closeAccount,

@@ -1,0 +1,51 @@
+# Prometheus alert rules for Qorlla Voice. A TEMPLATE: the metric names are real (GET /v1/voice/admin/metrics?format=prometheus), but these rules have not been loaded into a live Prometheus,
+# the thresholds are starting points to be tuned against the RC2 load test, and nothing here has been through an on-call drill (QVE-12). Validate with:  promtool check rules deploy/alerts.example.yml
+# Scraping: the endpoint needs the admin secret. Use `authorization: { credentials_file: ... }` in the scrape job (the engine accepts "Authorization: Bearer <admin secret>" on this one path).
+groups:
+  - name: qorlla-voice
+    rules:
+      - alert: VoiceNodeDown
+        expr: up{job="qorlla-voice"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "A voice replica is not answering its metrics endpoint", runbook: "docs/VOICE_ENGINE_V1.md#operations-runbook-draft-not-yet-exercised-in-a-drill" }
+      - alert: VoiceNotReadyForNewCalls
+        expr: probe_success{job="qorlla-voice-readiness"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "/v1/voice/operational/readiness fails: Redis down or the event backlog is old; the load balancer should stop sending NEW calls here" }
+      - alert: VoiceOutboxBacklogGrowing
+        expr: qorlla_voice_outbox_oldest_seconds > 30
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: "Durable events are waiting more than 30 s to be delivered (calls ring late)", description: "Find out why the worker is not draining: Redis, the database, or a replica that is overloaded." }
+      - alert: VoiceFailingClosed
+        expr: qorlla_voice_outbox_fail_closed == 1
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "New calls and rooms are being refused (503 overloaded) because the event backlog is over its limit" }
+      - alert: VoiceEventPublishFailing
+        expr: rate(qorlla_voice_outbox_failed_total[5m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "Event publishing keeps failing on a replica" }
+      - alert: VoiceRedisDown
+        expr: qorlla_voice_bus_up == 0
+        for: 1m
+        labels: { severity: warning }
+        annotations: { summary: "Redis delivery is down: calls on one node still work, cross-node ringing waits in the outbox, and cross-node SDP/ICE is lost" }
+      - alert: VoiceSlowConsumers
+        expr: rate(qorlla_voice_sockets_slow_closed_total[10m]) > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Sockets are being closed for not keeping up (network or client problems, or the replica is starved)" }
+      - alert: VoiceNoSockets
+        expr: sum(qorlla_voice_sockets_open) == 0
+        for: 15m
+        labels: { severity: info }
+        annotations: { summary: "No signaling sockets on any replica for 15 minutes (quiet system, or clients cannot connect)" }
+      - alert: VoiceHistoryDeletionWaitingOnHold
+        expr: qorlla_voice_history_deletions_waiting_on_hold > 0
+        for: 168h
+        labels: { severity: info }
+        annotations: { summary: "A user deletion request has waited a week on a legal hold: confirm the hold is still required" }

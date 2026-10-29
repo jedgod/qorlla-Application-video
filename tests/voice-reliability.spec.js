@@ -156,10 +156,12 @@ test.describe('Qorlla Voice: reliability and group calls with real browsers', ()
   test('group call history: each person sees their own record in Recent Calls (completed, declined), with their stays and timeline, and nobody else is named', async ({ browser }) => {
     test.setTimeout(240000);
     const alice = await person(browser, 'Hal'), bob = await person(browser, 'Ida'), carol = await person(browser, 'Jon');; await refresh(alice);   // names no earlier test used, so the colleague list has exactly one of each
-    await expect(alice.page.locator('#qpColSearch')).toBeVisible({ timeout: 20000 });                                                                      // more than 8 colleagues on this stack: the search appears
-    await alice.page.locator('#qpColSearch').fill('Jon Test'); await expect(alice.page.locator('.qp-colleague')).toHaveCount(1); await alice.page.locator('#qpGroupBtn').click(); await alice.page.getByLabel('Add Jon Test to the group call').check();
-    await alice.page.locator('#qpColSearch').fill('zzz-nobody'); await expect(alice.page.locator('#qpNoColMatch')).toBeVisible(); await alice.page.locator('#qpColSearch').fill('Ida Test'); await alice.page.getByLabel('Add Ida Test to the group call').check();
-    await alice.page.locator('#qpColSearch').fill(''); await alice.page.locator('#qpGroupGo').click();
+    await expect(alice.page.locator('#qpColleagues')).toContainText('Colleagues', { timeout: 20000, ignoreCase: true });
+    const many = await alice.page.locator('#qpColSearch').count();                                                                                         // the search box appears once there are more than 8 colleagues (when the whole file runs there are)
+    const find = async (q) => { if (many) await alice.page.locator('#qpColSearch').fill(q); };
+    await find('Jon Test'); await expect(alice.page.locator('.qp-colleague', { hasText: 'Jon Test' })).toHaveCount(1); await alice.page.locator('#qpGroupBtn').click(); await alice.page.getByLabel('Add Jon Test to the group call').check();
+    if (many) { await find('zzz-nobody'); await expect(alice.page.locator('#qpNoColMatch')).toBeVisible(); }
+    await find('Ida Test'); await alice.page.getByLabel('Add Ida Test to the group call').check(); await find(''); await alice.page.locator('#qpGroupGo').click();
     await expect(bob.page.locator('#voiceIncoming')).toBeVisible({ timeout: 10000 }); await expect(carol.page.locator('#voiceIncoming')).toBeVisible({ timeout: 10000 });
     await carol.page.locator('#viDecline').click(); await bob.page.locator('#viAnswer').click();
     for (const p of [alice, bob]) await expect(p.page.locator('#vbStatus')).toContainText('Connected', { timeout: 40000 });
@@ -181,6 +183,18 @@ test.describe('Qorlla Voice: reliability and group calls with real browsers', ()
     // the record comes from the engine, so it is still there after a reload
     await alice.page.reload(); await expect.poll(() => alice.page.evaluate(() => !!(window.qorllaVoice && window.qorllaVoice.ws && window.qorllaVoice.ws.readyState === 1)), { timeout: 30000 }).toBe(true);
     await alice.page.locator('.nav-item[data-view=phone]').click(); await alice.page.locator('#phTab-recent').click(); await expect(alice.page.locator('.qp-call-row', { hasText: 'Group call' }).first()).toContainText('Completed');
+    // privacy: the retention policy is stated, deleting needs a second confirmation (Cancel is focused), and deleting my record leaves everyone else's alone
+    await expect(alice.page.locator('#qpGroupPolicy')).toContainText('kept for 365 days'); expect(await bad(alice.page, '#qpGroupPrivacy'), 'privacy controls').toEqual([]);
+    await carol.page.locator('#phTab-recent').click(); const cr = carol.page.locator('.qp-call-row', { hasText: 'Group call' }).first(); await cr.click();
+    await carol.page.locator('#qpGroupDelete').click(); await expect(carol.page.locator('#qpGroupDeleteYesBox')).toBeVisible(); await expect(carol.page.locator('#qpGroupDeleteYesNo')).toBeFocused(); expect(await bad(carol.page, '#qpGroupDeleteYesBox'), 'delete confirmation').toEqual([]);
+    await carol.page.locator('#qpGroupDeleteYesNo').click(); await expect(carol.page.locator('#qpGroupDeleteYesBox')).toHaveCount(0); await expect(carol.page.locator('.qp-call-row', { hasText: 'Group call' })).toHaveCount(1);        // cancelling deletes nothing
+    await carol.page.locator('#qpGroupDelete').click(); await carol.page.locator('#qpGroupDeleteYes').click(); await expect(carol.page.locator('#toast.show')).toContainText('Deleted');
+    await expect(carol.page.locator('.qp-call-row', { hasText: 'Group call' })).toHaveCount(0, { timeout: 15000 }); await expect(carol.page.locator('#qpGroupDetail')).toHaveCount(0);
+    await alice.page.locator('#phTab-dial').click(); await alice.page.locator('#phTab-recent').click(); await expect(alice.page.locator('.qp-call-row', { hasText: 'Group call' }).first()).toContainText('Completed');              // alice keeps hers
+    await expect(alice.page.locator('#qpGroupClear')).toBeVisible(); await alice.page.locator('#qpGroupClear').click(); await expect(alice.page.locator('#qpGroupClearYesNo')).toBeFocused(); await alice.page.locator('#qpGroupClearYes').click();
+    await expect(alice.page.locator('.qp-call-row', { hasText: 'Group call' })).toHaveCount(0, { timeout: 15000 }); await expect(alice.page.locator('#qpGroupClear')).toBeHidden();
+    const left = await alice.page.evaluate(() => window.qorllaVoice.groupHistory({ limit: 10 })); expect(left.items.length).toBe(0);
+    const bobStill = await bob.page.evaluate(() => window.qorllaVoice.groupHistory({ limit: 10 })); expect(bobStill.items.length).toBe(1);                                                             // bob's record was never touched
     for (const p of [alice, bob, carol]) await p.ctx.close();
   });
 });
