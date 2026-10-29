@@ -1,0 +1,11 @@
+
+Running 6 tests using 1 worker
+
+[1/6] [chromium] › tests\live-emergency-check.spec.js:10:3 › Live check: emergency numbers on the running application › the Dial Pad says Qorlla cannot place emergency calls and will not dial them; an ordinary extension still shows the normal hint
+[2/6] [chromium] › tests\live-voice-check.spec.js:37:3 › Live check: the running Qorlla application › 1. the services are up and report themselves honestly
+[3/6] [chromium] › tests\live-voice-check.spec.js:47:3 › Live check: the running Qorlla application › 2. a one-to-one call: ring, answer, audio both ways, mute, hang up, history
+[4/6] [chromium] › tests\live-voice-check.spec.js:64:3 › Live check: the running Qorlla application › 3. a group call of three: invite, answer, audio in every direction, leave, host ends; history; deletion
+[5/6] [chromium] › tests\live-voice-check.spec.js:83:3 › Live check: the running Qorlla application › 4. the same person on a second device takes a call over; a page reload recovers by itself
+[6/6] [chromium] › tests\live-voice-check.spec.js:94:3 › Live check: the running Qorlla application › 5. afterwards the engine is clean: nothing waiting, nothing set aside, every account's events in order, no secrets in the log
+  6 passed (57.6s)
+exit 0
