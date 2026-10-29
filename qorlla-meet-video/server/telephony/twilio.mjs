@@ -43,6 +43,15 @@ export class TwilioProvider {
     if (!n.sid || !/^\+[1-9]\d{7,14}$/.test(n.phone_number || '')) throw providerError('PROVIDER_BAD_RESPONSE', 200, 'The carrier did not confirm the number.');
     return { providerNumberId: n.sid, e164: n.phone_number };
   }
+  // Read-only lookups for reconciliation. A 404 on the SID is the carrier's definitive "this number is gone"; any other failure is NOT an answer and is rethrown.
+  async numberExists(providerNumberId) {
+    try { const n = await this.#req('GET', '/IncomingPhoneNumbers/' + encodeURIComponent(providerNumberId) + '.json'); return { exists: !!n.sid }; }
+    catch (e) { if (e.providerStatus === 404) return { exists: false }; throw e; }
+  }
+  async findOwnedByE164(e164) {
+    const d = await this.#req('GET', '/IncomingPhoneNumbers.json', null, { PhoneNumber: e164, PageSize: '5' });
+    const n = (d.incoming_phone_numbers || []).find((x) => x.phone_number === e164 && x.sid); return n ? { providerNumberId: n.sid, e164: n.phone_number } : null;
+  }
   async releaseNumber(providerNumberId) { await this.#req('DELETE', '/IncomingPhoneNumbers/' + encodeURIComponent(providerNumberId) + '.json'); return { released: true }; }
   async startCall({ from, to, url, statusCallback }) {
     const c = await this.#req('POST', '/Calls.json', { From: from, To: to, Url: url, Method: 'POST', StatusCallback: statusCallback, StatusCallbackMethod: 'POST', StatusCallbackEvent: 'initiated ringing answered completed' });

@@ -4,7 +4,8 @@ import express from 'express';
 import { TelephonyService } from './service.mjs';
 import { createCarrier, UnconfiguredBridge, UnconfiguredAudioGateway } from './provider.mjs';
 import { voiceTwiml } from './ivr.mjs';
-import { normalizeE164 } from './core.mjs';
+import { normalizeE164, assertAdmin } from './core.mjs';
+import { createEngineSink, startNumberSync } from './number-sync.mjs';
 
 export function registerTelephony({ app, db, bridgeAuth, phone, env = process.env, carrier = createCarrier(env), bridge = new UnconfiguredBridge(), audio = new UnconfiguredAudioGateway() }) {
   const svc = new TelephonyService({ db, carrier, bridge, audio, env });
@@ -22,7 +23,12 @@ export function registerTelephony({ app, db, bridgeAuth, phone, env = process.en
   app.get(B + '/numbers', bridgeAuth, wrap((req, a) => svc.listNumbers(a, { kind: req.query.kind })));
   app.get(B + '/dial-in', bridgeAuth, wrap(() => svc.dialInDirectory()));
   app.post(B + '/numbers/:id/state', bridgeAuth, json, wrap((req, a) => svc.setNumberState(a, req.params.id, (req.body || {}).state)));
-  app.post(B + '/numbers/:id/reassign', bridgeAuth, json, wrap((req, a) => svc.reassignNumber(a, req.params.id, (req.body || {}).to)));
+  app.post(B + '/numbers/:id/reassign', bridgeAuth, json, wrap((req, a) => svc.reassignNumber(a, req.params.id, (req.body || {}).to, (req.body || {}).reason)));
+  app.put(B + '/accounts/:id', bridgeAuth, json, wrap((req) => svc.syncAccount({ accountId: req.params.id, verified: (req.body || {}).verified, suspended: (req.body || {}).suspended, orgId: (req.body || {}).orgId })));   // the main app reports each account's standing
+  app.post(B + '/numbers/reconcile', bridgeAuth, wrap(async (req, a) => { assertAdmin(a); return svc.reconcileOperations(); }));
+  app.get(B + '/numbers/snapshot', bridgeAuth, wrap(async (req, a) => { assertAdmin(a); return { numbers: await svc.numberSnapshot() }; }));
+  // Authority events to the voice engine: only when an engine URL and a workload signing key are configured (otherwise events simply wait in the outbox).
+  if (env.PHONE_ENGINE_SYNC_URL && env.PHONE_ENGINE_SYNC_KEY_PEM && env.PHONE_ENGINE_SYNC_ISSUER) startNumberSync({ svc, sink: createEngineSink({ url: env.PHONE_ENGINE_SYNC_URL, privateKeyPem: env.PHONE_ENGINE_SYNC_KEY_PEM.replace(/\\n/g, '\n'), issuer: env.PHONE_ENGINE_SYNC_ISSUER, kid: env.PHONE_ENGINE_SYNC_KID || 'w1' }) });
   app.post(B + '/numbers/:id/caller-id', bridgeAuth, json, wrap(async (req, a) => { await svc.setCallerIdVerified(a, req.params.id, (req.body || {}).verified === true); return { ok: true }; }));
   app.post(B + '/calls', bridgeAuth, json, wrap((req, a) => svc.startCall(a, req.body || {}), 202));
   app.get(B + '/calls', bridgeAuth, wrap((req, a) => svc.listCalls(a)));

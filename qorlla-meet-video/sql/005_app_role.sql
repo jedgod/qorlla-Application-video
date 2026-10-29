@@ -25,3 +25,14 @@ DO $$ BEGIN
     REVOKE UPDATE, DELETE, TRUNCATE ON ai_consents FROM qorlla_meet_app;
   END IF;
 END $$;
+-- Numbers & Plans authority (v4.16). The audit trail is append-only (also for PUBLIC and for inherited/default privileges: only direct, explicit grants are given here, and the trigger refuses UPDATE/DELETE/TRUNCATE for every role).
+-- The application may NOT delete numbers, operations or outbox rows, and may not truncate anything; identity columns are protected by trigger. Marking outbox rows delivered is UPDATE, which it keeps.
+DO $$ BEGIN
+  IF to_regclass('public.qphone_audit') IS NOT NULL THEN
+    REVOKE ALL ON qphone_audit FROM PUBLIC;
+    REVOKE UPDATE, DELETE, TRUNCATE ON qphone_audit FROM qorlla_meet_app;
+  END IF;
+  IF to_regclass('public.qphone_number_outbox') IS NOT NULL THEN
+    REVOKE DELETE, TRUNCATE ON qphone_number_outbox, qphone_provider_operations, qphone_numbers, qphone_accounts, qphone_assignment_conflicts FROM qorlla_meet_app;
+  END IF;
+END $$;

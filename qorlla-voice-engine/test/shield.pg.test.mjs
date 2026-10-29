@@ -21,7 +21,7 @@ async function workloadProvider() {
     .setIssuedAt(o.iat).setExpirationTime(o.exp || '2m').sign(o.wrongKey ? other.privateKey : privateKey);
   return { url: 'http://127.0.0.1:' + srv.address().port + '/jwks.json', token, close: () => new Promise((ok) => srv.close(ok)) };
 }
-const ALLOWED = 'svc:admin=shield.admin|voice.admin;svc:pstn=pstn.authorize|pstn.consume|pstn.settle;svc:edge=guest.admit;svc:media=media.consume';
+const ALLOWED = 'svc:admin=shield.admin|voice.admin;svc:pstn=pstn.authorize|pstn.consume|pstn.settle;svc:edge=guest.admit;svc:media=media.consume;svc:numbers=numbers.sync';
 const ENV = () => ({ SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: workloadIdp.url, SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: ALLOWED, SHIELD_PSTN_RESERVE_CENTS: '100', SHIELD_GUEST_CLIENT_PER_MIN: '5', SHIELD_GUEST_MEETING_PER_MIN: '20' });
 
 before(async () => {
@@ -33,10 +33,12 @@ before(async () => {
   for (const o of [{ orgId: 'orgA', pstnEnabled: true, allowedCountries: ['US'], maxActiveCalls: 2, maxCallsHour: 100, spendLimitCents: 100000 }, { orgId: 'orgB', pstnEnabled: true, allowedCountries: ['US'], maxActiveCalls: 2, maxCallsHour: 100, spendLimitCents: 100000 },
     { orgId: 'orgSpend', pstnEnabled: true, allowedCountries: ['US'], maxActiveCalls: 10, maxCallsHour: 100, spendLimitCents: 250 }, { orgId: 'orgVelocity', pstnEnabled: true, allowedCountries: ['US'], maxActiveCalls: 10, maxCallsHour: 2, spendLimitCents: 100000 }, { orgId: 'orgOff', pstnEnabled: false }]) await put('orgs', o);
   for (const [accountId, orgId, verified] of [['alice', 'orgA', true], ['bob', 'orgA', true], ['mallory', 'orgB', true], ['unver', 'orgA', false], ['spender', 'orgSpend', true], ['fast', 'orgVelocity', true], ['nopstn', 'orgOff', true]]) await put('principals', { accountId, orgId, verified });
-  for (const [e164, accountId] of [[A, 'alice'], [B, 'bob'], ['+13105550101', 'spender'], ['+13105550102', 'fast'], ['+13105550103', 'unver'], ['+13105550104', 'nopstn']]) await put('caller-ids', { e164, accountId });
+  for (const [e164, accountId] of [[A, 'alice'], [B, 'bob'], ['+13105550101', 'spender'], ['+13105550102', 'fast'], ['+13105550103', 'unver'], ['+13105550104', 'nopstn']]) await own(e164, accountId);
 });
 after(async () => { if (h) await h.closeAll(); if (idp) await idp.close(); if (workloadIdp) await workloadIdp.close(); if (db) await db.drop(); });
 const skip = (t) => !db && t.skip('no PostgreSQL reachable');
+/** A number enters the engine only as an authority event (the real route, real workload credential). */
+const own = async (e164, accountId) => { const sid = 'PN' + e164.replace(/\D/g, '').padStart(30, '0'); const payload = { providerNumberId: sid, e164, country: 'US', kind: 'personal', accountId, state: 'active', callerIdVerified: true, hold: false, version: 1 }; const x = await wk('POST', '/v1/shield/numbers/events', { eventId: randomUUID(), providerNumberId: sid, version: 1, type: 'number.changed', payload }, 'svc:numbers'); assert.equal(x.body.result, 'applied', JSON.stringify(x.body)); };
 const pstn = (b, sub = 'svc:pstn') => wk('POST', '/v1/shield/pstn/authorize', { requestId: randomUUID(), ...b }, sub);
 const events = async () => (await db.pool.query('SELECT * FROM shield_events ORDER BY id')).rows;
 
@@ -71,7 +73,7 @@ test('SERVICE IDENTITY: unauthenticated, wrongly signed, wrong audience, unliste
 
 test('ACCOUNT TAKEOVER + EMERGENCY SUSPENSION: unknown, suspended and revoked identities lose protected access immediately, including open sockets, outstanding PSTN authorizations and active PSTN calls', async (t) => {
   if (skip(t)) return;
-  await r.admin('POST', '/identities', { accountId: 'victim' }); await wk('PUT', '/v1/shield/admin/principals', { accountId: 'victim', orgId: 'orgA', verified: true }); await wk('PUT', '/v1/shield/admin/caller-ids', { e164: '+13105550199', accountId: 'victim' });
+  await r.admin('POST', '/identities', { accountId: 'victim' }); await wk('PUT', '/v1/shield/admin/principals', { accountId: 'victim', orgId: 'orgA', verified: true }); await own('+13105550199', 'victim');
   assert.equal((await r.api('victim', 'GET', '/v1/voice/me')).status, 200);
   assert.equal((await r.api('ghost', 'GET', '/v1/voice/me')).status, 401, 'a valid token for a principal the shield has never heard of fails closed');
   const sock = await r.connect('victim'), outstanding = (await pstn({ accountId: 'victim', destination: DEST, callerId: '+13105550199' })).body, active = (await pstn({ accountId: 'victim', destination: DEST, callerId: '+13105550199' })).body;
@@ -120,7 +122,7 @@ test('CALLER-ID SPOOFING + TOLL FRAUD: unowned caller IDs, risky destinations, u
 
 test('REPLAY: a PSTN authorization is single use, bound to account+destination+caller ID, and expires; request IDs cannot be reused; webhook-style workload credentials are one-shot', async (t) => {
   if (skip(t)) return;
-  await wk('PUT', '/v1/shield/admin/principals', { accountId: 'rep', orgId: 'orgB', verified: true }); await wk('PUT', '/v1/shield/admin/caller-ids', { e164: '+13105550133', accountId: 'rep' });
+  await wk('PUT', '/v1/shield/admin/principals', { accountId: 'rep', orgId: 'orgB', verified: true }); await own('+13105550133', 'rep');
   const requestId = randomUUID(), a = await wk('POST', '/v1/shield/pstn/authorize', { requestId, accountId: 'rep', destination: DEST, callerId: '+13105550133' }, 'svc:pstn'); assert.equal(a.body.allow, true);
   const again = await wk('POST', '/v1/shield/pstn/authorize', { requestId, accountId: 'rep', destination: DEST, callerId: '+13105550133' }, 'svc:pstn'); assert.equal(again.body.allow, false); assert.equal(again.body.reason, 'REPLAYED_REQUEST'); assert.equal(again.body.authorizationId, undefined, 'a replay never re-issues the authorization');
   assert.equal((await wk('POST', '/v1/shield/pstn/authorize', { requestId, accountId: 'rep', destination: '+16502530001', callerId: '+13105550133' }, 'svc:pstn')).body.reason, 'REQUEST_ID_REUSED');
@@ -193,7 +195,7 @@ test('ORGANIZATION ISOLATION: cross-tenant access, forged organization claims, s
   assert.equal((await authz('alice', { action: 'organization.manage' })).body.reason, 'SCOPE_MISSING'); assert.equal((await authz('unver', { action: 'voice.number.assign' })).body.reason, 'IDENTITY_UNVERIFIED');
   assert.equal((await authz('alice', { action: 'admin.mutate' })).body.reason, 'SCOPE_MISSING');
   // a suspended organization loses everything at once
-  await wk('PUT', '/v1/shield/admin/orgs', { orgId: 'orgGone', pstnEnabled: true, allowedCountries: ['US'], spendLimitCents: 1000 }); await wk('PUT', '/v1/shield/admin/principals', { accountId: 'carol', orgId: 'orgGone', verified: true }); await wk('PUT', '/v1/shield/admin/caller-ids', { e164: '+13105550177', accountId: 'carol' });
+  await wk('PUT', '/v1/shield/admin/orgs', { orgId: 'orgGone', pstnEnabled: true, allowedCountries: ['US'], spendLimitCents: 1000 }); await wk('PUT', '/v1/shield/admin/principals', { accountId: 'carol', orgId: 'orgGone', verified: true }); await own('+13105550177', 'carol');
   const live = (await pstn({ accountId: 'carol', destination: DEST, callerId: '+13105550177' })).body, call = (await pstn({ accountId: 'carol', destination: DEST, callerId: '+13105550177' })).body;
   await wk('POST', '/v1/shield/pstn/consume', { authorizationId: call.authorizationId, accountId: 'carol', destination: DEST, callerId: '+13105550177' }, 'svc:pstn');
   const sus = await wk('POST', '/v1/shield/admin/orgs/orgGone/suspend', {}); assert.equal(sus.status, 200); assert.deepEqual(sus.body.terminate, [call.authorizationId]);

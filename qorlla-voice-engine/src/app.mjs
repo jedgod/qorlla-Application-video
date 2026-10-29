@@ -16,6 +16,7 @@ import { VoiceRouter } from './router.mjs';
 import { validRoomId } from './rooms.mjs';
 import { createHistory, parseRetentionDays } from './history.mjs';
 import { createShield, ShieldError } from './shield.mjs';
+import { createNumberProjection, SyncError, usable } from './number-sync.mjs';
 
 const STATUS = { invalid_recipient: 404, not_found: 404, blocked: 403, forbidden: 403, caller_disabled: 403, voice_disabled: 403, invalid_origin: 403, busy: 409, invalid_transition: 409, idempotency_conflict: 409,
   extension_taken: 409, extensions_exhausted: 503, invalid_input: 400, too_many_tickets: 429, invalid_timeout: 400, overloaded: 503, device_not_owner: 409, lease_lost: 409, call_not_active: 409, room_full: 409,
@@ -25,12 +26,13 @@ const validGen = (g) => Number.isSafeInteger(g) && g >= 1;
 
 export function createVoiceApp({ store, db, authenticate, env = process.env, maintenance = true, maintenanceMs = 5000, bus: busOption, outbox = true, instanceId = randomUUID(), shieldJwks }) {
   const app = express(); app.disable('x-powered-by'); app.set('trust proxy', env.VOICE_TRUST_PROXY === '1' ? 1 : false);
-  app.use(helmet()); app.use(express.json({ limit: '16kb' }));
+  app.use(helmet()); app.use((req, res, next) => (req.path === '/v1/shield/numbers/reconcile' ? next() : express.json({ limit: '16kb' })(req, res, next)));   // the snapshot route authenticates FIRST and then parses its larger body
   const allowed = () => env.VOICE_ALLOWED_ORIGIN || '';
   const num = (v, d) => { const x = Number(v); return Number.isInteger(x) && x > 0 ? x : d; };
   const reliability = createReliability(db), history = createHistory({ db, tx: store.tx }), retention = parseRetentionDays(env.VOICE_HISTORY_RETENTION_DAYS);
   if (retention.warning) console.warn('voice: ' + retention.warning);
   const shield = createShield({ store, db, env, jwks: shieldJwks }), enforce = env.SHIELD_ENFORCE === 'true';
+  const numberSync = createNumberProjection({ store });
   const router = new VoiceRouter();
   const bus = busOption !== undefined ? busOption : (env.REDIS_URL ? new RedisBus({ url: env.REDIS_URL, instanceId, onDelivery: (m) => router.onRemote(m) }) : null);
   if (bus) { router.bus = bus; if (!bus.onDelivery) bus.onDelivery = (m) => router.onRemote(m); }
@@ -208,7 +210,13 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   const shieldAdmin = wl('shield.admin');
   app.put('/v1/shield/admin/principals', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertPrincipal(strict(req.body, ['accountId', 'orgId', 'verified'])))));
   app.put('/v1/shield/admin/orgs', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertOrg(strict(req.body, ['orgId', 'pstnEnabled', 'allowedCountries', 'maxActiveCalls', 'maxCallsHour', 'spendLimitCents'])))));
-  app.put('/v1/shield/admin/caller-ids', shieldAdmin, sh(async (req, res) => res.json(await shield.registerCallerId(strict(req.body, ['e164', 'accountId'])))));
+  // Numbers & Plans authority events and reconciliation: the ONLY way numbers enter the engine. Workload identity (scope numbers.sync); the engine never buys, releases or activates a number.
+  const ns = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { if (e instanceof SyncError) return res.status(e.status).json({ error: e.code }); if (e instanceof ShieldError) return res.status(e.status).json({ error: e.code }); console.error('number sync error', e && (e.code || e.message)); res.status(503).json({ error: 'SYNC_UNAVAILABLE' }); } };
+  app.post('/v1/shield/numbers/events', wl('numbers.sync'), ns(async (req, res) => { const r = await numberSync.applyEvent(strict(req.body, ['eventId', 'providerNumberId', 'version', 'type', 'payload', 'createdAt'])); res.status(r.result === 'gap' ? 409 : 200).json(r); }));
+  app.post('/v1/shield/numbers/reconcile', wl('numbers.sync'), express.json({ limit: '4mb' }), ns(async (req, res) => res.json(await numberSync.reconcile((req.body || {}).numbers))));
+  app.post('/v1/shield/numbers/status', wl('numbers.sync'), ns(async (_req, res) => res.json(await numberSync.status())));
+  // a signed-in person sees their own number only when the authority AND the shield both agree it is usable
+  app.get('/v1/voice/numbers/me', auth, sh(async (req, res) => { res.set('Cache-Control', 'private, no-store'); const p = (await store.tx((c) => c.query('SELECT verified, suspended FROM shield_principals WHERE account_id=$1', [req.account]))).rows[0]; if (!p || !p.verified || p.suspended) return res.json({ number: null, state: 'unverified' }); const n = await numberSync.numberFor(req.account); res.set('Cache-Control', 'private, no-store').json({ number: n && n.usable ? { e164: n.row.e164, country: n.row.country } : null, state: n && n.usable ? 'active' : n ? 'unavailable' : 'none' }); }));
   app.put('/v1/shield/admin/meetings', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertMeeting(strict(req.body, ['meetingId', 'orgId', 'hostAccountId', 'passcode', 'guestEnabled', 'requiresApproval', 'maxGuests', 'endsAt'])))));
   app.post('/v1/shield/admin/meetings/:id/end', shieldAdmin, sh(async (req, res) => res.json(await shield.endMeeting(req.params.id))));
   app.post('/v1/shield/admin/principals/:id/suspend', shieldAdmin, sh(async (req, res) => { const r = await shield.setSuspended(req.params.id, true, { onVoiceDisabled: (a) => closeAccount(a, 4003, 'suspended') }); kick(); res.json(r); }));

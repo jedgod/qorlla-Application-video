@@ -92,11 +92,6 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
     await c.query('INSERT INTO shield_orgs(org_id, pstn_enabled, allowed_countries, max_active_calls, max_calls_hour, spend_limit_cents) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (org_id) DO UPDATE SET pstn_enabled=$2, allowed_countries=$3, max_active_calls=$4, max_calls_hour=$5, spend_limit_cents=$6', [orgId, !!pstnEnabled, allowedCountries, maxActiveCalls, maxCallsHour, spendLimitCents]);
     await audit(c, orgId, 'org.upsert', 'ALLOW', 'ADMIN'); return { orgId };
   });
-  const registerCallerId = ({ e164, accountId }) => tx(async (c) => {
-    if (!/^\+[1-9][0-9]{6,14}$/.test(e164 || '') || !validAccountId(accountId)) throw new ShieldError('invalid_input', 400);
-    await c.query('INSERT INTO shield_caller_ids(e164, account_id, verified_at) VALUES($1,$2,now()) ON CONFLICT (e164) DO UPDATE SET account_id=$2, verified_at=now()', [e164, accountId]);
-    await audit(c, accountId, 'callerid.register', 'ALLOW', 'ADMIN'); return { e164 };
-  });
   const passHash = async (passcode, salt) => scryptAsync(String(passcode), salt, 32);
   const upsertMeeting = ({ meetingId, orgId, hostAccountId, passcode, guestEnabled = false, requiresApproval = true, maxGuests = 50, endsAt }) => tx(async (c) => {
     if (!idText(meetingId) || !idText(orgId) || !validAccountId(hostAccountId) || typeof passcode !== 'string' || passcode.length < 6 || passcode.length > 64 || !Number.isInteger(maxGuests) || Number.isNaN(Date.parse(endsAt))) throw new ShieldError('invalid_input', 400);
@@ -163,8 +158,9 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       if (!org) return deny('NO_ORGANIZATION'); if (org.suspended) return deny('SUSPENDED'); if (!org.pstn_enabled) return deny('PSTN_DISABLED');
       const dest = classifyDestination(destination); if (!dest.ok) return deny(dest.reason);
       if (!org.allowed_countries.includes(dest.country)) return deny('DESTINATION_COUNTRY_NOT_ALLOWED');
-      const cid = (await c.query('SELECT account_id, verified_at FROM shield_caller_ids WHERE e164=$1', [callerId])).rows[0];
-      if (!cid || cid.account_id !== accountId || !cid.verified_at) return deny('CALLER_ID_NOT_OWNED');
+      // the caller ID must be a number the carrier-backed authority says exists, is active, is a PERSONAL number (never a shared dial-in), is held by this account, has been verified for it, and is not in an uncertain or conflicting state
+      const cid = (await c.query('SELECT account_id, kind, state, caller_id_verified, hold, conflict, stale FROM voice_number_projection WHERE e164=$1 AND state <> \'released\'', [callerId])).rows[0];
+      if (!cid || cid.kind !== 'personal' || cid.state !== 'active' || cid.account_id !== accountId || !cid.caller_id_verified || cid.hold || cid.conflict || cid.stale) return deny('CALLER_ID_NOT_OWNED');
       const live = (await c.query("SELECT count(*)::int AS n FROM shield_authorizations WHERE account_id=$1 AND action='voice.pstn.outbound' AND (state='active' OR (state='authorized' AND expires_at>now()))", [accountId])).rows[0].n;
       if (live >= org.max_active_calls) return deny('CONCURRENCY_LIMIT');
       const hour = (await c.query("SELECT count(*)::int AS n FROM shield_authorizations WHERE account_id=$1 AND action='voice.pstn.outbound' AND created_at > now() - interval '1 hour'", [accountId])).rows[0].n;
@@ -279,5 +275,5 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
   }
   async function purgeExpired() { await store.tx(async (c) => { await c.query('DELETE FROM shield_workload_jti WHERE expires_at < now()'); await c.query("DELETE FROM shield_counters WHERE window_start < now() - interval '1 day'"); }); }
 
-  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, registerCallerId, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
+  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
 }

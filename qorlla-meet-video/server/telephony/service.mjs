@@ -1,5 +1,6 @@
 // Qorlla Telephony v2 service: authorization, workflows, workers and the usage ledger. Every action is checked here, whatever the page sent.
 import { FEATURES, FEATURE_IDS, cleanDesired, hashOf, evaluateFeature, featureSupport } from './features.mjs';
+import { classifyProviderError, nextBackoffSeconds } from './number-authority.mjs';
 import { err, normalizeE164, assertAdmin, assertActor, screenDestination, allowedCountries, nextState, fromTwilioStatus, TERMINAL, deriveCapabilities } from './core.mjs';
 
 const KEY = /^[A-Za-z0-9_.:-]{8,80}$/;
@@ -9,7 +10,12 @@ const num = (v, d) => { const n = Number(v); return Number.isFinite(n) ? n : d; 
 export class TelephonyService {
   constructor({ db, carrier, bridge, audio, env = process.env }) { Object.assign(this, { db, carrier, bridge, audio, env }); }
 
-  async audit(actorId, action, subject, detail) { await this.db.query('INSERT INTO qphone_audit(actor_id,action,subject,detail) VALUES($1,$2,$3,$4)', [actorId || null, action, subject || null, JSON.stringify(detail || {})]).catch(() => {}); }
+  /** One transaction on a dedicated connection (the pool alone cannot hold a transaction). */
+  async tx(fn) {
+    const c = await this.db.connect();
+    try { await c.query('BEGIN'); const out = await fn(c); await c.query('COMMIT'); return out; } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
+  }
+  async audit(actorId, action, subject, detail, client) { await (client || this.db).query('INSERT INTO qphone_audit(actor_id,action,subject,detail) VALUES($1,$2,$3,$4)', [actorId || null, action, subject || null, JSON.stringify(detail || {})]).catch(() => {}); }
 
   // ------------------------------------------------------------------ evidence and capabilities
   async providerStatus() { const { rows: [r] } = await this.db.query('SELECT * FROM qphone_provider_status WHERE provider=$1', [this.carrier.name]); return r || null; }
@@ -52,6 +58,12 @@ export class TelephonyService {
     if (!this.carrier.configured) throw err('PROVIDER_NOT_CONNECTED', 'The telephone provider is not connected, so no number can be provisioned.', 503);
     if (!st || !st.health_ok) throw err('PROVIDER_NOT_VERIFIED', 'The telephone provider has not passed a connection test. Run Test connection first.', 503);
     const to = kind === 'personal' ? String(assignTo || actor.id).slice(0, 64) : null;
+    if (to) {
+      const acct = (await this.db.query('SELECT verified, suspended FROM qphone_accounts WHERE account_id=$1', [to])).rows[0];
+      if (!acct || !acct.verified || acct.suspended) throw err('TARGET_NOT_ELIGIBLE', 'Only a verified, active account can receive a number.', 403);
+      const have = await this.db.query("SELECT (SELECT count(*) FROM qphone_numbers WHERE kind='personal' AND assigned_to=$1 AND state IN ('provisioning','active','suspended','releasing')) + (SELECT count(*) FROM qphone_provisioning_requests WHERE kind='personal' AND assign_to=$1 AND state IN ('requested','processing')) AS n", [to]);
+      if (Number(have.rows[0].n) > 0 && !(await this.db.query('SELECT 1 FROM qphone_provisioning_requests WHERE actor_id=$1 AND idempotency_key=$2', [actor.id, idempotencyKey])).rowCount) throw err('DUPLICATE_OWNERSHIP', 'That account already has a number or a pending request.', 409);
+    }
     const { rows: [ins] } = await this.db.query('INSERT INTO qphone_provisioning_requests(actor_id,country,kind,assign_to,idempotency_key) VALUES($1,$2,$3,$4,$5) ON CONFLICT (actor_id,idempotency_key) DO NOTHING RETURNING *', [actor.id, country, kind, to, idempotencyKey]);
     if (!ins) { const { rows: [old] } = await this.db.query('SELECT * FROM qphone_provisioning_requests WHERE actor_id=$1 AND idempotency_key=$2', [actor.id, idempotencyKey]); return { ...this.reqView(old), duplicate: true }; }
     await this.audit(actor.id, 'number.requested', ins.id, { country, kind }); return this.reqView(ins);
@@ -65,15 +77,130 @@ export class TelephonyService {
     return (await this.db.query("SELECT * FROM qphone_numbers WHERE state='active'" + (where.length ? ' AND ' + where.join(' AND ') : '') + ' ORDER BY created_at DESC LIMIT 200', p)).rows.map((n) => this.numView(n));
   }
   async dialInDirectory() { return (await this.db.query("SELECT e164,country FROM qphone_numbers WHERE kind='dialin' AND state='active' ORDER BY created_at")).rows.map((n) => ({ number: n.e164, code: n.country, country: n.country, label: '', tollFree: false, confirmed: true })); }
-  async setCallerIdVerified(actor, numberId, verified) { assertAdmin(actor); await this.db.query('UPDATE qphone_numbers SET caller_id_verified=$2 WHERE id=$1', [numberId, !!verified]); await this.audit(actor.id, 'number.caller_id', numberId, { verified: !!verified }); }
-  async setNumberState(actor, numberId, state) {   // suspension, release (carrier first) and reassignment are admin actions
-    assertAdmin(actor); if (!['active', 'suspended', 'released'].includes(state)) throw err('INVALID_STATE', 'Choose active, suspended or released.');
-    const { rows: [n] } = await this.db.query('SELECT * FROM qphone_numbers WHERE id=$1', [numberId]); if (!n) throw err('NOT_FOUND', 'Not found.', 404); if (n.state === 'released') throw err('ALREADY_RELEASED', 'That number was released.', 409);
-    if (state === 'released') { await this.carrier.releaseNumber(n.provider_number_id); await this.db.query("UPDATE qphone_numbers SET state='released', released_at=now() WHERE id=$1", [n.id]); }
-    else await this.db.query('UPDATE qphone_numbers SET state=$2 WHERE id=$1', [n.id, state]);
-    await this.audit(actor.id, 'number.' + state, n.id, { last4: last4(n.e164) }); return { id: n.id, state };
+  async setCallerIdVerified(actor, numberId, verified) {
+    assertAdmin(actor);
+    await this.tx(async (c) => {
+      const n = (await c.query('SELECT * FROM qphone_numbers WHERE id=$1 FOR UPDATE', [numberId])).rows[0]; if (!n) throw err('NOT_FOUND', 'Not found.', 404);
+      if (verified === true) {
+        if (n.kind !== 'personal' || n.state !== 'active' || n.hold_reason || !n.assigned_to) throw err('NOT_ELIGIBLE', 'Only an active, assigned personal number can be a verified caller ID.', 409);
+        const a = (await c.query('SELECT verified, suspended FROM qphone_accounts WHERE account_id=$1', [n.assigned_to])).rows[0]; if (!a || !a.verified || a.suspended) throw err('OWNER_NOT_ELIGIBLE', 'The owning account is not verified and active.', 403);
+      }
+      await c.query('UPDATE qphone_numbers SET caller_id_verified=$2 WHERE id=$1', [numberId, !!verified]); await this.audit(actor.id, 'number.caller_id', numberId, { verified: !!verified }, c);
+    });
   }
-  async reassignNumber(actor, numberId, to) { assertAdmin(actor); const r = await this.db.query("UPDATE qphone_numbers SET assigned_to=$2 WHERE id=$1 AND kind='personal' AND state IN ('active','suspended') RETURNING id", [numberId, String(to || '').slice(0, 64) || null]); if (!r.rowCount) throw err('NOT_FOUND', 'Not found.', 404); await this.audit(actor.id, 'number.reassigned', numberId, {}); return { id: numberId, assignedTo: to || null }; }
+  /** The main app reports each account's standing here (server to server). Reassignment, caller-ID verification and provisioning read ONLY this. */
+  async syncAccount({ accountId, verified, suspended, orgId }) {
+    if (!/^[A-Za-z0-9_.:@-]{1,128}$/.test(String(accountId || '')) || typeof verified !== 'boolean' || typeof suspended !== 'boolean') throw err('INVALID_INPUT', 'Invalid account record.', 400);
+    await this.db.query('INSERT INTO qphone_accounts(account_id, verified, suspended, org_id) VALUES($1,$2,$3,$4) ON CONFLICT (account_id) DO UPDATE SET verified=$2, suspended=$3, org_id=$4, updated_at=now()', [accountId, verified, suspended, orgId || null]);
+    await this.audit(accountId, 'account.synced', accountId, { verified, suspended }); return { accountId, verified, suspended };
+  }
+  async setNumberState(actor, numberId, state) {   // suspension and release are admin actions; release is a durable two-phase operation
+    assertAdmin(actor); if (!['active', 'suspended', 'released'].includes(state)) throw err('INVALID_STATE', 'Choose active, suspended or released.');
+    if (state === 'released') return this.releaseNumber(actor, numberId);
+    return this.tx(async (c) => {
+      const n = (await c.query('SELECT * FROM qphone_numbers WHERE id=$1 FOR UPDATE', [numberId])).rows[0]; if (!n) throw err('NOT_FOUND', 'Not found.', 404);
+      if (n.state === 'released') throw err('ALREADY_RELEASED', 'That number was released.', 409);
+      if (n.state === 'releasing' || n.state === 'provisioning' || n.hold_reason) throw err('NUMBER_LOCKED', 'A provider operation on this number is unresolved.', 409);
+      await c.query('UPDATE qphone_numbers SET state=$2 WHERE id=$1', [n.id, state]); await this.audit(actor.id, 'number.' + state, n.id, { last4: last4(n.e164) }, c); return { id: n.id, state };
+    });
+  }
+  /** Release in three durable steps. (1) record the intent and mark the number 'releasing' (committed); (2) call the carrier; (3) record what we KNOW.
+   *  A timeout or error is not "it did not happen": unless the carrier gave a definitive refusal (4xx) the operation stays 'uncertain', the number stays locked, and reconcile() asks the carrier. */
+  async releaseNumber(actor, numberId) {
+    assertAdmin(actor);
+    const started = await this.tx(async (c) => {
+      const n = (await c.query('SELECT * FROM qphone_numbers WHERE id=$1 FOR UPDATE', [numberId])).rows[0]; if (!n) throw err('NOT_FOUND', 'Not found.', 404);
+      if (n.state === 'released') throw err('ALREADY_RELEASED', 'That number was released.', 409);
+      if (n.state === 'releasing' || n.hold_reason) throw err('OUTCOME_UNCERTAIN', 'A release is already in progress or its outcome is unknown; reconcile it first.', 409);
+      await c.query("UPDATE qphone_numbers SET state='releasing', state_before_release=$2 WHERE id=$1", [n.id, n.state]);
+      const op = (await c.query("INSERT INTO qphone_provider_operations(kind, state, number_id, provider_number_id, e164, attempts, actor_id) VALUES('release','in_flight',$1,$2,$3,1,$4) RETURNING id", [n.id, n.provider_number_id, n.e164, actor.id])).rows[0];
+      await this.audit(actor.id, 'number.release_started', n.id, { last4: last4(n.e164) }, c); return { n, opId: op.id };
+    });
+    let outcome, detail = null;
+    try { await this.carrier.releaseNumber(started.n.provider_number_id); outcome = 'confirmed'; } catch (e) { outcome = classifyProviderError(e, 'release'); detail = String(e.code || e.message).slice(0, 120); }
+    await this.settleRelease(started.opId, started.n.id, outcome, detail, actor.id);
+    return { id: started.n.id, state: outcome === 'confirmed' ? 'released' : outcome === 'failed' ? started.n.state : 'releasing', outcome };
+  }
+  async settleRelease(opId, numberId, outcome, detail, actorId) {
+    await this.tx(async (c) => {
+      const n = (await c.query('SELECT * FROM qphone_numbers WHERE id=$1 FOR UPDATE', [numberId])).rows[0];
+      if (outcome === 'confirmed') { await c.query("UPDATE qphone_numbers SET state='released', released_at=now(), hold_reason=NULL WHERE id=$1", [numberId]); await c.query("UPDATE qphone_provider_operations SET state='confirmed', resolved_at=now(), updated_at=now() WHERE id=$1", [opId]); }
+      else if (outcome === 'failed') { await c.query('UPDATE qphone_numbers SET state=$2, hold_reason=NULL WHERE id=$1', [numberId, n.state_before_release || 'active']); await c.query("UPDATE qphone_provider_operations SET state='failed', last_error=$2, resolved_at=now(), updated_at=now() WHERE id=$1", [opId, detail]); }
+      else { await c.query("UPDATE qphone_numbers SET hold_reason='release_outcome_uncertain' WHERE id=$1", [numberId]); await c.query("UPDATE qphone_provider_operations SET state='uncertain', last_error=$2, updated_at=now() WHERE id=$1", [opId, detail]); }
+      await this.audit(actorId, 'number.release_' + outcome, numberId, { detail }, c);
+    });
+  }
+  /** Ask the carrier what really happened for every unresolved operation (uncertain, or in flight longer than staleSeconds, e.g. after a crash). Never guesses: if the carrier cannot be asked, nothing changes. */
+  async reconcileOperations({ staleSeconds = 120 } = {}) {
+    const ops = (await this.db.query("SELECT * FROM qphone_provider_operations WHERE state='uncertain' OR (state='in_flight' AND updated_at < now() - ($1 || ' seconds')::interval) ORDER BY created_at LIMIT 50", [String(staleSeconds)])).rows;
+    const out = { checked: ops.length, confirmed: 0, reverted: 0, recorded: 0, unresolved: 0 };
+    for (const op of ops) {
+      try {
+        if (op.kind === 'release') {
+          const { exists } = await this.carrier.numberExists(op.provider_number_id);
+          await this.settleRelease(op.id, op.number_id, exists ? 'failed' : 'confirmed', exists ? 'reconciled: carrier still owns the number' : null, null); exists ? out.reverted++ : out.confirmed++;
+        } else {
+          const owned = await this.carrier.findOwnedByE164(op.e164);
+          if (!owned) { await this.db.query("UPDATE qphone_provider_operations SET state='failed', resolved_at=now(), updated_at=now(), last_error='reconciled: carrier does not own the number' WHERE id=$1", [op.id]); if (op.request_id) await this.db.query("UPDATE qphone_provisioning_requests SET state='failed', error_code='NOT_PURCHASED', updated_at=now() WHERE id=$1", [op.request_id]); out.reverted++; }
+          else { await this.recordPurchased(op, owned); out.recorded++; }
+        }
+      } catch { out.unresolved++; }
+    }
+    return out;
+  }
+  /** A number the carrier says we own but our table lacks (crash or timeout after purchase): record it, assigned only if that is still safe. */
+  async recordPurchased(op, owned) {
+    await this.tx(async (c) => {
+      const req = op.request_id ? (await c.query('SELECT * FROM qphone_provisioning_requests WHERE id=$1 FOR UPDATE', [op.request_id])).rows[0] : null;
+      let id;
+      for (const assign of req && req.assign_to ? [req.assign_to, null] : [null]) {
+        await c.query('SAVEPOINT ins');
+        try {
+          id = (await c.query("INSERT INTO qphone_numbers(e164,provider,provider_number_id,country,kind,assigned_to,state,confirmed_at,hold_reason) VALUES($1,$2,$3,$4,$5,$6,'active',now(),$7) ON CONFLICT (e164) DO NOTHING RETURNING id", [owned.e164, this.carrier.name, owned.providerNumberId, req ? req.country : 'US', req ? req.kind : 'personal', assign, assign === null && req && req.assign_to ? 'assignment_conflict_needs_review' : null])).rows[0]?.id; await c.query('RELEASE SAVEPOINT ins'); break;
+        } catch (e) { await c.query('ROLLBACK TO SAVEPOINT ins'); if (e.code !== '23505') throw e; }
+      }
+      await c.query("UPDATE qphone_provider_operations SET state='confirmed', number_id=$2, provider_number_id=$3, resolved_at=now(), updated_at=now() WHERE id=$1", [op.id, id || null, owned.providerNumberId]);
+      if (req) await c.query("UPDATE qphone_provisioning_requests SET state='provisioned', number_id=$2, error_code=NULL, updated_at=now() WHERE id=$1", [req.id, id || null]);
+      await this.audit(null, 'number.recorded_by_reconcile', id || op.id, { last4: last4(owned.e164) }, c);
+    });
+  }
+  async reassignNumber(actor, numberId, to, reason) {
+    assertAdmin(actor); to = String(to || ''); reason = String(reason || '').trim();
+    if (!/^[A-Za-z0-9_.:@-]{1,128}$/.test(to)) throw err('INVALID_TARGET', 'Choose the account to transfer the number to.', 400);
+    if (reason.length < 3 || reason.length > 200) throw err('REASON_REQUIRED', 'A reason (3-200 characters) is required for a transfer.', 400);
+    try {
+      return await this.tx(async (c) => {
+        const n = (await c.query('SELECT * FROM qphone_numbers WHERE id=$1 FOR UPDATE', [numberId])).rows[0]; if (!n) throw err('NOT_FOUND', 'Not found.', 404);
+        if (n.kind !== 'personal') throw err('NOT_TRANSFERABLE', 'Shared dial-in numbers cannot be assigned to a person.', 409);
+        if (!['active', 'suspended'].includes(n.state) || n.hold_reason) throw err('NUMBER_LOCKED', 'The number is not in a state that can be transferred (release in progress or provider outcome unknown).', 409);
+        if (n.assigned_to === to) throw err('NO_CHANGE', 'The number already belongs to that account.', 409);
+        const t = (await c.query('SELECT verified, suspended FROM qphone_accounts WHERE account_id=$1', [to])).rows[0];
+        if (!t || !t.verified || t.suspended) throw err('TARGET_NOT_ELIGIBLE', 'The target account is not verified and active.', 403);
+        if ((await c.query("SELECT 1 FROM qphone_numbers WHERE kind='personal' AND assigned_to=$1 AND state IN ('provisioning','active','suspended','releasing')", [to])).rowCount) throw err('DUPLICATE_OWNERSHIP', 'The target account already has a number.', 409);
+        await c.query('UPDATE qphone_numbers SET assigned_to=$2, caller_id_verified=false WHERE id=$1', [numberId, to]);     // the new owner must verify the caller ID again
+        await this.audit(actor.id, 'number.reassigned', numberId, { from: n.assigned_to, to, reason, last4: last4(n.e164) }, c); return { id: numberId, assignedTo: to, callerIdVerified: false };
+      });
+    } catch (e) { if (e.code === '23505') throw err('DUPLICATE_OWNERSHIP', 'The target account already has a number.', 409); throw e; }
+  }
+  // ---- outbox delivery: at least once, in version order per number, never skipping a version that is still undelivered
+  async deliverOutbox(sink, { limit = 50 } = {}) {
+    const c = await this.db.connect(); let sent = 0, failed = 0;
+    try {
+      if (!(await c.query("SELECT pg_try_advisory_lock(hashtextextended('qphone_outbox',0)) AS ok")).rows[0].ok) return { sent, failed, busy: true };
+      try {
+        const rows = (await c.query("SELECT o.* FROM qphone_number_outbox o WHERE o.delivered_at IS NULL AND o.next_attempt_at <= now() AND NOT EXISTS (SELECT 1 FROM qphone_number_outbox e WHERE e.provider_number_id=o.provider_number_id AND e.version < o.version AND e.delivered_at IS NULL) ORDER BY o.created_at, o.version LIMIT $1", [limit])).rows;
+        const blocked = new Set();
+        for (const r of rows) {
+          if (blocked.has(r.provider_number_id)) continue;
+          try { await sink({ eventId: r.event_id, providerNumberId: r.provider_number_id, version: Number(r.version), type: r.type, payload: r.payload, createdAt: r.created_at }); await c.query('UPDATE qphone_number_outbox SET delivered_at=now(), last_error=NULL WHERE event_id=$1', [r.event_id]); sent++; }
+          catch (e) { failed++; blocked.add(r.provider_number_id); await c.query("UPDATE qphone_number_outbox SET attempts=attempts+1, last_error=$2, next_attempt_at=now() + ($3 || ' seconds')::interval WHERE event_id=$1", [r.event_id, String(e.message || e).slice(0, 200), String(nextBackoffSeconds(r.attempts + 1))]); }
+        }
+      } finally { await c.query("SELECT pg_advisory_unlock(hashtextextended('qphone_outbox',0))"); }
+    } finally { c.release(); }
+    return { sent, failed };
+  }
+  /** Everything the consumer needs to reconcile: the authoritative state of every number, at its current version. */
+  async numberSnapshot() { return (await this.db.query("SELECT provider_number_id, e164, country, kind, assigned_to, state, caller_id_verified, hold_reason IS NOT NULL AS hold, authority_version FROM qphone_numbers ORDER BY created_at")).rows.map((n) => ({ providerNumberId: n.provider_number_id, e164: n.e164, country: n.country, kind: n.kind, accountId: n.assigned_to, state: n.state, callerIdVerified: n.caller_id_verified, hold: n.hold, version: Number(n.authority_version) })); }
 
   // Provisioning worker: request -> carrier -> confirmation -> database -> active. A request is claimed with SKIP LOCKED so two workers never buy two numbers.
   async runProvisioning() {
@@ -85,9 +212,9 @@ export class TelephonyService {
       try {
         const avail = await this.carrier.listAvailableNumbers(r.country, 'Local'); if (!avail.length) throw err('NO_NUMBERS_AVAILABLE', 'The carrier has no numbers available there.', 409);
         await this.db.query('UPDATE qphone_provisioning_requests SET provider_reference=$2 WHERE id=$1', [r.id, avail[0].e164]);
-        const got = await this.carrier.provisionNumber({ e164: avail[0].e164, friendlyName: 'Qorlla ' + r.kind });
-        const { rows: [n] } = await this.db.query("INSERT INTO qphone_numbers(e164,provider,provider_number_id,country,kind,assigned_to,state,confirmed_at) VALUES($1,$2,$3,$4,$5,$6,'active',now()) ON CONFLICT (e164) DO NOTHING RETURNING id", [got.e164, this.carrier.name, got.providerNumberId, r.country, r.kind, r.assign_to]);
-        await this.db.query("UPDATE qphone_provisioning_requests SET state='provisioned', number_id=$2, updated_at=now() WHERE id=$1", [r.id, n ? n.id : null]);
+        const opId = (await this.db.query("INSERT INTO qphone_provider_operations(kind, state, e164, request_id, attempts, actor_id) VALUES('provision','in_flight',$1,$2,1,$3) RETURNING id", [avail[0].e164, r.id, r.actor_id])).rows[0].id;
+        let got; try { got = await this.carrier.provisionNumber({ e164: avail[0].e164, friendlyName: 'Qorlla ' + r.kind }); } catch (pe) { const o = classifyProviderError(pe, 'provision'); await this.db.query('UPDATE qphone_provider_operations SET state=$2, last_error=$3, updated_at=now(), resolved_at=CASE WHEN $2=\'failed\' THEN now() END WHERE id=$1', [opId, o === 'failed' ? 'failed' : 'uncertain', String(pe.code || pe.message).slice(0, 120)]); if (o !== 'failed') { await this.db.query("UPDATE qphone_provisioning_requests SET error_code='PROVIDER_OUTCOME_UNCERTAIN', updated_at=now() WHERE id=$1", [r.id]); await this.audit(r.actor_id, 'number.uncertain', r.id, {}); done++; continue; } throw pe; }
+        await this.recordPurchased({ id: opId, request_id: r.id, e164: got.e164 }, { providerNumberId: got.providerNumberId, e164: got.e164 });
         await this.audit(r.actor_id, 'number.provisioned', r.id, { country: r.country, kind: r.kind, last4: last4(got.e164) });
       } catch (e) { await this.db.query("UPDATE qphone_provisioning_requests SET state='failed', error_code=$2, updated_at=now() WHERE id=$1", [r.id, String(e.code || 'PROVISIONING_FAILED').slice(0, 60)]); await this.audit(r.actor_id, 'number.failed', r.id, { code: e.code || 'PROVISIONING_FAILED' }); }
       done++;
