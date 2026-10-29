@@ -15,6 +15,7 @@ import { RedisBus } from './bus.mjs';
 import { VoiceRouter } from './router.mjs';
 import { validRoomId } from './rooms.mjs';
 import { createHistory, parseRetentionDays } from './history.mjs';
+import { createNumbers, numbersConfig, mockProvider, disabledProvider, NumberError } from './numbers.mjs';
 
 const STATUS = { invalid_recipient: 404, not_found: 404, blocked: 403, forbidden: 403, caller_disabled: 403, voice_disabled: 403, invalid_origin: 403, busy: 409, invalid_transition: 409, idempotency_conflict: 409,
   extension_taken: 409, extensions_exhausted: 503, invalid_input: 400, too_many_tickets: 429, invalid_timeout: 400, overloaded: 503, device_not_owner: 409, lease_lost: 409, call_not_active: 409, room_full: 409,
@@ -22,13 +23,21 @@ const STATUS = { invalid_recipient: 404, not_found: 404, blocked: 403, forbidden
 const GSIGNALS = ['g_offer', 'g_answer', 'g_ice'];
 const validGen = (g) => Number.isSafeInteger(g) && g >= 1;
 
-export function createVoiceApp({ store, db, authenticate, env = process.env, maintenance = true, maintenanceMs = 5000, bus: busOption, outbox = true, instanceId = randomUUID() }) {
+export function createVoiceApp({ store, db, authenticate, env = process.env, maintenance = true, maintenanceMs = 5000, bus: busOption, outbox = true, instanceId = randomUUID(), numbersProvider = null }) {
   const app = express(); app.disable('x-powered-by'); app.set('trust proxy', env.VOICE_TRUST_PROXY === '1' ? 1 : false);
-  app.use(helmet()); app.use(express.json({ limit: '16kb' }));
+  app.use(helmet());
+  // The number provider's signed events: the signature covers the EXACT bytes, so this route reads the raw body and is registered before the JSON parser. Off (503) unless numbers are enabled and a secret is set.
+  const hookLimit = makeLimiter({ max: 120, windowMs: 60000 });
+  app.post('/v1/voice/numbers/provider-events', express.raw({ type: 'application/json', limit: '16kb' }), async (req, res) => {
+    try { if (!hookLimit.take(req.ip || 'x')) return res.status(429).json({ error: 'rate_limited' }); res.set('Cache-Control', 'no-store').json({ ok: true, ...(await numbers.ingest(req.body, req.headers)) }); } catch (e) { fail(res, e); }
+  });
+  app.use(express.json({ limit: '16kb' }));
   const allowed = () => env.VOICE_ALLOWED_ORIGIN || '';
   const num = (v, d) => { const x = Number(v); return Number.isInteger(x) && x > 0 ? x : d; };
   const reliability = createReliability(db), history = createHistory({ db, tx: store.tx }), retention = parseRetentionDays(env.VOICE_HISTORY_RETENTION_DAYS);
   if (retention.warning) console.warn('voice: ' + retention.warning);
+  const numCfg = numbersConfig(env), numbers = createNumbers({ tx: store.tx, db, config: numCfg, provider: numbersProvider || (numCfg.mode === 'mock' ? mockProvider() : disabledProvider) });
+  if (numCfg.enabled && !numCfg.webhookReady) console.warn('voice: VOICE_NUMBERS_ENABLED is on but VOICE_NUMBERS_WEBHOOK_SECRET is shorter than 32 characters: provider events are refused');
   const router = new VoiceRouter();
   const bus = busOption !== undefined ? busOption : (env.REDIS_URL ? new RedisBus({ url: env.REDIS_URL, instanceId, onDelivery: (m) => router.onRemote(m) }) : null);
   if (bus) { router.bus = bus; if (!bus.onDelivery) bus.onDelivery = (m) => router.onRemote(m); }
@@ -51,7 +60,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     if (req.method === 'OPTIONS') return res.status(ok ? 204 : 403).end();
     next();
   });
-  const fail = (res, e) => { const status = STATUS[e.code] || STATUS[e.message] || 500; if (status === 500) console.error('voice error', e?.code || e?.message); res.status(status).json({ error: status === 500 ? 'internal_error' : (e.code || e.message) }); };
+  const fail = (res, e) => { if (e instanceof NumberError) return res.status(e.status).json({ error: e.code }); const status = STATUS[e.code] || STATUS[e.message] || 500; if (status === 500) console.error('voice error', e?.code || e?.message); res.status(status).json({ error: status === 500 ? 'internal_error' : (e.code || e.message) }); };
   const auth = async (req, res, next) => {
     try { const token = bearer(req); if (!token) return res.status(401).json({ error: 'unauthorized' }); req.account = await authenticate(token); } catch { return res.status(401).json({ error: 'unauthorized' }); }
     if (!apiLimit.take(req.account)) return res.status(429).json({ error: 'rate_limited' });
@@ -137,6 +146,11 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.delete('/v1/voice/history', auth, route(async (req, res) => { if (req.query.confirm !== 'all') return res.status(400).json({ error: 'invalid_input' }); res.set('Cache-Control', 'no-store').json(await history.clear(req.account)); }));
   app.get('/v1/voice/history-policy', auth, (_req, res) => res.set('Cache-Control', 'no-store').json({ retentionDays: retention.days, retentionEnabled: retention.days > 0, deletable: 'ended calls only' }));
 
+  // ---- telephone numbers (off unless VOICE_NUMBERS_ENABLED=true; no provider connected; nothing here routes a call)
+  app.get('/v1/voice/numbers/me', auth, route(async (req, res) => { res.set('Cache-Control', 'private, no-store').json(await numbers.me(req.account)); }));
+  app.post('/v1/voice/numbers/assign', auth, route(async (req, res) => { const r = await numbers.assign(req.account, (req.body || {}).country, req.get('idempotency-key')); res.status(r.reused ? 200 : 202).set('Cache-Control', 'no-store').json({ id: r.id, status: r.status }); }));
+  app.post('/v1/voice/numbers/release', auth, route(async (req, res) => { res.status(202).set('Cache-Control', 'no-store').json(await numbers.release(req.account)); }));
+
   // ---- durable events: replay after a reconnect, and acknowledgements (the cursor only moves forward and only over this account's own events)
   app.get('/v1/voice/events', auth, route(async (req, res) => {
     const after = Number(req.query.after ?? 0); if (!safeCursor(after)) return res.status(400).json({ error: 'invalid_cursor' });
@@ -211,20 +225,25 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.post('/v1/voice/admin/legal-holds', adminAuth, route(async (req, res) => { const { roomId, placedBy, reason } = req.body || {}; res.status(201).json(await history.placeHold(roomId, placedBy, reason)); }));
   app.delete('/v1/voice/admin/legal-holds/:roomId', adminAuth, route(async (req, res) => { res.json(await history.releaseHold(req.params.roomId)); }));
   app.post('/v1/voice/admin/history/purge', adminAuth, route(async (_req, res) => { res.json(await history.purgeExpired({ days: retention.days })); }));
+  // Number evidence and inventory come only from here (server to server): never from a user, never from an IP guess.
+  app.post('/v1/voice/admin/numbers/evidence', adminAuth, route(async (req, res) => { res.status(201).json(await numbers.recordEvidence(req.body || {})); }));
+  app.post('/v1/voice/admin/numbers/inventory', adminAuth, route(async (req, res) => { res.status(201).json(await numbers.importInventory(req.body || {})); }));
+  app.get('/v1/voice/admin/numbers/summary', adminAuth, route(async (_req, res) => { res.json(await numbers.stats()); }));
   // What an operator alerts on: queue depth and age, failed deliveries, sockets, bus state.
   app.get('/v1/voice/admin/metrics', adminAuth, route(async (req, res) => {
-    const q = await reliability.queueStats(), hs = await history.stats();
+    const q = await reliability.queueStats(), hs = await history.stats(), ns = numCfg.enabled ? await numbers.stats() : null;
     if (req.query.format === 'prometheus') {                                    // text exposition for a scraper; the secret header is still required
       const g = (name, help, v) => `# HELP ${name} ${help}\n# TYPE ${name} gauge\n${name} ${Number(v) || 0}`, rows = [
         g('qorlla_voice_outbox_pending', 'Durable events not yet published', q.pending), g('qorlla_voice_outbox_oldest_seconds', 'Age of the oldest undelivered event', q.oldestSeconds), g('qorlla_voice_outbox_max_attempts', 'Highest retry count in the outbox', q.maxAttempts),
         g('qorlla_voice_outbox_dead', 'Poison events set aside after repeated failures (still replayable)', q.dead), g('qorlla_voice_outbox_published_total', 'Events published by this replica since start', worker?.stats.published), g('qorlla_voice_outbox_failed_total', 'Failed publish attempts by this replica since start', worker?.stats.failed),
         g('qorlla_voice_outbox_fail_closed', '1 when new calls are being refused for backlog', q.pending > MAX_PENDING || q.oldestSeconds > MAX_AGE ? 1 : 0),
         g('qorlla_voice_sockets_open', 'Open signaling sockets on this replica', router.total()), g('qorlla_voice_sockets_slow_closed_total', 'Sockets closed for not keeping up', router.slowClosed), g('qorlla_voice_bus_up', '1 when Redis delivery is up (1 also when Redis is not configured)', bus ? (bus.up ? 1 : 0) : 1),
+        ...(ns ? [g('qorlla_voice_numbers_queued', 'Number provider requests waiting', ns.queued), g('qorlla_voice_numbers_dead', 'Number provider requests given up on', ns.dead), g('qorlla_voice_numbers_stuck_pending', 'Number requests pending for over an hour', ns.stuck_pending), g('qorlla_voice_numbers_quarantined', 'Numbers quarantined for inspection', ns.quarantined)] : []),
         g('qorlla_voice_history_legal_holds', 'Rooms under legal hold', hs.legalHolds), g('qorlla_voice_history_deletions_waiting_on_hold', 'User deletion requests waiting for a legal hold to be released', hs.deletionsWaitingOnHold),
         g('qorlla_voice_history_retention_deleted_rooms_total', 'Rooms deleted by the retention policy', hs.ops.retention?.rooms), g('qorlla_voice_history_retention_days', 'Configured retention (0 = keep for ever)', retention.days)];
       return res.set('Cache-Control', 'no-store').type('text/plain; version=0.0.4').send(rows.join('\n') + '\n');
     }
-    res.set('Cache-Control', 'no-store').json({ instance: instanceId, history: { retentionDays: retention.days, ...hs }, outbox: { ...q, published: worker?.stats.published ?? null, failed: worker?.stats.failed ?? null, maxPending: MAX_PENDING, maxAgeSeconds: MAX_AGE, failClosed: q.pending > MAX_PENDING || q.oldestSeconds > MAX_AGE },
+    res.set('Cache-Control', 'no-store').json({ instance: instanceId, history: { retentionDays: retention.days, ...hs }, numbers: ns, outbox: { ...q, published: worker?.stats.published ?? null, failed: worker?.stats.failed ?? null, maxPending: MAX_PENDING, maxAgeSeconds: MAX_AGE, failClosed: q.pending > MAX_PENDING || q.oldestSeconds > MAX_AGE },
       sockets: { open: router.total(), slowClosed: router.slowClosed }, bus: bus ? (bus.up ? 'up' : 'down') : 'off' });
   }));
 
@@ -284,15 +303,17 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     send(msg.to, { type: msg.type, roomId: msg.roomId, from: account, gen: msg.generation, toGen: ctx.to.generation, ...(type === 'ice' ? { candidate: cleanCandidate(msg.candidate) } : { sdp: msg.sdp }) }, ctx.to.device_id);
   }
   const heartbeat = setInterval(() => { for (const ws of wss.clients) { if (ws.isAlive === false) { ws.terminate(); continue; } ws.isAlive = false; try { ws.ping(); } catch { /* gone */ } } }, 30000); heartbeat.unref?.();
+  let numTimer = null, numBusy = false;
   const maint = maintenance ? startMaintenance({ store, db, reliability, history, historyRetentionDays: retention.days, afterChange: kick, intervalMs: maintenanceMs, ringSeconds: ringSeconds(env), leaseGraceSeconds: Number(env.VOICE_LEASE_GRACE_SECONDS || 120), retentionHours: Number(env.VOICE_EVENT_RETENTION_HOURS || 168) }) : null;
 
   return {
-    app, server, wss, sockets, send, router, bus, worker, reliability, maint, instanceId, kick, closeAccount,
+    app, server, wss, sockets, send, router, bus, worker, reliability, maint, instanceId, kick, closeAccount, numbers,
     listen: async (port = 0, host) => {
       if (bus) { try { await Promise.race([bus.start(), new Promise((_r, rej) => setTimeout(() => rej(Error('redis_start_timeout')), 3000))]); } catch (e) { console.error('voice: Redis is not reachable yet; running degraded and retrying:', e.message); } }
       worker?.start(); worker?.kick();
+      if (numCfg.enabled && numCfg.worker && numCfg.mode !== 'disabled') { numTimer = setInterval(() => { if (!numBusy) { numBusy = true; numbers.runWorkerOnce().catch((e) => console.error('voice numbers worker', e?.code || e?.message)).finally(() => { numBusy = false; }); } }, 2000); numTimer.unref?.(); }
       return new Promise((resolve) => server.listen(port, host, () => resolve(server.address().port)));
     },
-    close: async () => { maint?.stop(); worker?.stop(); clearInterval(heartbeat); for (const ws of wss.clients) ws.close(1001); await new Promise((r) => server.close(() => r())); await bus?.close().catch(() => {}); }
+    close: async () => { maint?.stop(); worker?.stop(); clearInterval(numTimer); clearInterval(heartbeat); for (const ws of wss.clients) ws.close(1001); await new Promise((r) => server.close(() => r())); await bus?.close().catch(() => {}); }
   };
 }

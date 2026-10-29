@@ -28,9 +28,9 @@ export function redisContainer() {
 export function harness({ db, idp }) {
   const devices = new Map(), replicas = [];
   const device = (account, name = 'd1') => { const k = account + ':' + name; if (!devices.has(k)) devices.set(k, randomUUID()); return devices.get(k); };
-  async function replica({ redisUrl, env: extra = {}, maintenanceMs = 150, outbox = true, maintenance = true, instanceId } = {}) {
+  async function replica({ redisUrl, env: extra = {}, maintenanceMs = 150, outbox = true, maintenance = true, instanceId, numbersProvider = null } = {}) {
     const env = { VOICE_JWKS_URL: idp.jwksUrl, VOICE_JWT_ISSUER: 'qorlla-main', VOICE_JWT_AUDIENCE: 'qorlla-voice', VOICE_ALLOWED_ORIGIN: ORIGIN, VOICE_ADMIN_SECRET: ADMIN, VOICE_RING_SECONDS: '5', VOICE_OUTBOX_INTERVAL_MS: '100', ...(redisUrl ? { REDIS_URL: redisUrl } : {}), ...extra };
-    const voice = createVoiceApp({ store: createStore(db.pool), db: db.pool, authenticate: makeAuthenticator(env), env, maintenanceMs, outbox, maintenance, instanceId });
+    const voice = createVoiceApp({ store: createStore(db.pool), db: db.pool, authenticate: makeAuthenticator(env), env, maintenanceMs, outbox, maintenance, instanceId, numbersProvider });
     const port = await voice.listen(0, '127.0.0.1'), base = 'http://127.0.0.1:' + port, sockets = [];
     const api = async (account, method, path, body, o = {}) => {
       const headers = { 'content-type': 'application/json', origin: ORIGIN, ...(o.headers || {}) }; if (account) headers.authorization = 'Bearer ' + await idp.token(account);
