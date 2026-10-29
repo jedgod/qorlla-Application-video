@@ -32,6 +32,8 @@ export function registerTelephony({ app, db, bridgeAuth, phone, env = process.en
   app.post(B + '/usage/:id/adjust', bridgeAuth, json, wrap((req, a) => svc.adjust(a, req.params.id, req.body || {}), 201));
   app.put(B + '/limits/:owner', bridgeAuth, json, wrap((req, a) => svc.setLimit(a, req.params.owner, (req.body || {}).monthlyLimitMicros)));
   app.get(B + '/diagnostics', bridgeAuth, wrap((req, a) => svc.diagnostics(a)));
+  app.get(B + '/features', bridgeAuth, wrap((req, a) => svc.featureStatus(a)));
+  app.put(B + '/features/desired', bridgeAuth, json, wrap((req, a) => svc.setDesired(a, req.body || {})));
 
   // ---- carrier webhooks. Signed with the carrier's own scheme, verified over the URL the carrier was given, de-duplicated by event id, and answered idempotently.
   const form = express.urlencoded({ extended: false, limit: '100kb' }), W = '/api/telephony/webhooks/twilio/';

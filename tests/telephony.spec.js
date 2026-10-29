@@ -76,7 +76,7 @@ test.describe('rules (no server, no database)', () => {
 test.describe('Twilio adapter, workflows, ledger and webhooks (local Twilio stand-in + throwaway schema)', () => {
   test.describe.configure({ mode: 'serial' });
   let mock, pool, schema, P, S, C, R, ivr; const ADMIN = { id: 'u_admin', admin: true }, USER = { id: 'u_user', admin: false }, OTHER = { id: 'u_other', admin: false };
-  const env = (x = {}) => ({ PHONE_ALLOWED_COUNTRIES: 'US,CA,GB', PHONE_RECONCILE_DELAY_S: '0', PHONE_PUBLIC_BASE: 'https://qorlla.example', ...x });
+  const env = (x = {}) => ({ PHONE_ALLOWED_COUNTRIES: 'US,CA,GB', PHONE_RECONCILE_DELAY_S: '0', PHONE_PUBLIC_BASE: 'https://qorlla.example', PHONE_FEATURES: 'dialin,carrier,bridge,billing,settings', ...x });
   const mk = async (e = env(), over = {}) => { const carrier = over.carrier || new (await M('twilio.mjs')).TwilioProvider({ sid: SID, token: TOKEN, base: mock.url, webhookBase: e.PHONE_PUBLIC_BASE, fetchImpl: fetch }); return new S.TelephonyService({ db: pool, carrier, bridge: over.bridge || new P.UnconfiguredBridge(), audio: over.audio || new P.UnconfiguredAudioGateway(), env: e }); };
   const certify = (g) => pool.query("INSERT INTO qphone_gates(gate,evidence_ref,evidence_sha256,certified_by) VALUES($1,'test-evidence',repeat('a',64),'test') ON CONFLICT (gate) DO NOTHING", [g]);
   const q = async (sql, p) => (await pool.query(sql, p)).rows;
@@ -84,7 +84,7 @@ test.describe('Twilio adapter, workflows, ledger and webhooks (local Twilio stan
   test.beforeAll(async () => {
     mock = await mockTwilio(); schema = 'qt_' + Math.random().toString(36).slice(2, 10);
     const admin = new Pool({ connectionString: URL_DB }); await admin.query('CREATE SCHEMA ' + schema); await admin.end();
-    pool = new Pool({ connectionString: URL_DB, options: '-c search_path=' + schema }); await pool.query(fs.readFileSync(path.resolve(__dirname, '..', 'qorlla-meet-video', 'sql', 'v4_14_telephony.sql'), 'utf8'));
+    pool = new Pool({ connectionString: URL_DB, options: '-c search_path=' + schema }); for (const f of ['v4_14_telephony.sql', 'v4_15_telephony_features.sql']) await pool.query(fs.readFileSync(path.resolve(__dirname, '..', 'qorlla-meet-video', 'sql', f), 'utf8'));
     P = await M('provider.mjs'); S = await M('service.mjs'); C = await M('core.mjs'); ivr = await M('ivr.mjs'); R = await M('routes.mjs');
   });
   test.afterAll(async () => { if (pool) { await pool.end(); } const a = new Pool({ connectionString: URL_DB }); await a.query('DROP SCHEMA IF EXISTS ' + schema + ' CASCADE').catch(() => {}); await a.end(); if (mock) await mock.close(); });
@@ -179,6 +179,45 @@ test.describe('Twilio adapter, workflows, ledger and webhooks (local Twilio stan
     const end = await svc.endCall(USER, c1.id); expect(end.state).toBe('completed'); const diag = await svc.diagnostics(ADMIN); expect(diag.audit.length).toBeGreaterThan(3); expect(JSON.stringify(diag)).not.toMatch(/tok-|2025550100/);   // diagnostics: state only
   });
 
+  test('independent feature flags: a certified gate does nothing unless its flag is on, and the default is everything off', async () => {
+    const off = await mk(env({ PHONE_FEATURES: '' })), on = await mk(env({ PHONE_FEATURES: 'carrier' }));
+    await pool.query('DELETE FROM qphone_gates'); await certify('carrier'); await certify('dialin');
+    const a = await off.capabilities(USER.id); expect(a.carrier.status).toBe('off'); expect(a.carrier.detail).toContain('switched off by the PHONE_FEATURES'); expect(a.dialin.detail).toContain('PHONE_FEATURES');
+    const b = await on.capabilities(USER.id); expect(b.carrier.status).toBe('active'); expect(b.dialin.status).not.toBe('active');   // dialin is certified but its flag is not on
+    expect((await mk(env({ PHONE_FEATURES: undefined }))).flags().size).toBe(0);
+    await pool.query('DELETE FROM qphone_gates');
+  });
+
+  test('saved preferences are not enforced preferences: the registry, the activation pipeline, read-back confirmation, drift and failure (fake carrier that supports them; the real Twilio adapter supports none)', async () => {
+    const F = await M('features.mjs');
+    expect(F.cleanDesired({ forwarding: { enabled: true, to: '+44 20 7123 4567' }, voicemail: { enabled: true, greeting: 'x'.repeat(400) }, bogus: { enabled: true }, blockedNumbers: { enabled: true, count: 500 }, callerId: { enabled: true, name: '  Desk  ' } })).toEqual({ forwarding: { enabled: true, to: '+442071234567' }, voicemail: { enabled: true, greeting: 'x'.repeat(300) }, blockedNumbers: { enabled: true, count: 100 }, callerId: { enabled: true, name: 'Desk' } });
+    expect(() => F.cleanDesired({ forwarding: { enabled: true, to: '555' } })).toThrow(/international/); expect(F.cleanDesired({ forwarding: { enabled: false } })).toEqual({ forwarding: { enabled: false } });
+    const { TwilioProvider } = await M('twilio.mjs');
+    // 1. the real adapter: nothing is supported, so everything is "saved, inactive" even with a connected carrier, a number and the flag on
+    const real = await mk(); await real.testConnection(ADMIN); await real.markWebhookVerified(); await pool.query("DELETE FROM qphone_numbers WHERE assigned_to='u_feat'"); await pool.query("INSERT INTO qphone_numbers(e164,provider,provider_number_id,country,kind,assigned_to,state) VALUES('+12025550177','twilio','PNfeat','US','personal','u_feat','active')");
+    const U = { id: 'u_feat', admin: false };
+    let st = await real.setDesired(U, { forwarding: { enabled: true, to: '+12025550100' }, doNotDisturb: { enabled: true }, voicemail: { enabled: false } });
+    expect(st.features.forwarding).toMatchObject({ enabled: true, state: 'inactive' }); expect(st.features.forwarding.reason).toContain('cannot enforce this setting yet'); expect(st.features.voicemail.state).toBe('off'); expect(st.enforcing).toBe(0);
+    expect(await real.runFeatures()).toBe(0);   // nothing for the worker to do: it never pretends
+    // 2. no carrier, no number, flag off: each says its own reason
+    const none = await mk(env(), { carrier: new P.UnconfiguredProvider() }); expect((await none.featureStatus(U)).features.forwarding.reason).toContain('No carrier is connected');
+    expect((await (await mk(env({ PHONE_FEATURES: 'carrier' }))).featureStatus(U)).features.forwarding.reason).toContain('PHONE_FEATURES'); await pool.query("UPDATE qphone_numbers SET state='suspended' WHERE assigned_to='u_feat'"); expect((await real.featureStatus(U)).features.forwarding.reason).toContain('no Qorlla number'); await pool.query("UPDATE qphone_numbers SET state='active' WHERE assigned_to='u_feat'");
+    // 3. a fake carrier that DOES support forwarding and DND: pending -> applied -> read back -> active; drift is detected and corrected; a carrier that will not hold it is "failed"
+    const held = new Map(), fake = new TwilioProvider({ sid: SID, token: TOKEN, base: mock.url, webhookBase: 'https://qorlla.example', fetchImpl: fetch });
+    Object.defineProperty(fake, 'features', { get: () => new Set(['forwarding', 'doNotDisturb']) }); fake.applyFeature = async ({ providerNumberId, feature, config }) => { if (feature === 'doNotDisturb' && fake.refuse) throw Object.assign(new Error('no'), { code: 'PROVIDER_REJECTED' }); held.set(providerNumberId + feature, config); }; fake.readFeature = async ({ providerNumberId, feature }) => (fake.lie ? { enabled: false } : held.get(providerNumberId + feature) || { enabled: false });
+    const svc = await mk(env(), { carrier: fake }); await svc.testConnection(ADMIN); await svc.markWebhookVerified();
+    st = await svc.featureStatus(U); expect(st.features.forwarding.state).toBe('pending'); expect(st.features.callWaiting.state).toBe('off');   // supported and allowed: queued, NOT yet active
+    expect(await svc.runFeatures()).toBe(2); st = await svc.featureStatus(U); expect(st.features.forwarding).toMatchObject({ state: 'active' }); expect(st.features.forwarding.reason).toContain('Confirmed by the carrier'); expect(st.enforcing).toBe(2); expect(held.get('PNfeatforwarding')).toEqual({ enabled: true, to: '+12025550100' });
+    held.set('PNfeatforwarding', { enabled: true, to: '+19998887777' }); await svc.runFeatures();   // reconcile pass: the first run detects the change...
+    let [row] = (await pool.query("SELECT state FROM qphone_feature_state WHERE owner_id='u_feat' AND feature='forwarding'")).rows; expect(row.state).toBe('drift'); expect((await svc.featureStatus(U)).features.forwarding.state).toBe('drift'); await svc.runFeatures();
+    expect((await svc.featureStatus(U)).features.forwarding.state).toBe('active'); expect(held.get('PNfeatforwarding').to).toBe('+12025550100');   // ...the next re-applies Qorlla's setting
+    await svc.setDesired(U, { forwarding: { enabled: false } }); expect((await svc.featureStatus(U)).features.forwarding.state).toBe('off'); await svc.runFeatures(); expect(held.get('PNfeatforwarding')).toEqual({ enabled: false });   // turning it off is applied at the carrier too
+    fake.lie = true; await svc.setDesired(U, { forwarding: { enabled: true, to: '+12025550101' } }); await svc.runFeatures(); expect((await svc.featureStatus(U)).features.forwarding).toMatchObject({ state: 'failed' }); expect((await svc.featureStatus(U)).features.forwarding.reason).toContain('NOT_CONFIRMED'); fake.lie = false;   // a read-back that disagrees is never "active"
+    await svc.setDesired(U, { forwarding: { enabled: true, to: '+12025550101' } }); await svc.runFeatures(); expect((await svc.featureStatus(U)).features.forwarding.state).toBe('active');   // saving again retries a failed one
+    fake.refuse = true; await svc.setDesired(U, { doNotDisturb: { enabled: false } }); await svc.setDesired(U, { doNotDisturb: { enabled: true } }); await svc.runFeatures(); expect((await svc.featureStatus(U)).features.doNotDisturb.state).toBe('failed'); fake.refuse = false;
+    expect((await svc.featureStatus({ id: 'u_nobody', admin: false })).features.forwarding.state).toBe('off'); expect((await q("SELECT count(*)::int AS n FROM qphone_audit WHERE action LIKE 'feature.%'"))[0].n).toBeGreaterThan(3);   // transitions are audited
+  });
+
   test('webhooks: signed by the carrier, de-duplicated, safe against replay; dial-in IVR fails closed without a certified bridge; with one, the existing PIN rules decide and the PIN is never stored', async () => {
     const { twilioSignature } = await M('twilio.mjs'), { TwilioProvider } = await M('twilio.mjs');
     const calls = { verify: [], joined: [], ended: [] }; let verdict = { result: 'denied', say: 'x' }, status = 'waiting';
@@ -228,10 +267,10 @@ test.describe('end to end: Numbers & Plans administration (main app + Meet + Twi
   test.beforeAll(async () => {
     mock = await mockTwilio(); schema = 'qe_' + Math.random().toString(36).slice(2, 10);
     const a = new Pool({ connectionString: URL_DB }); await a.query('CREATE SCHEMA ' + schema); await a.end();
-    sp = new Pool({ connectionString: URL_DB, options: '-c search_path=' + schema + ',public' }); await sp.query(fs.readFileSync(path.resolve(__dirname, '..', 'qorlla-meet-video', 'sql', 'v4_14_telephony.sql'), 'utf8'));
+    sp = new Pool({ connectionString: URL_DB, options: '-c search_path=' + schema + ',public' }); for (const f of ['v4_14_telephony.sql', 'v4_15_telephony_features.sql']) await sp.query(fs.readFileSync(path.resolve(__dirname, '..', 'qorlla-meet-video', 'sql', f), 'utf8'));
     const env = { ...process.env, PORT: String(MEETP), DATABASE_URL: URL_DB + '?options=' + encodeURIComponent('-c search_path=' + schema + ',public'), JWT_SECRET: secrets.jwt, QORLLA_BRIDGE_SECRET: secrets.bridge, RECOVERY_ESCROW_KEY: secrets.escrow, NODE_ENV: 'development',
       RECORDING_MASTER_KEYS: JSON.stringify({ dev1: secrets.recordingKey }), RECORDING_ACTIVE_KEY_ID: 'dev1', RECORDING_STORE_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'qrec-')), RECORDING_ADMIN_SECRET: 'test-admin-secret',
-      PHONE_CARRIER: 'twilio', TWILIO_ACCOUNT_SID: SID, TWILIO_AUTH_TOKEN: TOKEN, TWILIO_API_BASE: mock.url, PHONE_PUBLIC_BASE: 'http://127.0.0.1:' + MEETP, PHONE_ALLOWED_COUNTRIES: 'US,GB', PHONE_WORKER_MS: '400', PHONE_RECONCILE_DELAY_S: '0' };
+      PHONE_CARRIER: 'twilio', TWILIO_ACCOUNT_SID: SID, TWILIO_AUTH_TOKEN: TOKEN, TWILIO_API_BASE: mock.url, PHONE_PUBLIC_BASE: 'http://127.0.0.1:' + MEETP, PHONE_ALLOWED_COUNTRIES: 'US,GB', PHONE_WORKER_MS: '400', PHONE_RECONCILE_DELAY_S: '0', PHONE_FEATURES: 'dialin,carrier,bridge,billing,settings' };
     meet = spawn(process.execPath, ['server/index.js'], { cwd: path.resolve(__dirname, '..', 'qorlla-meet-video'), env, stdio: 'ignore' });
     for (let i = 0; i < 60; i++) { if (await fetch('http://127.0.0.1:' + MEETP + '/api/config').then((r) => r.ok).catch(() => false)) break; await new Promise((r) => setTimeout(r, 500)); }
     main = await startMain(5293, { MEET_PROBE_URL: 'http://127.0.0.1:' + MEETP, PHONE_ADMIN_USERS: 'org*' });

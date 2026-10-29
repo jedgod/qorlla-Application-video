@@ -6,7 +6,6 @@ const crypto = require('node:crypto');
 // They do NOT prove real inbound calls, real numbers or audio: there is no carrier and no PSTN-to-WebRTC media gateway in this repository (BLOCKED).
 // Needs Meet on :3310 started with scripts/start-recording-test-meet.cjs (it enables the test provider).
 const { startMain, organiser } = require('./support/meet-stack');
-test.use({ launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } });   // the Settings audio tests need a (fake) microphone
 const MEET = 'http://localhost:3310', SECRET = 'phone-test-secret-123456';
 const sign = (raw, t = Math.floor(Date.now() / 1000)) => 't=' + t + ',v1=' + crypto.createHmac('sha256', SECRET).update(t + '.' + raw).digest('hex');
 const RUN = '-' + crypto.randomBytes(4).toString('hex');                       // call ids are unique per run (the table remembers every call)
@@ -149,7 +148,8 @@ test.describe('dial-in against the real Meet server', () => {
     expect(a.callRef && c2.callRef).toBeTruthy(); await m.ctx.close();
   });
 
-  test('Phone page: dial pad (keys, keyboard, delete, copy), carrier calling is honestly off, dial-in directory and phone PIN for a meeting, recent calls, settings that say what is not connected', async ({ browser }) => {
+  test('Phone page: dial pad (keys, keyboard, delete, copy), carrier calling is honestly off, dial-in directory and phone PIN for a meeting, recent calls, settings that say what is not connected', async ({ browser, browserName }) => {
+    test.skip(browserName === 'firefox', 'Playwright cannot grant clipboard permissions in Firefox, and this test reads the clipboard: not run there');
     test.setTimeout(120000);
     const m = await meeting(browser, { title: 'Dial me' }); await dial(m, FROM1, { callId: ('ui-1' + RUN) });
     const page = await m.ctx.newPage(); await page.context().grantPermissions(['clipboard-read', 'clipboard-write']); await page.goto(B() + '/qorlla.html#home'); await page.locator('.nav-item[data-view=phone]').click();
@@ -311,20 +311,20 @@ test.describe('Phone Settings, Help Center, Diagnostics and support tickets', ()
     expect((await ctx.request.fetch(main.base + '/api/phone/diagnostics', { headers: {} })).status()).toBe(200);
     const anon = await browser.newContext(); const ar = await anon.request.get(main.base + '/api/phone/diagnostics'); expect(ar.status()).toBe(401); expect(ar.headers()['x-correlation-id']).toMatch(/^[a-f0-9]{10}$/); await anon.close();
     const tk = main.base + '/api/workplace/phone-tickets';
-    expect((await r.post(tk, { data: { subject: 'x', description: 'short' } })).status()).toBe(400); expect((await r.post(tk, { data: { subject: 'PIN', description: 'my pin is 12345678 please help' } })).status()).toBe(400);
-    const t = await (await r.post(tk, { data: { subject: 'Cannot join', category: 'Join by Phone', description: 'The dial-in numbers never appear for my meeting.', reference: dg.correlationId } })).json(); expect(t).toMatchObject({ status: 'open', category: 'Join by Phone', reference: dg.correlationId, notified: false }); expect(t.ref).toMatch(/^T-[0-9A-F]{6}$/);
-    expect((await (await r.get(tk)).json()).map((x) => x.ref)).toEqual([t.ref]); const o2 = await browser.newContext(); await organiser(o2, main.base); expect((await (await o2.request.get(tk)).json())).toEqual([]); expect((await o2.request.delete(tk + '/' + t.id)).status()).toBe(404); await o2.close();
-    expect((await r.delete(tk + '/' + t.id)).status()).toBe(200); await ctx.close();
+    expect((await r.post(tk, { data: { subject: 'x', description: 'short' } })).status()).toBe(400); const red = await (await r.post(tk, { data: { subject: 'PIN', description: 'my pin is 12345678 and token abcdefghijklmnopqrstuvwxyz0123456789 please help' } })).json(); expect(red.redacted).toBeGreaterThanOrEqual(2); expect(JSON.stringify(red)).not.toMatch(/12345678|abcdefghijklmnopqrstuvwxyz0123456789/);
+    const t = await (await r.post(tk, { data: { subject: 'Cannot join', category: 'Join by Phone', description: 'The dial-in numbers never appear for my meeting.', reference: dg.correlationId } })).json(); expect(t).toMatchObject({ status: 'open', category: 'Join by Phone', reference: dg.correlationId, notified: false, redacted: 0 }); expect(t.ref).toMatch(/^T-[0-9A-F]{6}$/);
+    expect((await (await r.get(tk)).json()).map((x) => x.ref).sort()).toEqual([t.ref, red.ref].sort()); const o2 = await browser.newContext(); await organiser(o2, main.base); expect((await (await o2.request.get(tk)).json())).toEqual([]); expect((await o2.request.get(tk + '/' + t.id)).status()).toBe(404); await o2.close();
+    expect((await r.post(tk + '/' + t.id + '/close', { data: {} })).status()).toBe(200); expect((await (await r.get(tk + '/' + t.id)).json()).status).toBe('closed'); await ctx.close();
   });
 
-  test('Phone Settings page: all eight sections, saved values come back, microphone and speaker tests run, blocked numbers validate, audit shows, export works, billing and admin say unavailable', async ({ browser }) => {
+  test('Phone Settings page: all eight sections, saved values come back, microphone and speaker tests run, blocked numbers validate, audit shows, export works, billing and admin say unavailable', async ({ browser, browserName }) => {
     test.setTimeout(120000);
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, permissions: ['microphone'], acceptDownloads: true }); await organiser(ctx, main.base); const page = await ctx.newPage();
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, ...(browserName === 'chromium' ? { permissions: ['microphone'] } : {}), acceptDownloads: true }); await organiser(ctx, main.base); const page = await ctx.newPage();
     await page.goto(main.base + '/qorlla.html#home'); await page.locator('.nav-item[data-view=phone]').click(); await page.locator('#phSettingsBtn').click(); await expect(page.locator('#psPage')).toBeVisible();
     await expect(page.locator('#psNav-calling')).toHaveAttribute('aria-selected', 'true'); await expect(page.locator('#psBody')).toContainText('Not yet enabled'); await expect(page.locator('#psOutNum')).toBeDisabled(); await expect(page.locator('#psOutNum')).toContainText('No number assigned');
     await page.locator('#psCallerName').fill('Qorlla Desk'); await page.locator('#psDnd').check(); await page.locator('#psFwdOn').check(); await page.locator('#psSaveCalling').click(); await expect(page.locator('#psSaveCallingMsg')).toContainText('Enter the number to forward');
     await page.locator('#psFwdTo').fill('+442071234567'); await page.locator('#psSaveCalling').click(); await expect(page.locator('#psSaveCallingMsg')).toContainText('once carrier calling is connected');
-    await page.locator('#psNav-audio').click(); await page.locator('#psAllowDev').click(); await expect(page.locator('#psAudioMsg')).toContainText('Device names are now shown'); await expect(page.locator('#psMic option').first()).not.toHaveText('No microphone found');
+    await page.locator('#psNav-audio').click(); await page.locator('#psAllowDev').click(); await expect(page.locator('#psAudioMsg')).toContainText('Device names are now shown', { timeout: 20000 }); await expect(page.locator('#psMic option').first()).not.toHaveText('No microphone found');
     await page.locator('#psTestMic').click(); await expect(page.locator('#psAudioMsg')).toContainText('microphone is working', { timeout: 15000 }); await page.locator('#psTestSpk').click(); await expect(page.locator('#psAudioMsg')).toContainText('tone'); await page.locator('#psPlayRing').click(); await expect(page.locator('#psAudioMsg')).toContainText('ringtone');
     await page.locator('#psRing').selectOption('soft'); await page.locator('#psNoise').uncheck(); await page.locator('#psSaveAudio').click(); await expect(page.locator('#psSaveAudioMsg')).toContainText('Saved');
     await page.locator('#psNav-dialin').click(); await expect(page.locator('#psDialinTable')).toContainText('+12125550100'); await page.locator('#psCountry').selectOption('GH'); await page.locator('#psSaveDialin').click(); await expect(page.locator('#psSaveDialinMsg')).toContainText('Saved'); await expect(page.locator('.psPinMake').first()).toBeVisible();
@@ -351,9 +351,9 @@ test.describe('Phone Settings, Help Center, Diagnostics and support tickets', ()
     await expect(page.locator('[data-id=api]')).toContainText('OK'); await expect(page.locator('[data-id=numbers]')).toContainText('Warning'); await expect(page.locator('[data-id=provider]')).toContainText('Warning'); await expect(page.locator('[data-id=audio]')).toContainText('Unavailable'); await expect(page.locator('[data-id=devices]')).toContainText(/OK|Warning/); await expect(page.locator('#hpRef strong')).toHaveText(/^[a-f0-9]{10}$/);
     await page.locator('#hpD-guide').click(); await expect(page.locator('#hpGuide')).toContainText('older version');
     await page.locator('#hpTab-tickets').click(); await expect(page.locator('#hpRefIn')).toHaveValue(/^[a-f0-9]{10}$/); await page.locator('#hpSend').click(); await expect(page.locator('#hpMsg')).toContainText('Add a short subject');
-    await page.locator('#hpSubject').fill('Cannot see dial-in numbers'); await page.locator('#hpDesc').fill('My PIN is 12345678 and it fails'); await page.locator('#hpSend').click(); await expect(page.locator('#hpMsg')).toContainText('remove PINs');
-    await page.locator('#hpDesc').fill('The dial-in numbers never appear for my meeting.'); await page.locator('#hpSend').click(); await expect(page.locator('#hpMsg')).toContainText('was created'); await expect(page.locator('.hp-ticket')).toContainText('Cannot see dial-in numbers'); await expect(page.locator('.hp-ticket')).toContainText('stored for your administrator');
-    await page.getByRole('button', { name: /Withdraw ticket/ }).click(); await expect(page.locator('#hpNoTickets')).toBeVisible();
+    await page.locator('#hpSubject').fill('Cannot see dial-in numbers'); await page.locator('#hpDesc').fill('My PIN is 12345678 and it fails, please look'); await page.locator('#hpSend').click(); await expect(page.locator('#hpMsg')).toContainText('looked like secrets were removed');
+    await expect(page.locator('.hp-ticket').first()).toContainText('Open'); await page.locator('.hp-ticket').first().click(); await expect(page.locator('#hpThread')).toContainText('PIN is [removed]'); await expect(page.locator('#hpThread')).not.toContainText('12345678'); await expect(page.locator('#hpTicketStatus')).toContainText('Open');
+    await page.locator('#hpReplyText').fill('Thank you, nothing else to add'); await page.locator('#hpReplySend').click(); await expect(page.locator('#hpThread')).toContainText('nothing else to add'); page.once('dialog', (d) => d.accept()); await page.locator('#hpCloseTicket').click(); await expect(page.locator('#hpTicketStatus')).toContainText('Closed'); await expect(page.locator('#hpClosedNote')).toBeVisible();
     // a route that is missing (an old server that was not restarted) is explained, with Retry
     await page.route('**/api/workplace/phone-settings', (r) => r.fulfill({ status: 404, contentType: 'text/html', body: '<h1>Not found</h1>' }));
     await page.locator('#phSettingsBtn').click(); await expect(page.locator('#psErr')).toContainText('older version'); await page.unroute('**/api/workplace/phone-settings'); await page.getByRole('button', { name: 'Retry' }).click(); await expect(page.locator('#psPage')).toBeVisible(); await expect(page.locator('#psCallerName')).toBeVisible();

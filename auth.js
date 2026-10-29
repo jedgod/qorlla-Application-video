@@ -503,5 +503,5 @@ module.exports = function createAuth({ dataDir, mailer }) {
         res.status(500).json({ error: 'Server error.' });
     });
 
-    return { router, portalTokens, getUser, requireUser, listUsers: () => loadUsers().map(publicUser) };
+    return { router, portalTokens, getUser, requireUser, listUsers: () => loadUsers().map(publicUser), getUserById: (id) => { const u = loadUsers().find((y) => y.id === id); return u ? selfUser(u) : null; } };
 };

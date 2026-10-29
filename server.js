@@ -57,6 +57,7 @@ app.use('/api/auth', auth.router);
 // A short reference on every Phone response: a user can quote it to support and the matching server log line (statuses only, never PINs or call content) can be found.
 app.use(['/api/phone', '/api/workplace/phone-settings', '/api/workplace/phone-audit', '/api/workplace/phone-help', '/api/workplace/phone-tickets'], (req, res, next) => { res.set('X-Correlation-Id', crypto.randomBytes(5).toString('hex')); next(); });
 app.use('/api/workplace', require('./workplace')({
+    phoneSettingsChanged: (u, s) => syncPhoneFeatures(u, s),
     dataDir: DATA_ROOT,
     allocateMeeting: (m) => allocateMeeting(m),
     // Keep the live meeting record in step with an edited/deleted scheduled meeting (so a moved meeting stays joinable and a deleted one stops working)
@@ -339,6 +340,13 @@ app.get('/api/phone/usage', (req, res) => telSend(req, res, 'GET', '/usage'));
 app.post('/api/phone/usage/:id/adjust', (req, res) => telSend(req, res, 'POST', '/usage/' + encodeURIComponent(req.params.id) + '/adjust', (q) => ({ body: { kind: (q.body || {}).kind, amountMicros: (q.body || {}).amountMicros, reason: (q.body || {}).reason } })));
 app.put('/api/phone/limits/:owner', (req, res) => telSend(req, res, 'PUT', '/limits/' + encodeURIComponent(req.params.owner), (q) => ({ body: { monthlyLimitMicros: (q.body || {}).monthlyLimitMicros } })));
 app.get('/api/phone/telephony/diagnostics', (req, res) => telSend(req, res, 'GET', '/diagnostics'));
+// Saved call preferences (forwarding, voicemail, do-not-disturb, ...) are passed to Meet as DESIRED state. Meet reports what the carrier actually enforces; until it confirms, the page says "saved, inactive".
+function syncPhoneFeatures(u, s) {
+    const body = { forwarding: { enabled: !!(s.forwardEnabled && s.forwardTo), to: s.forwardTo }, voicemail: { enabled: !!s.voicemailEnabled, greeting: s.voicemailGreeting }, doNotDisturb: { enabled: !!s.doNotDisturb }, callWaiting: { enabled: !!s.callWaiting },
+        spamProtection: { enabled: !!s.spamProtection }, blockedNumbers: { enabled: (s.blockedNumbers || []).length > 0, count: (s.blockedNumbers || []).length }, callerId: { enabled: !!s.callerIdName, name: s.callerIdName } };
+    return tel(u, 'PUT', '/features/desired', { body });
+}
+app.get('/api/phone/features', (req, res) => telSend(req, res, 'GET', '/features'));
 app.get('/api/phone/calls/history', async (req, res) => {
     const u = phoneUser(req, res); if (!u) return;
     const mine = [...meetingsState.values()].filter((m) => m.hostId === u.id && m.viaMeet).sort((a, b) => Date.parse(b.scheduledStartAt || 0) - Date.parse(a.scheduledStartAt || 0)).slice(0, 15);

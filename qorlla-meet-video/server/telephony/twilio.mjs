@@ -14,6 +14,9 @@ export class TwilioProvider {
   }
   get name() { return 'twilio'; }
   get configured() { return true; }
+  // Per-number call preferences this adapter can actually apply and read back at Twilio. NONE yet: forwarding, voicemail, do-not-disturb, call waiting, spam filtering and blocking
+  // would need Qorlla-hosted call logic (TwiML on our voice webhook) that is not built. Declaring none keeps every such setting honestly "saved, inactive".
+  get features() { return new Set(); }
   get webhookConfigured() { return /^https:\/\//.test(this.webhookBase) || /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(this.webhookBase); }
   async #req(method, path, form, query) {
     const url = this.base + '/2010-04-01/Accounts/' + this.sid + path + (query ? '?' + new URLSearchParams(query) : '');

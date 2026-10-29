@@ -63,6 +63,8 @@ if (has !== 't') {
   if (r.status !== 0) { console.error('Phone migration failed:', r.stderr); process.exit(1); } }
 { const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_14_telephony.sql')), encoding: 'utf8' });
   if (r.status !== 0) { console.error('Telephony migration failed:', r.stderr); process.exit(1); } }
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_15_telephony_features.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Telephony features migration failed:', r.stderr); process.exit(1); } }
 
 const children = [];
 const run = (name, cmd, args, cwd, env) => { const c = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(c); for (const s of [c.stdout, c.stderr]) s.on('data', (d) => process.stdout.write(String(d).split('\n').filter(Boolean).map((l) => `[${name}] ${l}\n`).join(''))); c.on('exit', (code) => { console.log(`[${name}] exited (${code})`); }); return c; };

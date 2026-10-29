@@ -27,6 +27,7 @@ Meet owns telephony because Meet owns PostgreSQL, the meeting rules and the part
 | `TWILIO_API_BASE` | Meet | Default `https://api.twilio.com`. Tests point it at a local stand-in. |
 | `PHONE_PUBLIC_BASE` | Meet | The public **https** address Twilio calls (no port: for HTTPS voice callbacks Twilio signs the URL without one). Required for webhook verification and provisioning callbacks. |
 | `PHONE_ADMIN_USERS` | Main | Comma list of usernames (a trailing `*` is a prefix) allowed to manage numbers, limits, usage and billing. Empty = nobody. |
+| `PHONE_FEATURES` | Meet | Independent feature flags, a comma list of `dialin`, `carrier`, `bridge`, `billing`, `settings`. **Default: none.** A capability is active only with its flag AND its certified gate AND live evidence. |
 | `PHONE_ALLOWED_COUNTRIES` | Meet | Default `US,CA,GB`. Eligibility for number requests and the only countries that can be dialled. |
 | `PHONE_MAX_CALLS_PER_HOUR` | Meet | Default 30 call intents per account. |
 | `PHONE_RESERVE_MICROS` | Meet | Amount held per in-flight call against the monthly limit. Default 500000 (0.50). |
@@ -95,3 +96,7 @@ Real carrier calls (inbound and outbound); valid and invalid meeting IDs; PIN at
 ## 8. Known gaps (honest list)
 
 No media bridge; no browser voice gateway; no real-carrier run of anything; taxes are a flat percentage (no jurisdiction logic, no VAT handling); no invoice system (references stay empty); no number porting; no SMS; no caller-ID verification flow beyond an administrator flag; no organization hierarchy (extensions, queues, business hours, routing); admin is a server-owner list, not a role system; carrier suspension of an account is detected only when Test connection (or a later health check) runs; Edge, Safari and screen-reader audit not done; Firefox covers only part of the UI tests.
+
+## Update (v2.2)
+
+New in v2.2: independent feature flags (`PHONE_FEATURES`), per-preference activation with carrier read-back and drift detection (`sql/v4_15_telephony_features.sql`; the Twilio adapter supports none of these settings yet), and a support-ticket workflow with staff scope. See `PHONE_V2_2_HARDENING.md`. The bridge approach, based on an audit of Meet's mesh WebRTC design, is in `TELEPHONY_BRIDGE_ARCHITECTURE.md`.

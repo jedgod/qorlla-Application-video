@@ -69,3 +69,17 @@ Supersedes the earlier "no provider adapter / no administrator roles" rows. **Re
 | Release gates (`dialin`, `carrier`, `bridge`, `billing`) | PASS (mechanism) | Recorded only by `scripts/phone-certify.mjs` with an evidence file; none are certified. |
 | PSTN-WebRTC media gateway | BLOCKED | Not built. |
 | Real-carrier certification (T01-T07) | NOT STARTED | Needs a carrier account, a gateway, real phones and sign-off. |
+
+## v2.2 update (see `docs/PHONE_V2_2_HARDENING.md`)
+
+| Area | Status | Notes |
+|---|---|---|
+| Support-ticket workflow (7 states, roles, staff scope, internal notes, history, redaction, customer replies, notifications) | PASS | Tested through an isolated permission matrix and the real screens. No SLA timers or attachments. Ticket data is still a JSON file. |
+| Secret redaction in tickets | PARTIAL | Catches PINs/passcodes/tokens/keys/long runs; cannot catch a bare short PIN with no nearby keyword. |
+| Settings: saved vs enforced | PASS (mechanism) | Per-setting registry, read-back confirmation, drift detection, tested with a fake carrier. The real adapter supports none yet, so all show saved-inactive. |
+| Independent feature flags | PASS | `PHONE_FEATURES`, default none. |
+| Microphone privacy and cleanup | PASS | No capture without a click; tracks stopped on finish, failure, leaving, and late arrival. Synthetic device only. |
+| Browsers | PARTIAL | Chromium, Firefox, Edge (installed), WebKit engine (not Safari), Pixel 7 emulation. No real Safari/phones. |
+| Accessibility | PARTIAL | axe: no serious/critical violations on all Phone screens; keyboard tested. No NVDA/VoiceOver audit. |
+| Real microphone/speaker hardware | OPEN | Not tested. |
+| Audio bridge | OPEN | Architecture chosen and documented (`TELEPHONY_BRIDGE_ARCHITECTURE.md`); not built. |

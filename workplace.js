@@ -42,7 +42,7 @@ function recurrenceOf(i) {
     return { repeat: i.seriesRepeat, count: n, index: idx + 1, label: 'Recurring (' + n + ' occurrences)', detail: every + ', until ' + until + ' (' + n + ' occurrences)', occurrence: (idx + 1) + ' of ' + n };
 }
 
-module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, updateMeeting, closeMeeting, isMeetingFinished, auth, mailer, notify }) {
+module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, updateMeeting, closeMeeting, isMeetingFinished, auth, mailer, notify, phoneSettingsChanged }) {
     const dir = path.join(dataDir, 'workplace');
     const seedDir = path.join(__dirname, 'seed');
     const router = express.Router();
@@ -238,7 +238,8 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
     const PHONE_ENUMS = { ringtone: ['classic', 'soft', 'chime'], notifyChannel: ['browser', 'email', 'both'], historyRetentionDays: [0, 30, 90, 365] };
     const PHONE_SENSITIVE = ['forwardEnabled', 'forwardTo', 'voicemailEnabled', 'blockedNumbers', 'spamProtection', 'doNotDisturb'];
     const readPhone = (user) => ({ ...PHONE_DEFAULTS, ...(store.readJson(file(userKey('phonesettings', user)), {}) || {}) });
-    router.get('/phone-settings', requireUser, (req, res) => res.set('Cache-Control', 'no-store').json(readPhone(req.user)));
+    const tellCarrierSide = (user, settings) => { if (typeof phoneSettingsChanged === 'function') { try { Promise.resolve(phoneSettingsChanged(user, settings)).catch(() => {}); } catch (e) { /* the preference is saved either way */ } } };   // what you SAVED is passed on; Meet decides what is actually ENFORCED
+    router.get('/phone-settings', requireUser, (req, res) => { const cur = readPhone(req.user); tellCarrierSide(req.user, cur); res.set('Cache-Control', 'no-store').json(cur); });
     router.get('/phone-audit', requireUser, (req, res) => res.set('Cache-Control', 'no-store').json((store.readJson(file(userKey('phoneaudit', req.user)), []) || []).slice(-50).reverse()));
     router.put('/phone-settings', requireUser, (req, res) => {
         const b = req.body || {}, cur = readPhone(req.user), next = { ...cur };
@@ -254,7 +255,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
             if (badNum !== undefined) return bad(res, 'Blocked numbers must be international, such as +12025550100.'); next.blockedNumbers = list;
         }
         const changed = PHONE_SENSITIVE.filter((k) => JSON.stringify(next[k]) !== JSON.stringify(cur[k]));
-        save(userKey('phonesettings', req.user), next);
+        save(userKey('phonesettings', req.user), next); tellCarrierSide(req.user, next);
         if (changed.length) { const log = store.readJson(file(userKey('phoneaudit', req.user)), []) || []; log.push({ at: nowIso(), changed, blocked: next.blockedNumbers.length }); save(userKey('phoneaudit', req.user), log.slice(-200)); }
         const carrier = ['forwardEnabled', 'forwardTo', 'voicemailEnabled', 'voicemailGreeting'].some((k) => k in b);
         res.json({ ...next, active: false, note: carrier ? 'Saved. Forwarding and voicemail take effect once carrier calling is connected; nothing is forwarded or recorded today.' : 'Saved.' });
@@ -268,24 +269,8 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         res.set('Cache-Control', 'no-store').json({ categories: HELP.CATEGORIES, articles: list });
     });
     router.get('/phone-help/articles/:slug', requireUser, (req, res) => { const a = HELP.ARTICLES.find((x) => x.slug === req.params.slug); if (!a) return missing(res); res.json(a); });
-    crud('phone-tickets', {
-        sort: (x, y) => String(y.createdAt).localeCompare(String(x.createdAt)),
-        sanitize(body) {
-            const v = { subject: str(body.subject, 120), category: HELP.CATEGORIES.includes(body.category) ? body.category : 'Troubleshooting', description: str(body.description, 2000), reference: /^[a-f0-9]{6,20}$/.test(String(body.reference || '')) ? String(body.reference) : '' };
-            if (!v.subject) return { error: 'Add a short subject.' }; if (v.description.length < 10) return { error: 'Describe the problem in a few words (at least 10 characters).' };
-            if (/\b\d{8}\b/.test(v.description + ' ' + v.subject)) return { error: 'Please remove PINs and passwords (8-digit numbers) from the ticket.' };
-            return { value: v };
-        },
-        create: async (item, body, user) => {
-            if (load(userKey('phone-tickets', user), 'phone-tickets').length >= 50) throw new Error('You have 50 open tickets. Delete some before sending more.');
-            const out = { ...item, ref: 'T-' + crypto.randomBytes(3).toString('hex').toUpperCase(), status: 'open', createdAt: nowIso(), notified: false };
-            const to = process.env.SUPPORT_EMAIL || '';
-            if (mailer.enabled && mailer.isValidAddress(to)) {
-                try { const r = await mailer.send({ to, subject: '[Qorlla Phone ' + out.ref + '] ' + item.subject, replyTo: user.emailVerified && user.email ? user.email : undefined, text: 'From: ' + user.displayName + ' (@' + user.username + ')\nCategory: ' + item.category + (item.reference ? '\nDiagnostics reference: ' + item.reference : '') + '\n\n' + item.description }); out.notified = r.status === 'sent'; } catch (e) { out.notified = false; }
-            }
-            return out;
-        }
-    });
+    // Support tickets: a shared store with a real workflow, staff scope, redaction and history (support-tickets.js)
+    require('./support-tickets')({ dataDir, auth, mailer, notify }).register(router, requireUser);
 
     // ---------- external email ----------
     // Only accounts with a VERIFIED email may send outside, which keeps this from becoming an open

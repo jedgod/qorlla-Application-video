@@ -54,6 +54,7 @@ export function verifyWebhookHmac({ rawBody, signature, secret }) {   // generic
 
 // What each capability needs before it may say "active". Evidence comes from the database, never from configuration alone.
 export function deriveCapabilities(e) {
+  const off = (g, msg) => ((e.flagsOff || []).includes(g) ? 'Certified, but switched off by the PHONE_FEATURES setting.' : msg);   // an independent feature flag, on top of the certified gate
   const providerActive = !!(e.providerConfigured && e.healthOk && e.webhookVerified);
   const row = (status, detail, proof = []) => ({ status, detail, proof });
   const provider = !e.providerConfigured ? row('not_connected', 'No carrier is configured on this server.')
@@ -62,16 +63,16 @@ export function deriveCapabilities(e) {
     : row('active', 'Carrier API and signed webhooks verified.', ['API health check ' + e.healthCheckedAt, 'Signed webhook received ' + e.webhookVerifiedAt]);
   const dialin = !providerActive ? row('not_connected', 'Needs a connected carrier.')
     : e.dialInCount === 0 ? row('not_connected', 'No shared dial-in numbers are provisioned.')
-    : !e.gates.dialin ? row('pending', e.dialInCount + ' provider-confirmed dial-in number(s), but inbound routing is not certified.', [e.dialInCount + ' active dial-in number(s)'])
+    : !e.gates.dialin ? row('pending', off('dialin', e.dialInCount + ' provider-confirmed dial-in number(s), but inbound routing is not certified.'), [e.dialInCount + ' active dial-in number(s)'])
     : row('active', e.dialInCount + ' dial-in number(s) with certified inbound routing.', ['Certified ' + e.gates.dialin]);
   const carrier = !providerActive ? row('off', 'Needs a connected carrier.')
-    : !e.gates.carrier ? row('off', 'Inbound and outbound calling is not certified.')
+    : !e.gates.carrier ? row('off', off('carrier', 'Inbound and outbound calling is not certified.'))
     : row('active', 'Inbound and outbound calls certified.', ['Certified ' + e.gates.carrier]);
   const number = e.personalNumbers > 0 ? row('active', e.personalNumbers + ' number(s) confirmed by the carrier.', ['Provider-confirmed assignment']) : row('unassigned', 'No number is assigned to you.');
   const bridge = !e.bridgeReady ? row('not_built', 'No SIP/RTP-to-Qorlla media gateway is installed. Telephone audio cannot reach the meeting.')
-    : !e.gates.bridge ? row('pending', 'A media gateway is installed but two-way meeting audio is not certified.')
+    : !e.gates.bridge ? row('pending', off('bridge', 'A media gateway is installed but two-way meeting audio is not certified.'))
     : row('active', 'Two-way telephone audio certified.', ['Certified ' + e.gates.bridge]);
-  const billing = !e.gates.billing ? row('not_connected', 'Telephony billing is not certified. Paid calling stays off.')
+  const billing = !e.gates.billing ? row('not_connected', off('billing', 'Telephony billing is not certified. Paid calling stays off.'))
     : e.reconciledUsage === 0 ? row('pending', 'Billing is certified but no provider usage has been reconciled yet.')
     : row('active', e.reconciledUsage + ' usage record(s) reconciled with provider charges.', ['Certified ' + e.gates.billing]);
   return { provider, dialin, carrier, number, bridge, billing,

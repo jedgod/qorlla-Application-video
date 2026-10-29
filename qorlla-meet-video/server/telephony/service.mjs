@@ -1,4 +1,5 @@
 // Qorlla Telephony v2 service: authorization, workflows, workers and the usage ledger. Every action is checked here, whatever the page sent.
+import { FEATURES, FEATURE_IDS, cleanDesired, hashOf, evaluateFeature, featureSupport } from './features.mjs';
 import { err, normalizeE164, assertAdmin, assertActor, screenDestination, allowedCountries, nextState, fromTwilioStatus, TERMINAL, deriveCapabilities } from './core.mjs';
 
 const KEY = /^[A-Za-z0-9_.:-]{8,80}$/;
@@ -13,15 +14,18 @@ export class TelephonyService {
   // ------------------------------------------------------------------ evidence and capabilities
   async providerStatus() { const { rows: [r] } = await this.db.query('SELECT * FROM qphone_provider_status WHERE provider=$1', [this.carrier.name]); return r || null; }
   async gates() { const { rows } = await this.db.query('SELECT gate, certified_at FROM qphone_gates'); const g = {}; for (const r of rows) g[r.gate] = new Date(r.certified_at).toISOString(); return g; }
+  // Independent feature flags (PHONE_FEATURES, a comma list of: dialin, carrier, bridge, billing, settings). Default: none. A flag AND a certified gate are both required.
+  flags() { return new Set(String(this.env.PHONE_FEATURES || '').split(',').map((s) => s.trim()).filter(Boolean)); }
   async capabilities(actorId) {
-    const st = await this.providerStatus(), gates = await this.gates();
+    const st = await this.providerStatus(), certified = await this.gates(), flags = this.flags(), gates = {}, flagsOff = [];
+    for (const [k, v] of Object.entries(certified)) { if (flags.has(k)) gates[k] = v; else flagsOff.push(k); }
     const one = async (sql, p = []) => Number((await this.db.query(sql, p)).rows[0].n);
     const caps = deriveCapabilities({ providerConfigured: this.carrier.configured, healthOk: !!(st && st.health_ok), healthCheckedAt: st && st.health_checked_at ? new Date(st.health_checked_at).toISOString() : null,
       webhookVerified: !!(st && st.webhook_verified_at), webhookVerifiedAt: st && st.webhook_verified_at ? new Date(st.webhook_verified_at).toISOString() : null, gates,
       dialInCount: await one("SELECT count(*)::int AS n FROM qphone_numbers WHERE kind='dialin' AND state='active'"),
       personalNumbers: actorId ? await one("SELECT count(*)::int AS n FROM qphone_numbers WHERE kind='personal' AND state='active' AND assigned_to=$1", [actorId]) : 0,
-      bridgeReady: !!this.bridge.ready, reconciledUsage: await one("SELECT count(*)::int AS n FROM qphone_usage WHERE state='reconciled'") });
-    return { ...caps, carrierName: this.carrier.name, webhookConfigured: !!this.carrier.webhookConfigured };
+      flagsOff, bridgeReady: !!this.bridge.ready, reconciledUsage: await one("SELECT count(*)::int AS n FROM qphone_usage WHERE state='reconciled'") });
+    return { ...caps, carrierName: this.carrier.name, webhookConfigured: !!this.carrier.webhookConfigured, flags: [...flags] };
   }
   async testConnection(actor) {
     assertAdmin(actor);
@@ -193,5 +197,46 @@ export class TelephonyService {
     return { provider: { name: this.carrier.name, configured: this.carrier.configured, healthOk: !!(st && st.health_ok), healthCheckedAt: st && st.health_checked_at, healthDetail: st && st.health_detail, webhookConfigured: !!this.carrier.webhookConfigured, webhookVerifiedAt: st && st.webhook_verified_at },
       capabilities: caps, calls: await this.listCalls(actor), audit: actor.admin ? (await this.db.query('SELECT at, action, subject FROM qphone_audit ORDER BY id DESC LIMIT 20')).rows : undefined };
   }
-  async tick() { const out = {}; for (const [k, f] of [['provisioned', () => this.runProvisioning()], ['placed', () => this.runCalls()], ['reconciled', () => this.reconcileUsage()]]) { try { out[k] = await f(); } catch (e) { console.error('[telephony]', k, e.message); } } return out; }
+  // ------------------------------------------------------------------ saved preferences vs what the carrier enforces
+  // DESIRED state is what the user saved. ACTIVE means the carrier adapter applied it and we READ IT BACK. Anything else is "saved, inactive" with the reason, never "on".
+  async setDesired(actor, input) {
+    assertActor(actor); const d = cleanDesired(input), changed = [];
+    for (const [feature, cfg] of Object.entries(d)) {
+      const hash = hashOf(cfg), { rows: [old] } = await this.db.query('SELECT desired_hash, state FROM qphone_feature_state WHERE owner_id=$1 AND feature=$2', [actor.id, feature]);
+      if (old && old.desired_hash === hash && old.state !== 'failed') continue;               // unchanged (saving again retries a failed one)
+      const state = cfg.enabled || (old && ['active', 'drift', 'requested'].includes(old.state)) ? 'requested' : 'off';
+      await this.db.query('INSERT INTO qphone_feature_state(owner_id,feature,desired,desired_hash,state) VALUES($1,$2,$3,$4,$5) ON CONFLICT (owner_id,feature) DO UPDATE SET desired=EXCLUDED.desired, desired_hash=EXCLUDED.desired_hash, state=EXCLUDED.state, error_code=NULL, updated_at=now()', [actor.id, feature, JSON.stringify(cfg), hash, state]); changed.push(feature);
+    }
+    if (changed.length) await this.audit(actor.id, 'features.desired', null, { changed }); return this.featureStatus(actor);
+  }
+  async featureStatus(actor) {
+    assertActor(actor); const caps = await this.capabilities(actor.id), sup = featureSupport(this.carrier), flagOn = this.flags().has('settings');
+    const { rows } = await this.db.query('SELECT * FROM qphone_feature_state WHERE owner_id=$1', [actor.id]), by = new Map(rows.map((r) => [r.feature, r])), features = {};
+    for (const id of FEATURE_IDS) {
+      const rec = by.get(id) || null, ev = evaluateFeature({ desired: rec ? rec.desired : null, record: rec, providerConfigured: this.carrier.configured, providerActive: caps.provider.status === 'active', flagOn, hasNumber: caps.number.status === 'active', supported: sup.has(id) });
+      features[id] = { label: FEATURES[id].label, enabled: !!(rec && rec.desired && rec.desired.enabled), state: ev.state, reason: ev.reason, checkedAt: rec ? rec.checked_at : null };
+    }
+    return { features, enforcing: Object.values(features).filter((f) => f.state === 'active').length };
+  }
+  async runFeatures() {
+    if (!this.carrier.configured || typeof this.carrier.applyFeature !== 'function' || typeof this.carrier.readFeature !== 'function' || !this.flags().has('settings')) return 0;
+    const sup = featureSupport(this.carrier), { rows } = await this.db.query("SELECT * FROM qphone_feature_state WHERE state IN ('requested','active','drift') ORDER BY updated_at LIMIT 50"); let n = 0;
+    for (const r of rows) {
+      if (!sup.has(r.feature)) continue; const caps = await this.capabilities(r.owner_id); if (caps.provider.status !== 'active') continue;
+      const { rows: [num] } = await this.db.query("SELECT provider_number_id FROM qphone_numbers WHERE kind='personal' AND state='active' AND assigned_to=$1 ORDER BY created_at LIMIT 1", [r.owner_id]); if (!num) continue;
+      const ref = { providerNumberId: num.provider_number_id, feature: r.feature };
+      try {
+        if (r.state === 'active') {                                                            // reconcile: does the carrier still hold what we asked for?
+          const same = hashOf(await this.carrier.readFeature(ref)) === r.desired_hash; await this.db.query('UPDATE qphone_feature_state SET checked_at=now(), state=$3 WHERE owner_id=$1 AND feature=$2', [r.owner_id, r.feature, same ? 'active' : 'drift']);
+          if (!same) await this.audit(r.owner_id, 'feature.drift', r.feature, {}); n++; continue;
+        }
+        await this.carrier.applyFeature({ ...ref, config: r.desired });
+        const ok = hashOf(await this.carrier.readFeature(ref)) === r.desired_hash, final = ok ? (r.desired.enabled ? 'active' : 'off') : 'failed';
+        await this.db.query("UPDATE qphone_feature_state SET state=$3, error_code=$4, confirmed_at=CASE WHEN $3 IN ('active','off') THEN now() ELSE confirmed_at END, checked_at=now(), updated_at=now() WHERE owner_id=$1 AND feature=$2", [r.owner_id, r.feature, final, ok ? null : 'NOT_CONFIRMED']);
+        await this.audit(r.owner_id, 'feature.' + final, r.feature, {}); n++;
+      } catch (e) { await this.db.query("UPDATE qphone_feature_state SET state='failed', error_code=$3, checked_at=now() WHERE owner_id=$1 AND feature=$2", [r.owner_id, r.feature, String(e.code || 'APPLY_FAILED').slice(0, 60)]); await this.audit(r.owner_id, 'feature.failed', r.feature, { code: e.code || 'APPLY_FAILED' }); }
+    }
+    return n;
+  }
+  async tick() { const out = {}; for (const [k, f] of [['provisioned', () => this.runProvisioning()], ['placed', () => this.runCalls()], ['reconciled', () => this.reconcileUsage()], ['features', () => this.runFeatures()]]) { try { out[k] = await f(); } catch (e) { console.error('[telephony]', k, e.message); } } return out; }
 }
