@@ -1,0 +1,152 @@
+{
+  "QVE-01": {
+    "title": "PostgreSQL transactions atomically commit call state and outbox rows",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-02": {
+    "title": "Redis down during call creation: event retained, later delivered",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-03": {
+    "title": "Crash after publish before outbox acknowledgment: replay/dedupe correct",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-04": {
+    "title": "Two voice nodes: cross-node call, answer, ICE exchange",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-05": {
+    "title": "Server restart: missed events replay, state converges",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-06": {
+    "title": "Device takeover: stale lease cannot signal or continue media",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-07": {
+    "title": "Concurrent calls and idempotency under load",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-08": {
+    "title": "Browser permission, hangup, ICE restart and TURN relay",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-09": {
+    "title": "Two physical devices on different networks with real audio",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-10": {
+    "title": "Redis/Postgres failure, recovery, backpressure, restart",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-11": {
+    "title": "AuthZ, WebSocket ticket replay, rate limits, abuse tests (independent reviewer)",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-12": {
+    "title": "Metrics, alerts, on-call and rollback drill",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-13": {
+    "title": "Accessibility and browser compatibility matrix",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-14": {
+    "title": "Privacy, retention, deletion, logs, secret handling review (independent reviewer)",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  },
+  "QVE-15": {
+    "title": "Qorlla Meet integration: meeting occurrence, host admission, attendance",
+    "status": "PENDING",
+    "evidence": "",
+    "operator": "",
+    "reviewer": "",
+    "environment": "",
+    "revision": "",
+    "timestamp": ""
+  }
+}

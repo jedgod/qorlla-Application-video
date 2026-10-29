@@ -1,42 +1,62 @@
-# Qorlla Voice Engine v1.0 + v1.1 (self-hosted internet calls)
+# Qorlla Voice Engine (v1.0 - v1.9): self-hosted internet calls
 
-One-to-one voice calls between Qorlla accounts over the internet. No Twilio, no carrier account. This does **not** call ordinary mobile or landline numbers; that needs a separate public-telephone connection.
+Qorlla-to-Qorlla voice over the internet, with no Twilio and no carrier account: one-to-one calls and group calls (up to 6 people). It does **not** call ordinary mobile or landline numbers; that needs a separate public-telephone connection (the carrier adapter stays disabled).
 
-**Status: development foundation. NOT production ready** (see "Not done").
+**Status: development / pre-production. Release status: BLOCKED.** Version 1.9 does not establish production readiness: that needs the real deployment to pass integration, security, failover and real-audio testing. See [VOICE_CERTIFICATION.md](VOICE_CERTIFICATION.md) for every gate (DR-01..10, QVE-01..15) and exactly what evidence exists. **Voice is off in the main app unless `QORLLA_VOICE_ENABLED=true` and `VOICE_ADMIN_SECRET` are both set**; keep it off in production until the gate passes.
 
-## Parts
-| Part | Where |
+## What was built, by version
+| Version | Added |
 |---|---|
-| Voice engine (Express + ws + PostgreSQL), port 4600 | `qorlla-voice-engine/` |
-| Main-app side: ES256 token minting, JWKS, directory, SDK hosting | `voice.js`, wired in `server.js` |
-| Browser UI (Phone: extension dialling, colleagues, incoming dialog, call bar, history, Diagnostics) | `qorlla.html` |
-| Dev stack | `scripts/dev-stack.mjs` starts the engine, applies `sql/001` and `sql/002` |
+| 1.0 | Identities and extensions, call state machine, ES256 identity tokens + JWKS, WebSocket signaling, self-hosted STUN/TURN credentials, PostgreSQL persistence, usage from server timestamps, browser SDK, Phone page integration |
+| 1.1 | One-use 45 s WebSocket tickets (only the SHA-256 hash stored, consumed atomically), exact origin allowlist, SDP/ICE relayed only for accepted calls, 60 s ring timeout + missed calls + audit event |
+| 1.2 | Device ownership: each participant of a call has one media device (a lease, renewed every 30 s); ICE restart and glare handling in the browser; fail-closed TURN policy (`VOICE_REQUIRE_TURN`, `VOICE_RELAY_ONLY`) |
+| 1.3 | Several engine replicas on one PostgreSQL, with Redis Pub/Sub carrying delivery between them |
+| 1.4 | Transactional outbox + durable event log (PostgreSQL), replay/ack, resume after reconnect, duplicate-safe delivery, generation fencing of devices, backpressure that fails closed, stale-lease cleanup, operator metrics |
+| 1.5 | Group calls: rooms with a host, invitations, roster, kick/leave/end, full-mesh WebRTC, per-seat device fencing |
+| 1.6-1.7 | Replay/ack and device fencing as supplied in the v1.5-v1.9 pack, integrated and extended (the browser SDK sends generation-fenced SDP/ICE, stops media on takeover and on lease loss) |
+| 1.8 | Two-node staging: `Dockerfile`, `deploy/docker-compose.staging.yml` (PostgreSQL with least-privilege roles, password-protected Redis, a migration job, two replicas), strict readiness endpoint `/v1/voice/operational/readiness`, `scripts/staging-smoke.mjs` |
+| 1.9 | Release gate (`npm run release:gate`, QVE-01..15), certification record table, server-side consumer dedupe (`voice_delivery_dedupe`), the `QORLLA_VOICE_ENABLED` switch, and the audit fixes: **event ordering under concurrent transactions** (per-account event locks, deadlock retry, version guards), least-privilege roles |
 
-## How it works
-- The main app signs a 300 s ES256 token (iss `qorlla-main`, aud `qorlla-voice`) with a key kept in `DATA_DIR/voice-signing.json`; the engine verifies it against `/.well-known/voice-jwks.json`. The private key never leaves the main app.
-- Each account gets an extension (from 2000). Dial 3-8 digits without `+` in the Phone Dial Pad.
-- Signaling WebSocket uses a one-use ticket: 32 random bytes, only the SHA-256 hash stored, 45 s lifetime, bound to account and origin, consumed atomically. It travels in the `Sec-WebSocket-Protocol` header, not the URL.
-- SDP/ICE is relayed only for an accepted (`active`) call; offers only from the caller, answers only from the callee.
-- Calls ring 60 s (`VOICE_RING_SECONDS`), then become `missed` with an audit event. One live call per account is enforced in the database.
-- Usage and call length are measured by the server (answered to ended), never taken from clients.
-- The microphone opens only when a call is started/answered and is stopped when it ends.
+## Architecture
+- `qorlla-voice-engine/` is a standalone Node service (express, ws, pg, jose, redis). **PostgreSQL is the source of truth.** Redis is optional and only moves messages between replicas; if it is down, calls on the same node keep working and committed events wait in the outbox.
+- A state change and the durable events about it (`incoming`, `state`, `device_revoked`, `device_claimed`, `room_invite`, `room_state`) commit in **one transaction** (`src/store.mjs`, `src/rooms.mjs`, `src/reliability.mjs`). A worker (`src/outbox.mjs`, one per replica, `FOR UPDATE SKIP LOCKED`) publishes them at least once. Browsers apply each event id once.
+- SDP and ICE are transient (never stored). A lost signal means the browser renegotiates (ICE restart).
+- A reconnecting device sends `resume` with its last event id, receives what it missed (only its own account's events), then reconciles with `GET /calls/live` and `GET /rooms/live`.
+- Fencing: every SDP/ICE message carries the sender's **generation**. The engine reads the current lease from PostgreSQL for every message, so every replica decides identically. A device that was replaced gets `device_revoked`, stops its media at once, and cannot signal, renew, or fail the call.
+- `src/store.mjs` ties it together with advisory locks per account, so an account is in at most one call or joined room.
+- **Ordering:** every event writer takes a per-account lock before inserting and holds it to COMMIT, so for one account event-id order equals commit order and a replay cursor can never skip an event. Clients also ignore a call/room state older than the one they hold.
+- Group calls are a full mesh: the member who joined later makes the offer to each earlier member. The server relays signaling only; it never carries or records audio.
+- Main app: `voice.js` mints the 300 s ES256 token, publishes the JWKS, serves the SDK (`/voice-client.js`), and provisions identities through the admin API (the admin secret never reaches a browser).
 
 ## Configuration (engine)
-`PORT`, `DATABASE_URL`, `VOICE_JWKS_URL`, `VOICE_JWT_ISSUER`, `VOICE_JWT_AUDIENCE`, `VOICE_ALLOWED_ORIGIN` (exact origins, comma separated), `VOICE_ADMIN_SECRET` (>= 32 chars, else admin API returns 503), `VOICE_WS_QUERY_TICKET=off` (disable the `?ticket=` fallback in production), `VOICE_RING_SECONDS`, `STUN_URL`, `TURN_URLS` + `TURN_SHARED_SECRET` (coturn REST credentials). No public STUN default is used.
-Main app: `VOICE_ADMIN_SECRET` (same value), `VOICE_PORT` or `VOICE_URL` (public engine URL), `VOICE_INTERNAL_URL`. With no secret, Voice is off and the Phone page says it is not set up.
+`PORT`, `DATABASE_URL`, `VOICE_JWKS_URL`, `VOICE_JWT_ISSUER`, `VOICE_JWT_AUDIENCE`, `VOICE_ALLOWED_ORIGIN` (exact origins), `VOICE_ADMIN_SECRET` (>= 32 chars, otherwise the admin API answers 503), `VOICE_WS_QUERY_TICKET=off` (keep tickets out of URLs), `VOICE_RING_SECONDS`, `STUN_URL`, `TURN_URLS` + `TURN_SHARED_SECRET`, `VOICE_REQUIRE_TURN`, `VOICE_RELAY_ONLY`, `REDIS_URL`, `VOICE_OUTBOX_MAX_PENDING`, `VOICE_OUTBOX_MAX_AGE_SECONDS`, `VOICE_OUTBOX_INTERVAL_MS`, `VOICE_LEASE_GRACE_SECONDS`, `VOICE_EVENT_RETENTION_HOURS`, `PG_POOL_MAX`, `VOICE_READY_MAX_LAG_SECONDS`. See `qorlla-voice-engine/.env.example`. Main app: `QORLLA_VOICE_ENABLED=true`, `VOICE_ADMIN_SECRET` (same value), `VOICE_PORT` or `VOICE_URL`, `VOICE_INTERNAL_URL`. With no secret, Voice is off and the Phone page says so.
 
-## Deploying
-Run the engine behind TLS (wss). Do not log query strings at the proxy. Deploy coturn for calls across different networks and set `TURN_*`.
+Migrations (`sql/001`-`006`, additive and idempotent; `npm run db:migrate`, or `npm run dev:stack` applies them): identities and calls, tickets, devices/leases, reliability (events, outbox, cursors), group rooms, operations (consumer dedupe, certification runs).
 
-## Verified
-- Engine: 47 unit/integration tests (real PostgreSQL schema, real JWKS, real sockets): ticket replay/expiry/origin, concurrency races, relay rules, ring timeout, suspension, ICE config.
-- `tests/voice-engine.spec.js` (5 tests, Chromium): two real browsers hold a real WebRTC call with a synthetic microphone: ring, answer, audio bytes both ways over Opus with sound energy, mute, hang-up, microphones closed afterwards, history on both sides, decline, missed, refused microphone, answering on one of two devices, busy, bad extension, own extension, accessibility (axe), no secrets in engine log, Voice-off page.
-- Existing Phone, hardening and telephony suites still pass on Chromium (38 passed). One existing test ("waiting room", dial-in against the real Meet server) fails, and fails the same way on a clean HEAD checkout; it is unrelated to this work.
+**Deployment (staging):** `deploy/docker-compose.staging.yml` runs PostgreSQL (the bootstrap creates a migration role that owns the schema and an app role with data access only, `deploy/roles.sql`), Redis with a password, a one-shot migration job and two replicas from one image. The services connect as the app role. Then `node scripts/staging-smoke.mjs http://127.0.0.1:4601 http://127.0.0.1:4602` (it plays the identity provider). Staging only: no TLS, load balancer or coturn.
 
-## Not done (blocks production)
-- Reconnect, ICE restart, device leases, two-device certification (v1.2 milestone; the v1.2/v1.3 folders were not implemented).
-- Group calls and Qorlla Meet media integration.
-- TURN not deployed or tested; calls across different networks, real microphones/speakers, Firefox/Safari/mobile WebRTC untested.
-- Single engine instance only (no Redis fan-out).
-- Dev-stack restart with the engine was not run in this session; the engine and main app were exercised by the test harness instead.
-- Load and security review not done.
+## Operations runbook (draft: not yet exercised in a drill)
+- **Health:** `/healthz` (process); `/readyz` (database; answers `degraded: ["redis"]` when Redis is down but keeps serving, so a node keeps the calls it already holds); `/v1/voice/operational/readiness` (strict: 503 when Redis is configured but down or the oldest undelivered event is older than `VOICE_READY_MAX_LAG_SECONDS`, default 60). Use the strict one to decide where NEW calls may go, the lenient one for restarts.
+- **Alert on** `GET /v1/voice/admin/metrics` (admin secret): `outbox.pending`, `outbox.oldestSeconds` (alert well before the fail-closed limits `VOICE_OUTBOX_MAX_PENDING` / `VOICE_OUTBOX_MAX_AGE_SECONDS`), `outbox.failed`, `sockets.slowClosed`, `bus`.
+- **Redis down:** nothing to do for correctness. Events queue in PostgreSQL and drain when Redis returns. Cross-node signaling (SDP/ICE) is lost during the outage; calls renegotiate.
+- **Overloaded (`503 overloaded`):** new calls/rooms are refused while the backlog is over its limit; existing calls continue. Find why the worker is not draining (Redis, a stuck publisher, database).
+- **Rolling restart:** stop a replica (SIGTERM closes sockets with 1001); clients reconnect, resume from their cursor, and reconcile. In-flight events stay in the outbox. Restart one replica at a time.
+- **Retention:** delivered events older than `VOICE_EVENT_RETENTION_HOURS` are pruned; undelivered events never are. Keep the window longer than your longest expected client absence.
+- **Secrets:** rotate the signing key by publishing both keys in the JWKS; rotate `TURN_SHARED_SECRET` in coturn and the engine together; the admin secret is server-to-server only. Protect Redis with ACL + TLS: **anyone who can publish to the channel can inject signaling** (envelopes are validated for shape and age, not authenticated).
+- **Reverse proxy:** WSS only; do not log query strings; forward `Origin`.
+- **Rollback:** the migrations only add tables/columns. To roll the engine back, deploy the previous version: it ignores the new tables. Clients of the previous SDK cannot connect to v1.2+ (the ticket request now needs a device id), so roll the main app's `voice-client.js` back with it. Do not drop `voice_reliable_events`/`voice_outbox` while any replica of the new version runs.
+
+## Verified (and where)
+Everything below ran on **one machine**: real PostgreSQL (Docker), a disposable real Redis and coturn (our own containers), headless Chromium with a synthetic microphone.
+- Engine: 82 tests (`npm test` in `qorlla-voice-engine/`): atomic state+outbox with a simulated crash before COMMIT, ring timeout and suspension events, replay/ack rules and pagination, duplicate delivery, a dead worker's claim, device takeover and 12 concurrent claims, fail-closed backpressure, stale leases, two replicas with cross-node events/signaling/ownership, forged bus messages, Redis stopped and restarted, a replica killed and replaced mid-call, database connections killed, rooms (invite/join/kick/host transfer/end/expiry/caps/blocks), the SDK against a real engine, ICE policy, event ordering (a deterministic two-writer case and a 40-writer stress with a polling reader), the whole engine running as a least-privilege database role, the release gate.
+- Browsers (`tests/voice-engine.spec.js`, `tests/voice-reliability.spec.js`, `tests/voice-turn.spec.js`): one-to-one calls with audio both ways over Opus, decline/missed/busy/mic refused/second device ringing; a 3-browser group call with mute, leave and end-for-all; taking a call over on a second device; page reload mid-call; signaling socket drop; ICE restart, including both sides at once; the engine killed and restarted mid-call; a relay-only call through a real coturn.
+
+## Not done / known limits
+- **No physical-device test, no calls across different networks, no other browsers** (Firefox, Safari, mobile), no 30-minute soak, no load test.
+- **No PostgreSQL primary failover drill**, no measured RTO/RPO, no Redis cluster/Sentinel test, no separate hosts or load balancer.
+- **Meet audio integration is not done.** Bridging into Qorlla Meet's media needs a server-side participant on the Meet SFU, which is a separate project. `voice_rooms.meeting_ref` is groundwork only; nothing uses it.
+- TURN is tested with a throwaway container, not deployed. Redis authentication/TLS is not configured by this repo.
+- Group calls are a mesh (6 people max). Larger rooms need an SFU. Group call history is not listed in Recent Calls yet.
+- Two-node staging was run once in Docker on this machine (image build, roles, authenticated Redis, 15 smoke checks, then torn down). It is wiring evidence, not a staging certification.
+- Dev stack: `scripts/dev-stack.mjs` is wired for the engine (migrations, env, `VOICE_REDIS_URL`) but was not restarted in this session; restart it with `npm run dev:stack` to pick the engine up.
+- No PSTN, no emergency calling, no billing.

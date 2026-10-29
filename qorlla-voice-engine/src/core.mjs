@@ -10,6 +10,7 @@ export const validCallId = (v) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f
 export const validIdempotencyKey = (v) => typeof v === 'string' && /^[a-zA-Z0-9_-]{12,100}$/.test(v);
 export const validAccountId = (v) => typeof v === 'string' && /^[A-Za-z0-9_.:@-]{1,128}$/.test(v);
 export const newId = () => randomUUID();
+export const publicCall = (c) => ({ id: c.id, caller_id: c.caller_id, callee_id: c.callee_id, status: c.status, created_at: c.created_at, answered_at: c.answered_at, ended_at: c.ended_at, end_reason: c.end_reason || null, version: Number(c.version ?? 0) });
 
 /** Constant-time comparison of two secrets of any length. */
 export function secretEquals(a, b) {
@@ -34,7 +35,10 @@ export function iceServersFor(accountId, env = process.env, now) {
   if (stun.length) iceServers.push({ urls: stun });
   let turnOn = false;
   if (turn.length && env.TURN_SHARED_SECRET) { const c = turnCredentials(accountId, 600, now, env.TURN_SHARED_SECRET); iceServers.push({ urls: turn, username: c.username, credential: c.credential }); turnOn = true; }
-  return { iceServers, stun: stun.length > 0, turn: turnOn };
+  if (String(env.VOICE_REQUIRE_TURN || '').toLowerCase() === 'true' && !turnOn) throw Object.assign(new Error('turn_not_configured'), { code: 'turn_not_configured' });
+  const relayOnly = String(env.VOICE_RELAY_ONLY || '').toLowerCase() === 'true';
+  if (relayOnly && !turnOn) throw Object.assign(new Error('turn_not_configured'), { code: 'turn_not_configured' });
+  return { iceServers, iceTransportPolicy: relayOnly ? 'relay' : 'all', stun: stun.length > 0, turn: turnOn };
 }
 
 const MAX_SDP = 65536, MAX_CANDIDATE = 4096;

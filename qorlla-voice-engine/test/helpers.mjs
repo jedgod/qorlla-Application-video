@@ -16,9 +16,10 @@ export async function isolatedDb() {
   const url = testDbUrl(); if (!(await reachable(url))) return null;
   const schema = 'qv_' + Math.random().toString(36).slice(2, 10);
   const admin = new pg.Pool({ connectionString: url }); await admin.query('CREATE SCHEMA ' + schema);
-  const pool = new pg.Pool({ connectionString: url, options: '-c search_path=' + schema, max: 25 });
+  const pool = new pg.Pool({ connectionString: url, options: '-c search_path=' + schema, max: 25, application_name: 'qv_test_' + schema });
+  pool.on('error', () => { /* a test may kill connections on purpose */ });
   await migrate(pool);
-  return { pool, schema, async drop() { await pool.end(); await admin.query('DROP SCHEMA IF EXISTS ' + schema + ' CASCADE'); await admin.end(); } };
+  return { pool, schema, appName: 'qv_test_' + schema, admin, async drop() { await pool.end().catch(() => {}); await admin.query('DROP SCHEMA IF EXISTS ' + schema + ' CASCADE'); await admin.end(); } };
 }
 
 /** A real signing key, a real JWKS server, and a function that mints tokens the engine's real verifier accepts (or, with overrides, must refuse). */

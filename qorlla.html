@@ -285,6 +285,8 @@
   dialog.vi { border: 0; border-radius: 16px; padding: 22px 24px; width: min(380px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(15, 23, 42, .35); text-align: center; } dialog.vi::backdrop { background: rgba(15, 23, 42, .45); } .vi h2 { margin: 0 0 4px; font-size: 18px; } .vi-who { font-size: 20px; font-weight: 700; margin: 8px 0 4px; } .vi-sub { font-size: 13px; margin: 0 0 14px; } .vi-actions { display: flex; gap: 10px; justify-content: center; } .vi-actions .btn { min-width: 110px; }
   .btn.danger { background: #dc2626; color: #fff; border-color: #dc2626; } .btn.danger:hover { background: #b91c1c; }
   .vb { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 12px; background: #0f172a; color: #fff; border-radius: 999px; padding: 8px 10px 8px 16px; box-shadow: 0 10px 30px rgba(15, 23, 42, .4); max-width: calc(100vw - 24px); } .vb.hidden { display: none; } .vb-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; flex: none; } .vb-dot.ring { background: #f59e0b; animation: vbpulse 1.2s infinite; } @keyframes vbpulse { 50% { opacity: .3; } } @media (prefers-reduced-motion: reduce) { .vb-dot.ring { animation: none; } }
+  .vm { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 59; display: flex; align-items: center; gap: 12px; background: #fff; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 12px; padding: 10px 14px; box-shadow: 0 10px 30px rgba(15, 23, 42, .25); max-width: calc(100vw - 24px); font-size: 14px; } .vm.hidden, .vb .hidden { display: none; }
+  .qp-gsel { width: 20px; height: 20px; flex: none; accent-color: #2563eb; } .qp-ghead { display: flex; align-items: center; justify-content: space-between; gap: 8px; } .qp-ghead h3 { margin: 0; } .qp-gbar { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
   .vb-text { display: flex; flex-direction: column; min-width: 0; } .vb-text strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .vb-text small { color: #cbd5e1; font-size: 12px; } .vb .btn { white-space: nowrap; } .vb .btn:not(.danger) { background: #1e293b; color: #fff; border-color: #334155; } .vb .btn[aria-pressed=true] { background: #f59e0b; border-color: #f59e0b; color: #0f172a; }
   .qp-colleagues h3 { margin: 10px 0 4px; font-size: 14px; } .qp-colleague { gap: 10px; } .qp-av.sm { width: 30px; height: 30px; font-size: 11px; }
   .qp .muted, .qp small { color: #475569; }   /* 7:1 on white and still above 4.5:1 on the tinted hover backgrounds (axe colour-contrast) */
@@ -769,7 +771,9 @@
   <span class="vb-text"><strong id="vbPeer"></strong><small id="vbStatus" role="status" aria-live="polite"></small></span>
   <button type="button" class="btn small" id="vbMute" aria-pressed="false">Mute</button>
   <button type="button" class="btn small danger" id="vbEnd">End call</button>
+  <button type="button" class="btn small danger hidden" id="vbEndAll">End for everyone</button>
 </div>
+<div id="voiceMove" class="vm hidden" role="region" aria-label="Call on another device"><span id="vmText"></span><button type="button" class="btn small primary" id="vmHere">Continue here</button></div>
 <dialog id="startDialog" aria-labelledby="sdTitle" class="sd">
   <form id="startForm" novalidate>
     <header class="sd-head">
@@ -2280,16 +2284,19 @@
       dialList._add = function (n) { items = [{ n: n, at: Date.now() }].concat(items.filter(function (x) { return x.n !== n; })).slice(0, 20); save(items); paint(); };
       clr.addEventListener('click', function () { items = []; save(items); paint(); }); search.addEventListener('input', function () { q = search.value.trim(); paint(); });
       dialList.appendChild(h('div', { class: 'qp-jhead' }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '\uD83D\uDD52' }), h('div', {}, [h('h2', { id: 'qpRNH', text: I18n.t('Recent numbers') }), h('p', { class: 'muted qp-sub', text: I18n.t('Numbers you entered here are saved in this browser only. Real calling is not enabled yet.') })]), clr]));
-      var colBox = h('div', { class: 'qp-colleagues', id: 'qpColleagues' });
+      var colBox = h('div', { class: 'qp-colleagues', id: 'qpColleagues' }), groupMode = false, groupSel = {};
       function paintCol() {
         colBox.textContent = ''; if (!voice.cfg || !voice.cfg.enabled) return;
-        var others = voice.people.filter(function (p) { return !p.self; }); colBox.appendChild(h('h3', { text: I18n.t('Qorlla colleagues') }));
+        var others = voice.people.filter(function (p) { return !p.self; });
+        colBox.appendChild(h('div', { class: 'qp-ghead' }, [h('h3', { text: I18n.t('Qorlla colleagues') }), others.length > 1 ? h('button', { type: 'button', class: 'btn small', id: 'qpGroupBtn', 'aria-pressed': String(groupMode), text: groupMode ? I18n.t('Cancel group call') : I18n.t('Group call'), onclick: function () { groupMode = !groupMode; groupSel = {}; paintCol(); } }) : null]));
         if (!others.length) colBox.appendChild(h('p', { class: 'muted', id: 'qpNoColleagues', text: voice.ready ? I18n.t('No one else has used Qorlla Voice yet.') : I18n.t('Connecting to Qorlla Voice\u2026') }));
         others.slice(0, 8).forEach(function (p) {
           colBox.appendChild(h('div', { class: 'qp-nrow' }, [
-            h('button', { type: 'button', class: 'qp-recent-num qp-colleague', 'data-ext': p.extension, onclick: function () { dialCard._set(p.extension); } }, [h('span', { class: 'qp-av sm', 'aria-hidden': 'true', text: initials(p.displayName) }), h('span', { class: 'qp-nt' }, [h('strong', { text: p.displayName }), h('small', { class: 'muted', text: I18n.t('ext') + ' ' + p.extension })])]),
-            h('button', { type: 'button', class: 'qp-copy qp-callnow', 'aria-label': I18n.t('Call') + ' ' + p.displayName, title: I18n.t('Call'), disabled: !voice.ready, text: '\u260E', onclick: function () { voiceDial(p.extension); } })]));
+            groupMode ? h('input', { type: 'checkbox', class: 'qp-gsel', 'aria-label': I18n.t('Add') + ' ' + p.displayName + ' ' + I18n.t('to the group call'), checked: !!groupSel[p.extension], onchange: function (ev) { if (ev.target.checked) groupSel[p.extension] = true; else delete groupSel[p.extension]; var n = Object.keys(groupSel).length, go = $('qpGroupGo'); if (go) { go.disabled = n < 1 || n > 5 || !voice.ready; go.textContent = I18n.t('Start group call') + (n ? ' (' + n + ')' : ''); } } }) : null,
+            h('button', { type: 'button', class: 'qp-recent-num qp-colleague', 'data-ext': p.extension, onclick: function () { if (groupMode) { var cb = this.parentNode.querySelector('.qp-gsel'); if (cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); } } else dialCard._set(p.extension); } }, [h('span', { class: 'qp-av sm', 'aria-hidden': 'true', text: initials(p.displayName) }), h('span', { class: 'qp-nt' }, [h('strong', { text: p.displayName }), h('small', { class: 'muted', text: I18n.t('ext') + ' ' + p.extension })])]),
+            groupMode ? null : h('button', { type: 'button', class: 'qp-copy qp-callnow', 'aria-label': I18n.t('Call') + ' ' + p.displayName, title: I18n.t('Call'), disabled: !voice.ready, text: '\u260E', onclick: function () { voiceDial(p.extension); } })]));
         });
+        if (groupMode) { var n = Object.keys(groupSel).length; colBox.appendChild(h('div', { class: 'qp-gbar' }, [h('button', { type: 'button', class: 'btn small primary', id: 'qpGroupGo', disabled: n < 1 || n > 5 || !voice.ready, text: I18n.t('Start group call') + (n ? ' (' + n + ')' : ''), onclick: function () { var exts = Object.keys(groupSel); groupMode = false; groupSel = {}; paintCol(); voiceGroupStart(exts); } }), h('small', { class: 'muted', text: I18n.t('Up to 5 colleagues. Audio is connected directly between participants.') })])); }
       }
       voiceOff.push(voiceOn(paintCol)); paintCol(); voiceInit().then(function () { if (voice.ready) voiceLoadPeople(); });
       dialList.appendChild(colBox); dialList.appendChild(search); dialList.appendChild(box); paint();
@@ -3441,7 +3448,7 @@
   // Qorlla Voice: self-hosted internet calls between Qorlla accounts. The engine is a separate service; nothing here involves a carrier or a phone number.
   // The microphone opens only when you start or answer a call, and is closed when the call ends.
   // =====================================================================
-  var voice = { cfg: null, client: null, ready: false, state: 'off', ext: null, people: [], tok: null, listeners: [], incoming: null, bar: null, tone: null, retry: 0, history: [] };
+  var voice = { cfg: null, client: null, ready: false, state: 'off', ext: null, people: [], tok: null, listeners: [], incoming: null, bar: null, tone: null, retry: 0, history: [], connected: {}, avail: null };
   function voiceOn(fn) { voice.listeners.push(fn); return function () { var i = voice.listeners.indexOf(fn); if (i >= 0) voice.listeners.splice(i, 1); }; }
   function voiceChanged() { voice.listeners.slice().forEach(function (f) { try { f(); } catch (e) { /* a view that is gone */ } }); }
   function voiceToken() {
@@ -3487,13 +3494,27 @@
     return voice.client.dial(ext).catch(function (e) { voiceToneStop(); voiceBar(false); toast(I18n.t(VOICE_ERR[e.code] || 'The call could not be placed.'), 'err'); });
   }
   function voiceIncomingShow(e) {
-    voice.incoming = { id: e.call.id, ext: e.from && e.from.extension }; var who = voice.incoming.ext ? voicePeerLabel(voice.incoming.ext) : I18n.t('A colleague');
+    var isRoom = !!e.room, id = isRoom ? e.room.id : e.call.id; voice.incoming = { id: id, room: isRoom, ext: e.from && e.from.extension }; var who = voice.incoming.ext ? voicePeerLabel(voice.incoming.ext) : I18n.t('A colleague');
+    if (isRoom) who = who + ' \u00B7 ' + I18n.t('group call') + ' (' + e.room.members.filter(function (m) { return m.status !== 'missed'; }).length + ' ' + I18n.t('people') + ')';
+    $('viTitle').textContent = isRoom ? I18n.t('Incoming Qorlla group call') : I18n.t('Incoming Qorlla call');
     $('viWho').textContent = who; var d = $('voiceIncoming'); if (!d.open) { try { d.showModal(); } catch (x) { d.setAttribute('open', ''); } } $('viAnswer').focus(); voiceTone('ring');
   }
   function voiceIncomingHide() { voice.incoming = null; voiceToneStop(); var d = $('voiceIncoming'); if (d.open) d.close(); }
   function voiceEvent(e) {
     if (e.type === 'ready') { voice.ext = e.extension; voiceChanged(); }
-    else if (e.type === 'incoming') voiceIncomingShow(e);
+    else if (e.type === 'incoming') { if (!(voice.client && (voice.client.callId || voice.client.room))) voiceIncomingShow(e); }
+    else if (e.type === 'room_invite') { if (!(voice.client && (voice.client.callId || voice.client.room))) voiceIncomingShow(e); }
+    else if (e.type === 'room_joined') { voiceIncomingHide(); voice.connected = {}; voiceRoomBar(); }
+    else if (e.type === 'room_state') { if (voice.incoming && voice.incoming.room && voice.incoming.id === e.room.id && e.room.status !== 'live') { voiceIncomingHide(); toast(I18n.t('The group call ended before you joined.')); } if (voice.client && voice.client.room && voice.client.room.id === e.room.id) voiceRoomBar(); }
+    else if (e.type === 'peer_connected') { voice.connected[e.account] = true; voiceToneStop(); voiceRoomBar(); }
+    else if (e.type === 'peer_unstable') { delete voice.connected[e.account]; voiceRoomBar(); }
+    else if (e.type === 'room_ended') { voiceToneStop(); voiceBar(false); voiceMoveHide(); voice.connected = {}; $('vbEnd').textContent = I18n.t('End call'); $('vbEndAll').classList.add('hidden'); toast(I18n.t(e.reason === 'ended_by_host' ? 'The host ended the group call.' : e.reason === 'removed' ? 'You were removed from the group call.' : 'The group call ended.')); voiceHistoryDirty(); }
+    else if (e.type === 'device_replaced') { voiceToneStop(); voiceBar(false); $('vbEnd').textContent = I18n.t('End call'); $('vbEndAll').classList.add('hidden'); toast(I18n.t('This call moved to another device.')); }
+    else if (e.type === 'lease_lost') { voiceToneStop(); voiceBar(false); toast(I18n.t('This device lost the call. Check your connection.'), 'err'); }
+    else if (e.type === 'call_available') voiceMoveShow({ kind: 'call', call: e.call, role: e.role, ext: e.peer_extension });
+    else if (e.type === 'room_available') voiceMoveShow({ kind: 'room', room: e.room });
+    else if (e.type === 'call_resumed') { voiceMoveHide(); if (e.room) voiceRoomBar(); else voiceBar(true, { peer: $('vbPeer').textContent || I18n.t('Qorlla call'), text: I18n.t('Connecting\u2026'), ringing: true }); }
+    else if (e.type === 'connection_recovering') { $('vbStatus').textContent = I18n.t('Reconnecting audio\u2026') + ' (' + e.attempt + ')'; }
     else if (e.type === 'call_accepted') { voiceToneStop(); voiceBar(true, { peer: voicePeerLabel(voice.peerExt || ''), text: I18n.t('Connecting\u2026'), ringing: true }); }
     else if (e.type === 'connected') { voiceToneStop(); var c = voice.client; voiceBar(true, { peer: $('vbPeer').textContent, since: c.startedAt || Date.now() }); }
     else if (e.type === 'state' && e.call) {
@@ -3501,7 +3522,7 @@
       if (e.call.status === 'missed' && voice.client && voice.client.callId === e.call.id) toast(I18n.t('No answer.'));
       voiceHistoryDirty();
     }
-    else if (e.type === 'call_ended') { voiceToneStop(); voiceBar(false); voice.peerExt = null; if (e.status === 'rejected') toast(I18n.t('The call was declined.')); else if (e.status === 'failed') toast(I18n.t('The call was lost.'), 'err'); else if (e.reason === 'account_disabled') toast(I18n.t('Qorlla Voice was turned off for this account.'), 'err'); else if (e.status !== 'missed') toast(I18n.t('Call ended.')); voiceHistoryDirty(); }
+    else if (e.type === 'call_ended') { voiceToneStop(); voiceBar(false); voiceMoveHide(); voice.peerExt = null; if (e.status === 'rejected') toast(I18n.t('The call was declined.')); else if (e.status === 'failed') toast(I18n.t('The call was lost.'), 'err'); else if (e.reason === 'account_disabled') toast(I18n.t('Qorlla Voice was turned off for this account.'), 'err'); else if (e.status !== 'missed') toast(I18n.t('Call ended.')); voiceHistoryDirty(); }
     else if (e.type === 'taken_elsewhere') { voiceIncomingHide(); toast(I18n.t('Answered on another device.')); }
     else if (e.type === 'mic_error') { voiceToneStop(); voiceBar(false); voiceIncomingHide(); toast(e.name === 'NotAllowedError' ? I18n.t('Microphone access was blocked. Allow it in the browser to take calls.') : I18n.t('No microphone could be used.'), 'err'); }
     else if (e.type === 'connection_failed') toast(I18n.t('The audio connection failed. Both people may need to be on the same network, or the server needs a TURN relay.'), 'err');
@@ -3510,11 +3531,27 @@
     else if (e.type === 'signaling_closed') { voice.ready = false; voice.state = 'connecting'; voiceChanged(); if (state.user) setTimeout(function () { if (state.user && !voice.ready) voiceConnect(); }, 1500); }
   }
   function voiceHistoryDirty() { voice.history = []; voiceChanged(); }
-  $('viAnswer').addEventListener('click', function () { var inc = voice.incoming; if (!inc) return; voiceToneStop(); voice.peerExt = inc.ext; $('viAnswer').disabled = true; voice.client.answer(inc.id).then(function () { voiceIncomingHide(); voiceBar(true, { peer: voicePeerLabel(inc.ext), text: I18n.t('Connecting\u2026'), ringing: true }); }).catch(function (e) { voiceIncomingHide(); if (e && e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') toast(I18n.t(e.status === 409 ? 'The caller already hung up.' : 'The call could not be answered.'), 'err'); }).then(function () { $('viAnswer').disabled = false; }); });
-  $('viDecline').addEventListener('click', function () { var inc = voice.incoming; voiceIncomingHide(); if (inc) voice.client.reject(inc.id).catch(function () {}); });
+  function voiceNameOf(m) { var p = voice.people.filter(function (x) { return x.id === m.account_id; })[0]; return p ? p.displayName : voiceName(m.extension) || ('ext ' + m.extension); }
+  function voiceRoomBar() {
+    var c = voice.client, r = c && c.room; if (!r) return; var joined = r.members.filter(function (m) { return m.status === 'joined'; }), others = joined.filter(function (m) { return m.account_id !== c.me; });
+    var up = others.filter(function (m) { return voice.connected[m.account_id]; }).length, names = others.map(voiceNameOf).join(', ') || I18n.t('waiting for others');
+    voiceBar(true, { peer: I18n.t('Group call') + ' \u00B7 ' + joined.length + ' ' + I18n.t(joined.length === 1 ? 'person' : 'people') + ' \u00B7 ' + names, text: others.length ? (up === others.length ? I18n.t('Connected') : I18n.t('Connecting\u2026') + ' ' + up + '/' + others.length) : I18n.t('Waiting for others to join\u2026'), ringing: others.length > 0 && up < others.length });
+    $('vbEnd').textContent = I18n.t('Leave'); $('vbEndAll').classList.toggle('hidden', r.host_id !== c.me);
+  }
+  function voiceMoveShow(a) { voice.avail = a; $('vmText').textContent = a.kind === 'room' ? I18n.t('A group call is in progress on another device.') : I18n.t('A call is in progress on another device.') + (a.ext ? ' (' + voicePeerLabel(a.ext) + ')' : ''); $('voiceMove').classList.remove('hidden'); }
+  function voiceMoveHide() { voice.avail = null; $('voiceMove').classList.add('hidden'); }
+  function voiceGroupStart(exts) {
+    if (!voice.ready || !voice.client) { toast(I18n.t('Qorlla Voice is not connected yet.'), 'err'); return Promise.resolve(); }
+    voice.connected = {}; voiceBar(true, { peer: I18n.t('Group call'), text: I18n.t('Starting\u2026'), ringing: true });
+    return voice.client.createRoom(exts, '').catch(function (e) { voiceBar(false); if (e && e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') toast(I18n.t(VOICE_ERR[e.code] || 'The group call could not be started.'), 'err'); });
+  }
+  $('viAnswer').addEventListener('click', function () { var inc = voice.incoming; if (!inc) return; voiceToneStop(); voice.peerExt = inc.ext; $('viAnswer').disabled = true; (inc.room ? voice.client.joinRoom(inc.id).then(function () { voiceIncomingHide(); voiceRoomBar(); }) : voice.client.answer(inc.id).then(function () { voiceIncomingHide(); voiceBar(true, { peer: voicePeerLabel(inc.ext), text: I18n.t('Connecting\u2026'), ringing: true }); })).catch(function (e) { voiceIncomingHide(); if (e && e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') toast(I18n.t(e.status === 409 ? 'The caller already hung up.' : 'The call could not be answered.'), 'err'); }).then(function () { $('viAnswer').disabled = false; }); });
+  $('viDecline').addEventListener('click', function () { var inc = voice.incoming; voiceIncomingHide(); if (inc) (inc.room ? voice.client.declineRoom(inc.id) : voice.client.reject(inc.id)).catch(function () {}); });
   $('voiceIncoming').addEventListener('cancel', function (ev) { ev.preventDefault(); $('viDecline').click(); });
   $('vbMute').addEventListener('click', function () { if (voice.client) { voice.client.setMuted(!voice.client.muted); $('vbMute').setAttribute('aria-pressed', String(voice.client.muted)); $('vbMute').textContent = voice.client.muted ? 'Unmute' : 'Mute'; } });
-  $('vbEnd').addEventListener('click', function () { voiceToneStop(); if (voice.client) voice.client.hangup(); voiceBar(false); voice.peerExt = null; voiceHistoryDirty(); });
+  $('vbEnd').addEventListener('click', function () { voiceToneStop(); if (voice.client) { if (voice.client.room) voice.client.leaveRoom(); else voice.client.hangup(); } voiceBar(false); $('vbEnd').textContent = I18n.t('End call'); $('vbEndAll').classList.add('hidden'); voice.peerExt = null; voice.connected = {}; voiceHistoryDirty(); });
+  $('vbEndAll').addEventListener('click', function () { voiceToneStop(); if (voice.client && voice.client.room) voice.client.endRoom(); voiceBar(false); $('vbEnd').textContent = I18n.t('End call'); $('vbEndAll').classList.add('hidden'); voice.connected = {}; voiceHistoryDirty(); });
+  $('vmHere').addEventListener('click', function () { var a = voice.avail; if (!a || !voice.client) return; $('vmHere').disabled = true; (a.kind === 'room' ? voice.client.resumeRoom(a.room) : voice.client.continueHere(a.call, a.role)).catch(function (e) { if (e && e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') toast(I18n.t('The call could not be moved to this device.'), 'err'); }).then(function () { $('vmHere').disabled = false; }); });
 
   // initial unread badge, then first view
   function applyAccount(user) {

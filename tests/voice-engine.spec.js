@@ -19,8 +19,8 @@ test.describe('Qorlla Voice: two browsers, real audio', () => {
   let main, engine, schema, admin; const log = [];
   test.beforeAll(async () => {
     schema = 'qe2e_' + Math.random().toString(36).slice(2, 9); admin = new Pool({ connectionString: DB }); await admin.query('CREATE SCHEMA ' + schema);
-    const sp = new Pool({ connectionString: DB, options: '-c search_path=' + schema }); for (const f of ['001_voice.sql', '002_voice_security.sql']) await sp.query(fs.readFileSync(path.join(root, 'qorlla-voice-engine', 'sql', f), 'utf8')); await sp.end();
-    main = await startMain(MAIN_PORT, { VOICE_ADMIN_SECRET: ADMIN, VOICE_PORT: String(VOICE_PORT), VOICE_INTERNAL_URL: 'http://127.0.0.1:' + VOICE_PORT });
+    const sp = new Pool({ connectionString: DB, options: '-c search_path=' + schema }); for (const f of fs.readdirSync(path.join(root, 'qorlla-voice-engine', 'sql')).filter((x) => /^\d{3}_.+\.sql$/.test(x)).sort()) await sp.query(fs.readFileSync(path.join(root, 'qorlla-voice-engine', 'sql', f), 'utf8')); await sp.end();
+    main = await startMain(MAIN_PORT, { QORLLA_VOICE_ENABLED: 'true', VOICE_ADMIN_SECRET: ADMIN, VOICE_PORT: String(VOICE_PORT), VOICE_INTERNAL_URL: 'http://127.0.0.1:' + VOICE_PORT });
     engine = spawn(process.execPath, ['src/server.mjs'], { cwd: path.join(root, 'qorlla-voice-engine'), stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PORT: String(VOICE_PORT), DATABASE_URL: DB + '?options=' + encodeURIComponent('-c search_path=' + schema), VOICE_JWKS_URL: 'http://127.0.0.1:' + MAIN_PORT + '/.well-known/voice-jwks.json',
       VOICE_JWT_ISSUER: 'qorlla-main', VOICE_JWT_AUDIENCE: 'qorlla-voice', VOICE_ALLOWED_ORIGIN: 'http://localhost:' + MAIN_PORT, VOICE_ADMIN_SECRET: ADMIN, VOICE_RING_SECONDS: '5' } });
     for (const s of [engine.stdout, engine.stderr]) s.on('data', (d) => log.push(String(d)));
@@ -35,7 +35,7 @@ test.describe('Qorlla Voice: two browsers, real audio', () => {
     return { ctx, name: name + ' Test', username: u, ...(await open(ctx)) };
   }
   async function open(ctx) {
-    const page = await ctx.newPage(); await page.goto(main.base + '/qorlla.html#home'); await page.locator('.nav-item[data-view=phone]').click();
+    const page = await ctx.newPage(); await page.goto(main.base + '/qorlla.html#home'); await expect(async () => { await page.locator('.nav-item[data-view=phone]').click(); await expect(page.locator('#phTab-dial')).toBeVisible({ timeout: 3000 }); }).toPass({ timeout: 30000 });
     await expect.poll(() => page.evaluate(() => !!(window.qorllaVoice && window.qorllaVoice.ws && window.qorllaVoice.ws.readyState === 1)), { timeout: 20000 }).toBe(true);
     await expect(page.locator('#qpMyExt')).toContainText('Your Qorlla extension'); const ext = (await page.locator('#qpMyExt').textContent()).match(/extension: (\d+)/)[1]; return { page, ext };
   }
@@ -128,6 +128,10 @@ test.describe('Qorlla Voice: two browsers, real audio', () => {
   test('the engine exposes no secrets, and the page shows the right thing when Qorlla Voice is not set up', async ({ browser }) => {
     test.setTimeout(90000);
     const text = log.join(''); expect(text).not.toContain(ADMIN); expect(text).not.toMatch(/ticket=|Bearer /);                                      // the engine log carries no secret, token or ticket
+    const flagless = await startMain(5281, { VOICE_ADMIN_SECRET: ADMIN }); try {                                                                       // the secret alone does not switch voice on: the flag is separate
+      const c0 = await browser.newContext(); expect((await c0.request.post(flagless.base + '/api/auth/register', { data: { username: 'fl' + rand(), displayName: 'Flagless', password: PASSWORD } })).status()).toBe(201);
+      const cfg = await (await c0.request.get(flagless.base + '/api/voice/config')).json(); expect(cfg.enabled).toBe(false); expect(cfg.reason).toContain('QORLLA_VOICE_ENABLED'); expect((await c0.request.post(flagless.base + '/api/voice/token')).status()).toBe(503); expect((await c0.request.get(flagless.base + '/.well-known/voice-jwks.json')).status()).toBe(404); await c0.close();
+    } finally { flagless.stop(); }
     const plain = await startMain(5286, {}); try {                                                                                                   // a server where voice is not configured
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } }); expect((await ctx.request.post(plain.base + '/api/auth/register', { data: { username: 'nov' + rand(), displayName: 'NoVoice', password: PASSWORD } })).status()).toBe(201);
       expect((await (await ctx.request.get(plain.base + '/api/voice/config')).json()).enabled).toBe(false); expect((await ctx.request.post(plain.base + '/api/voice/token')).status()).toBe(503); expect((await ctx.request.get(plain.base + '/.well-known/voice-jwks.json')).status()).toBe(404);

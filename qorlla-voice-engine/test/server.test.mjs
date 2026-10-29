@@ -2,6 +2,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { WebSocket } from 'ws';
+import { randomUUID } from 'node:crypto';
 import { createStore } from '../src/store.mjs';
 import { makeAuthenticator } from '../src/auth.mjs';
 import { createVoiceApp } from '../src/app.mjs';
@@ -28,10 +29,10 @@ const api = async (account, method, path, body, o = {}) => {
   return { status: r.status, body: await r.json().catch(() => ({})), headers: r.headers };
 };
 const admin = (method, path, body, secret = ADMIN) => fetch(base + '/v1/voice/admin' + path, { method, headers: { 'content-type': 'application/json', 'x-voice-admin-secret': secret }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
-const ticket = async (account, origin = ORIGIN) => (await api(account, 'POST', '/v1/voice/ws-ticket', {}, { origin })).body.ticket;
+const ticket = async (account, origin = ORIGIN, deviceId = devOf(account)) => (await api(account, 'POST', '/v1/voice/ws-ticket', { deviceId }, { origin })).body.ticket;
 /** Opens a socket the way the browser SDK does (ticket in the subprotocol). Resolves with {ws, inbox, ready} or rejects with the HTTP status. */
 async function connect(account, o = {}) {
-  const t = o.ticket ?? await ticket(account, o.ticketOrigin);
+  const t = o.ticket ?? await ticket(account, o.ticketOrigin, o.deviceId);
   const url = 'ws://127.0.0.1:' + new URL(base).port + '/v1/voice/ws' + (o.query ? '?ticket=' + t : '');
   const ws = o.query ? new WebSocket(url, { origin: o.origin ?? ORIGIN }) : new WebSocket(url, [PROTOCOL, 'ticket.' + t], { origin: o.origin ?? ORIGIN });
   const inbox = []; ws.on('message', (m) => inbox.push(JSON.parse(m.toString())));
@@ -42,9 +43,10 @@ const until = async (fn, ms = 3000) => { const t = Date.now(); while (Date.now()
 const ofType = (c, type, pred = () => true) => c.inbox.find((m) => m.type === type && pred(m));
 const quiet = async (c, type, ms = 300) => { await wait(ms); return !c.inbox.some((m) => m.type === type); };
 const SDP = 'v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n';
-const dial = (from, ext) => api(from, 'POST', '/v1/voice/calls', { extension: ext, idempotencyKey: 'key-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) });
+const dial = (from, ext, deviceId = devOf(from)) => api(from, 'POST', '/v1/voice/calls', { deviceId, extension: ext, idempotencyKey: 'key-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) });
 const close = (...cs) => cs.forEach((c) => { try { c.ws.close(); } catch { /* gone */ } });
-const ext = {};
+const ext = {}, devices = {};
+const devOf = (account) => (devices[account] ||= randomUUID());
 
 test('provisioning is server-to-server only: the secret is required, constant-time checked, and the feature is off when it is not configured', async (t) => {
   if (skip(t)) return;
@@ -98,37 +100,38 @@ test('WebSocket tickets: one use, bound to the origin, short-lived, and never ne
 test('a complete call: ring, answer, relayed signaling in the right order only, hang up; history, usage and diagnostics reflect it', async (t) => {
   if (skip(t)) return;
   const a = await connect('alice'), b = await connect('bob'); await until(() => ofType(a, 'ready') && ofType(b, 'ready'));
-  const call = await dial('alice', ext.bob); assert.equal(call.status, 201); const id = call.body.call.id; assert.equal(call.body.call.status, 'ringing');
+  const call = await dial('alice', ext.bob); assert.equal(call.status, 201); const id = call.body.call.id, genA = call.body.generation; assert.equal(call.body.call.status, 'ringing'); assert.equal(genA, 1);
   const incoming = await until(() => ofType(b, 'incoming')); assert.equal(incoming.call.id, id); assert.equal(incoming.from.extension, ext.alice);
-  assert.equal(JSON.stringify(incoming).includes('version'), false);
+  assert.ok(!JSON.stringify(incoming).includes('lease'));                                                                                            // no device or lease detail leaks into a ring
   // retry of the same request: same call, no second ring
-  const body = { extension: ext.bob, idempotencyKey: 'retry-key-123456789' }; const first = await api('alice', 'POST', '/v1/voice/calls', body); assert.equal(first.status, 409); // alice is already in a call: busy (the retry key is new)
+  const body = { deviceId: devOf('alice'), extension: ext.bob, idempotencyKey: 'retry-key-123456789' }; const first = await api('alice', 'POST', '/v1/voice/calls', body); assert.equal(first.status, 409); // alice is already in a call: busy (the retry key is new)
   // nothing is relayed while the call is only ringing
-  a.ws.send(JSON.stringify({ type: 'offer', callId: id, sdp: SDP })); assert.ok(await quiet(b, 'offer'));
+  a.ws.send(JSON.stringify({ type: 'offer', callId: id, generation: genA, sdp: SDP })); assert.ok(await quiet(b, 'offer'));
   // busy for everyone else
   assert.equal((await dial('carol', ext.bob)).body.error, 'busy'); assert.equal((await dial('bob', ext.carol)).body.error, 'busy'); assert.equal((await dial('alice', ext.carol)).body.error, 'busy');
   // wrong people cannot act
-  assert.equal((await api('carol', 'POST', `/v1/voice/calls/${id}/answer`)).status, 404); assert.equal((await api('alice', 'POST', `/v1/voice/calls/${id}/answer`)).status, 403);
-  assert.equal((await api('bob', 'POST', `/v1/voice/calls/nope/answer`)).status, 400); assert.equal((await api('bob', 'POST', `/v1/voice/calls/${id}/explode`)).status, 400);
-  const answered = await api('bob', 'POST', `/v1/voice/calls/${id}/answer`); assert.equal(answered.body.call.status, 'active');
+  assert.equal((await api('carol', 'POST', `/v1/voice/calls/${id}/answer`, { deviceId: devOf('carol') })).status, 404); assert.equal((await api('alice', 'POST', `/v1/voice/calls/${id}/answer`, { deviceId: devOf('alice') })).status, 403); assert.equal((await api('bob', 'POST', `/v1/voice/calls/${id}/answer`)).status, 400);
+  assert.equal((await api('bob', 'POST', `/v1/voice/calls/nope/answer`, { deviceId: devOf('bob') })).status, 400); assert.equal((await api('bob', 'POST', `/v1/voice/calls/${id}/explode`)).status, 400);
+  const answered = await api('bob', 'POST', `/v1/voice/calls/${id}/answer`, { deviceId: devOf('bob') }); assert.equal(answered.body.call.status, 'active'); const genB = answered.body.generation; assert.equal(genB, 1);
   assert.ok(await until(() => ofType(a, 'state', (m) => m.call.status === 'active'))); assert.ok(await until(() => ofType(b, 'state', (m) => m.call.status === 'active')));
   // signaling now flows, with roles enforced and payloads cleaned
-  b.ws.send(JSON.stringify({ type: 'offer', callId: id, sdp: SDP })); assert.ok(await quiet(a, 'offer'));                                    // the callee cannot offer
-  a.ws.send(JSON.stringify({ type: 'answer', callId: id, sdp: SDP })); assert.ok(await quiet(b, 'answer'));                                  // the caller cannot answer
-  a.ws.send(JSON.stringify({ type: 'offer', callId: id, sdp: 'not sdp' })); assert.ok(await quiet(b, 'offer'));                               // malformed
-  a.ws.send(JSON.stringify({ type: 'offer', callId: id, sdp: SDP })); const offer = await until(() => ofType(b, 'offer')); assert.equal(offer.sdp, SDP); assert.equal(offer.callId, id);
-  b.ws.send(JSON.stringify({ type: 'answer', callId: id, sdp: SDP })); assert.ok(await until(() => ofType(a, 'answer')));
-  a.ws.send(JSON.stringify({ type: 'ice', callId: id, candidate: { candidate: 'candidate:1 1 udp 1 10.0.0.1 5000 typ host', sdpMid: '0', sdpMLineIndex: 0, evil: 'x' } }));
+  a.ws.send(JSON.stringify({ type: 'offer', callId: id, generation: genA + 1, sdp: SDP })); assert.ok(await quiet(b, 'offer'));            // a wrong generation is stale: refused
+  a.ws.send(JSON.stringify({ type: 'offer', callId: id, sdp: SDP })); assert.ok(await quiet(b, 'offer'));                                    // no generation at all: refused
+  a.ws.send(JSON.stringify({ type: 'offer', callId: id, generation: genA, sdp: 'not sdp' })); assert.ok(await quiet(b, 'offer'));            // malformed
+  a.ws.send(JSON.stringify({ type: 'offer', callId: id, generation: genA, sdp: SDP })); const offer = await until(() => ofType(b, 'offer')); assert.equal(offer.sdp, SDP); assert.equal(offer.callId, id); assert.equal(offer.gen, genA);
+  b.ws.send(JSON.stringify({ type: 'answer', callId: id, generation: genB, sdp: SDP })); assert.ok(await until(() => ofType(a, 'answer')));
+  a.ws.send(JSON.stringify({ type: 'ice', callId: id, generation: genA, candidate: { candidate: 'candidate:1 1 udp 1 10.0.0.1 5000 typ host', sdpMid: '0', sdpMLineIndex: 0, evil: 'x' } }));
   const ice = await until(() => ofType(b, 'ice')); assert.deepEqual(Object.keys(ice.candidate).sort(), ['candidate', 'sdpMLineIndex', 'sdpMid', 'usernameFragment']);
-  b.ws.send(JSON.stringify({ type: 'ice', callId: id, candidate: null })); assert.ok(await until(() => ofType(a, 'ice', (m) => m.candidate === null)));
+  b.ws.send(JSON.stringify({ type: 'ice', callId: id, generation: genB, candidate: null })); assert.ok(await until(() => ofType(a, 'ice', (m) => m.candidate === null)));
   // a bystander with a perfectly valid socket cannot inject into someone else's call
-  const c = await connect('carol'); await until(() => ofType(c, 'ready')); c.ws.send(JSON.stringify({ type: 'offer', callId: id, sdp: SDP })); c.ws.send(JSON.stringify({ type: 'ice', callId: id, candidate: null }));
+  const c = await connect('carol'); await until(() => ofType(c, 'ready')); c.ws.send(JSON.stringify({ type: 'offer', callId: id, generation: 1, sdp: SDP })); c.ws.send(JSON.stringify({ type: 'ice', callId: id, generation: 1, candidate: null }));
   await wait(300); assert.equal(a.inbox.filter((m) => m.type === 'offer').length, 0); assert.equal(b.inbox.filter((m) => m.type === 'offer').length, 1); close(c);
   const live = await api('alice', 'GET', '/v1/voice/calls/live'); assert.equal(live.body.call.id, id);
   await wait(1100); const ended = await api('bob', 'POST', `/v1/voice/calls/${id}/end`); assert.equal(ended.body.call.status, 'ended');
   assert.ok(await until(() => ofType(a, 'state', (m) => m.call.status === 'ended'))); assert.equal((await api('alice', 'GET', '/v1/voice/calls/live')).body.call, null);
-  const n = b.inbox.length; a.ws.send(JSON.stringify({ type: 'ice', callId: id, candidate: null })); await wait(250); assert.equal(b.inbox.length, n);   // nothing relays after the call
-  assert.equal((await api('bob', 'POST', `/v1/voice/calls/${id}/answer`)).status, 409);
+  assert.ok(await until(() => ofType(b, 'state', (m) => m.call.status === 'ended')));                                                   // events are delivered by the outbox worker, so wait for it before counting
+  const n = b.inbox.length; a.ws.send(JSON.stringify({ type: 'ice', callId: id, generation: genA, candidate: null })); await wait(250); assert.equal(b.inbox.length, n);   // nothing relays after the call
+  assert.equal((await api('bob', 'POST', `/v1/voice/calls/${id}/answer`, { deviceId: devOf('bob') })).status, 409);
   const hist = (await api('alice', 'GET', '/v1/voice/calls')).body.calls[0]; assert.deepEqual([hist.direction, hist.status, hist.peer_extension], ['outgoing', 'ended', ext.bob]); assert.ok(hist.seconds >= 1);
   assert.equal((await api('bob', 'GET', '/v1/voice/calls')).body.calls[0].direction, 'incoming'); assert.deepEqual((await api('dave', 'GET', '/v1/voice/calls')).body.calls, []);
   const u = (await api('alice', 'GET', '/v1/voice/usage')).body; assert.equal(u.answered, 1); assert.ok(u.seconds >= 1);
@@ -152,7 +155,7 @@ test('an unanswered call becomes missed on its own and both people are told', as
   const call = (await dial('carol', ext.dave)).body.call; await until(() => ofType(b, 'incoming'));
   await db.pool.query("UPDATE voice_calls SET created_at = now() - interval '10 minutes' WHERE id=$1", [call.id]);
   assert.ok(await until(() => ofType(a, 'state', (m) => m.call.status === 'missed'), 4000)); assert.ok(await until(() => ofType(b, 'state', (m) => m.call.id === call.id && m.call.status === 'missed')));
-  assert.equal((await api('dave', 'POST', `/v1/voice/calls/${call.id}/answer`)).status, 409);                                          // too late to answer
+  assert.equal((await api('dave', 'POST', `/v1/voice/calls/${call.id}/answer`, { deviceId: devOf('dave') })).status, 409);                                          // too late to answer
   assert.equal((await api('carol', 'GET', '/v1/voice/calls')).body.calls[0].status, 'missed');
   assert.equal((await dial('carol', ext.dave)).status, 201); close(a, b);
 });
@@ -161,17 +164,17 @@ test('connections are limited: three devices per person, and a flood closes the 
   if (skip(t)) return;
   const four = []; for (let i = 0; i < 4; i++) four.push(await connect('dave')); const codes = await Promise.race([Promise.all(four.map((c) => Promise.race([c.closed, wait(600).then(() => 'open')]))), wait(2000)]);
   assert.equal(codes.filter((c) => c === 1008).length, 1, JSON.stringify(codes)); close(...four);
-  const f = await connect('bob'); for (let i = 0; i < 60; i++) f.ws.send(JSON.stringify({ type: 'ice', callId: 'b00c477c-0b2e-42c5-ae21-211e14799322', candidate: null })); assert.equal(await Promise.race([f.closed, wait(2000)]), 1008);
+  const f = await connect('bob'); for (let i = 0; i < 260; i++) f.ws.send(JSON.stringify({ type: 'ice', callId: 'b00c477c-0b2e-42c5-ae21-211e14799322', generation: 1, candidate: null })); assert.equal(await Promise.race([f.closed, wait(2000)]), 1008);
 });
 
 test('suspending an account ends its call, closes its sockets and stops new tickets', async (t) => {
   if (skip(t)) return;
   await api('dave', 'POST', '/v1/voice/calls/' + (await api('dave', 'GET', '/v1/voice/calls/live')).body.call?.id + '/end').catch(() => {});
   const a = await connect('alice'), b = await connect('bob'); await until(() => ofType(a, 'ready') && ofType(b, 'ready'));
-  const call = (await dial('alice', ext.bob)).body.call; await api('bob', 'POST', `/v1/voice/calls/${call.id}/answer`);
+  const call = (await dial('alice', ext.bob)).body.call; await api('bob', 'POST', `/v1/voice/calls/${call.id}/answer`, { deviceId: devOf('bob') });
   const r = await admin('POST', '/identities/bob/enabled', { enabled: false }); assert.equal(r.status, 200); assert.equal(r.body.endedCalls, 1);
   assert.ok(await until(() => ofType(a, 'state', (m) => m.call.status === 'ended'))); assert.equal(await Promise.race([b.closed, wait(2000)]), 4003);
-  assert.equal((await api('bob', 'POST', '/v1/voice/ws-ticket', {})).status, 403); assert.equal((await dial('alice', ext.bob)).status, 404);
+  assert.equal((await api('bob', 'POST', '/v1/voice/ws-ticket', { deviceId: devOf('bob') })).status, 403); assert.equal((await dial('alice', ext.bob)).status, 404);
   assert.equal((await admin('POST', '/identities/bob/enabled', { enabled: 'yes' })).status, 400); assert.equal((await admin('POST', '/identities/bob/enabled', { enabled: true })).status, 200); close(a);
 });
 

@@ -28,10 +28,16 @@ test('TURN credentials follow the coturn REST scheme and fail without a secret',
   assert.throws(() => turnCredentials('alice', 600, 1000, ''), /turn_not_configured/);
 });
 test('ICE servers: nothing third-party by default, TURN only when really configured', () => {
-  assert.deepEqual(iceServersFor('a', {}), { iceServers: [], stun: false, turn: false });                                     // no Google STUN, no empty TURN entry
+  assert.deepEqual(iceServersFor('a', {}), { iceServers: [], iceTransportPolicy: 'all', stun: false, turn: false });                                     // no Google STUN, no empty TURN entry
   const r = iceServersFor('a', { STUN_URL: 'stun:turn.example:3478', TURN_URLS: 'turn:turn.example:3478?transport=udp, turns:turn.example:5349?transport=tcp, http://evil.example', TURN_SHARED_SECRET: 'x' }, 1000);
   assert.equal(r.iceServers.length, 2); assert.deepEqual(r.iceServers[1].urls, ['turn:turn.example:3478?transport=udp', 'turns:turn.example:5349?transport=tcp']); assert.ok(r.iceServers[1].username && r.iceServers[1].credential); assert.equal(r.turn, true);
   assert.equal(iceServersFor('a', { TURN_URLS: 'turn:t:3478' }).turn, false);                                                  // URLs without a secret are not used
+});
+test('ICE policy: TURN can be required and relay-only can be forced, and a misconfiguration fails closed instead of silently weakening privacy', () => {
+  assert.throws(() => iceServersFor('a', { VOICE_REQUIRE_TURN: 'true' }), /turn_not_configured/); assert.throws(() => iceServersFor('a', { VOICE_RELAY_ONLY: 'true' }), /turn_not_configured/);
+  assert.throws(() => iceServersFor('a', { VOICE_REQUIRE_TURN: 'true', TURN_URLS: 'turn:t:3478' }), /turn_not_configured/);                       // URLs without the secret are not a working relay
+  const env = { TURN_URLS: 'turn:t:3478?transport=udp', TURN_SHARED_SECRET: 'x'.repeat(32), VOICE_REQUIRE_TURN: 'true', VOICE_RELAY_ONLY: 'true' };
+  const r = iceServersFor('a', env, 1000); assert.equal(r.iceTransportPolicy, 'relay'); assert.equal(r.turn, true); assert.equal(iceServersFor('a', { ...env, VOICE_RELAY_ONLY: 'false' }, 1000).iceTransportPolicy, 'all');
 });
 test('admin secret comparison is exact and handles any length', () => { assert.equal(secretEquals('a'.repeat(40), 'a'.repeat(40)), true); assert.equal(secretEquals('a'.repeat(40), 'a'.repeat(41)), false); assert.equal(secretEquals('', ''), false); assert.equal(secretEquals(undefined, 'x'), false); });
 test('limiter allows a burst, refuses the excess, and recovers after the window', () => { let t = 0; const l = makeLimiter({ max: 3, windowMs: 1000, now: () => t }); assert.deepEqual([1, 2, 3, 4].map(() => l.take('k')), [true, true, true, false]); assert.equal(l.take('other'), true); t = 1001; assert.equal(l.take('k'), true); });

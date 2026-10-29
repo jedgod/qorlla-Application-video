@@ -15,7 +15,9 @@ function createVoice({ dataDir, env = process.env }) {
     const keyFile = path.join(dataDir, 'voice-signing.json');
     const issuer = () => env.VOICE_JWT_ISSUER || 'qorlla-main', audience = () => env.VOICE_JWT_AUDIENCE || 'qorlla-voice';
     const secret = () => String(env.VOICE_ADMIN_SECRET || '');
-    const enabled = () => secret().length >= 32;                                          // voice is off unless the server owner configured it
+    // Voice is OFF unless the server owner switched it on (QORLLA_VOICE_ENABLED=true) AND configured the engine secret. The switch stays off in production until the release gate passes (docs/VOICE_CERTIFICATION.md).
+    const flagOn = () => String(env.QORLLA_VOICE_ENABLED || '').toLowerCase() === 'true';
+    const enabled = () => flagOn() && secret().length >= 32;
     const port = () => Number(env.VOICE_PORT || 4600);
     const internalBase = () => String(env.VOICE_INTERNAL_URL || env.VOICE_URL || 'http://127.0.0.1:' + port()).replace(/\/+$/, '');
     const publicBase = (req) => String(env.VOICE_URL || (req.protocol + '://' + req.hostname + ':' + port())).replace(/\/+$/, '');
@@ -63,7 +65,7 @@ function createVoice({ dataDir, env = process.env }) {
 
         app.get('/api/voice/config', requireUser, (req, res) => {
             res.set('Cache-Control', 'no-store');
-            if (!enabled()) return res.json({ enabled: false, reason: 'Qorlla Voice is not configured on this server (VOICE_ADMIN_SECRET).' });
+            if (!enabled()) return res.json({ enabled: false, reason: flagOn() ? 'Qorlla Voice is not configured on this server (VOICE_ADMIN_SECRET).' : 'Qorlla Voice is switched off on this server (QORLLA_VOICE_ENABLED).' });
             res.json({ enabled: true, url: publicBase(req), internalCallsOnly: true });
         });
         app.post('/api/voice/token', requireUser, async (req, res) => {
