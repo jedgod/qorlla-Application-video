@@ -1,6 +1,7 @@
 // Qorlla Telephony v2 service: authorization, workflows, workers and the usage ledger. Every action is checked here, whatever the page sent.
 import { FEATURES, FEATURE_IDS, cleanDesired, hashOf, evaluateFeature, featureSupport } from './features.mjs';
 import { classifyProviderError, nextBackoffSeconds } from './number-authority.mjs';
+import { capabilitiesOf } from './provider-contract.mjs';
 import { err, normalizeE164, assertAdmin, assertActor, screenDestination, allowedCountries, nextState, fromTwilioStatus, TERMINAL, deriveCapabilities } from './core.mjs';
 
 const KEY = /^[A-Za-z0-9_.:-]{8,80}$/;
@@ -47,7 +48,8 @@ export class TelephonyService {
   async availableNumbers(actor, country, type) {
     assertAdmin(actor); country = String(country || '').toUpperCase(); if (!/^[A-Z]{2}$/.test(country)) throw err('INVALID_COUNTRY', 'Choose a country.');
     if (!allowedCountries(this.env).has(country)) throw err('COUNTRY_NOT_ALLOWED', 'That country is not allowed for this workspace.', 403);
-    return { country, numbers: this.carrier.configured ? await this.carrier.listAvailableNumbers(country, type) : [], source: this.carrier.configured ? this.carrier.name : null };
+    const can = this.carrier.configured && capabilitiesOf(this.carrier).publicNumbers;
+    return { country, numbers: can ? await this.carrier.listAvailableNumbers(country, type) : [], source: can ? this.carrier.name : null };
   }
   async requestNumber(actor, { country, kind = 'personal', assignTo, idempotencyKey }) {
     assertAdmin(actor); country = String(country || '').toUpperCase();
@@ -56,6 +58,7 @@ export class TelephonyService {
     if (!allowedCountries(this.env).has(country)) throw err('COUNTRY_NOT_ALLOWED', 'That country is not allowed for this workspace.', 403);
     const st = await this.providerStatus();
     if (!this.carrier.configured) throw err('PROVIDER_NOT_CONNECTED', 'The telephone provider is not connected, so no number can be provisioned.', 503);
+    if (!capabilitiesOf(this.carrier).publicNumbers) throw err('PUBLIC_NUMBERS_NOT_SUPPORTED', 'The configured provider (' + this.carrier.name + ') does not provide public telephone numbers.', 503);
     if (!st || !st.health_ok) throw err('PROVIDER_NOT_VERIFIED', 'The telephone provider has not passed a connection test. Run Test connection first.', 503);
     const to = kind === 'personal' ? String(assignTo || actor.id).slice(0, 64) : null;
     if (to) {
@@ -231,6 +234,7 @@ export class TelephonyService {
   intentView(c) { return { id: c.id, state: c.state, destinationLast4: last4(c.destination_e164), country: c.destination_country, error: c.error_code || null, createdAt: c.created_at, answeredAt: c.answered_at, endedAt: c.ended_at }; }
   async startCall(actor, { to, fromNumberId, idempotencyKey }) {
     assertActor(actor); const dest = normalizeE164(to);
+    if (!capabilitiesOf(this.carrier).pstn) throw err('PSTN_NOT_SUPPORTED', 'The configured provider (' + this.carrier.name + ') cannot place calls to the public telephone network.', 503);
     if (!KEY.test(String(idempotencyKey || ''))) throw err('IDEMPOTENCY_REQUIRED', 'An idempotency key (8-80 safe characters) is required.');
     const { rows: [dup] } = await this.db.query('SELECT * FROM qphone_call_intents WHERE actor_id=$1 AND idempotency_key=$2', [actor.id, idempotencyKey]); if (dup) return { ...this.intentView(dup), duplicate: true };   // a retry never places a second call
     const caps = await this.capabilities(actor.id);

@@ -19,6 +19,7 @@ let db, idp, h, r, svc, carrier, sink, pem, jwksSrv, jwksUrl;
 /** A controllable carrier. `mode` decides what the NEXT mutating call does; `owned` is the carrier's real inventory. */
 class StubCarrier {
   constructor() { this.owned = new Map(); this.n = 0; this.mode = 'ok'; this.name = 'stub'; this.configured = true; }
+  get capabilities() { return { publicNumbers: true, pstn: true }; }
   fail(kind, status) { throw Object.assign(new Error(kind), { code: kind, providerStatus: status }); }
   async listAvailableNumbers(country) { return [{ e164: '+1415555' + String(2000 + ++this.n), locality: '', region: '', voice: true }]; }
   async provisionNumber({ e164 }) {

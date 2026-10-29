@@ -14,6 +14,7 @@ export class TwilioProvider {
   }
   get name() { return 'twilio'; }
   get configured() { return true; }
+  get capabilities() { return { internalExtensions: false, publicNumbers: true, pstn: true }; }       // optional compatibility module: a carrier-backed provider
   // Per-number call preferences this adapter can actually apply and read back at Twilio. NONE yet: forwarding, voicemail, do-not-disturb, call waiting, spam filtering and blocking
   // would need Qorlla-hosted call logic (TwiML on our voice webhook) that is not built. Declaring none keeps every such setting honestly "saved, inactive".
   get features() { return new Set(); }

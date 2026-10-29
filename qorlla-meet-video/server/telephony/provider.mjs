@@ -1,9 +1,11 @@
 // Telephony provider interface. A carrier adapter implements these; the rest of Qorlla never talks to a carrier directly.
 import { TwilioProvider } from './twilio.mjs';
+import { createInternalProvider } from './qorlla-internal.mjs';
 
 export class TelephonyProvider {
   get name() { return 'none'; }
   get configured() { return false; }
+  get capabilities() { return { internalExtensions: false, publicNumbers: false, pstn: false }; }       // see provider-contract.mjs: undeclared = false
   async healthCheck() { throw new Error('NOT_IMPLEMENTED'); }
   async listAvailableNumbers(_country, _type) { throw new Error('NOT_IMPLEMENTED'); }
   async provisionNumber(_request) { throw new Error('NOT_IMPLEMENTED'); }
@@ -20,6 +22,7 @@ export class TelephonyProvider {
 // Intentionally inert: with no carrier configured nothing can be provisioned, dialled or reported as connected.
 export class UnconfiguredProvider extends TelephonyProvider {
   get name() { return 'unconfigured'; }
+  get capabilities() { return { internalExtensions: false, publicNumbers: false, pstn: false }; }
   async healthCheck() { return { ok: false, detail: 'No carrier is configured (set PHONE_CARRIER=twilio with TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN).' }; }
   async listAvailableNumbers() { return []; }
   async provisionNumber() { throw Object.assign(new Error('PROVIDER_NOT_CONFIGURED'), { code: 'PROVIDER_NOT_CONFIGURED', status: 503 }); }
@@ -39,6 +42,7 @@ export class UnconfiguredAudioGateway { get ready() { return false; } outboundTw
 
 export function createCarrier(env = process.env, opts = {}) {
   const name = String(env.PHONE_CARRIER || '').toLowerCase();
+  if (name === 'internal') return createInternalProvider(env) || new UnconfiguredProvider();       // Qorlla's own identities and extensions: no carrier, no public numbers, no PSTN
   if (name === 'twilio' && env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN)
     return new TwilioProvider({ sid: env.TWILIO_ACCOUNT_SID, token: env.TWILIO_AUTH_TOKEN, base: env.TWILIO_API_BASE || 'https://api.twilio.com', webhookBase: env.PHONE_PUBLIC_BASE || '', fetchImpl: opts.fetchImpl || fetch });
   return new UnconfiguredProvider();
