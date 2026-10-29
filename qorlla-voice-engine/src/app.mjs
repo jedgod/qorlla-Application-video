@@ -15,6 +15,7 @@ import { RedisBus } from './bus.mjs';
 import { VoiceRouter } from './router.mjs';
 import { validRoomId } from './rooms.mjs';
 import { createHistory, parseRetentionDays } from './history.mjs';
+import { createShield, ShieldError } from './shield.mjs';
 
 const STATUS = { invalid_recipient: 404, not_found: 404, blocked: 403, forbidden: 403, caller_disabled: 403, voice_disabled: 403, invalid_origin: 403, busy: 409, invalid_transition: 409, idempotency_conflict: 409,
   extension_taken: 409, extensions_exhausted: 503, invalid_input: 400, too_many_tickets: 429, invalid_timeout: 400, overloaded: 503, device_not_owner: 409, lease_lost: 409, call_not_active: 409, room_full: 409,
@@ -22,13 +23,14 @@ const STATUS = { invalid_recipient: 404, not_found: 404, blocked: 403, forbidden
 const GSIGNALS = ['g_offer', 'g_answer', 'g_ice'];
 const validGen = (g) => Number.isSafeInteger(g) && g >= 1;
 
-export function createVoiceApp({ store, db, authenticate, env = process.env, maintenance = true, maintenanceMs = 5000, bus: busOption, outbox = true, instanceId = randomUUID() }) {
+export function createVoiceApp({ store, db, authenticate, env = process.env, maintenance = true, maintenanceMs = 5000, bus: busOption, outbox = true, instanceId = randomUUID(), shieldJwks }) {
   const app = express(); app.disable('x-powered-by'); app.set('trust proxy', env.VOICE_TRUST_PROXY === '1' ? 1 : false);
   app.use(helmet()); app.use(express.json({ limit: '16kb' }));
   const allowed = () => env.VOICE_ALLOWED_ORIGIN || '';
   const num = (v, d) => { const x = Number(v); return Number.isInteger(x) && x > 0 ? x : d; };
   const reliability = createReliability(db), history = createHistory({ db, tx: store.tx }), retention = parseRetentionDays(env.VOICE_HISTORY_RETENTION_DAYS);
   if (retention.warning) console.warn('voice: ' + retention.warning);
+  const shield = createShield({ store, db, env, jwks: shieldJwks }), enforce = env.SHIELD_ENFORCE === 'true';
   const router = new VoiceRouter();
   const bus = busOption !== undefined ? busOption : (env.REDIS_URL ? new RedisBus({ url: env.REDIS_URL, instanceId, onDelivery: (m) => router.onRemote(m) }) : null);
   if (bus) { router.bus = bus; if (!bus.onDelivery) bus.onDelivery = (m) => router.onRemote(m); }
@@ -53,11 +55,16 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   });
   const fail = (res, e) => { const status = STATUS[e.code] || STATUS[e.message] || 500; if (status === 500) console.error('voice error', e?.code || e?.message); res.status(status).json({ error: status === 500 ? 'internal_error' : (e.code || e.message) }); };
   const auth = async (req, res, next) => {
-    try { const token = bearer(req); if (!token) return res.status(401).json({ error: 'unauthorized' }); req.account = await authenticate(token); } catch { return res.status(401).json({ error: 'unauthorized' }); }
+    try {
+      const token = bearer(req); if (!token) return res.status(401).json({ error: 'unauthorized' });
+      if (enforce) { if (!authenticate.claims) return res.status(503).json({ error: 'shield_unavailable' }); const claims = await authenticate.claims(token); req.account = claims.sub; req.claims = claims; await shield.assertPrincipalActive(claims.sub, claims.iat); } else req.account = await authenticate(token);
+    } catch (e) { if (e instanceof ShieldError) return res.status(e.status).json({ error: e.code }); if (enforce && e && e.code === undefined && /ECONN|timeout|terminat|connect/i.test(String(e.message))) return res.status(503).json({ error: 'shield_unavailable' }); return res.status(401).json({ error: 'unauthorized' }); }
     if (!apiLimit.take(req.account)) return res.status(429).json({ error: 'rate_limited' });
     next();
   };
-  const adminAuth = (req, res, next) => {
+  const adminAuth = async (req, res, next) => {
+    if (shield.enabled && /^Bearer [^\s.]+\.[^\s.]+\.[^\s.]+$/.test(req.get('authorization') || '')) { if (!adminLimit.take(req.ip || 'x')) return res.status(429).json({ error: 'rate_limited' }); if (await shield.workloadOkForAdmin(req)) return next(); return res.status(401).json({ error: 'unauthorized' }); }
+    if (env.SHIELD_REQUIRE_WORKLOAD_IDENTITY === 'true') return res.status(401).json({ error: 'workload_identity_required' });
     const secret = env.VOICE_ADMIN_SECRET; if (!secret || secret.length < 32) return res.status(503).json({ error: 'admin_disabled' });
     if (!adminLimit.take(req.ip || 'x')) return res.status(429).json({ error: 'rate_limited' });
     // A metrics scraper (Prometheus) can only send an Authorization header, so GET .../admin/metrics also accepts "Bearer <admin secret>". No other admin route does.
@@ -194,6 +201,29 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
       ice: { stun: ice.stun, turn: ice.turn, relayOnly: ice.iceTransportPolicy === 'relay', error: iceError, note: iceError ? 'ICE is misconfigured: ' + iceError : ice.turn ? 'TURN relay is configured.' : 'No TURN relay is configured: calls work on the same network and between networks that allow direct UDP, but not behind strict firewalls.' },
       requestOriginAllowed: originAllowed(req.headers.origin, allowed()), ringSeconds: ringSeconds(env), pstn: false });
   }));
+
+  // ---- Security Shield v2.2 (see docs/VOICE_SHIELD.md). Workload routes need a short-lived workload credential; user routes need a signed-in account. All of them fail closed.
+  const wl = (scope) => shield.requireWorkload(scope), sh = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { if (e instanceof ShieldError) return res.status(e.status).json({ error: e.code }); console.error('shield error', e && (e.code || e.message)); res.status(503).json({ allow: false, error: 'SECURITY_UNAVAILABLE' }); } };
+  const strict = (body, keys) => (body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).every((k) => keys.includes(k)) ? body : {});
+  const shieldAdmin = wl('shield.admin');
+  app.put('/v1/shield/admin/principals', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertPrincipal(strict(req.body, ['accountId', 'orgId', 'verified'])))));
+  app.put('/v1/shield/admin/orgs', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertOrg(strict(req.body, ['orgId', 'pstnEnabled', 'allowedCountries', 'maxActiveCalls', 'maxCallsHour', 'spendLimitCents'])))));
+  app.put('/v1/shield/admin/caller-ids', shieldAdmin, sh(async (req, res) => res.json(await shield.registerCallerId(strict(req.body, ['e164', 'accountId'])))));
+  app.put('/v1/shield/admin/meetings', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertMeeting(strict(req.body, ['meetingId', 'orgId', 'hostAccountId', 'passcode', 'guestEnabled', 'requiresApproval', 'maxGuests', 'endsAt'])))));
+  app.post('/v1/shield/admin/meetings/:id/end', shieldAdmin, sh(async (req, res) => res.json(await shield.endMeeting(req.params.id))));
+  app.post('/v1/shield/admin/principals/:id/suspend', shieldAdmin, sh(async (req, res) => { const r = await shield.setSuspended(req.params.id, true, { onVoiceDisabled: (a) => closeAccount(a, 4003, 'suspended') }); kick(); res.json(r); }));
+  app.post('/v1/shield/admin/principals/:id/restore', shieldAdmin, sh(async (req, res) => res.json(await shield.setSuspended(req.params.id, false))));
+  app.post('/v1/shield/admin/orgs/:id/suspend', shieldAdmin, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, true))));
+  app.post('/v1/shield/admin/orgs/:id/restore', shieldAdmin, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, false))));
+  app.post('/v1/shield/pstn/authorize', wl('pstn.authorize'), sh(async (req, res) => { const r = await shield.pstnAuthorize(strict(req.body, ['requestId', 'accountId', 'destination', 'callerId'])); res.status(r.allow ? 200 : 403).json(r); }));
+  app.post('/v1/shield/pstn/consume', wl('pstn.consume'), sh(async (req, res) => res.json(await shield.pstnConsume(strict(req.body, ['authorizationId', 'accountId', 'destination', 'callerId'])))));
+  app.post('/v1/shield/pstn/settle', wl('pstn.settle'), sh(async (req, res) => res.json(await shield.pstnSettle(strict(req.body, ['authorizationId', 'actualCents'])))));
+  app.post('/v1/shield/pstn/terminations', wl('pstn.consume'), sh(async (_req, res) => res.json({ terminate: await shield.pstnTerminations() })));
+  app.post('/v1/shield/guest/request', wl('guest.admit'), sh(async (req, res) => { const r = await shield.guestRequest(strict(req.body, ['meetingId', 'passcode', 'displayName', 'clientKey'])); res.status(r.status === 'DENIED' ? (r.reason === 'RATE_LIMIT' || r.reason === 'MEETING_LOCKED' ? 429 : 403) : 202).json(r); }));
+  app.post('/v1/shield/guest/claim', wl('guest.admit'), sh(async (req, res) => { const r = await shield.guestClaim(strict(req.body, ['admissionId', 'claimSecret'])); res.status(r.status === 'DENIED' ? 403 : 200).set('Cache-Control', 'no-store').json(r); }));
+  app.post('/v1/shield/media/consume', wl('media.consume'), sh(async (req, res) => res.set('Cache-Control', 'no-store').json(await shield.mediaConsume(strict(req.body, ['token', 'meetingId'])))));
+  app.post('/v1/shield/guest/:id/decision', auth, sh(async (req, res) => { if (!enforce) return res.status(503).json({ error: 'shield_enforcement_off' }); res.json(await shield.guestDecide({ hostAccountId: req.account, admissionId: req.params.id, decision: (req.body || {}).decision })); }));
+  app.post('/v1/shield/authorize', auth, sh(async (req, res) => { if (!enforce) return res.status(503).json({ error: 'shield_enforcement_off' }); const b = strict(req.body, ['action', 'resourceOrgId']); const scopes = typeof (req.claims && req.claims.scope) === 'string' ? req.claims.scope.split(' ') : []; const r = await shield.authorizeUser({ accountId: req.account, iat: req.claims.iat, action: b.action, resourceOrgId: b.resourceOrgId == null ? null : b.resourceOrgId, scopes }); res.status(r.allow ? 200 : 403).json(r); }));
 
   // ---- trusted provisioning and operations (server to server). Browsers never call these; the secret never leaves the main app's server.
   app.post('/v1/voice/admin/identities', adminAuth, route(async (req, res) => {
