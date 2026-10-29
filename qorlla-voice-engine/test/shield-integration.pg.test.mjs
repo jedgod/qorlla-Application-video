@@ -208,6 +208,19 @@ test('PSTN through the integrated services: unregistered, international and unow
   assert.ok((await q("SELECT 1 FROM shield_events WHERE action='principal.suspend' AND actor=$1", [pat.id])).rowCount);
 });
 
+test('MAIN APP built-in meeting room: guests and unverified accounts cannot create meetings; suspending an account ends its live signaling session', async (t) => {
+  if (skip(t)) return;
+  const create = (cookie) => mainReq(cookie, 'POST', '/api/meetings/create', { topic: 'Built-in room', durationMinutes: 30 });
+  assert.equal((await create('')).status, 401, 'a guest cannot create a meeting'); const unv = await account('unvcreate'); assert.equal((await create(unv.cookie)).status, 403, 'an unverified account cannot either');
+  const host = await account('roomhost', { verified: true }); const adm = await account('adminx', { verified: true }); const made = await create(host.cookie); assert.equal(made.status, 201, JSON.stringify(made.body));
+  const meetingId = made.body.meetingId || made.body.meeting?.meetingId || made.body.id; assert.ok(meetingId, JSON.stringify(made.body));
+  const sock = ioc(main.base, { extraHeaders: { cookie: host.cookie }, transports: ['websocket'], reconnection: false }); await new Promise((ok, no) => { sock.once('connect', ok); sock.once('connect_error', no); });
+  const events = []; sock.on('error_response', (e) => events.push(e)); sock.emit('join_room', { meetingId, userName: 'Host' }); await sleep(700); assert.equal(events.length, 0, 'the account joined its own room: ' + JSON.stringify(events));
+  const gone = new Promise((ok) => { sock.once('session_revoked', (e) => ok(e.reason)); sock.once('disconnect', () => ok('disconnect')); });
+  assert.equal((await mainReq(adm.cookie, 'POST', '/api/admin/accounts/' + host.id + '/suspend', { suspended: true })).status, 200);
+  assert.ok(['account_suspended', 'disconnect'].includes(await Promise.race([gone, sleep(8000).then(() => 'still-open')])), 'the built-in room session was terminated'); sock.close();
+});
+
 test('FAIL CLOSED: when the shield is unreachable (or answers an error) Meet grants NO signaling session, to hosts, members or guests', async (t) => {
   if (skip(t)) return;
   const host = await account('lasthost', { verified: true }); await principalWhere(host.id, (p) => p.verified); const m = await schedule({ hostAccountId: host.id });

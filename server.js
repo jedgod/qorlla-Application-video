@@ -286,6 +286,7 @@ app.post('/api/admin/accounts/:id/suspend', (req, res, next) => auth.requireUser
     const suspended = (req.body || {}).suspended === true;
     if (req.params.id === req.user.id) return res.status(409).json({ error: 'You cannot suspend your own account.' });
     if (!auth.setSuspended(String(req.params.id), suspended)) return res.status(404).json({ error: 'No such account.' });
+    if (suspended) disconnectAccountSockets(String(req.params.id));
     res.json({ ok: true, suspended });
 });
 const phoneAdmin = (u) => { const n = String((u && u.username) || '').toLowerCase(); return String(process.env.PHONE_ADMIN_USERS || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean).some((p) => (p.endsWith('*') ? n.startsWith(p.slice(0, -1)) : p === n)); };
@@ -564,6 +565,7 @@ const limitCreate = rateLimit(20), limitValidate = rateLimit(60);
 app.post('/api/meetings/create', limitCreate, (req, res) => {
     const { topic, startTime, durationMinutes, timezone } = req.body;
     const account = auth.getUser(req);
+    if (String(process.env.SHIELD_REQUIRE_VERIFIED || '').toLowerCase() === 'true' && !(account && account.emailVerified)) return res.status(account ? 403 : 401).json({ error: account ? 'verification_required' : 'sign_in_required' });     // guests and unverified accounts cannot create meetings
     const hostId = account ? account.id : req.body.hostId;    // a signed-in host is always the account, never a client-supplied id
 
     if (!topic || !hostId) {
@@ -702,6 +704,11 @@ function armLimit(m) {
             if (room) { for (const sid of room.keys()) { const s = io.sockets.sockets.get(sid); if (s) { s.leave(m.meetingId); s.currentRoom = null; } } activeRooms.delete(m.meetingId); }
             guestSessions.revokeMeeting(m.meetingId, 'meeting_ended');
         } }));
+}
+/** Ends every live signaling session of an account (built-in meeting rooms, chat nudges) when it is suspended. */
+function disconnectAccountSockets(accountId) {
+    const ids = io.sockets.adapter.rooms.get('user:' + accountId); if (!ids) return;
+    for (const sid of [...ids]) { const s = io.sockets.sockets.get(sid); if (s) { s.emit('session_revoked', { reason: 'account_suspended' }); leaveCurrentRoom(s); s.disconnect(true); } }
 }
 function leaveCurrentRoom(socket) {
     const roomId = socket.currentRoom;
