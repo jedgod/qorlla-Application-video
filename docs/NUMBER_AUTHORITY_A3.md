@@ -1,5 +1,12 @@
 # A3: authority integration and certification (first slice) and review of the supplied `security-v23` overlay
 
+## SCOPE DECISION (owner, after this slice was written): Voice Engine only; no Twilio, no public numbers, no PSTN
+The owner confirmed that Twilio is not needed and that the system's own Voice Engine (internet calls between Qorlla accounts, by extension) is the calling function. No in-house carrier or number-issuing service exists in the repository. Consequences:
+- **Out of scope / parked, not deleted:** the Twilio adapter, public-number provisioning and release, Numbers & Plans carrier reconciliation, the PSTN authorization gateway, caller-ID-from-inventory, billing holds on numbers. The code and tests stay in the tree (nothing destructive) but are inert: no carrier is configured (`PHONE_CARRIER` unset = `UnconfiguredProvider`), `VOICE_NUMBERS_ENABLED=false`, no workload holds the `pstn.*` scopes in any deployment.
+- **Struck from the blockers below:** P0 "Real Twilio reconciliation", the real-data migration rehearsal for number tables, number-lifecycle alerting, number suspension at a carrier, and "calling integration" for public numbers. They return only if a carrier or number provider is ever adopted (then it needs its own adapter behind `TelephonyProvider` and the same certification matrix).
+- **Still in force:** Shield workload identity, account verification/suspension, guest rules (meeting ID + passcode only, no extension, no voice, no messaging), tenant isolation, Meet signaling gate, replay protection, fail-closed behaviour, emergency suspension of voice sockets and meeting sessions, TURN/multi-host/failover/device/load/security-review gates.
+- Extensions are the only identifiers: engine-assigned, 3-8 digits, never emergency numbers. A verified mobile number remains only an optional discovery attribute (see `VOICE_IDENTITY_AND_DISCOVERY.md`), never a routing key.
+
 Branch `feature/number-authority-a3` (from `integration/shield-main-app-meet`, which includes A1/A2). `VOICE_NUMBERS_ENABLED=false`; production numbers and PSTN are NOT enabled. Release BLOCKED.
 
 ## Controls: implemented / independently tested / infrastructure-dependent
