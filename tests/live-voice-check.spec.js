@@ -6,8 +6,8 @@ const { PASSWORD } = require('./support/meet-stack');
 
 // A check of the REAL, RUNNING Qorlla application (the dev stack: `npm run dev:stack`), not a throwaway server. It registers a few "qa" test accounts in that stack's data folder, then uses real browsers
 // (headless Chromium, synthetic microphone) to place real calls through the real voice engine. Run it with:  LIVE_BASE=http://localhost:3200 npx playwright test tests/live-voice-check.spec.js --project=chromium
-// Screenshots go to .dev-stack/live-check/. It does not run as part of the normal suite.
-const BASE = process.env.LIVE_BASE, root = path.resolve(__dirname, '..'), shots = path.join(root, '.dev-stack', 'live-check');
+// Screenshots go to .dev-stack/live-check/ (or LIVE_SHOTS). It does not run as part of the normal suite.
+const BASE = process.env.LIVE_BASE, root = path.resolve(__dirname, '..'), shots = process.env.LIVE_SHOTS ? path.resolve(process.env.LIVE_SHOTS) : path.join(root, '.dev-stack', 'live-check');   // set LIVE_SHOTS so a new run never overwrites earlier evidence
 const secrets = fs.existsSync(path.join(root, '.dev-stack', 'secrets.json')) ? JSON.parse(fs.readFileSync(path.join(root, '.dev-stack', 'secrets.json'), 'utf8')) : {};
 const VOICE = process.env.LIVE_VOICE || 'http://127.0.0.1:4600';
 
