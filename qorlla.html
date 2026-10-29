@@ -2226,12 +2226,12 @@
       var caller = h('select', { id: 'qpCallerId', 'aria-label': I18n.t('Your caller ID'), disabled: true }, [h('option', { text: I18n.t('No Qorlla number assigned') })]);
       function e164() { var c = COUNTRIES.filter(function (x) { return x[0] === sel.value; })[0], d = num.replace(/[^0-9+]/g, ''); if (!d) return ''; var out = d.charAt(0) === '+' ? d : '+' + c[1] + d.replace(/^0+/, ''); return /^\+[1-9]\d{6,14}$/.test(out) ? out : null; }
       // 3 to 8 digits with no + sign is a Qorlla extension (internet call to a colleague); anything else is a telephone number, which needs a carrier
-      var isExt = function () { return /^[0-9]{3,8}$/.test(num); };
-      function extHint() { if (!voice.cfg || !voice.cfg.enabled) return I18n.t('Qorlla Voice is not set up on this server, so extensions cannot be called.'); if (!voice.ready) return I18n.t('Qorlla Voice is connecting\u2026'); if (num === voice.ext) return I18n.t('That is your own extension.'); var nm = voiceName(num); return nm ? I18n.t('Internet call to') + ' ' + nm + ' (' + I18n.t('ext') + ' ' + num + ')' : I18n.t('Internet call to extension') + ' ' + num; }
+      var isExt = function () { return /^[0-9]{3,8}$/.test(num); }, isEmergency = function () { return /^(911|112|999|000|110|119|100|101|102|108|122|933)$/.test(num); };   // kept in step with EMERGENCY_NUMBERS in the voice engine
+      function extHint() { if (isEmergency()) return I18n.t('Qorlla cannot place emergency calls. Use your phone\u2019s own dialer.'); if (!voice.cfg || !voice.cfg.enabled) return I18n.t('Qorlla Voice is not set up on this server, so extensions cannot be called.'); if (!voice.ready) return I18n.t('Qorlla Voice is connecting\u2026'); if (num === voice.ext) return I18n.t('That is your own extension.'); var nm = voiceName(num); return nm ? I18n.t('Internet call to') + ' ' + nm + ' (' + I18n.t('ext') + ' ' + num + ')' : I18n.t('Internet call to extension') + ' ' + num; }
       function paint() {
         input.value = num; var n = e164(), ext = isExt(); clear.classList.toggle('hidden', !num); copy.disabled = !num; del.disabled = !num;
         hint.textContent = !num ? '' : ext ? extHint() : n ? I18n.t('Will call') + ' ' + n : I18n.t('Enter a valid phone number (7 to 15 digits).');
-        call.disabled = ext ? !(voice.ready && voice.client && !voice.client.callId && num !== voice.ext) : !(n && info && info.carrierCalling);
+        call.disabled = ext ? !(voice.ready && voice.client && !voice.client.callId && num !== voice.ext && !isEmergency()) : !(n && info && info.carrierCalling);
         myExt.textContent = voice.ready && voice.ext ? I18n.t('Your Qorlla extension') + ': ' + voice.ext + ' \u00B7 ' + I18n.t('internet calls to colleagues') : '';
         if (voice.ready) note.textContent = I18n.t('Dial a colleague\u2019s extension (3 to 8 digits) for a free internet call. Calls to outside phone numbers need a telephony provider.'); else if (!(info && info.carrierCalling)) note.textContent = I18n.t('Calling is off: carrier calling requires a connected telephony provider and provisioned calling permissions.');
       }

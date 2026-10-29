@@ -39,6 +39,12 @@ test('ICE policy: TURN can be required and relay-only can be forced, and a misco
   const env = { TURN_URLS: 'turn:t:3478?transport=udp', TURN_SHARED_SECRET: 'x'.repeat(32), VOICE_REQUIRE_TURN: 'true', VOICE_RELAY_ONLY: 'true' };
   const r = iceServersFor('a', env, 1000); assert.equal(r.iceTransportPolicy, 'relay'); assert.equal(r.turn, true); assert.equal(iceServersFor('a', { ...env, VOICE_RELAY_ONLY: 'false' }, 1000).iceTransportPolicy, 'all');
 });
+test('emergency numbers are never extensions: they cannot be provisioned, dialled, invited or blocked', async () => {
+  const { validExtension, isEmergencyNumber, EMERGENCY_NUMBERS } = await import('../src/core.mjs');
+  for (const n of ['911', '112', '999', '000', '110', '119', '933']) { assert.equal(isEmergencyNumber(n), true, n); assert.equal(validExtension(n), false, n); }
+  for (const n of ['2000', '9110', '1120', '911911', '020']) { assert.equal(validExtension(n), true, n); assert.equal(isEmergencyNumber(n), false, n); }
+  assert.ok(EMERGENCY_NUMBERS.size >= 10); assert.equal(validExtension(911), false);
+});
 test('admin secret comparison is exact and handles any length', () => { assert.equal(secretEquals('a'.repeat(40), 'a'.repeat(40)), true); assert.equal(secretEquals('a'.repeat(40), 'a'.repeat(41)), false); assert.equal(secretEquals('', ''), false); assert.equal(secretEquals(undefined, 'x'), false); });
 test('limiter allows a burst, refuses the excess, and recovers after the window', () => { let t = 0; const l = makeLimiter({ max: 3, windowMs: 1000, now: () => t }); assert.deepEqual([1, 2, 3, 4].map(() => l.take('k')), [true, true, true, false]); assert.equal(l.take('other'), true); t = 1001; assert.equal(l.take('k'), true); });
 test('duration comes from server timestamps and is zero for unanswered calls', () => { assert.equal(callSeconds({ answered_at: null, ended_at: null }), 0); assert.equal(callSeconds({ answered_at: '2026-01-01T00:00:00Z', ended_at: '2026-01-01T00:01:30Z' }), 90); });

@@ -112,6 +112,7 @@ test.describe('Qorlla Voice: two browsers, real audio', () => {
     test.setTimeout(120000);
     const erin = await person(browser, 'Erin'), finn = await person(browser, 'Finn'), gail = await person(browser, 'Gail'); await refresh(erin.page); await expect(erin.page.locator('#qpColleagues')).toContainText('Finn Test', { timeout: 20000 });
     await erin.page.locator('#qpDialNumber').fill(erin.ext); await expect(erin.page.locator('#qpDialHint')).toContainText('own extension'); await expect(erin.page.locator('#phCall')).toBeDisabled();
+    for (const n of ['911', '112', '999']) { await erin.page.locator('#qpDialNumber').fill(n); await expect(erin.page.locator('#qpDialHint')).toContainText('cannot place emergency calls'); await expect(erin.page.locator('#phCall')).toBeDisabled(); }   // never rings a colleague
     await erin.page.locator('#qpDialNumber').fill('999999'); await expect(erin.page.locator('#phCall')).toBeEnabled(); await erin.page.locator('#phCall').click(); await expect(erin.page.locator('#voiceBar')).toBeHidden({ timeout: 10000 });   // nobody has that extension
     await erin.page.locator('#qpDialNumber').fill(finn.ext); await erin.page.locator('#phCall').click(); await expect(finn.page.locator('#voiceIncoming')).toBeVisible({ timeout: 10000 });
     // accessibility of the new surfaces: the ringing dialog, the call bar and the Dial Pad with colleagues

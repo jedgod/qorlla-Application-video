@@ -5,7 +5,10 @@ export const STATES = { ringing: ['active', 'rejected', 'missed', 'ended', 'fail
 export const LIVE = ['ringing', 'active'];
 export const TERMINAL = ['rejected', 'missed', 'ended', 'failed'];
 export const allowedTransition = (from, to) => STATES[from]?.includes(to) === true;
-export const validExtension = (v) => typeof v === 'string' && /^[0-9]{3,8}$/.test(v);
+/** Emergency numbers can never be internal extensions: dialling 911 must not ring a colleague. Qorlla Voice cannot place emergency calls (no PSTN), so these are refused everywhere an extension is accepted. */
+export const EMERGENCY_NUMBERS = new Set(['911', '112', '999', '000', '110', '119', '100', '101', '102', '108', '122', '933']);
+export const isEmergencyNumber = (v) => typeof v === 'string' && EMERGENCY_NUMBERS.has(v);
+export const validExtension = (v) => typeof v === 'string' && /^[0-9]{3,8}$/.test(v) && !EMERGENCY_NUMBERS.has(v);
 export const validCallId = (v) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 export const validIdempotencyKey = (v) => typeof v === 'string' && /^[a-zA-Z0-9_-]{12,100}$/.test(v);
 export const validAccountId = (v) => typeof v === 'string' && /^[A-Za-z0-9_.:@-]{1,128}$/.test(v);
