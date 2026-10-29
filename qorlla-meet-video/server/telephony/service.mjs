@@ -59,8 +59,9 @@ export class TelephonyService {
     if (!st || !st.health_ok) throw err('PROVIDER_NOT_VERIFIED', 'The telephone provider has not passed a connection test. Run Test connection first.', 503);
     const to = kind === 'personal' ? String(assignTo || actor.id).slice(0, 64) : null;
     if (to) {
-      const acct = (await this.db.query('SELECT verified, suspended FROM qphone_accounts WHERE account_id=$1', [to])).rows[0];
+      const acct = (await this.db.query('SELECT verified, suspended, billing_hold FROM qphone_accounts WHERE account_id=$1', [to])).rows[0];
       if (!acct || !acct.verified || acct.suspended) throw err('TARGET_NOT_ELIGIBLE', 'Only a verified, active account can receive a number.', 403);
+      if (acct.billing_hold) throw err('BILLING_HOLD', 'The account has a billing hold; no number can be provisioned for it.', 402);
       const have = await this.db.query("SELECT (SELECT count(*) FROM qphone_numbers WHERE kind='personal' AND assigned_to=$1 AND state IN ('provisioning','active','suspended','releasing')) + (SELECT count(*) FROM qphone_provisioning_requests WHERE kind='personal' AND assign_to=$1 AND state IN ('requested','processing')) AS n", [to]);
       if (Number(have.rows[0].n) > 0 && !(await this.db.query('SELECT 1 FROM qphone_provisioning_requests WHERE actor_id=$1 AND idempotency_key=$2', [actor.id, idempotencyKey])).rowCount) throw err('DUPLICATE_OWNERSHIP', 'That account already has a number or a pending request.', 409);
     }
@@ -83,16 +84,18 @@ export class TelephonyService {
       const n = (await c.query('SELECT * FROM qphone_numbers WHERE id=$1 FOR UPDATE', [numberId])).rows[0]; if (!n) throw err('NOT_FOUND', 'Not found.', 404);
       if (verified === true) {
         if (n.kind !== 'personal' || n.state !== 'active' || n.hold_reason || !n.assigned_to) throw err('NOT_ELIGIBLE', 'Only an active, assigned personal number can be a verified caller ID.', 409);
-        const a = (await c.query('SELECT verified, suspended FROM qphone_accounts WHERE account_id=$1', [n.assigned_to])).rows[0]; if (!a || !a.verified || a.suspended) throw err('OWNER_NOT_ELIGIBLE', 'The owning account is not verified and active.', 403);
+        const a = (await c.query('SELECT verified, suspended, billing_hold FROM qphone_accounts WHERE account_id=$1', [n.assigned_to])).rows[0]; if (!a || !a.verified || a.suspended) throw err('OWNER_NOT_ELIGIBLE', 'The owning account is not verified and active.', 403);
+        if (a.billing_hold) throw err('BILLING_HOLD', 'The owning account has a billing hold.', 402);
       }
       await c.query('UPDATE qphone_numbers SET caller_id_verified=$2 WHERE id=$1', [numberId, !!verified]); await this.audit(actor.id, 'number.caller_id', numberId, { verified: !!verified }, c);
     });
   }
   /** The main app reports each account's standing here (server to server). Reassignment, caller-ID verification and provisioning read ONLY this. */
-  async syncAccount({ accountId, verified, suspended, orgId }) {
+  async syncAccount({ accountId, verified, suspended, orgId, billingHold }) {
+    if (billingHold !== undefined && typeof billingHold !== 'boolean') throw err('INVALID_INPUT', 'Invalid account record.', 400);
     if (!/^[A-Za-z0-9_.:@-]{1,128}$/.test(String(accountId || '')) || typeof verified !== 'boolean' || typeof suspended !== 'boolean') throw err('INVALID_INPUT', 'Invalid account record.', 400);
-    await this.db.query('INSERT INTO qphone_accounts(account_id, verified, suspended, org_id) VALUES($1,$2,$3,$4) ON CONFLICT (account_id) DO UPDATE SET verified=$2, suspended=$3, org_id=$4, updated_at=now()', [accountId, verified, suspended, orgId || null]);
-    await this.audit(accountId, 'account.synced', accountId, { verified, suspended }); return { accountId, verified, suspended };
+    await this.db.query('INSERT INTO qphone_accounts(account_id, verified, suspended, org_id, billing_hold) VALUES($1,$2,$3,$4,COALESCE($5,false)) ON CONFLICT (account_id) DO UPDATE SET verified=$2, suspended=$3, org_id=$4, billing_hold=COALESCE($5, qphone_accounts.billing_hold), updated_at=now()', [accountId, verified, suspended, orgId || null, billingHold === undefined ? null : billingHold]);
+    await this.audit(accountId, 'account.synced', accountId, { verified, suspended, billingHold }); return { accountId, verified, suspended };
   }
   async setNumberState(actor, numberId, state) {   // suspension and release are admin actions; release is a durable two-phase operation
     assertAdmin(actor); if (!['active', 'suspended', 'released'].includes(state)) throw err('INVALID_STATE', 'Choose active, suspended or released.');
@@ -174,8 +177,10 @@ export class TelephonyService {
         if (n.kind !== 'personal') throw err('NOT_TRANSFERABLE', 'Shared dial-in numbers cannot be assigned to a person.', 409);
         if (!['active', 'suspended'].includes(n.state) || n.hold_reason) throw err('NUMBER_LOCKED', 'The number is not in a state that can be transferred (release in progress or provider outcome unknown).', 409);
         if (n.assigned_to === to) throw err('NO_CHANGE', 'The number already belongs to that account.', 409);
-        const t = (await c.query('SELECT verified, suspended FROM qphone_accounts WHERE account_id=$1', [to])).rows[0];
+        const t = (await c.query('SELECT verified, suspended, billing_hold FROM qphone_accounts WHERE account_id=$1', [to])).rows[0];
         if (!t || !t.verified || t.suspended) throw err('TARGET_NOT_ELIGIBLE', 'The target account is not verified and active.', 403);
+        if (t.billing_hold) throw err('BILLING_HOLD', 'The target account has a billing hold.', 402);
+        if (n.assigned_to && (await c.query('SELECT 1 FROM qphone_accounts WHERE account_id=$1 AND billing_hold', [n.assigned_to])).rowCount) throw err('BILLING_HOLD', 'The current owner has a billing hold; the number cannot be moved until it is cleared.', 402);
         if ((await c.query("SELECT 1 FROM qphone_numbers WHERE kind='personal' AND assigned_to=$1 AND state IN ('provisioning','active','suspended','releasing')", [to])).rowCount) throw err('DUPLICATE_OWNERSHIP', 'The target account already has a number.', 409);
         await c.query('UPDATE qphone_numbers SET assigned_to=$2, caller_id_verified=false WHERE id=$1', [numberId, to]);     // the new owner must verify the caller ID again
         await this.audit(actor.id, 'number.reassigned', numberId, { from: n.assigned_to, to, reason, last4: last4(n.e164) }, c); return { id: numberId, assignedTo: to, callerIdVerified: false };

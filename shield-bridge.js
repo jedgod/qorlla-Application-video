@@ -42,10 +42,10 @@ function createShieldBridge({ dataDir, env = process.env, listAccounts, fetchImp
     /** Pushes one account's standing everywhere it is enforced. Throws if any destination did not take it (the caller retries). */
     async function push(a) {
         const shield = { authorization: 'Bearer ' + workloadToken() };
-        await post(syncUrl(), '/v1/shield/admin/principals', 'PUT', { accountId: a.id, ...(a.orgId ? { orgId: a.orgId } : {}), verified: !!a.verified }, shield);
+        await post(syncUrl(), '/v1/shield/admin/principals', 'PUT', { accountId: a.id, ...(a.orgId ? { orgId: a.orgId } : {}), verified: !!a.verified, ...(typeof a.billingHold === 'boolean' ? { billingHold: a.billingHold } : {}) }, shield);
         if (a.suspended) await post(syncUrl(), '/v1/shield/admin/principals/' + encodeURIComponent(a.id) + '/suspend', 'POST', {}, { authorization: 'Bearer ' + workloadToken() });
         else await post(syncUrl(), '/v1/shield/admin/principals/' + encodeURIComponent(a.id) + '/restore', 'POST', {}, { authorization: 'Bearer ' + workloadToken() });
-        if (meetUrl() && bridgeSecret().length >= 32) await post(meetUrl(), '/api/integrations/telephony/accounts/' + encodeURIComponent(a.id), 'PUT', { verified: !!a.verified, suspended: !!a.suspended, orgId: a.orgId || null }, { 'x-qorlla-bridge-secret': bridgeSecret() });
+        if (meetUrl() && bridgeSecret().length >= 32) await post(meetUrl(), '/api/integrations/telephony/accounts/' + encodeURIComponent(a.id), 'PUT', { verified: !!a.verified, suspended: !!a.suspended, orgId: a.orgId || null, ...(typeof a.billingHold === 'boolean' ? { billingHold: a.billingHold } : {}) }, { 'x-qorlla-bridge-secret': bridgeSecret() });
     }
 
     const pending = new Map();                                            // account id -> latest standing not yet accepted

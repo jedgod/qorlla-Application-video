@@ -24,7 +24,7 @@ const req = createRequire(path.join(root, 'package.json'));
 let ioc, bcrypt, secrets = null;
 try { ioc = req('socket.io-client').io; bcrypt = req('bcryptjs'); secrets = JSON.parse(fs.readFileSync(path.join(root, '.dev-stack', 'secrets.json'), 'utf8')); } catch { /* skipped below */ }
 const PASSWORD = 'Handoff-pass-9917!x', ENGINE_ADMIN = 'e'.repeat(40), ISSUER = 'qorlla-workload';
-const MEET_SQL = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', 'v4_7_recording_consent.sql', 'v4_8_collab.sql', 'v4_9_recording_storage.sql', 'v4_10_admission.sql', 'v4_11_history.sql', 'v4_12_limit.sql', 'v4_13_phone.sql', 'v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_17_shield_identity.sql'];
+const MEET_SQL = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', 'v4_7_recording_consent.sql', 'v4_8_collab.sql', 'v4_9_recording_storage.sql', 'v4_10_admission.sql', 'v4_11_history.sql', 'v4_12_limit.sql', 'v4_13_phone.sql', 'v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_17_shield_identity.sql', 'v4_18_billing_hold.sql'];
 
 let db, h, engine, meet, main, jwksSrv, ports, dataDir, startMeet, children = [], keys = {};
 const free = () => new Promise((ok) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => ok(p)); }); });
@@ -68,7 +68,7 @@ before(async () => {
   engine = await h.replica({ env: {
     SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: `http://127.0.0.1:${ports.agg}/`, SHIELD_WORKLOAD_ISSUER: ISSUER, VOICE_ADMIN_SECRET: ENGINE_ADMIN,
     SHIELD_WORKLOAD_ALLOWED: 'svc:main-app=shield.admin;svc:meet=meet.register|meet.signal;svc:ops=shield.admin|pstn.authorize|pstn.consume|pstn.settle|numbers.sync',
-    VOICE_JWKS_URL: `http://127.0.0.1:${ports.main}/.well-known/voice-jwks.json`, VOICE_JWT_ISSUER: 'qorlla-main', VOICE_JWT_AUDIENCE: 'qorlla-voice', VOICE_ALLOWED_ORIGIN: ORIGIN, SHIELD_PSTN_RESERVE_CENTS: '100' } });
+    VOICE_JWKS_URL: `http://127.0.0.1:${ports.main}/.well-known/voice-jwks.json`, VOICE_JWT_ISSUER: 'qorlla-main', VOICE_JWT_AUDIENCE: 'qorlla-voice', VOICE_ALLOWED_ORIGIN: ORIGIN, SHIELD_PSTN_RESERVE_CENTS: '100', SHIELD_NUMBERS_AUTHORITY: 'svc:ops' } });
   // Meet: its own schema in the same isolated database, shield enforcing, a 1 s session re-check
   const c = await db.admin.connect(); try { await c.query('SET search_path TO ' + db.schema); for (const f of MEET_SQL) { try { await c.query(fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', f), 'utf8')); } catch (e) { throw new Error('Meet migration ' + f + ': ' + e.message); } } } finally { await c.query('SET search_path TO public').catch(() => {}); c.release(); }
   const dbUrl = db.pool.options.connectionString;      // the search_path travels in PGOPTIONS (node-pg reads it), not in the URL

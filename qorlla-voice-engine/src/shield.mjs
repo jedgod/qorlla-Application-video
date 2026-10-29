@@ -82,10 +82,12 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
   }
 
   // ---- principals / organizations (written only by the trusted main app through workload credentials)
-  const upsertPrincipal = ({ accountId, orgId, verified = false }) => tx(async (c) => {
-    if (!validAccountId(accountId) || (orgId != null && !idText(orgId)) || typeof verified !== 'boolean') throw new ShieldError('invalid_input', 400);
+  const upsertPrincipal = ({ accountId, orgId, verified, billingHold }) => tx(async (c) => {
+    if (billingHold !== undefined && typeof billingHold !== 'boolean') throw new ShieldError('invalid_input', 400);
+    if (!validAccountId(accountId) || (orgId != null && !idText(orgId)) || (verified !== undefined && typeof verified !== 'boolean')) throw new ShieldError('invalid_input', 400);
+    // a field that is ABSENT is left as it is (a billing-only update must not un-verify anyone)
     // orgId ABSENT = keep the organization the authoritative backend assigned; the main app reports verification and suspension, it does not decide tenancy
-    await c.query('INSERT INTO shield_principals(account_id, org_id, verified) VALUES($1,$2,$3) ON CONFLICT (account_id) DO UPDATE SET org_id = CASE WHEN $4::boolean THEN $2 ELSE shield_principals.org_id END, verified=$3, updated_at=now()', [accountId, orgId ?? null, verified, orgId !== undefined]);
+    await c.query('INSERT INTO shield_principals(account_id, org_id, verified, billing_hold) VALUES($1,$2,COALESCE($3,false),COALESCE($5,false)) ON CONFLICT (account_id) DO UPDATE SET org_id = CASE WHEN $4::boolean THEN $2 ELSE shield_principals.org_id END, verified = COALESCE($3, shield_principals.verified), billing_hold = COALESCE($5, shield_principals.billing_hold), updated_at=now()', [accountId, orgId ?? null, verified === undefined ? null : verified, orgId !== undefined, billingHold === undefined ? null : billingHold]);
     await audit(c, accountId, 'principal.upsert', 'ALLOW', 'ADMIN'); return { accountId, orgId, verified };
   });
   const upsertOrg = ({ orgId, pstnEnabled = false, allowedCountries = [], maxActiveCalls = 2, maxCallsHour = 30, spendLimitCents = 0 }) => tx(async (c) => {
@@ -157,8 +159,8 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       const prior = (await c.query('SELECT request_hash FROM shield_authorizations WHERE request_id=$1', [requestId])).rows[0];
       if (prior) { await audit(c, accountId, 'voice.pstn.outbound', 'DENY', prior.request_hash === hash ? 'REPLAYED_REQUEST' : 'REQUEST_ID_REUSED', requestId); return { allow: false, reason: prior.request_hash === hash ? 'REPLAYED_REQUEST' : 'REQUEST_ID_REUSED' }; }
       const deny = async (reason) => { await audit(c, accountId, 'voice.pstn.outbound', 'DENY', reason, requestId); return { allow: false, reason }; };
-      const p = (await c.query('SELECT org_id, verified, suspended FROM shield_principals WHERE account_id=$1', [accountId])).rows[0];
-      if (!p) return deny('UNKNOWN_PRINCIPAL'); if (p.suspended) return deny('SUSPENDED'); if (!p.verified) return deny('IDENTITY_UNVERIFIED');
+      const p = (await c.query('SELECT org_id, verified, suspended, billing_hold FROM shield_principals WHERE account_id=$1', [accountId])).rows[0];
+      if (!p) return deny('UNKNOWN_PRINCIPAL'); if (p.suspended) return deny('SUSPENDED'); if (!p.verified) return deny('IDENTITY_UNVERIFIED'); if (p.billing_hold) return deny('BILLING_HOLD');
       const org = p.org_id ? (await c.query('SELECT * FROM shield_orgs WHERE org_id=$1', [p.org_id])).rows[0] : null;
       if (!org) return deny('NO_ORGANIZATION'); if (org.suspended) return deny('SUSPENDED'); if (!org.pstn_enabled) return deny('PSTN_DISABLED');
       const dest = classifyDestination(destination); if (!dest.ok) return deny(dest.reason);
@@ -332,7 +334,9 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       await c.query('UPDATE shield_media_tokens SET revoked_at=now() WHERE meeting_id=$1 AND revoked_at IS NULL', [meetingId]); await audit(c, null, 'meeting.end', 'ALLOW', 'ADMIN'); return { meetingId };
     });
   }
+  /** Best-effort audit of a refused write: the caller is authenticated but is not the party allowed to do it. */
+  function auditProvenance(actor, reason) { db.query('INSERT INTO shield_events(actor, action, decision, reason) VALUES($1,$2,$3,$4)', [String(actor || '').slice(0, 128), 'numbers.sync', 'DENY', reason]).catch(() => {}); }
   async function purgeExpired() { await store.tx(async (c) => { await c.query('DELETE FROM shield_workload_jti WHERE expires_at < now()'); await c.query("DELETE FROM shield_counters WHERE window_start < now() - interval '1 day'"); }); }
 
-  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, registerMeeting, meetAuthorize, meetRecheck, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
+  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, auditProvenance, registerMeeting, meetAuthorize, meetRecheck, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
 }

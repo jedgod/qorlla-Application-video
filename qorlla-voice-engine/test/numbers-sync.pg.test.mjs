@@ -58,7 +58,7 @@ const ID = (n) => ({ id: n.id });
 
 before(async () => {
   db = await isolatedDb(); if (!db) return; idp = await identityProvider(); const w = await workload(); pem = w.pem; jwksSrv = w.srv; jwksUrl = w.url;
-  await q(sql('v4_14_telephony.sql')); await q(sql('v4_16_number_authority.sql'));
+  await q(sql('v4_14_telephony.sql')); await q(sql('v4_16_number_authority.sql')); await q(sql('v4_18_billing_hold.sql'));
   h = harness({ db, idp });
   r = await h.replica({ env: { SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: 'svc:numbers-plans=numbers.sync;svc:admin=shield.admin;svc:pstn=pstn.authorize|pstn.consume|pstn.settle;svc:other=guest.admit', SHIELD_PSTN_RESERVE_CENTS: '100' } });
   carrier = new StubCarrier(); svc = new TelephonyService({ db: db.pool, carrier, bridge: { ready: false }, audio: { ready: false }, env: { PHONE_ALLOWED_COUNTRIES: 'US,CA,GB' } });
@@ -257,6 +257,37 @@ test('CALLER-ID SPOOFING, SUSPENSION AND TENANT ISOLATION across the integrated 
   // tenant isolation: another organization's workload-registered principal cannot use or see this number
   await wk('svc:admin', 'PUT', '/v1/shield/admin/orgs', { orgId: 'orgB', pstnEnabled: true, allowedCountries: ['US'], maxActiveCalls: 2, maxCallsHour: 10, spendLimitCents: 1000 }); await wk('svc:admin', 'PUT', '/v1/shield/admin/principals', { accountId: 'mal', orgId: 'orgB', verified: true });
   assert.equal((await pstn('mal', zed.e164)).body.reason, 'CALLER_ID_NOT_OWNED'); await r.admin('POST', '/identities', { accountId: 'mal' }); assert.equal((await r.api('mal', 'GET', '/v1/voice/numbers/me')).body.number, null);
+});
+
+test('PROVENANCE: a structurally valid number event from a workload that is not the Numbers & Plans authority is refused, even with the numbers.sync scope', async (t) => {
+  if (skip(t)) return;
+  // svc:other is a perfectly valid workload; give it the scope in a second engine and watch it be refused anyway
+  const r2 = await h.replica({ env: { SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: 'svc:numbers-plans=numbers.sync;svc:rogue=numbers.sync' } });
+  const sid = 'PN' + randomBytes(10).toString('hex'), ev = { providerNumberId: sid, e164: '+14155557001', country: 'US', kind: 'personal', accountId: 'rogue-target', state: 'active', callerIdVerified: true, hold: false, version: 1 };
+  const send = (sub, path = '/v1/shield/numbers/events', body = { eventId: randomUUID(), providerNumberId: sid, version: 1, type: 'number.changed', payload: ev }) => fetch(r2.base + path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + signWorkloadJwt({ privateKeyPem: pem, issuer: 'qorlla-workload', subject: sub, kid: 'w1' }) }, body: JSON.stringify(body) }).then(async (x) => ({ status: x.status, body: await x.json().catch(() => ({})) }));
+  const bad = await send('svc:rogue'); assert.equal(bad.status, 403); assert.equal(bad.body.error, 'event_provenance');
+  assert.equal((await send('svc:rogue', '/v1/shield/numbers/reconcile', { numbers: [{ ...ev, version: 1 }] })).status, 403, 'and a forged full snapshot');
+  assert.equal((await q('SELECT count(*)::int AS c FROM voice_number_projection WHERE provider_number_id=$1', [sid])).rows[0].c, 0, 'nothing was written');
+  assert.ok((await q("SELECT 1 FROM shield_events WHERE action='numbers.sync' AND decision='DENY' AND reason='number_event_wrong_origin' AND actor='svc:rogue'")).rowCount, 'and the attempt is recorded');
+  assert.equal((await send('svc:numbers-plans')).body.result, 'applied', 'the real authority is accepted');
+});
+
+test('BILLING HOLD: a held or delinquent account cannot receive, lose or verify a number, and cannot authorize PSTN calls; lifting the hold restores them', async (t) => {
+  if (skip(t)) return;
+  for (const a of ['hank', 'hilda', 'hugo']) { await account(a); await principal(a); await r.admin('POST', '/identities', { accountId: a }); }
+  const hank = await provision('hank'); await svc.setCallerIdVerified(ADMIN, hank.id, true); await pump();
+  assert.equal((await pstn('hank', hank.e164)).body.allow, true, 'in good standing');
+  await svc.syncAccount({ accountId: 'hank', verified: true, suspended: false, billingHold: true }); await wk('svc:admin', 'PUT', '/v1/shield/admin/principals', { accountId: 'hank', billingHold: true });
+  assert.equal((await pstn('hank', hank.e164)).body.reason, 'BILLING_HOLD', 'the engine refuses PSTN for a held account');
+  await assert.rejects(svc.reassignNumber(ADMIN, hank.id, 'hilda', 'moving the number'), (e) => e.code === 'BILLING_HOLD', 'cannot move a held owner\'s number away');
+  await assert.rejects(svc.setCallerIdVerified(ADMIN, hank.id, true), (e) => e.code === 'BILLING_HOLD');
+  const hilda = await provision('hilda'); await svc.syncAccount({ accountId: 'hugo', verified: true, suspended: false, billingHold: true });
+  await assert.rejects(svc.requestNumber(ADMIN, { country: 'US', assignTo: 'hugo', idempotencyKey: 'hold-' + randomUUID().slice(0, 8) }), (e) => e.code === 'BILLING_HOLD', 'a held account cannot be given a number');
+  await assert.rejects(svc.reassignNumber(ADMIN, hilda.id, 'hugo', 'moving the number'), (e) => e.code === 'BILLING_HOLD', 'nor receive a transfer');
+  await svc.syncAccount({ accountId: 'hank', verified: true, suspended: false }); assert.equal((await q("SELECT billing_hold FROM qphone_accounts WHERE account_id='hank'")).rows[0].billing_hold, true, 'a sync that does not mention billing leaves the hold in place');
+  await svc.syncAccount({ accountId: 'hank', verified: true, suspended: false, billingHold: false }); await wk('svc:admin', 'PUT', '/v1/shield/admin/principals', { accountId: 'hank', billingHold: false });
+  assert.equal((await pstn('hank', hank.e164)).body.allow, true, 'hold lifted');
+  await svc.syncAccount({ accountId: 'hugo', verified: true, suspended: false, billingHold: false }); const moved = await svc.reassignNumber(ADMIN, hank.id, 'hugo', 'hugo took over'); assert.equal(moved.assignedTo, 'hugo');
 });
 
 test('RECONCILIATION: a snapshot heals lost events, makes numbers the authority no longer lists unusable, never moves the projection backwards, and reports disagreement at the same version', async (t) => {

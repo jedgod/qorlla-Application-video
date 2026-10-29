@@ -24,7 +24,7 @@ export function registerTelephony({ app, db, bridgeAuth, phone, env = process.en
   app.get(B + '/dial-in', bridgeAuth, wrap(() => svc.dialInDirectory()));
   app.post(B + '/numbers/:id/state', bridgeAuth, json, wrap((req, a) => svc.setNumberState(a, req.params.id, (req.body || {}).state)));
   app.post(B + '/numbers/:id/reassign', bridgeAuth, json, wrap((req, a) => svc.reassignNumber(a, req.params.id, (req.body || {}).to, (req.body || {}).reason)));
-  app.put(B + '/accounts/:id', bridgeAuth, json, wrap((req) => svc.syncAccount({ accountId: req.params.id, verified: (req.body || {}).verified, suspended: (req.body || {}).suspended, orgId: (req.body || {}).orgId })));   // the main app reports each account's standing
+  app.put(B + '/accounts/:id', bridgeAuth, json, wrap((req) => svc.syncAccount({ accountId: req.params.id, verified: (req.body || {}).verified, suspended: (req.body || {}).suspended, orgId: (req.body || {}).orgId, billingHold: (req.body || {}).billingHold })));   // the main app reports each account's standing
   app.post(B + '/numbers/reconcile', bridgeAuth, wrap(async (req, a) => { assertAdmin(a); return svc.reconcileOperations(); }));
   app.get(B + '/numbers/snapshot', bridgeAuth, wrap(async (req, a) => { assertAdmin(a); return { numbers: await svc.numberSnapshot() }; }));
   // Authority events to the voice engine: only when an engine URL and a workload signing key are configured (otherwise events simply wait in the outbox).
