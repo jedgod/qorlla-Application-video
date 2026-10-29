@@ -72,8 +72,9 @@ Also record: device model, OS and browser version, network type, carrier, time t
    SELECT account_id, kind, id FROM voice_reliable_events WHERE account_id = $1 AND id > $2 ORDER BY id;
    ```
    with the account's last cursor from before T0: after reconnect + resume the client must have received every row (gaps in global ids are normal; missing rows for the account are not).
-5. The calls that were open at T0 still hang up cleanly; no account is stuck busy; `voice_media_leases` for the open calls are intact.
-6. Repeat with a **planned switchover** (clean) and with **database connections dropped** without failover (already proven locally).
+5. **Outbox:** after recovery `SELECT count(*) FROM voice_outbox WHERE delivered_at IS NULL AND dead_at IS NULL` drains to 0 and `... WHERE dead_at IS NOT NULL` is 0 (a failover must not set events aside); per account, the event ids each client received are in ascending order apart from repeats.
+6. The calls that were open at T0 still hang up cleanly; no account is stuck busy; `voice_media_leases` for the open calls are intact.
+7. Repeat with a **planned switchover** (clean) and with **database connections dropped** without failover (already proven locally).
 **Pass:** RTO within the agreed target (propose <= 60 s); RPO = 0 acknowledged operations lost (needs synchronous replication; if asynchronous, record the measured loss and decide); zero skipped events; zero invalid state transitions (`status` machine respected); error budget during failover documented.
 **Evidence:** cluster logs, the load-tool JSON, the SQL results, dashboards. **Maps to:** QVE-10 (main), QVE-05, QVE-01.
 

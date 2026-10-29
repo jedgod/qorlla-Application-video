@@ -56,7 +56,7 @@ export class QorllaVoiceClient {
     Object.assign(this, { base: String(base).replace(/\/+$/, ''), token, onEvent, WS: WebSocketImpl, fetch: fetchImpl });
     this.deviceId = deviceId || keep.get('qorlla.voice.device') || uuid(); keep.set('qorlla.voice.device', this.deviceId);
     this.cursorKey = 'qorlla.voice.cursor.' + this.deviceId; this.log = new EventLog(); this.log.cursor = Number(keep.get(this.cursorKey)) || 0;
-    this.callVersions = new Map(); this.ws = null; this.me = null; this.ringing = new Set(); this.autoStart = true; this.autoResume = true; this.peers = new Map(); this.ackTimer = null; this.replaying = false;
+    this.callVersions = new Map(); this.roomVersions = new Map(); this.ws = null; this.me = null; this.ringing = new Set(); this.autoStart = true; this.autoResume = true; this.peers = new Map(); this.ackTimer = null; this.replaying = false;
     this.reset(); this.resetRoom();
   }
   reset() {
@@ -131,6 +131,9 @@ export class QorllaVoiceClient {
     if (m.type === 'ack_ok') return;
     if (m.eventId !== undefined) { if (!this.log.accept(m.eventId)) return; this.ackSoon(); }        // durable events are applied once, however often they are delivered
     if (m.type === 'incoming' && m.replayed && m.call && Date.now() - Date.parse(m.call.created_at) > 90000) return;
+    if (m.type === 'incoming' && m.call && (this.callVersions.get(m.call.id) ?? -1) > Number(m.call.version ?? 0)) return;
+    if (m.type === 'state' && m.call && Number.isFinite(m.call.version) && (this.callVersions.get(m.call.id) ?? -1) > m.call.version) return;       // a state older than the one already applied is dropped before anyone sees it     // the ring arrived after the call already moved on (answered, missed, ended): never ring for a finished call
+    if ((m.type === 'room_state' || m.type === 'room_invite') && m.room && Number.isFinite(m.room.version)) { const seen = this.roomVersions.get(m.room.id); if (seen !== undefined && m.room.version < seen) return; this.roomVersions.set(m.room.id, m.room.version); if (this.roomVersions.size > 200) this.roomVersions.delete(this.roomVersions.keys().next().value); }   // and never an older roster or invitation over a newer one
     if (m.type === 'room_state') await this.onRoomState(m.room);                                        // the roster is updated BEFORE listeners hear about it, so they read the new one
     this.emit(m);
     switch (m.type) {

@@ -26,16 +26,16 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   const app = express(); app.disable('x-powered-by'); app.set('trust proxy', env.VOICE_TRUST_PROXY === '1' ? 1 : false);
   app.use(helmet()); app.use(express.json({ limit: '16kb' }));
   const allowed = () => env.VOICE_ALLOWED_ORIGIN || '';
+  const num = (v, d) => { const x = Number(v); return Number.isInteger(x) && x > 0 ? x : d; };
   const reliability = createReliability(db), history = createHistory({ db, tx: store.tx }), retention = parseRetentionDays(env.VOICE_HISTORY_RETENTION_DAYS);
   if (retention.warning) console.warn('voice: ' + retention.warning);
   const router = new VoiceRouter();
   const bus = busOption !== undefined ? busOption : (env.REDIS_URL ? new RedisBus({ url: env.REDIS_URL, instanceId, onDelivery: (m) => router.onRemote(m) }) : null);
   if (bus) { router.bus = bus; if (!bus.onDelivery) bus.onDelivery = (m) => router.onRemote(m); }
-  const worker = outbox ? new OutboxWorker({ db, workerId: instanceId, publish: (account, msg) => router.deliverDurable(account, msg), intervalMs: Number(env.VOICE_OUTBOX_INTERVAL_MS || 500) }) : null;
+  const worker = outbox ? new OutboxWorker({ db, workerId: instanceId, publish: (account, msg) => router.deliverDurable(account, msg), intervalMs: Number(env.VOICE_OUTBOX_INTERVAL_MS || 500), publishTimeoutMs: num(env.VOICE_OUTBOX_PUBLISH_TIMEOUT_MS, 5000), maxAttempts: num(env.VOICE_OUTBOX_MAX_ATTEMPTS, 25) }) : null;
   const kick = () => worker?.kick();
   const sockets = router.sockets, send = (account, payload, device) => router.send(account, payload, device);
   const closeAccount = (account, code = 4001, reason = 'account_changed') => router.send(account, { type: '__close', code, reason });
-  const num = (v, d) => { const x = Number(v); return Number.isInteger(x) && x > 0 ? x : d; };
   const apiLimit = makeLimiter({ max: num(env.VOICE_API_RATE_PER_MIN, 240), windowMs: 60000 }), callLimit = makeLimiter({ max: num(env.VOICE_CALL_RATE_PER_MIN, 20), windowMs: 60000 }), ticketLimit = makeLimiter({ max: 30, windowMs: 60000 }), adminLimit = makeLimiter({ max: num(env.VOICE_ADMIN_RATE_PER_MIN, 120), windowMs: 60000 });
 
   // Backpressure (DR-07): when the outbox is far behind, new calls and rooms are refused (fail closed) instead of piling up more undelivered work.
@@ -217,7 +217,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     if (req.query.format === 'prometheus') {                                    // text exposition for a scraper; the secret header is still required
       const g = (name, help, v) => `# HELP ${name} ${help}\n# TYPE ${name} gauge\n${name} ${Number(v) || 0}`, rows = [
         g('qorlla_voice_outbox_pending', 'Durable events not yet published', q.pending), g('qorlla_voice_outbox_oldest_seconds', 'Age of the oldest undelivered event', q.oldestSeconds), g('qorlla_voice_outbox_max_attempts', 'Highest retry count in the outbox', q.maxAttempts),
-        g('qorlla_voice_outbox_published_total', 'Events published by this replica since start', worker?.stats.published), g('qorlla_voice_outbox_failed_total', 'Failed publish attempts by this replica since start', worker?.stats.failed),
+        g('qorlla_voice_outbox_dead', 'Poison events set aside after repeated failures (still replayable)', q.dead), g('qorlla_voice_outbox_published_total', 'Events published by this replica since start', worker?.stats.published), g('qorlla_voice_outbox_failed_total', 'Failed publish attempts by this replica since start', worker?.stats.failed),
         g('qorlla_voice_outbox_fail_closed', '1 when new calls are being refused for backlog', q.pending > MAX_PENDING || q.oldestSeconds > MAX_AGE ? 1 : 0),
         g('qorlla_voice_sockets_open', 'Open signaling sockets on this replica', router.total()), g('qorlla_voice_sockets_slow_closed_total', 'Sockets closed for not keeping up', router.slowClosed), g('qorlla_voice_bus_up', '1 when Redis delivery is up (1 also when Redis is not configured)', bus ? (bus.up ? 1 : 0) : 1),
         g('qorlla_voice_history_legal_holds', 'Rooms under legal hold', hs.legalHolds), g('qorlla_voice_history_deletions_waiting_on_hold', 'User deletion requests waiting for a legal hold to be released', hs.deletionsWaitingOnHold),

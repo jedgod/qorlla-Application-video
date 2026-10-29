@@ -139,3 +139,21 @@ test('Redis security: the engine runs as a least-privilege Redis user (publish/s
   const wrong = createClient({ url: redis.url.replace('redis://', 'redis://voicetest:wrong@'), socket: { reconnectStrategy: false } }); wrong.on('error', () => {}); await assert.rejects(wrong.connect(), /WRONGPASS|invalid username-password/i, 'a wrong password is refused');
   await r1.stop(); await r2.stop();
 });
+
+test('ordering end to end: a stream of events for one account, with Redis stopped and restarted in the middle, reaches a socket on the OTHER replica complete and in order', async (t) => {
+  if (skip(t)) return; await endAll();
+  const r1 = await h.replica({ redisUrl: redis.url, maintenance: false, env: { VOICE_CALL_RATE_PER_MIN: '1000' } }), r2 = await h.replica({ redisUrl: redis.url, maintenance: false }); assert.ok(await busUp(r1, r2));
+  const b = await r2.connect('bob', 'ord1'), start = b.of('ready')[0].cursor; t.after(() => { redis.start(); });
+  const cycle = async () => { const d = await r1.dial('alice', ext.bob, 'ord1'); assert.equal(d.status, 201); assert.equal((await r1.api('alice', 'POST', '/v1/voice/calls/' + d.body.call.id + '/end', {})).status, 200); };
+  for (let i = 0; i < 3; i++) await cycle();
+  redis.stop(); assert.ok(await until(async () => !r1.voice.bus.up && !r2.voice.bus.up, 15000));
+  for (let i = 0; i < 4; i++) await cycle();                                                                                                   // 4 calls' worth of events pile up while Redis is down
+  redis.start(); assert.ok(await redis.ping()); assert.ok(await busUp(r1, r2));
+  for (let i = 0; i < 3; i++) await cycle();
+  const expected = (await db.pool.query("SELECT id FROM voice_reliable_events WHERE account_id='bob' AND id > $1 ORDER BY id", [start])).rows.map((x) => Number(x.id)); assert.ok(expected.length >= 20, 'bob has a real stream of events: ' + expected.length);
+  assert.ok(await until(() => expected.every((id) => b.inbox.some((m) => m.eventId === id)), 40000), 'every event reached bob: missing ' + JSON.stringify(expected.filter((id) => !b.inbox.some((m) => m.eventId === id))));
+  const firstSeen = []; for (const m of b.inbox) if (m.eventId && !firstSeen.includes(m.eventId)) firstSeen.push(m.eventId);
+  assert.deepEqual(firstSeen.filter((id) => id > start), expected, 'in event-id order (duplicates may repeat an id; a later id never overtakes an earlier one)');
+  assert.ok(await until(async () => (await metrics(r1)).outbox.pending === 0, 30000)); assert.equal((await metrics(r1)).outbox.dead, 0, 'a Redis outage set nothing aside');
+  await endAll(); await r1.stop(); await r2.stop();
+});

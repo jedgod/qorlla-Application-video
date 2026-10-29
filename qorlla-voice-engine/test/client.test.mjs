@@ -62,3 +62,16 @@ test('the same device id on the SDK is stable, and an explicit device id wins (a
   const x = sdk('alice', r.device('alice', 'phone')), y = sdk('alice', r.device('alice', 'laptop')); assert.notEqual(x.c.deviceId, y.c.deviceId);
   await x.c.connect(); await y.c.connect(); assert.ok(await until(() => x.of('ready')[0] && y.of('ready')[0])); assert.equal(x.of('ready')[0].deviceId, r.device('alice', 'phone')); x.c.disconnect(); y.c.disconnect();
 });
+
+test('the browser still refuses a late or older event if two replicas ever deliver out of order: no ring for a finished call, no older roster over a newer one', () => {
+  const events = []; const c = new QorllaVoiceClient('http://x', async () => 't', (e) => events.push(e), { WebSocketImpl: class {}, fetchImpl: async () => ({}), deviceId: '11111111-1111-4111-8111-111111111111' });
+  const call = (status, version) => ({ id: 'c1', caller_id: 'a', callee_id: 'b', status, version, created_at: new Date().toISOString() });
+  return (async () => {
+    await c.handle({ type: 'state', call: call('missed', 1), eventId: 5 }); await c.handle({ type: 'incoming', call: call('ringing', 0), from: { extension: '2001' }, eventId: 4 });          // the ring arrives AFTER the miss
+    assert.equal(events.filter((e) => e.type === 'incoming').length, 0, 'no ring for a call that already ended'); assert.equal(events.filter((e) => e.type === 'state').length, 1);
+    await c.handle({ type: 'incoming', call: { ...call('ringing', 0), id: 'c2' }, from: { extension: '2001' }, eventId: 6 }); assert.equal(events.filter((e) => e.type === 'incoming').length, 1, 'a ring for a call not yet finished still rings');
+    await c.handle({ type: 'state', call: call('ended', 3), eventId: 8 }); await c.handle({ type: 'state', call: call('active', 2), eventId: 7 }); assert.deepEqual(events.filter((e) => e.type === 'state').map((e) => e.call.status), ['missed', 'ended'], 'a stale state is dropped before any listener sees it');
+    const room = (version, status = 'live') => ({ id: 'r1', version, status, members: [] }); await c.handle({ type: 'room_state', room: room(5), eventId: 20 }); await c.handle({ type: 'room_invite', room: room(2), from: {}, eventId: 19 }); await c.handle({ type: 'room_state', room: room(3), eventId: 18 });
+    assert.deepEqual(events.filter((e) => e.type === 'room_state' || e.type === 'room_invite').map((e) => e.type + e.room.version), ['room_state5'], 'an older invitation or roster never overtakes a newer one');
+  })();
+});

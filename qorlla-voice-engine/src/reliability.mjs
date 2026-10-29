@@ -2,7 +2,7 @@
 // SDP and ICE are never stored here. Event ids are global and increase; a cursor is per account, and gaps are normal.
 export const MAX_REPLAY = 200, KINDS = ['incoming', 'state', 'device_revoked', 'device_claimed', 'room_invite', 'room_state'];
 export const safeCursor = (n) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
-export const backoff = (attempt) => Math.min(60000, 500 * 2 ** Math.min(7, Math.max(0, attempt - 1)));
+export const backoff = (attempt) => Math.min(5000, 250 * 2 ** Math.min(5, Math.max(0, attempt - 1)));       // 250 ms doubling to 5 s: a recovered Redis is noticed within seconds (the worker's SQL uses the same formula)
 export const safeEvent = (kind, payload) => KINDS.includes(kind) && !!payload && typeof payload === 'object' && JSON.stringify(payload).length <= 32000;
 const bad = (code) => Object.assign(new Error(code), { code });
 
@@ -42,14 +42,15 @@ export function createReliability(db) {
   }
   /** Queue depth and age: the numbers an operator alerts on, and what the engine checks before it accepts new calls (DR-07). */
   async function queueStats() {
-    const r = (await db.query(`SELECT count(*)::int AS pending, COALESCE(EXTRACT(EPOCH FROM (now() - min(e.created_at))),0)::float AS oldest_seconds, COALESCE(max(o.attempts),0)::int AS max_attempts
+    const r = (await db.query(`SELECT count(*) FILTER (WHERE o.dead_at IS NULL)::int AS pending, COALESCE(EXTRACT(EPOCH FROM (now() - min(e.created_at) FILTER (WHERE o.dead_at IS NULL))),0)::float AS oldest_seconds,
+        COALESCE(max(o.attempts) FILTER (WHERE o.dead_at IS NULL),0)::int AS max_attempts, count(*) FILTER (WHERE o.dead_at IS NOT NULL)::int AS dead
       FROM voice_outbox o JOIN voice_reliable_events e ON e.id=o.event_id WHERE o.delivered_at IS NULL`)).rows[0];
-    return { pending: r.pending, oldestSeconds: Math.round(r.oldest_seconds), maxAttempts: r.max_attempts };
+    return { pending: r.pending, oldestSeconds: Math.round(r.oldest_seconds), maxAttempts: r.max_attempts, dead: r.dead };
   }
-  /** Delivered events older than the retention window go; an undelivered event is never deleted. */
+  /** Delivered events (and events set aside as poison) older than the retention window go; an event still waiting to be delivered is never deleted. */
   async function prune(hours = 168) {
     const h = Math.max(1, Math.min(24 * 90, Math.round(hours)));
-    return (await db.query(`DELETE FROM voice_reliable_events e USING voice_outbox o WHERE o.event_id=e.id AND o.delivered_at IS NOT NULL AND e.created_at < now() - make_interval(hours => $1::int)`, [h])).rowCount;
+    return (await db.query(`DELETE FROM voice_reliable_events e USING voice_outbox o WHERE o.event_id=e.id AND (o.delivered_at IS NOT NULL OR o.dead_at IS NOT NULL) AND e.created_at < now() - make_interval(hours => $1::int)`, [h])).rowCount;
   }
   return { replay, latest, acknowledge, markProcessed, queueStats, prune };
 }

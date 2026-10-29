@@ -19,6 +19,11 @@ groups:
         for: 2m
         labels: { severity: warning }
         annotations: { summary: "Durable events are waiting more than 30 s to be delivered (calls ring late)", description: "Find out why the worker is not draining: Redis, the database, or a replica that is overloaded." }
+      - alert: VoiceEventSetAside
+        expr: qorlla_voice_outbox_dead > 0
+        for: 0m
+        labels: { severity: warning }
+        annotations: { summary: "An event failed repeatedly for its own reasons and was set aside so it would not block its account. It is still replayed on reconnect, but a bug is likely: inspect voice_outbox.last_error" }
       - alert: VoiceFailingClosed
         expr: qorlla_voice_outbox_fail_closed == 1
         for: 1m

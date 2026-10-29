@@ -11,8 +11,8 @@
 | Gate | Required demonstration | Local evidence | Missing for release |
 |---|---|---|---|
 | QVE-01 | Transactions atomically commit call state and outbox rows | `reliability.pg.test.mjs`: a database that fails the outbox insert rolls back the call, key and events; retry makes exactly one call; transitions, ring timeout, suspension write events in the same transaction | Crash of the real database process mid-COMMIT |
-| QVE-02 | Redis down during call creation: event retained, later delivered | `distributed.redis.test.mjs`: Redis stopped during calls; events stay pending; backlog drains by itself after restart | A 2-minute outage under load; Redis failover |
-| QVE-03 | Crash after publish before acknowledgment: replay/dedupe correct | Worker killed after publish: same event id twice, one transition; SDK applies it once; a dead worker's claim is retaken | None beyond load |
+| QVE-02 | Redis down during call creation: event retained, later delivered | `distributed.redis.test.mjs`: Redis stopped during calls; events stay pending; backlog drains by itself after restart; **a stream of events for one account across the outage reaches a socket on the other replica complete and in order, and nothing is set aside** | A 2-minute outage under load; Redis failover |
+| QVE-03 | Crash after publish before acknowledgment: replay/dedupe correct | Worker killed after publish: same event id twice, one transition; SDK applies it once; a dead worker's claim is retaken; **per-account in-order delivery with 5 racing workers (48 events across 12 accounts, then 480 across 3 workers)**; head-of-line holding on failure; poison events set aside and still replayable; hung publish times out; a database hiccup while marking is retried; the browser drops late/older events | Ordering and recovery under load on real hosts |
 | QVE-04 | Two nodes: cross-node call, answer, ICE exchange | Two in-process replicas (Redis) and **two containers** (`scripts/staging-smoke.mjs`, 15 checks: call rings on the other node, SDP both ways, takeover, replay) on one machine | Two separate hosts behind a WSS load balancer |
 | QVE-05 | Restart: missed events replay, state converges | Replica killed mid-call and replaced; offline device resumes on another node and gets exactly its own events; engine killed and restarted under two real browsers mid-call | A staged rolling restart with measured convergence time |
 | QVE-06 | Device takeover: stale lease cannot signal or continue media | Old generation / wrong device dropped, refresh `lease_lost`, fail `device_not_owner`; in two real browsers the first device's microphone and connection stop at once | Physical devices |
@@ -54,7 +54,7 @@ DR-01 = QVE-01, DR-02 = QVE-02, DR-03 = replay/resume (see QVE-05), DR-04 = QVE-
 
 ## Re-running the evidence
 ```
-cd qorlla-voice-engine && npm test      # 99 tests; real PostgreSQL (dev-stack database or VOICE_TEST_DATABASE_URL); Docker for Redis
+cd qorlla-voice-engine && npm test      # 108 tests; real PostgreSQL (dev-stack database or VOICE_TEST_DATABASE_URL); Docker for Redis
 npx playwright test tests/voice-engine.spec.js tests/voice-reliability.spec.js tests/voice-turn.spec.js --project=chromium
 # two-node staging (needs Docker):  see deploy/docker-compose.staging.yml, then  node scripts/staging-smoke.mjs http://127.0.0.1:4601 http://127.0.0.1:4602
 npm run release:gate -- certification-evidence.example.json     # -> BLOCKED
