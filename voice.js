@@ -15,6 +15,8 @@ function createVoice({ dataDir, env = process.env }) {
     const keyFile = path.join(dataDir, 'voice-signing.json');
     const issuer = () => env.VOICE_JWT_ISSUER || 'qorlla-main', audience = () => env.VOICE_JWT_AUDIENCE || 'qorlla-voice';
     const secret = () => String(env.VOICE_ADMIN_SECRET || '');
+    // SHIELD_REQUIRE_VERIFIED=true: an unverified registered account has the same communication restrictions as a guest until its email is verified (no voice identity, no token).
+    const needVerified = () => String(env.SHIELD_REQUIRE_VERIFIED || '').toLowerCase() === 'true';
     // Voice is OFF unless the server owner switched it on (QORLLA_VOICE_ENABLED=true) AND configured the engine secret. The switch stays off in production until the release gate passes (docs/VOICE_CERTIFICATION.md).
     const flagOn = () => String(env.QORLLA_VOICE_ENABLED || '').toLowerCase() === 'true';
     const enabled = () => flagOn() && secret().length >= 32;
@@ -66,10 +68,11 @@ function createVoice({ dataDir, env = process.env }) {
         app.get('/api/voice/config', requireUser, (req, res) => {
             res.set('Cache-Control', 'no-store');
             if (!enabled()) return res.json({ enabled: false, reason: flagOn() ? 'Qorlla Voice is not configured on this server (VOICE_ADMIN_SECRET).' : 'Qorlla Voice is switched off on this server (QORLLA_VOICE_ENABLED).' });
-            res.json({ enabled: true, url: publicBase(req), internalCallsOnly: true });
+            res.json({ enabled: true, url: publicBase(req), internalCallsOnly: true, verificationRequired: needVerified() && !req.user.emailVerified });
         });
         app.post('/api/voice/token', requireUser, async (req, res) => {
             res.set('Cache-Control', 'no-store'); if (!enabled()) return res.status(503).json({ error: 'voice_disabled' });
+            if (needVerified() && !req.user.emailVerified) return res.status(403).json({ error: 'verification_required' });
             if (tooMany(req.user.id)) return res.status(429).json({ error: 'rate_limited' });
             try { const extension = await identityFor(req.user); res.json({ token: signToken(req.user.id), expiresIn: TOKEN_SECONDS, extension, url: publicBase(req) }); }
             catch (e) { res.status(503).json({ error: 'voice_unavailable', detail: e.status ? 'The voice service refused the request.' : 'The voice service is not reachable.' }); }

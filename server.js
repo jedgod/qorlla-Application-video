@@ -48,7 +48,10 @@ console.log('[Config] Encryption at rest: ' + (store.enabled ? 'ON' : 'OFF (set 
 console.log('[Config] Email service: ' + (mailer.enabled ? 'ON (links use ' + mailer.baseUrl + ')'
     : mailer.configured ? 'OFF - SMTP is set but PUBLIC_URL is missing (required in production)'
     : 'OFF (set SMTP_URL, SMTP_FROM and PUBLIC_URL to enable reset links and outside mail)'));
-const auth = require('./auth')({ dataDir: DATA_ROOT, mailer });
+// Security Shield bridge: reports every account's standing (verified / suspended) to the shield and to Numbers & Plans. Off unless SHIELD_SYNC_URL is set.
+const shieldBridge = require('./shield-bridge')({ dataDir: DATA_ROOT, listAccounts: () => auth.allAccounts() });
+const auth = require('./auth')({ dataDir: DATA_ROOT, mailer, onAccountChange: (a) => shieldBridge.queue(a) });
+shieldBridge.register(app); shieldBridge.start();
 // Public keys the Workplace Portal uses to verify identity tokens issued by this server
 app.get('/.well-known/jwks.json', (req, res) => res.set('Cache-Control', 'public, max-age=300').json(auth.portalTokens.jwks()));
 app.use('/api/auth', auth.router);
@@ -247,7 +250,7 @@ async function meetHandoff(meeting, who, req) {
         if (!meetLaunch.enabled() || !(await meetPublicBase(req))) return settingsOf(meeting).waitingRoom ? { blocked: true } : null;
         const pub = await meetPublicBase(req);
         const link = await meetLaunch.ensureLink(meeting, meeting.hostName || meeting.ownerName || 'Host', { title: meeting.topic, settings: settingsOf(meeting), limits: ML.limitsFor(meeting.limitExempt) });
-        const session = await meetLaunch.join(link, { name: who.name });
+        const session = await meetLaunch.join(link, { name: who.name, accountId: who.accountId || undefined });
         meeting.viaMeet = true; if (who.accountId) hist.recordAccount(meeting, who.accountId); saveSnapshotSoon();
         return { url: meetLaunch.url(pub, session, { mic: who.mic !== false, camera: who.camera !== false, prefs: who.prefs, returnUrl: req.protocol + '://' + req.get('host') + (who.account ? '/qorlla.html' : '/guest/welcome') }) };
     } catch (e) {
@@ -277,6 +280,14 @@ function dialInNumbers() {
 const phoneUser = (req, res) => { const u = auth.getUser(req); if (!u) { res.status(401).json({ error: 'Sign in first.' }); return null; } return u; };
 // ---- Qorlla Telephony v2: the carrier, numbers, calls and usage live in Meet (PostgreSQL). Everything here is a thin, authenticated pass-through: the account identity and the
 // administrator flag come from the session, and Meet decides. PHONE_ADMIN_USERS lists the accounts allowed to manage numbers, limits and billing (a trailing * matches a prefix).
+// Account suspension (administrators in PHONE_ADMIN_USERS): signs the account out everywhere, blocks sign-in, and tells the Security Shield, which closes its voice sockets, meeting sessions and live PSTN calls.
+app.post('/api/admin/accounts/:id/suspend', (req, res, next) => auth.requireUser(req, res, next), express.json({ limit: '2kb' }), (req, res) => {
+    if (!phoneAdmin(req.user)) return res.status(403).json({ error: 'Only administrators can do this.' });
+    const suspended = (req.body || {}).suspended === true;
+    if (req.params.id === req.user.id) return res.status(409).json({ error: 'You cannot suspend your own account.' });
+    if (!auth.setSuspended(String(req.params.id), suspended)) return res.status(404).json({ error: 'No such account.' });
+    res.json({ ok: true, suspended });
+});
 const phoneAdmin = (u) => { const n = String((u && u.username) || '').toLowerCase(); return String(process.env.PHONE_ADMIN_USERS || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean).some((p) => (p.endsWith('*') ? n.startsWith(p.slice(0, -1)) : p === n)); };
 const tel = (u, method, route, o = {}) => meetLaunch.telephony(method, route, { actor: { id: u.id, admin: phoneAdmin(u) }, ...o });
 const telSend = async (req, res, method, route, o = {}) => {
@@ -419,7 +430,7 @@ async function doStart(meeting, user, b, req) {
         const pub = await meetPublicBase(req); if (!pub) return unavailable('meet_not_running');
         const link = await meetLaunch.ensureLink(meeting, user.displayName, { title: meeting.topic, settings, limits: ML.limitsFor(meeting.limitExempt) });
         const name = String(b.name || user.displayName || 'Host').trim().slice(0, 70) || 'Host';
-        const session = await meetLaunch.join(link, { name, host: true });
+        const session = await meetLaunch.join(link, { name, host: true, accountId: user.id });
         meeting.viaMeet = true; hist.recordAccount(meeting, user.id); saveSnapshotSoon();
         const ret = String(b.returnUrl || '');
         return { status: 200, body: { mode: 'meet', settings, url: meetLaunch.url(pub, session, { mic: b.mic !== false, camera: b.camera !== false, returnUrl: /^https?:\/\//.test(ret) ? ret : '', prefs: { camLabel: b.camLabel, micLabel: b.micLabel, spkLabel: b.spkLabel, res: b.res } }) } };

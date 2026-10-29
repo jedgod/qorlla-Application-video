@@ -82,9 +82,10 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
   }
 
   // ---- principals / organizations (written only by the trusted main app through workload credentials)
-  const upsertPrincipal = ({ accountId, orgId = null, verified = false }) => tx(async (c) => {
+  const upsertPrincipal = ({ accountId, orgId, verified = false }) => tx(async (c) => {
     if (!validAccountId(accountId) || (orgId != null && !idText(orgId)) || typeof verified !== 'boolean') throw new ShieldError('invalid_input', 400);
-    await c.query('INSERT INTO shield_principals(account_id, org_id, verified) VALUES($1,$2,$3) ON CONFLICT (account_id) DO UPDATE SET org_id=$2, verified=$3, updated_at=now()', [accountId, orgId, verified]);
+    // orgId ABSENT = keep the organization the authoritative backend assigned; the main app reports verification and suspension, it does not decide tenancy
+    await c.query('INSERT INTO shield_principals(account_id, org_id, verified) VALUES($1,$2,$3) ON CONFLICT (account_id) DO UPDATE SET org_id = CASE WHEN $4::boolean THEN $2 ELSE shield_principals.org_id END, verified=$3, updated_at=now()', [accountId, orgId ?? null, verified, orgId !== undefined]);
     await audit(c, accountId, 'principal.upsert', 'ALLOW', 'ADMIN'); return { accountId, orgId, verified };
   });
   const upsertOrg = ({ orgId, pstnEnabled = false, allowedCountries = [], maxActiveCalls = 2, maxCallsHour = 30, spendLimitCents = 0 }) => tx(async (c) => {
@@ -101,19 +102,22 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
   });
 
   /** Emergency suspension: the person loses protected access everywhere at once (API tokens, outstanding authorizations, active PSTN calls, voice identity, open sockets). */
-  async function setSuspended(accountId, suspended, { onVoiceDisabled } = {}) {
-    if (!validAccountId(accountId)) throw new ShieldError('invalid_input', 400);
+  async function setSuspended(accountId, suspended, { onVoiceDisabled, source = 'legacy' } = {}) {
+    if (!validAccountId(accountId) || typeof source !== 'string' || source.length > 128) throw new ShieldError('invalid_input', 400);
     const out = await tx(async (c) => {
-      const r = await c.query('UPDATE shield_principals SET suspended=$2, tokens_valid_after = CASE WHEN $2 THEN now() ELSE tokens_valid_after END, updated_at=now() WHERE account_id=$1 RETURNING account_id', [accountId, !!suspended]);
+      const r = suspended
+        ? await c.query('UPDATE shield_principals SET suspend_holds = ARRAY(SELECT DISTINCT x FROM unnest(suspend_holds || $2::text) x), suspended=true, tokens_valid_after=now(), updated_at=now() WHERE account_id=$1 RETURNING account_id', [accountId, source])
+        : await c.query('UPDATE shield_principals SET suspend_holds = array_remove(suspend_holds, $2::text), suspended = cardinality(array_remove(suspend_holds, $2::text)) > 0, updated_at=now() WHERE account_id=$1 RETURNING account_id, suspended', [accountId, source]);
       if (!r.rowCount) throw new ShieldError('unknown_principal', 404);
       let terminate = [];
       if (suspended) {
         await c.query("UPDATE shield_authorizations SET state='revoked' WHERE account_id=$1 AND state='authorized'", [accountId]);
         terminate = (await c.query("SELECT id FROM shield_authorizations WHERE account_id=$1 AND state='active'", [accountId])).rows.map((x) => x.id);
       }
-      await audit(c, accountId, suspended ? 'principal.suspend' : 'principal.restore', 'ALLOW', 'ADMIN'); return { accountId, suspended: !!suspended, terminate };
+      await audit(c, accountId, suspended ? 'principal.suspend' : 'principal.restore', 'ALLOW', source); return { accountId, suspended: suspended ? true : !!r.rows[0].suspended, terminate };
     });
     if (suspended) { await store.setEnabled(accountId, false).catch(() => {}); onVoiceDisabled?.(accountId); }
+    else if (!out.suspended) await store.setEnabled(accountId, true).catch(() => {});                       // every hold lifted: the voice identity comes back
     return out;
   }
   async function setOrgSuspended(orgId, suspended) {
@@ -127,10 +131,11 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
 
   // ---- user-facing checks (a verified end-user token, never a workload)
   /** Throws unless the verified token still belongs to an active, unsuspended principal. `claims` come from the engine's real verifier (iat required). */
-  async function assertPrincipalActive(accountId, iat) {
-    const p = (await store.tx((c) => c.query('SELECT p.suspended, p.tokens_valid_after, o.suspended AS org_suspended FROM shield_principals p LEFT JOIN shield_orgs o ON o.org_id = p.org_id WHERE p.account_id=$1', [accountId]))).rows[0];
+  async function assertPrincipalActive(accountId, iat, { requireVerified = false } = {}) {
+    const p = (await store.tx((c) => c.query('SELECT p.suspended, p.verified, p.tokens_valid_after, o.suspended AS org_suspended FROM shield_principals p LEFT JOIN shield_orgs o ON o.org_id = p.org_id WHERE p.account_id=$1', [accountId]))).rows[0];
     if (!p) throw new ShieldError('unknown_principal', 401);
     if (p.suspended || p.org_suspended) throw new ShieldError('suspended', 403);
+    if (requireVerified && !p.verified) throw new ShieldError('identity_unverified', 403);
     if (!Number.isFinite(iat) || iat * 1000 < new Date(p.tokens_valid_after).getTime()) throw new ShieldError('token_revoked', 401);
   }
   async function authorizeUser({ accountId, iat, action, resourceOrgId = null, scopes = [] }) {
@@ -209,8 +214,8 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       if (!(await bump(c, 'gm:' + meetingId, 60, cfg.meetingPerMin))) return limited('RATE_LIMIT');
       const locked = (await c.query("SELECT n FROM shield_counters WHERE bucket=$1 AND window_start = to_timestamp(floor(extract(epoch from now())/600)*600)", ['gf:' + meetingId])).rows[0]?.n >= cfg.meetingFailLock;
       const m = (await c.query('SELECT * FROM shield_meetings WHERE meeting_id=$1 FOR SHARE', [meetingId])).rows[0];
-      const actual = await passHash(passcode, m ? m.passcode_salt : dummySalt);
-      const same = m && actual.length === m.passcode_hash.length && timingSafeEqual(actual, m.passcode_hash);
+      const actual = await passHash(passcode, m && m.passcode_salt ? m.passcode_salt : dummySalt);
+      const same = m && m.authority === 'shield' && m.passcode_hash && actual.length === m.passcode_hash.length && timingSafeEqual(actual, m.passcode_hash);
       if (locked) return limited('MEETING_LOCKED');
       if (!same || !m.guest_enabled || new Date(m.ends_at) <= new Date()) {
         await c.query("INSERT INTO shield_counters(bucket, window_start, n) VALUES($1, to_timestamp(floor(extract(epoch from now())/600)*600), 1) ON CONFLICT (bucket, window_start) DO UPDATE SET n = shield_counters.n + 1", ['gf:' + meetingId]);
@@ -266,6 +271,60 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       return r.rowCount ? { valid: true, subject: 'guest:' + r.rows[0].admission_id, displayName: r.rows[0].display_name, capabilities: ['meeting.media.join'] } : { valid: false };
     });
   }
+  // ---- Qorlla Meet signaling: Meet owns meetings, passcodes, the waiting room and host approval; the shield decides whether an admitted participant may OPEN a signaling session, and keeps deciding.
+  const GUEST_CAPS = ['meeting.join', 'meeting.media', 'meeting.chat'], MEMBER_CAPS = ['meeting.join', 'meeting.media', 'meeting.chat', 'meeting.share'], HOST_CAPS = [...MEMBER_CAPS, 'meeting.host'];
+  async function registerMeeting({ meetingId, orgId = null, hostAccountId = null, guestEnabled = true, endsAt }) {
+    if (!idText(meetingId) || (orgId != null && !idText(orgId)) || (hostAccountId != null && !validAccountId(hostAccountId)) || typeof guestEnabled !== 'boolean' || Number.isNaN(Date.parse(endsAt))) throw new ShieldError('invalid_input', 400);
+    return tx(async (c) => {
+      const cur = (await c.query('SELECT authority, ends_at FROM shield_meetings WHERE meeting_id=$1 FOR UPDATE', [meetingId])).rows[0];
+      if (cur && cur.authority !== 'meet') throw new ShieldError('meeting_owned_by_shield', 409);
+      if (cur && new Date(cur.ends_at) <= new Date() && new Date(endsAt) > new Date()) throw new ShieldError('meeting_ended', 409);       // an ended meeting stays ended
+      await c.query("INSERT INTO shield_meetings(meeting_id, org_id, host_account_id, guest_enabled, requires_approval, ends_at, authority) VALUES($1,$2,$3,$4,true,$5,'meet') ON CONFLICT (meeting_id) DO UPDATE SET org_id=$2, host_account_id=$3, guest_enabled=$4, ends_at=$5", [meetingId, orgId, hostAccountId, guestEnabled, endsAt]);
+      await audit(c, hostAccountId, 'meet.register', 'ALLOW', 'META'); return { meetingId };
+    });
+  }
+  /** -> { allow, reason, kind: 'host'|'member'|'guest', capabilities }. kind/capabilities come from the shield's own records, never from the request. */
+  async function meetAuthorize({ meetingId, participantId, accountId = null, role, admission }) {
+    if (!idText(meetingId) || !uuid(participantId) || (accountId != null && !validAccountId(accountId)) || !['host', 'guest'].includes(role) || typeof admission !== 'string') throw new ShieldError('invalid_input', 400);
+    return tx(async (c) => {
+      const who = accountId || 'guest:' + participantId, no = async (reason) => { await audit(c, who, 'meet.signal', 'DENY', reason, null); return { allow: false, reason }; };
+      const m = (await c.query('SELECT * FROM shield_meetings WHERE meeting_id=$1', [meetingId])).rows[0];
+      if (!m || m.authority !== 'meet' || new Date(m.ends_at) <= new Date()) return no('MEETING_UNKNOWN_OR_ENDED');
+      if (admission !== 'admitted') return no('NOT_ADMITTED');
+      let kind = 'guest';
+      if (accountId) {
+        const p = (await c.query('SELECT p.verified, p.suspended, p.org_id, o.suspended AS org_suspended FROM shield_principals p LEFT JOIN shield_orgs o ON o.org_id=p.org_id WHERE p.account_id=$1', [accountId])).rows[0];
+        if (!p) return no('UNKNOWN_PRINCIPAL'); if (p.suspended || p.org_suspended) return no('SUSPENDED');
+        const orgOk = !m.org_id || p.org_id === m.org_id;
+        if (p.verified && orgOk) kind = role === 'host' ? 'host' : 'member';
+        else if (!m.guest_enabled) return no(!p.verified ? 'IDENTITY_UNVERIFIED' : 'CROSS_TENANT');
+        // an unverified account, or one from another organization, joins with GUEST rights only (and only where the meeting allows guests)
+        if (role === 'host' && (kind !== 'host' || m.host_account_id !== accountId)) return no('NOT_THE_HOST');
+      } else {
+        if (role === 'host') return no('NOT_THE_HOST'); if (!m.guest_enabled) return no('GUEST_NOT_ALLOWED');
+      }
+      await audit(c, who, 'meet.signal', 'ALLOW', kind, null);
+      return { allow: true, reason: 'ALLOW', kind, capabilities: kind === 'host' ? HOST_CAPS : kind === 'member' ? MEMBER_CAPS : GUEST_CAPS };
+    });
+  }
+  /** Meet sends the sessions it is holding open; the shield names the ones that must be closed NOW (suspension, ended meeting, a principal that vanished). */
+  async function meetRecheck({ participants }) {
+    if (!Array.isArray(participants) || participants.length > 500) throw new ShieldError('invalid_input', 400);
+    const revoke = [];
+    await tx(async (c) => {
+      for (const s of participants) {
+        if (!s || !idText(s.meetingId) || !uuid(s.participantId) || (s.accountId != null && !validAccountId(s.accountId))) throw new ShieldError('invalid_input', 400);
+        const m = (await c.query('SELECT ends_at FROM shield_meetings WHERE meeting_id=$1', [s.meetingId])).rows[0];
+        if (!m || new Date(m.ends_at) <= new Date()) { revoke.push({ meetingId: s.meetingId, participantId: s.participantId, reason: 'MEETING_ENDED' }); continue; }
+        if (s.accountId) {
+          const p = (await c.query('SELECT p.suspended, o.suspended AS org_suspended FROM shield_principals p LEFT JOIN shield_orgs o ON o.org_id=p.org_id WHERE p.account_id=$1', [s.accountId])).rows[0];
+          if (!p || p.suspended || p.org_suspended) revoke.push({ meetingId: s.meetingId, participantId: s.participantId, reason: !p ? 'UNKNOWN_PRINCIPAL' : 'SUSPENDED' });
+        }
+      }
+      if (revoke.length) await audit(c, null, 'meet.recheck', 'DENY', 'REVOKED:' + revoke.length, null);
+    });
+    return { revoke };
+  }
   async function endMeeting(meetingId) {
     return tx(async (c) => {
       await c.query("UPDATE shield_meetings SET ends_at=now() WHERE meeting_id=$1", [meetingId]);
@@ -275,5 +334,5 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
   }
   async function purgeExpired() { await store.tx(async (c) => { await c.query('DELETE FROM shield_workload_jti WHERE expires_at < now()'); await c.query("DELETE FROM shield_counters WHERE window_start < now() - interval '1 day'"); }); }
 
-  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
+  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, registerMeeting, meetAuthorize, meetRecheck, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
 }

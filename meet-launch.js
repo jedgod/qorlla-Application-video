@@ -56,7 +56,7 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
         const job = (async () => {
             const base = await internalBase(); if (!base) throw unavailable('Qorlla Meet is not reachable');
             const meetPass = crypto.randomBytes(18).toString('base64url');
-            const body = { sourceId: 'main-' + digits, title, ownerName: String(ownerName || 'Host').slice(0, 70), scheduledAt: meeting.startTime || null, passcodeHash: await bcrypt.hash(meetPass, 10), ...ms };
+            const body = { ...(typeof meeting.hostId === 'string' && /^[A-Za-z0-9_.:@-]{1,128}$/.test(meeting.hostId) ? { hostAccountId: meeting.hostId } : {}), sourceId: 'main-' + digits, title, ownerName: String(ownerName || 'Host').slice(0, 70), scheduledAt: meeting.startTime || null, passcodeHash: await bcrypt.hash(meetPass, 10), ...ms };
             if (/^\d{10,12}$/.test(digits)) body.legacyCode = digits;
             const r = await call(base, '/api/integrations/scheduled-meetings', 'POST', body, bridge());
             if (!r.ok) throw unavailable('Meet refused the registration (' + r.status + ')');
@@ -85,9 +85,9 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
     }
 
     /** Joins `name` to the Meet meeting; { host: true } uses the host credential. Returns { token, meetingId, participantId, admission } for the browser. */
-    async function join(link, { name, host }) {
+    async function join(link, { name, host, accountId }) {
         const base = await internalBase(); if (!base) throw unavailable('Qorlla Meet is not reachable');
-        const r = await call(base, '/api/meetings/' + encodeURIComponent(link.meetUuid) + '/join', 'POST', { name: String(name || 'Guest').slice(0, 70), ...(host ? { hostSecret: link.hostSecret } : { passcode: link.meetPass }) });
+        const r = await call(base, '/api/meetings/' + encodeURIComponent(link.meetUuid) + '/join', 'POST', { name: String(name || 'Guest').slice(0, 70), ...(accountId ? { accountId } : {}), ...(host ? { hostSecret: link.hostSecret } : { passcode: link.meetPass }) }, bridge());       // Meet takes an account id only from this trusted caller
         if (!r.ok) throw Object.assign(new Error(r.data.error || 'Meet refused the join'), { status: r.status, code: r.status === 403 || r.status === 404 ? 'REFUSED' : 'UNAVAILABLE' });
         return { token: r.data.token, meetingId: r.data.meetingId, participantId: r.data.participantId, admission: r.data.admission };
     }

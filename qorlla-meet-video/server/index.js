@@ -24,6 +24,7 @@ import { registerRecordingStorage } from './recording-store.mjs';
 import { registerRecording } from './recording.mjs';
 import { createCarrier } from './telephony/provider.mjs';
 import { registerTelephony } from './telephony/routes.mjs';
+import { shieldConfig, createShieldClient, startSessionGuard } from './shield-client.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const SECRET = process.env.JWT_SECRET;
@@ -108,6 +109,11 @@ const bridgeAuth=(req,res,next)=>{
     !timingSafeEqual(Buffer.from(provided),Buffer.from(expected))) return fail(res,401,'Bridge authentication required');
  next();
 };
+const bridgeValid=req=>{const e=process.env.QORLLA_BRIDGE_SECRET||'',p=req.get('x-qorlla-bridge-secret')||'';return e.length>=32&&p.length===e.length&&timingSafeEqual(Buffer.from(p),Buffer.from(e));};
+const cleanAccount=v=>typeof v==='string'&&/^[A-Za-z0-9_.:@-]{1,128}$/.test(v)?v:null;
+// Security Shield (v2.2). Off unless SHIELD_MEET_ENFORCE=true. When on, Meet grants NO signaling session the shield did not authorize, and creating meetings is possible only through the trusted main app.
+const shieldCfg=shieldConfig(process.env), shield=shieldCfg.configured?createShieldClient({config:shieldCfg}):null;
+if(shieldCfg.enforce&&!shield)console.error('[shield] SHIELD_MEET_ENFORCE=true but SHIELD_URL / SHIELD_MEET_KEY_PEM / SHIELD_WORKLOAD_ISSUER are not set: every signaling session will be refused');
 const validSource=v=>typeof v==='string'&&/^[a-zA-Z0-9_.:-]{1,120}$/.test(v);
 const isValidDate=v=>v===null||(typeof v==='string'&&Number.isFinite(Date.parse(v)));
 const scheduleStates=new Set(['scheduled','cancelled']);
@@ -151,6 +157,7 @@ app.post('/api/integrations/scheduled-meetings',bridgeAuth,async(req,res)=>{
   const bs=k=>typeof req.body?.[k]==='boolean'?req.body[k]:null;     // admission settings from the scheduling backend (null = column default)
   await client.query('INSERT INTO meetings(id,title,host_secret_hash,meeting_code,passcode_hash,waiting_room,join_before_host,lock_on_host_join,time_limit_ms,grace_ms) VALUES($1,$2,$3,$4,$5,COALESCE($6,false),COALESCE($7,true),COALESCE($8,false),NULLIF($9::bigint,0),NULLIF($10::bigint,0))',[id,title,await bcrypt.hash(hostSecret,HOST_SECRET_COST),meetingCode,req.body?.passcodeHash??null,bs('waitingRoom'),bs('joinBeforeHost'),bs('lockOnHostJoin'),lim('limitMs'),lim('graceMs')]);
   await client.query('INSERT INTO external_meeting_links(source_system,source_id,meeting_id,scheduled_at) VALUES($1,$2,$3,$4)',['qorlla-main',sourceId,id,scheduledAt]);
+  if(req.body?.hostAccountId!==undefined||req.body?.orgId!==undefined||typeof req.body?.guestAccess==='boolean')await client.query('UPDATE meetings SET host_account_id=$2,org_id=$3,guest_enabled=COALESCE($4,true) WHERE id=$1',[id,cleanAccount(req.body?.hostAccountId),cleanAccount(req.body?.orgId),typeof req.body?.guestAccess==='boolean'?req.body.guestAccess:null]);
   if(legacyCode)await client.query('INSERT INTO meeting_code_aliases(alias_code,meeting_id) VALUES($1,$2)',[legacyCode,id]);
   await client.query('COMMIT');
   // Host secret is only returned once, to the trusted scheduling backend.
@@ -253,6 +260,7 @@ app.get('/api/ready',async(_req,res)=>{
 });
 app.get('/api/config', (_req,res) => { let iceServers=[]; try { iceServers=JSON.parse(process.env.ICE_SERVERS_JSON||'[]'); } catch {} res.json({iceServers,returnOrigins:(process.env.RETURN_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean)}); });
 app.post('/api/meetings', async (req,res) => {
+ if(shieldCfg.enforce) return fail(res,403,'Meetings are created from your Qorlla account');       // guests and anonymous browsers cannot create meetings
  const title=clean(req.body.title,160), name=clean(req.body.name,70), passcode=clean(req.body.passcode,100);
  if (!title || !name) return fail(res,400,'Title and display name required');
  const id=randomUUID(), pid=randomUUID(), hostSecret=randomUUID(), meetingCode=createCode();
@@ -287,7 +295,7 @@ app.post('/api/meetings/:id/join', async(req,res) => {
   const m=rows[0]; const host=!!hostSecret && await bcrypt.compare(hostSecret,m.host_secret_hash);
   if(m.locked && !host) return fail(res,403,'Meeting locked');
   if(!host && m.passcode_hash && !(await bcrypt.compare(passcode,m.passcode_hash))){joinFailed(req.ip,m.id);return fail(res,403,'Invalid passcode');}
-  const pid=randomUUID(), role=host?'host':'guest';
+  const pid=randomUUID(), role=host?'host':'guest', accountId=bridgeValid(req)?cleanAccount(req.body?.accountId):null;      // a browser can never claim an account
   // Admission is decided HERE: a waiting room holds every guest until the host lets them in; without 'join before host' guests wait until the host is present.
   let admission='admitted', waitReason=null;
   if(!host){
@@ -297,7 +305,7 @@ app.post('/api/meetings/:id/join', async(req,res) => {
     const here=active.get(m.id);if(!hosts.some(h=>here?.has(h))){admission='waiting';waitReason='host_absent';}
    }
   }
-  await db.query('INSERT INTO participants(id,meeting_id,display_name,role,admission,wait_reason) VALUES($1,$2,$3,$4,$5,$6)',[pid,m.id,name,role,admission,waitReason]);
+  await db.query('INSERT INTO participants(id,meeting_id,display_name,role,admission,wait_reason,account_id) VALUES($1,$2,$3,$4,$5,$6,$7)',[pid,m.id,name,role,admission,waitReason,accountId]);
   res.json({meetingId:m.id,meetingCode:m.meeting_code,participantId:pid,admission,token:sign({meetingId:m.id,participantId:pid,role,name})});
   audit(m.id,pid,admission==='admitted'?'participant.joined':'participant.waiting',{reason:waitReason});
   if(admission==='waiting')io.to(room(m.id)).emit('waiting-changed',{});
@@ -366,6 +374,7 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
  await db.query("UPDATE meetings SET ended_at=now(), end_reason='host_ended' WHERE id=$1",[req.params.id]);
  recording.stopFor(req.params.id,'meeting_ended',req.user.participantId).catch(()=>{});await phone.endAll(req.params.id,'meeting_ended').catch(()=>{});         // every caller is hung up before the host is told it is done
  io.to(room(req.params.id)).emit('meeting-ended');
+ if(shield&&shieldCfg.enforce)shield.end(req.params.id).catch(()=>{});
  audit(req.params.id,req.user.participantId,'meeting.ended'); res.json({ok:true});
 });
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
@@ -383,11 +392,19 @@ const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:messa
 io.use(async(socket,next)=>{
  try {
   const user=verify(socket.handshake.auth?.token);
-  const {rows}=await db.query("SELECT m.ended_at,p.id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2 AND p.admission='admitted'",[user.meetingId,user.participantId]);
+  const {rows}=await db.query("SELECT m.ended_at,m.id AS mid,m.org_id,m.host_account_id,m.guest_enabled,p.id,p.admission,p.role,p.account_id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2 AND p.admission='admitted'",[user.meetingId,user.participantId]);
   if(!rows.length||rows[0].ended_at) throw Error('Meeting unavailable');
+  if(shieldCfg.enforce){          // fail closed: no shield, no session. The shield's answer (not the token) decides what this person may do.
+   if(!shield) throw Error('Security unavailable');
+   const r=rows[0]; await shield.register({id:r.mid,org_id:r.org_id,host_account_id:r.host_account_id,guest_enabled:r.guest_enabled});
+   const d=await shield.authorize({meetingId:r.mid,participantId:r.id,accountId:r.account_id,role:r.role,admission:r.admission});
+   if(!d.allow) throw Error('Not authorized');
+   socket.data.kind=d.kind;socket.data.capabilities=d.capabilities;socket.data.accountId=r.account_id||null;
+  }
   socket.data.user=user;next();
  } catch { next(new Error('Unauthorized')); }
 });
+if(shield&&shieldCfg.enforce)startSessionGuard({io,db,client:shield,config:shieldCfg});
 io.on('connection',socket=>{
  const u=socket.data.user, id=u.meetingId, pid=u.participantId;
  // Flood control: signalling is exempt (WebRTC negotiation bursts); every other event shares a sliding budget.

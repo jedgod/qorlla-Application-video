@@ -24,7 +24,9 @@ const USERNAME_RE = /^[a-z0-9][a-z0-9_.-]{2,23}$/;
 const CODE_COUNT = 10;
 const HOUR = 60 * 60 * 1000;
 
-module.exports = function createAuth({ dataDir, mailer }) {
+module.exports = function createAuth({ dataDir, mailer, onAccountChange }) {
+    // Tells the Security Shield / Numbers & Plans (through shield-bridge.js) who this account is now. Never throws into the request.
+    const notify = (u) => { try { if (onAccountChange && u) onAccountChange({ id: u.id, verified: !!u.emailVerified, suspended: !!u.suspended }); } catch (e) { /* the bridge retries on its own */ } };
     const dir = path.join(dataDir, 'auth');
     const usersFile = path.join(dir, 'users.json');
     const sessionsFile = path.join(dir, 'sessions.json');
@@ -151,7 +153,8 @@ module.exports = function createAuth({ dataDir, mailer }) {
         if (!token) return null;
         const s = loadSessions()[sha(token)];
         if (!s) return null;
-        return loadUsers().find((u) => u.id === s.userId) || null;
+        const u = loadUsers().find((x) => x.id === s.userId) || null;
+        return u && !u.suspended ? u : null;                                  // a suspended account has no usable session, wherever it is presented
     }
     function requireUser(req, res, next) {
         const user = getUser(req);
@@ -266,6 +269,7 @@ module.exports = function createAuth({ dataDir, mailer }) {
         users.push(user);
         saveUsers(users);
         startSession(req, res, user.id);
+        notify(user);
 
         const verification = email ? (await sendVerification(user)).status : 'none';
         res.status(201).json({ user: selfUser(user), recoveryCodes, verificationEmail: verification });
@@ -282,6 +286,7 @@ module.exports = function createAuth({ dataDir, mailer }) {
         const ok = user ? verifyPassword(password, user) : (hashPassword(password, 'x'.repeat(32)), false);
         if (!ok) { loginLimit.record(key); return res.status(401).json({ error: 'Wrong username or password.' }); }
 
+        if (user.suspended) return res.status(403).json({ error: 'This account is suspended.' });
         loginLimit.clear(key);
         startSession(req, res, user.id);
         res.json({ user: selfUser(user) });
@@ -379,7 +384,7 @@ module.exports = function createAuth({ dataDir, mailer }) {
         const users = loadUsers();
         const u = users.find((x) => x.id === req.user.id);
         u.email = email;
-        u.emailVerified = false;
+        u.emailVerified = false; notify(u);
         saveUsers(users);
         dropTokens(u.id, 'verify');
         let sent = 'none';
@@ -413,6 +418,7 @@ module.exports = function createAuth({ dataDir, mailer }) {
         }
         u.emailVerified = true;
         saveUsers(users);
+        notify(u);
         res.json({ ok: true, username: u.username });
     });
 
@@ -503,5 +509,10 @@ module.exports = function createAuth({ dataDir, mailer }) {
         res.status(500).json({ error: 'Server error.' });
     });
 
-    return { router, portalTokens, getUser, requireUser, listUsers: () => loadUsers().map(publicUser), getUserById: (id) => { const u = loadUsers().find((y) => y.id === id); return u ? selfUser(u) : null; } };
+    /** Suspends or restores an account: a suspended account is signed out everywhere at once and cannot sign in. Returns false if there is no such account. */
+    function setSuspended(userId, suspended) {
+        const users = loadUsers(), u = users.find((x) => x.id === userId); if (!u) return false;
+        u.suspended = !!suspended; saveUsers(users); if (suspended) dropSessions(userId); notify(u); return true;
+    }
+    return { router, portalTokens, setSuspended, allAccounts: () => loadUsers().map((u) => ({ id: u.id, verified: !!u.emailVerified, suspended: !!u.suspended })), getUser, requireUser, listUsers: () => loadUsers().map(publicUser), getUserById: (id) => { const u = loadUsers().find((y) => y.id === id); return u ? selfUser(u) : null; } };
 };

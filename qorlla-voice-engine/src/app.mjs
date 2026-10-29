@@ -56,14 +56,15 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     next();
   });
   const fail = (res, e) => { const status = STATUS[e.code] || STATUS[e.message] || 500; if (status === 500) console.error('voice error', e?.code || e?.message); res.status(status).json({ error: status === 500 ? 'internal_error' : (e.code || e.message) }); };
-  const auth = async (req, res, next) => {
+  const authWith = (requireVerified) => async (req, res, next) => {
     try {
       const token = bearer(req); if (!token) return res.status(401).json({ error: 'unauthorized' });
-      if (enforce) { if (!authenticate.claims) return res.status(503).json({ error: 'shield_unavailable' }); const claims = await authenticate.claims(token); req.account = claims.sub; req.claims = claims; await shield.assertPrincipalActive(claims.sub, claims.iat); } else req.account = await authenticate(token);
+      if (enforce) { if (!authenticate.claims) return res.status(503).json({ error: 'shield_unavailable' }); const claims = await authenticate.claims(token); req.account = claims.sub; req.claims = claims; await shield.assertPrincipalActive(claims.sub, claims.iat, { requireVerified }); } else req.account = await authenticate(token);
     } catch (e) { if (e instanceof ShieldError) return res.status(e.status).json({ error: e.code }); if (enforce && e && e.code === undefined && /ECONN|timeout|terminat|connect/i.test(String(e.message))) return res.status(503).json({ error: 'shield_unavailable' }); return res.status(401).json({ error: 'unauthorized' }); }
     if (!apiLimit.take(req.account)) return res.status(429).json({ error: 'rate_limited' });
     next();
   };
+  const auth = authWith(true), authLax = authWith(false);       // lax: an unverified account may ask where it stands (me, own number, shield authorize), nothing else
   const adminAuth = async (req, res, next) => {
     if (shield.enabled && /^Bearer [^\s.]+\.[^\s.]+\.[^\s.]+$/.test(req.get('authorization') || '')) { if (!adminLimit.take(req.ip || 'x')) return res.status(429).json({ error: 'rate_limited' }); if (await shield.workloadOkForAdmin(req)) return next(); return res.status(401).json({ error: 'unauthorized' }); }
     if (env.SHIELD_REQUIRE_WORKLOAD_IDENTITY === 'true') return res.status(401).json({ error: 'workload_identity_required' });
@@ -96,7 +97,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     const profile = await store.identity(req.account); if (!profile?.enabled) return res.status(403).json({ error: 'voice_disabled' });
     try { res.set('Cache-Control', 'no-store').json(await issueTicket(req.account, origin, db, allowed(), deviceId)); } catch (e) { fail(res, Object.assign(e, { code: e.code || e.message })); }
   }));
-  app.get('/v1/voice/me', auth, route(async (req, res) => { res.json({ identity: await store.identity(req.account) }); }));
+  app.get('/v1/voice/me', authLax, route(async (req, res) => { res.json({ identity: await store.identity(req.account) }); }));
   app.get('/v1/voice/ice', auth, route(async (req, res) => { const { iceServers, iceTransportPolicy } = iceServersFor(req.account, env); res.set('Cache-Control', 'no-store').json({ iceServers, iceTransportPolicy, expiresIn: 600 }); }));
 
   // ---- one-to-one calls
@@ -216,11 +217,11 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.post('/v1/shield/numbers/reconcile', wl('numbers.sync'), express.json({ limit: '4mb' }), ns(async (req, res) => res.json(await numberSync.reconcile((req.body || {}).numbers))));
   app.post('/v1/shield/numbers/status', wl('numbers.sync'), ns(async (_req, res) => res.json(await numberSync.status())));
   // a signed-in person sees their own number only when the authority AND the shield both agree it is usable
-  app.get('/v1/voice/numbers/me', auth, sh(async (req, res) => { res.set('Cache-Control', 'private, no-store'); const p = (await store.tx((c) => c.query('SELECT verified, suspended FROM shield_principals WHERE account_id=$1', [req.account]))).rows[0]; if (!p || !p.verified || p.suspended) return res.json({ number: null, state: 'unverified' }); const n = await numberSync.numberFor(req.account); res.set('Cache-Control', 'private, no-store').json({ number: n && n.usable ? { e164: n.row.e164, country: n.row.country } : null, state: n && n.usable ? 'active' : n ? 'unavailable' : 'none' }); }));
+  app.get('/v1/voice/numbers/me', authLax, sh(async (req, res) => { res.set('Cache-Control', 'private, no-store'); const p = (await store.tx((c) => c.query('SELECT verified, suspended FROM shield_principals WHERE account_id=$1', [req.account]))).rows[0]; if (!p || !p.verified || p.suspended) return res.json({ number: null, state: 'unverified' }); const n = await numberSync.numberFor(req.account); res.set('Cache-Control', 'private, no-store').json({ number: n && n.usable ? { e164: n.row.e164, country: n.row.country } : null, state: n && n.usable ? 'active' : n ? 'unavailable' : 'none' }); }));
   app.put('/v1/shield/admin/meetings', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertMeeting(strict(req.body, ['meetingId', 'orgId', 'hostAccountId', 'passcode', 'guestEnabled', 'requiresApproval', 'maxGuests', 'endsAt'])))));
   app.post('/v1/shield/admin/meetings/:id/end', shieldAdmin, sh(async (req, res) => res.json(await shield.endMeeting(req.params.id))));
-  app.post('/v1/shield/admin/principals/:id/suspend', shieldAdmin, sh(async (req, res) => { const r = await shield.setSuspended(req.params.id, true, { onVoiceDisabled: (a) => closeAccount(a, 4003, 'suspended') }); kick(); res.json(r); }));
-  app.post('/v1/shield/admin/principals/:id/restore', shieldAdmin, sh(async (req, res) => res.json(await shield.setSuspended(req.params.id, false))));
+  app.post('/v1/shield/admin/principals/:id/suspend', shieldAdmin, sh(async (req, res) => { const r = await shield.setSuspended(req.params.id, true, { source: req.workload, onVoiceDisabled: (a) => closeAccount(a, 4003, 'suspended') }); kick(); res.json(r); }));
+  app.post('/v1/shield/admin/principals/:id/restore', shieldAdmin, sh(async (req, res) => res.json(await shield.setSuspended(req.params.id, false, { source: req.workload }))));
   app.post('/v1/shield/admin/orgs/:id/suspend', shieldAdmin, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, true))));
   app.post('/v1/shield/admin/orgs/:id/restore', shieldAdmin, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, false))));
   app.post('/v1/shield/pstn/authorize', wl('pstn.authorize'), sh(async (req, res) => { const r = await shield.pstnAuthorize(strict(req.body, ['requestId', 'accountId', 'destination', 'callerId'])); res.status(r.allow ? 200 : 403).json(r); }));
@@ -229,9 +230,14 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.post('/v1/shield/pstn/terminations', wl('pstn.consume'), sh(async (_req, res) => res.json({ terminate: await shield.pstnTerminations() })));
   app.post('/v1/shield/guest/request', wl('guest.admit'), sh(async (req, res) => { const r = await shield.guestRequest(strict(req.body, ['meetingId', 'passcode', 'displayName', 'clientKey'])); res.status(r.status === 'DENIED' ? (r.reason === 'RATE_LIMIT' || r.reason === 'MEETING_LOCKED' ? 429 : 403) : 202).json(r); }));
   app.post('/v1/shield/guest/claim', wl('guest.admit'), sh(async (req, res) => { const r = await shield.guestClaim(strict(req.body, ['admissionId', 'claimSecret'])); res.status(r.status === 'DENIED' ? 403 : 200).set('Cache-Control', 'no-store').json(r); }));
+  // Qorlla Meet (workload identity svc:meet): it registers meeting policy, asks before opening each signaling session, and rechecks the sessions it holds.
+  app.post('/v1/shield/meet/register', wl('meet.register'), sh(async (req, res) => res.json(await shield.registerMeeting(strict(req.body, ['meetingId', 'orgId', 'hostAccountId', 'guestEnabled', 'endsAt'])))));
+  app.post('/v1/shield/meet/end', wl('meet.register'), sh(async (req, res) => res.json(await shield.endMeeting((strict(req.body, ['meetingId']) || {}).meetingId))));
+  app.post('/v1/shield/meet/authorize', wl('meet.signal'), sh(async (req, res) => { const r = await shield.meetAuthorize(strict(req.body, ['meetingId', 'participantId', 'accountId', 'role', 'admission'])); res.status(r.allow ? 200 : 403).set('Cache-Control', 'no-store').json(r); }));
+  app.post('/v1/shield/meet/recheck', wl('meet.signal'), sh(async (req, res) => res.set('Cache-Control', 'no-store').json(await shield.meetRecheck(strict(req.body, ['participants'])))));
   app.post('/v1/shield/media/consume', wl('media.consume'), sh(async (req, res) => res.set('Cache-Control', 'no-store').json(await shield.mediaConsume(strict(req.body, ['token', 'meetingId'])))));
   app.post('/v1/shield/guest/:id/decision', auth, sh(async (req, res) => { if (!enforce) return res.status(503).json({ error: 'shield_enforcement_off' }); res.json(await shield.guestDecide({ hostAccountId: req.account, admissionId: req.params.id, decision: (req.body || {}).decision })); }));
-  app.post('/v1/shield/authorize', auth, sh(async (req, res) => { if (!enforce) return res.status(503).json({ error: 'shield_enforcement_off' }); const b = strict(req.body, ['action', 'resourceOrgId']); const scopes = typeof (req.claims && req.claims.scope) === 'string' ? req.claims.scope.split(' ') : []; const r = await shield.authorizeUser({ accountId: req.account, iat: req.claims.iat, action: b.action, resourceOrgId: b.resourceOrgId == null ? null : b.resourceOrgId, scopes }); res.status(r.allow ? 200 : 403).json(r); }));
+  app.post('/v1/shield/authorize', authLax, sh(async (req, res) => { if (!enforce) return res.status(503).json({ error: 'shield_enforcement_off' }); const b = strict(req.body, ['action', 'resourceOrgId']); const scopes = typeof (req.claims && req.claims.scope) === 'string' ? req.claims.scope.split(' ') : []; const r = await shield.authorizeUser({ accountId: req.account, iat: req.claims.iat, action: b.action, resourceOrgId: b.resourceOrgId == null ? null : b.resourceOrgId, scopes }); res.status(r.allow ? 200 : 403).json(r); }));
 
   // ---- trusted provisioning and operations (server to server). Browsers never call these; the secret never leaves the main app's server.
   app.post('/v1/voice/admin/identities', adminAuth, route(async (req, res) => {
