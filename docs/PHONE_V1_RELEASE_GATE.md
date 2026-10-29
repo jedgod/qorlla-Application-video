@@ -52,3 +52,20 @@ To make it real you need: a provider account and compliance review, a provider a
 | Admin Controls (shared numbers, extensions, queues, routing, business hours, spending limits) | BLOCKED | No administrator roles exist in this build and no provider; the page lists each item as unavailable and offers no way for an individual to change organization settings. |
 | Plans & billing (international calling, spending limits, invoices) | BLOCKED | No billing or provider connected. |
 | Browsers | PARTIAL | Chromium all tests; Firefox: API and Help tests. Edge, Safari and a screen-reader audit not done. |
+
+## Telephony v2 update (see `docs/TELEPHONY_V2.md`)
+
+Supersedes the earlier "no provider adapter / no administrator roles" rows. **Release decision remains NOT READY: nothing has run against a real carrier, number, call or audio.**
+
+| Area | Status | Notes |
+|---|---|---|
+| Carrier adapter (Twilio REST + webhook signature) | PARTIAL | Built and tested against a local stand-in (and Twilio's published signature example). Not run against real Twilio. |
+| Provider "connected" | PASS (rule) | Needs a successful health check **and** a signed webhook; credentials alone show Not connected. |
+| Number provisioning workflow | PARTIAL | Request, eligibility, async worker, idempotency, assignment, suspend/release/reassign built and tested. No real purchase; country regulatory bundles not handled. |
+| Inbound dial-in IVR | PARTIAL | Reuses the existing PIN/waiting-room/consent rules. Fails closed (callers told joining is unavailable) until a bridge is installed and certified. |
+| Outbound calling | BLOCKED | Backend done (gates, fraud screen, limits, idempotency, workers); no browser voice gateway exists, so no call is ever placed. |
+| Billing ledger and reconciliation | PARTIAL | Provider cost vs customer charge, reconciliation, disputes, refunds, spending limits tested against the stand-in. No real usage, flat-percentage tax only, no invoice system. |
+| Administrators | PARTIAL | `PHONE_ADMIN_USERS` (server owner's list), enforced server-side on every admin action; not a role system. |
+| Release gates (`dialin`, `carrier`, `bridge`, `billing`) | PASS (mechanism) | Recorded only by `scripts/phone-certify.mjs` with an evidence file; none are certified. |
+| PSTN-WebRTC media gateway | BLOCKED | Not built. |
+| Real-carrier certification (T01-T07) | NOT STARTED | Needs a carrier account, a gateway, real phones and sign-off. |

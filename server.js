@@ -271,32 +271,74 @@ function dialInNumbers() {
     catch (e) { return []; }
 }
 const phoneUser = (req, res) => { const u = auth.getUser(req); if (!u) { res.status(401).json({ error: 'Sign in first.' }); return null; } return u; };
+// ---- Qorlla Telephony v2: the carrier, numbers, calls and usage live in Meet (PostgreSQL). Everything here is a thin, authenticated pass-through: the account identity and the
+// administrator flag come from the session, and Meet decides. PHONE_ADMIN_USERS lists the accounts allowed to manage numbers, limits and billing (a trailing * matches a prefix).
+const phoneAdmin = (u) => { const n = String((u && u.username) || '').toLowerCase(); return String(process.env.PHONE_ADMIN_USERS || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean).some((p) => (p.endsWith('*') ? n.startsWith(p.slice(0, -1)) : p === n)); };
+const tel = (u, method, route, o = {}) => meetLaunch.telephony(method, route, { actor: { id: u.id, admin: phoneAdmin(u) }, ...o });
+const telSend = async (req, res, method, route, o = {}) => {
+    const u = phoneUser(req, res); if (!u) return; const r = await tel(u, method, route, typeof o === 'function' ? o(req) : o);
+    res.status(r.status || 503).set('Cache-Control', 'no-store').json(r.ok ? r.data : { error: (r.data && r.data.error) || 'Telephony request failed.', code: (r.data && r.data.code) || 'ERROR' });
+};
+const NOCAPS = (why) => { const r = (status, detail) => ({ status, detail, proof: [] }); return { reachable: false, provider: r('not_connected', why), dialin: r('not_connected', why), carrier: r('off', why), number: r('unassigned', 'No number is assigned to you.'), bridge: r('not_built', 'No media gateway is installed.'), billing: r('not_connected', why), callingEnabled: false, phoneMeetingJoinEnabled: false, carrierName: null, webhookConfigured: false }; };
+async function capsFor(u) { const r = await tel(u, 'GET', '/capabilities'); return r.ok ? { reachable: true, ...r.data } : NOCAPS((r.data && r.data.error) || 'Telephony is unavailable.'); }
+const countryName = (code) => { const c = PHONE_COUNTRIES.find((x) => x[0] === code); return c ? c[1] : code; };
+// Dial-in numbers: operator-configured ones (PHONE_DIAL_IN_NUMBERS, unverified) plus carrier-confirmed ones from Meet. They are only ever offered in INVITATIONS when phone joining is fully
+// enabled (carrier + certified dial-in + certified media bridge): until then recipients are never told they can join by phone.
+async function dialInFor(u, caps) {
+    const confirmed = u ? await tel(u, 'GET', '/dial-in') : { ok: false }, seen = new Set(), numbers = [];
+    for (const n of (confirmed.ok ? confirmed.data : []).map((x) => ({ ...x, country: countryName(x.code) }))) { if (!seen.has(n.number)) { seen.add(n.number); numbers.push(n); } }
+    for (const n of dialInNumbers()) if (!seen.has(n.number)) { seen.add(n.number); numbers.push({ ...n, confirmed: false }); }
+    const joinEnabled = !!(caps && caps.phoneMeetingJoinEnabled);
+    return { numbers, joinEnabled, forInvites: joinEnabled ? numbers : [] };
+}
 app.get('/api/phone/diagnostics', async (req, res) => {
-    const u = phoneUser(req, res); if (!u) return; const ref = res.get('X-Correlation-Id'), checks = [];
+    const u = phoneUser(req, res); if (!u) return; const ref = res.get('X-Correlation-Id'), checks = [], caps = await capsFor(u);
     const add = (id, label, status, detail) => checks.push({ id, label, status, detail });
+    const st = (c, okWord) => ({ active: 'ok', pending: 'warn' }[c.status] || 'unavailable');
     add('api', 'Phone API', 'ok', 'This request reached the Phone service and you are signed in.');
     try { const m = await meetLaunch.ping(); m && m.ok !== false && (m.reachable !== false) ? add('meet', 'Meeting dial-in (Qorlla Meet)', 'ok', 'Qorlla Meet answered.') : add('meet', 'Meeting dial-in (Qorlla Meet)', 'fail', 'Qorlla Meet did not answer. Phone PINs and dial-in need it.'); }
     catch (e) { add('meet', 'Meeting dial-in (Qorlla Meet)', 'fail', 'Qorlla Meet is not reachable from this server.'); }
-    const numbers = dialInNumbers(), provider = process.env.PHONE_PROVIDER || '';
-    add('numbers', 'Dial-in numbers', numbers.length ? 'ok' : 'unavailable', numbers.length ? numbers.length + ' provisioned number(s).' : 'None provisioned. An administrator adds real numbers with PHONE_DIAL_IN_NUMBERS.');
-    add('provider', 'Telephone provider', !provider ? 'unavailable' : provider === 'test' ? 'warn' : 'ok', !provider ? 'Not connected, so calls, number provisioning, forwarding and voicemail are unavailable.' : provider === 'test' ? 'A test simulation is active. It is not a carrier.' : 'A provider is configured.');
-    add('audio', 'Audio bridge for phone callers', 'unavailable', 'Not built: telephone audio cannot yet be mixed into the video meeting.');
+    const numbers = dialInNumbers();
+    add('numbers', 'Dial-in numbers', caps.dialin.status === 'active' ? 'ok' : caps.dialin.status === 'pending' || numbers.length ? 'warn' : 'unavailable', caps.dialin.detail + (numbers.length ? ' ' + numbers.length + ' number(s) are listed by the operator but are not carrier-confirmed.' : ''));
+    add('provider', 'Telephone provider', caps.provider.status === 'active' ? 'ok' : caps.provider.status === 'pending' ? 'warn' : (process.env.PHONE_PROVIDER === 'test' ? 'warn' : 'unavailable'), caps.provider.status === 'not_connected' && process.env.PHONE_PROVIDER === 'test' ? 'A test simulation is active. It is not a carrier.' : caps.provider.detail);
+    add('audio', 'Audio bridge for phone callers', caps.bridge.status === 'active' ? 'ok' : 'unavailable', caps.bridge.detail);
+    add('billing', 'Telephony billing', caps.billing.status === 'active' ? 'ok' : caps.billing.status === 'pending' ? 'warn' : 'unavailable', caps.billing.detail);
     console.log(JSON.stringify({ phone_diagnostics: ref, user: u.id, checks: checks.map((c) => [c.id, c.status]) }));
     res.set('Cache-Control', 'no-store').json({ correlationId: ref, checkedAt: new Date().toISOString(), checks });
 });
-app.get('/api/phone/overview', (req, res) => {
+app.get('/api/phone/overview', async (req, res) => {
     const u = phoneUser(req, res); if (!u) return;
     const cfg = ML.config(process.env), exempt = ML.isExempt(u, process.env), since = Date.now() - 30 * 86400000; let meetings = 0, ms = 0;
     for (const m of meetingsState.values()) { const a = Number(m.actualStartAt) || 0; if (m.hostId === u.id && a >= since) { meetings++; ms += Math.max(0, (Number(m.actualEndAt) || Date.now()) - a); } }
-    res.set('Cache-Control', 'no-store').json({ provider: process.env.PHONE_PROVIDER || null, carrierCalling: false, audioBridge: false, numbers: dialInNumbers().map((n) => ({ ...n, status: 'active', use: 'Meeting dial-in' })), assigned: [],
-        plan: { name: exempt ? 'Paid (no time limit)' : 'Free', exempt, limitMinutes: Math.round(cfg.limitMs / 60000), graceMinutes: Math.round(cfg.graceMs / 60000), billingConnected: false }, usage: { days: 30, hostedMeetings: meetings, hostedMinutes: Math.round(ms / 60000) } });
+    const caps = await capsFor(u), dj = await dialInFor(u, caps), mine = caps.reachable ? await tel(u, 'GET', '/numbers', { query: { kind: 'personal' } }) : { ok: false };
+    res.set('Cache-Control', 'no-store').json({ provider: caps.reachable && caps.carrierName && caps.carrierName !== 'unconfigured' ? caps.carrierName : (process.env.PHONE_PROVIDER || null), carrierCalling: !!caps.callingEnabled, audioBridge: caps.bridge.status === 'active', admin: phoneAdmin(u), telephony: { reachable: caps.reachable },
+        capabilities: { provider: caps.provider, dialin: caps.dialin, carrier: caps.carrier, number: caps.number, bridge: caps.bridge, billing: caps.billing, phoneMeetingJoinEnabled: !!caps.phoneMeetingJoinEnabled, webhookConfigured: !!caps.webhookConfigured },
+        numbers: dj.numbers.map((n) => ({ ...n, status: n.confirmed ? 'active' : 'configured', use: 'Meeting dial-in' })), joinByPhoneEnabled: dj.joinEnabled, assigned: mine.ok ? mine.data : [],
+        plan: { name: exempt ? 'Paid (no time limit)' : 'Free', exempt, limitMinutes: Math.round(cfg.limitMs / 60000), graceMinutes: Math.round(cfg.graceMs / 60000), billingConnected: caps.billing.status === 'active' }, usage: { days: 30, hostedMeetings: meetings, hostedMinutes: Math.round(ms / 60000) } });
 });
-app.get('/api/phone/dial-in-numbers', (req, res) => {
-    if (!phoneUser(req, res)) return; const numbers = dialInNumbers(), provider = process.env.PHONE_PROVIDER || null;
-    res.set('Cache-Control', 'no-store').json({ configured: numbers.length > 0, numbers, countries: PHONE_COUNTRIES.map(([code, name, dial]) => ({ code, name, dial, provisioned: numbers.some((n) => n.code === code) })), provider, carrierCalling: false, note: numbers.length ? null : 'No dial-in numbers have been provisioned for this workspace. Qorlla never shows a number that is not real.' });
+app.get('/api/phone/dial-in-numbers', async (req, res) => {
+    const u = phoneUser(req, res); if (!u) return; const caps = await capsFor(u), dj = await dialInFor(u, caps), numbers = dj.numbers;
+    res.set('Cache-Control', 'no-store').json({ configured: numbers.length > 0, numbers, joinEnabled: dj.joinEnabled, countries: PHONE_COUNTRIES.map(([code, name, dial]) => ({ code, name, dial, provisioned: numbers.some((n) => n.code === code) })), provider: caps.reachable && caps.carrierName && caps.carrierName !== 'unconfigured' ? caps.carrierName : (process.env.PHONE_PROVIDER || null), carrierCalling: !!caps.callingEnabled,
+        notice: dj.joinEnabled ? null : 'Joining a meeting by phone is not available yet: ' + caps.bridge.detail + ' A caller who dials a number would be told so. Numbers are shown for reference only.',
+        note: numbers.length ? null : 'No dial-in numbers have been provisioned for this workspace. Qorlla never shows a number that is not real.' });
 });
-app.post('/api/phone/calls', (req, res) => { if (!phoneUser(req, res)) return; res.status(503).json({ error: 'Carrier calling is not enabled: it needs a connected telephony provider and provisioned calling permissions.' }); });
-app.post('/api/phone/numbers/provision', (req, res) => { if (!phoneUser(req, res)) return; res.status(503).json({ error: 'Number provisioning needs a connected telephony provider. No number was created.' }); });
+// carrier calling, numbers, usage: authenticated pass-throughs (Meet enforces administrator rights, gates, limits and idempotency)
+app.post('/api/phone/calls', (req, res) => telSend(req, res, 'POST', '/calls', (q) => ({ body: { to: (q.body || {}).to, fromNumberId: (q.body || {}).fromNumberId, idempotencyKey: q.get('idempotency-key') || (q.body || {}).idempotencyKey } })));
+app.get('/api/phone/call-intents', (req, res) => telSend(req, res, 'GET', '/calls'));
+app.get('/api/phone/calls/:id([0-9a-f-]{36})', (req, res) => telSend(req, res, 'GET', '/calls/' + encodeURIComponent(req.params.id)));
+app.post('/api/phone/calls/:id([0-9a-f-]{36})/end', (req, res) => telSend(req, res, 'POST', '/calls/' + encodeURIComponent(req.params.id) + '/end'));
+app.post('/api/phone/numbers/provision', (req, res) => telSend(req, res, 'POST', '/numbers/request', (q) => ({ body: { country: (q.body || {}).country, kind: (q.body || {}).kind, assignTo: (q.body || {}).assignTo, idempotencyKey: q.get('idempotency-key') || (q.body || {}).idempotencyKey } })));
+app.get('/api/phone/numbers/requests', (req, res) => telSend(req, res, 'GET', '/numbers/requests'));
+app.get('/api/phone/numbers/available', (req, res) => telSend(req, res, 'GET', '/numbers/available', (q) => ({ query: { country: String(q.query.country || ''), type: String(q.query.type || '') } })));
+app.get('/api/phone/numbers', (req, res) => telSend(req, res, 'GET', '/numbers', (q) => ({ query: q.query.kind ? { kind: String(q.query.kind) } : undefined })));
+app.post('/api/phone/numbers/:id/state', (req, res) => telSend(req, res, 'POST', '/numbers/' + encodeURIComponent(req.params.id) + '/state', (q) => ({ body: { state: (q.body || {}).state } })));
+app.post('/api/phone/numbers/:id/reassign', (req, res) => telSend(req, res, 'POST', '/numbers/' + encodeURIComponent(req.params.id) + '/reassign', (q) => ({ body: { to: (q.body || {}).to } })));
+app.post('/api/phone/numbers/:id/caller-id', (req, res) => telSend(req, res, 'POST', '/numbers/' + encodeURIComponent(req.params.id) + '/caller-id', (q) => ({ body: { verified: (q.body || {}).verified === true } })));
+app.post('/api/phone/provider/test-connection', (req, res) => telSend(req, res, 'POST', '/test-connection'));
+app.get('/api/phone/usage', (req, res) => telSend(req, res, 'GET', '/usage'));
+app.post('/api/phone/usage/:id/adjust', (req, res) => telSend(req, res, 'POST', '/usage/' + encodeURIComponent(req.params.id) + '/adjust', (q) => ({ body: { kind: (q.body || {}).kind, amountMicros: (q.body || {}).amountMicros, reason: (q.body || {}).reason } })));
+app.put('/api/phone/limits/:owner', (req, res) => telSend(req, res, 'PUT', '/limits/' + encodeURIComponent(req.params.owner), (q) => ({ body: { monthlyLimitMicros: (q.body || {}).monthlyLimitMicros } })));
+app.get('/api/phone/telephony/diagnostics', (req, res) => telSend(req, res, 'GET', '/diagnostics'));
 app.get('/api/phone/calls/history', async (req, res) => {
     const u = phoneUser(req, res); if (!u) return;
     const mine = [...meetingsState.values()].filter((m) => m.hostId === u.id && m.viaMeet).sort((a, b) => Date.parse(b.scheduledStartAt || 0) - Date.parse(a.scheduledStartAt || 0)).slice(0, 15);
@@ -308,8 +350,8 @@ for (const base of ['/api/meetings', '/api/v1/meetings']) {
         const meeting = hostMeeting(req, res); if (!meeting) return;
         try {
             const out = await meetLaunch.phoneAccess(meeting, req.hostUser.displayName, { title: meeting.topic, settings: settingsOf(meeting), limits: ML.limitsFor(meeting.limitExempt) }, 'POST'); meeting.viaMeet = true; saveSnapshotSoon();
-            const nums = dialInNumbers(), id = meeting.meetingId;
-            const invitation = ['Join by phone', ...(nums.length ? nums.map((n) => '  ' + n.country + (n.label ? ' (' + n.label + ')' : '') + (n.tollFree ? ' toll-free' : '') + ': ' + n.number) : ['  (no dial-in number is provisioned yet)']), 'Meeting ID: ' + id.replace(/\D/g, '') + '#', 'PIN: ' + out.pin + '#', 'Phone callers join as audio only.'].join('\n');
+            const dj = await dialInFor(req.hostUser, await capsFor(req.hostUser)), nums = dj.forInvites, id = meeting.meetingId;
+            const invitation = ['Join by phone', ...(nums.length ? nums.map((n) => '  ' + n.country + (n.label ? ' (' + n.label + ')' : '') + (n.tollFree ? ' toll-free' : '') + ': ' + n.number) : [dj.joinEnabled ? '  (no dial-in number is provisioned yet)' : '  (joining by phone is not available yet: ask the host)']), 'Meeting ID: ' + id.replace(/\D/g, '') + '#', 'PIN: ' + out.pin + '#', 'Phone callers join as audio only.'].join('\n');
             res.status(201).set('Cache-Control', 'no-store').json({ pin: out.pin, shownOnce: true, meetingId: id, dialIn: nums, telephony: out.telephony, invitation });
         } catch (e) { res.status(e.code === 'UNAVAILABLE' ? 503 : 500).json({ error: e.code === 'UNAVAILABLE' ? 'Qorlla Meet is not available, so a phone PIN cannot be created. ' + e.message : 'Could not create the phone PIN.' }); }
     });
@@ -393,10 +435,10 @@ for (const base of ['/api/meetings', '/api/v1/meetings']) {
         const id = meeting.meetingId, url = req.protocol + '://' + req.get('host') + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin';
         res.set('Cache-Control', 'no-store').json({ id, title: meeting.topic || '', url, passcodeRequired: !!meeting.passcodeHash, scheduledFor: meeting.startTime || null });   // the password is never returned: it is stored hashed
     });
-    app.get(base + '/:id/invitation-text', (req, res) => {                                  // the same invitation the email carries, for Copy invitation (no passcode: it is stored hashed)
+    app.get(base + '/:id/invitation-text', async (req, res) => {                                  // the same invitation the email carries, for Copy invitation (no passcode: it is stored hashed)
         const meeting = hostMeeting(req, res); if (!meeting) return;
         const id = meeting.meetingId, link = (mailer.baseUrl || (req.protocol + '://' + req.get('host'))).replace(/\/+$/, '') + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin';
-        res.set('Cache-Control', 'no-store').json({ text: invitationText({ host: req.hostUser.displayName, title: meeting.title || meeting.topic, topic: meeting.topicText, when: meeting.whenText, recurrence: meeting.recurrenceLabel, meetingId: id, link, needsPasscode: !!meeting.passcodeHash, agenda: meeting.agenda, description: meeting.description, dialIn: dialInNumbers() }) });
+        res.set('Cache-Control', 'no-store').json({ text: invitationText({ host: req.hostUser.displayName, title: meeting.title || meeting.topic, topic: meeting.topicText, when: meeting.whenText, recurrence: meeting.recurrenceLabel, meetingId: id, link, needsPasscode: !!meeting.passcodeHash, agenda: meeting.agenda, description: meeting.description, dialIn: (await dialInFor(req.hostUser, await capsFor(req.hostUser))).forInvites }) });
     });
     app.get(base + '/:id/invitation.ics', (req, res) => {
         const meeting = hostMeeting(req, res); if (!meeting) return;
@@ -581,7 +623,7 @@ app.post('/api/meetings/:meetingId/invite', limitInvite, attachActor, async (req
         if (typeof pc !== 'string' || pc.length < 6 || pc.length > 32) return res.status(400).json({ error: 'The passcode must be 6 to 32 characters.' });
         const ch = applyHostChanges(meeting, { password: pc }); if (ch.error) return res.status(400).json({ error: ch.error }); passcode = pc;
     }
-    const text = invitationText({ host: who, title: meeting.title || meeting.topic, topic: meeting.topicText, when: meeting.whenText, recurrence: meeting.recurrenceLabel, meetingId: id, link, passcode, needsPasscode: !!meeting.passcodeHash, agenda: meeting.agenda, description: meeting.description, dialIn: dialInNumbers(), phonePin: req.body && req.body.phonePin });
+    const text = invitationText({ host: who, title: meeting.title || meeting.topic, topic: meeting.topicText, when: meeting.whenText, recurrence: meeting.recurrenceLabel, meetingId: id, link, passcode, needsPasscode: !!meeting.passcodeHash, agenda: meeting.agenda, description: meeting.description, dialIn: req.actor.type === 'account' ? (await dialInFor(req.actor.user, await capsFor(req.actor.user))).forInvites : [], phonePin: req.body && req.body.phonePin });
     const results = [];
     for (const to of list) { const r = await mailer.send({ to, subject: who + ' invited you: ' + (meeting.title || meeting.topic || 'Qorlla meeting'), replyTo: req.actor.type === 'account' && req.actor.user.emailVerified ? req.actor.user.email : undefined, text }); results.push({ email: to, status: r.status }); }
     res.json({ sent: results.filter((r) => r.status === 'sent').length, results });

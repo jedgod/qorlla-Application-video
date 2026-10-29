@@ -156,3 +156,7 @@ Diagnosis on this PC: the firewall is on, the Wi-Fi is classed **Public**, and t
 
 ## Qorlla Phone / meeting dial-in (v4.13) - rules layer only
 Apply `qorlla-meet-video/sql/v4_13_phone.sql` (compose mounts it; dev:stack applies it). Config: `PHONE_DIAL_IN_NUMBERS` (JSON list of REAL numbers on the main app: `[{"country":"United States","label":"New York","number":"+12125550100","tollFree":false}]`), Meet: `PHONE_PROVIDER` (`test` = a test double; unset = telephony off), `PHONE_WEBHOOK_SECRET` (16+ chars), optional `PHONE_HASH_KEY`, `PHONE_MAX_FAILS_CALLER/MEETING`, `PHONE_LOCK_MS`, `PHONE_RATE_LIMIT`. Host creates a PIN in Phone > Join Meeting (shown once). **No carrier or media gateway exists here: see `docs/PHONE_V1_RELEASE_GATE.md` before telling anyone this works for real calls.**
+
+## Telephony v2 (carrier numbers, calls, billing)
+
+See `docs/TELEPHONY_V2.md` for architecture, configuration, the evidence rules behind every status, the certification checklist and the honest gap list. Quick facts: the module lives in Meet (`qorlla-meet-video/server/telephony/`), the migration is `sql/v4_14_telephony.sql` (run before `005_app_role.sql`), administrators are `PHONE_ADMIN_USERS` on the main app, and release gates are recorded with `scripts/phone-certify.mjs` (run as the database owner). Nothing is certified by default.

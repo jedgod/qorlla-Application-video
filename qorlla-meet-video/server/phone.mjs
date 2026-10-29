@@ -41,10 +41,11 @@ export function createProvider(env = process.env) {
     setMute(callId, muted) { this.calls.push({ op: muted ? 'mute' : 'unmute', callId, at: Date.now() }); } };
 }
 
-export function registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas, phoneOnline, names, recording, env = process.env, provider = createProvider(env) }) {
+export function registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas, phoneOnline, names, recording, env = process.env, provider = createProvider(env), carrier = null }) {
   const hashKey = crypto.createHmac('sha256', String(env.PHONE_HASH_KEY || env.JWT_SECRET || 'dev')).update('qorlla-phone-caller-v1').digest();
   const callerHash = (n) => crypto.createHmac('sha256', hashKey).update(String(n)).digest('hex');
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
+  const hang = (c) => { try { if (carrier && c.provider === carrier.name) carrier.endCall(c.provider_call_id).catch(() => {}); else provider.hangup?.(c.provider_call_id); } catch (e) { /* the call is already gone */ } };
   const guard = (fn, msg) => async (req, res) => { try { await fn(req, res); } catch (e) { console.error('[phone]', msg, e.message); if (!res.headersSent) fail(res, 500, msg); } };
   const paths = (p) => ['/api/meetings/:id' + p, '/api/v1/meetings/:id' + p];
 
@@ -82,7 +83,7 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
   /** The meeting is over (or the PIN was revoked): every call that is still up is hung up. */
   async function endAll(meetingId, reason, onlyActive) {
     const { rows } = await db.query("SELECT * FROM phone_calls WHERE meeting_id=$1 AND status IN ('waiting','connected')", [meetingId]);
-    for (const c of rows) { if (await leave(c, 'ended', reason)) try { provider.hangup?.(c.provider_call_id); } catch (e) { /* the call is already gone */ } }
+    for (const c of rows) { if (await leave(c, 'ended', reason)) hang(c); }
     return rows.length;
   }
 
@@ -113,7 +114,7 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
   }
   const recordingState = async (meetingId) => { try { const s = await recording.publicState(meetingId); return s && s.status !== 'disabled' ? s : null; } catch { return null; } };
 
-  app.post('/api/phone/ivr/verify', ...signed(async (j) => {
+  const verifyCall = async (j, pn = provider.name) => {
     const num = e164(j.from), callId = String(j.callId || '').slice(0, 120), denied = (extra = {}) => ({ result: 'denied', say: GENERIC, ...extra });
     if (!num || !callId) return { result: 'denied', say: GENERIC };
     const ch = callerHash(num), ckey = 'caller:' + ch;
@@ -131,23 +132,25 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
     const wait = m.waiting_room ? 'waiting_room' : !m.join_before_host && !hostHere ? 'host_absent' : null;
     await db.query("INSERT INTO participants(id,meeting_id,display_name,role,admission,wait_reason,kind) VALUES($1,$2,$3,'guest',$4,$5,'phone')", [pid, m.id, name, wait ? 'waiting' : 'admitted', wait]);
     const { rows: [c] } = await db.query("INSERT INTO phone_calls(id,meeting_id,provider,provider_call_id,caller_hash,caller_last4,status,participant_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (provider,provider_call_id) DO NOTHING RETURNING *",
-      [cid, m.id, provider.name, callId, ch, last4, wait ? 'waiting' : 'connected', pid]);
+      [cid, m.id, pn, callId, ch, last4, wait ? 'waiting' : 'connected', pid]);
     if (!c) return denied();                                                                           // the same call id twice with a new event id: refused
     audit(m.id, pid, wait ? 'phone.waiting' : 'phone.admitted', { call: cid, reason: wait });
     if (wait) { io.to(room(m.id)).emit('waiting-changed', {}); return { result: 'waiting', say: 'Please hold. The host will let you in shortly.', callRef: cid }; }
     await connect(c, name, m.id); const rec = await recordingState(m.id);
     return { result: 'connected', say: 'You are connected to the meeting.', callRef: cid, ...(rec ? { recordingNotice: true, consentPrompt: 'This meeting may be recorded only if everyone agrees. Press 1 to agree or 2 to decline.' } : {}) };
-  }));
+  };
+  app.post('/api/phone/ivr/verify', ...signed((j) => verifyCall(j)));
 
-  app.post('/api/phone/ivr/consent', ...signed(async (j) => {                                       // keypad answer to the recording request: 1 agree, 2 decline, 9 withdraw
-    const { rows: [c] } = await db.query("SELECT * FROM phone_calls WHERE provider=$1 AND provider_call_id=$2 AND status='connected'", [provider.name, String(j.callId || '')]); if (!c) return { result: 'denied', say: GENERIC };
+  const consentCall = async (j, pn = provider.name) => {                                       // keypad answer to the recording request: 1 agree, 2 decline, 9 withdraw
+    const { rows: [c] } = await db.query("SELECT * FROM phone_calls WHERE provider=$1 AND provider_call_id=$2 AND status='connected'", [pn, String(j.callId || '')]); if (!c) return { result: 'denied', say: GENERIC };
     const decision = { 1: 'agree', 2: 'decline', 9: 'withdraw' }[String(j.digit)]; if (!decision) return { result: 'retry', say: 'Press 1 to agree, 2 to decline.' };
     const r = await recording.consentFor({ meetingId: c.meeting_id, participantId: c.participant_id, name: masked(c.caller_last4), decision, by: 'keypad' });
     return r.ok ? { result: decision, say: decision === 'agree' ? 'Thank you. You agreed to the recording.' : 'Understood. You declined the recording.' } : { result: 'none', say: 'There is no recording request right now.' };
-  }));
-  const ended = async (j) => { const { rows: [c] } = await db.query('SELECT * FROM phone_calls WHERE provider=$1 AND provider_call_id=$2', [provider.name, String(j.callId || '')]); if (!c) return { result: 'unknown' }; await leave(c, 'ended', String(j.type || 'caller_hung_up').slice(0, 40)); return { result: 'ended' }; };
-  app.post('/api/phone/ivr/disconnect', ...signed(ended));
-  app.post('/api/phone/webhooks/provider', ...signed(ended));
+  };
+  app.post('/api/phone/ivr/consent', ...signed((j) => consentCall(j)));
+  const ended = async (j, pn = provider.name) => { const { rows: [c] } = await db.query('SELECT * FROM phone_calls WHERE provider=$1 AND provider_call_id=$2', [pn, String(j.callId || '')]); if (!c) return { result: 'unknown' }; await leave(c, 'ended', String(j.type || 'caller_hung_up').slice(0, 40)); return { result: 'ended' }; };
+  app.post('/api/phone/ivr/disconnect', ...signed((j) => ended(j)));
+  app.post('/api/phone/webhooks/provider', ...signed((j) => ended(j)));
 
   // ---------------------------------------------------------------- the host
   app.post(paths('/phone/:cid/mute'), auth, member, hostOnly, guard(async (req, res) => {
@@ -159,7 +162,7 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
   app.post(paths('/phone/:cid/remove'), auth, member, hostOnly, guard(async (req, res) => {
     const { rows: [c] } = await db.query("SELECT * FROM phone_calls WHERE id=$1 AND meeting_id=$2 AND status IN ('waiting','connected')", [req.params.cid, req.params.id]); if (!c) return fail(res, 404, 'No such caller');
     await db.query('INSERT INTO phone_bans(meeting_id,caller_hash) VALUES($1,$2) ON CONFLICT DO NOTHING', [c.meeting_id, c.caller_hash]);       // a removed caller cannot dial back in to this meeting
-    await leave(c, 'removed', 'removed_by_host'); try { provider.hangup?.(c.provider_call_id); } catch (e) { /* gone */ } audit(req.params.id, req.user.participantId, 'phone.removed', { call: c.id }); res.json({ removed: true });
+    await leave(c, 'removed', 'removed_by_host'); hang(c); audit(req.params.id, req.user.participantId, 'phone.removed', { call: c.id }); res.json({ removed: true });
   }, 'Could not remove'));
   app.get(paths('/phone-attendance'), auth, member, hostOnly, guard(async (req, res) => {
     const { rows } = await db.query('SELECT * FROM phone_calls WHERE meeting_id=$1 ORDER BY created_at', [req.params.id]);
@@ -169,12 +172,13 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
   /** Called by the existing waiting-room routes: admitted phone callers connect, denied ones are hung up. */
   async function onAdmission(meetingId, ids, allow) {
     const { rows } = await db.query("SELECT * FROM phone_calls WHERE meeting_id=$1 AND participant_id = ANY($2::uuid[]) AND status='waiting'", [meetingId, ids]);
-    for (const c of rows) { if (allow) await connect(c, masked(c.caller_last4), meetingId); else { await leave(c, 'denied', 'denied_by_host'); try { provider.hangup?.(c.provider_call_id); } catch (e) { /* gone */ } } }
+    for (const c of rows) { if (allow) await connect(c, masked(c.caller_last4), meetingId); else { await leave(c, 'denied', 'denied_by_host'); hang(c); } }
   }
   async function onHostArrived(meetingId) {                             // "host absent" waiters are let in when the host connects
     const { rows } = await db.query("SELECT c.* FROM phone_calls c JOIN participants p ON p.id=c.participant_id WHERE c.meeting_id=$1 AND c.status='waiting' AND p.kind='phone' AND (p.wait_reason='host_absent' OR p.admission='admitted')", [meetingId]);
     for (const c of rows) await connect(c, masked(c.caller_last4), meetingId);
   }
-  return { provider, endAll, onAdmission, onHostArrived, setPin, revokePin, enabled: provider.ready,
+  const statusOf = async (callId, pn) => { const { rows: [c] } = await db.query('SELECT status FROM phone_calls WHERE provider=$1 AND provider_call_id=$2', [pn, String(callId || '')]); return c ? c.status : null; };
+  return { provider, verifyCall, consentCall, endedCall: ended, statusOf, endAll, onAdmission, onHostArrived, setPin, revokePin, enabled: provider.ready,
     calls: async (meetingId) => (await db.query('SELECT * FROM phone_calls WHERE meeting_id=$1 ORDER BY created_at', [meetingId])).rows.map((c) => ({ ...callView(c), seconds: c.connected_at ? Math.max(0, Math.round(((c.ended_at ? new Date(c.ended_at) : new Date()) - new Date(c.connected_at)) / 1000)) : 0 })) };
 }

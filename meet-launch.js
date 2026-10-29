@@ -119,9 +119,17 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
         const base = await internalBase(); if (!base) return [];
         const r = await call(base, '/api/integrations/scheduled-meetings/' + encodeURIComponent(l.sourceId) + '/phone-calls', 'GET', undefined, bridge()); return r.ok ? (r.data.calls || []) : [];
     }
+    /** Telephony (carrier numbers, calls, usage) lives in Meet beside PostgreSQL. The account identity and the administrator flag are supplied HERE from the signed-in session; a browser can never set them. */
+    async function telephony(method, route, { actor, body, query } = {}) {
+        const down = (why) => ({ ok: false, status: 503, data: { error: why, code: 'TELEPHONY_UNAVAILABLE' } });
+        if (secret().length < 32) return down('Telephony needs the Meet bridge, which is not configured.');
+        let base; try { base = await internalBase(); } catch (e) { base = ''; } if (!base) return down('Qorlla Meet is not reachable, so telephony is unavailable.');
+        try { return await call(base, '/api/integrations/telephony' + route + (query ? '?' + new URLSearchParams(query) : ''), method, body, { ...bridge(), 'x-qorlla-actor': String((actor && actor.id) || ''), 'x-qorlla-admin': actor && actor.admin ? '1' : '0' }); }
+        catch (e) { return down('Qorlla Meet did not answer, so telephony is unavailable.'); }
+    }
     const known = (meetingId) => !!links[digitsOf(meetingId)];
     const forget = (meetingId) => { const d = digitsOf(meetingId); if (links[d]) { delete links[d]; persist(); } };
-    return { enabled, ensureLink, updateIfLinked, join, url, ping, forget, activity, known, phoneAccess, phoneCalls, _links: () => links };
+    return { enabled, ensureLink, updateIfLinked, join, url, ping, forget, activity, known, phoneAccess, phoneCalls, telephony, _links: () => links };
 }
 
 module.exports = { createMeetLaunch };

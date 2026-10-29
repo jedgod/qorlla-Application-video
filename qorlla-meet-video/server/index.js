@@ -22,6 +22,8 @@ import { registerPhone } from './phone.mjs';
 import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
 import { registerRecording } from './recording.mjs';
+import { createCarrier } from './telephony/provider.mjs';
+import { registerTelephony } from './telephony/routes.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const SECRET = process.env.JWT_SECRET;
@@ -57,7 +59,7 @@ const meetingLimiter = rateLimit({ ...rateOpts, limit: Number(process.env.MEETIN
 const meetingPath = /^\/(v1\/)?meetings\/[0-9a-f-]{36}\//i;
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/integrations/')) return bridgeLimiter(req, res, next);
-  if (req.path.startsWith('/phone/')) return phoneLimiter(req, res, next);               // telephone provider traffic has its own budget (signed, per-caller limits apply inside)
+  if (req.path.startsWith('/phone/') || req.path.startsWith('/telephony/webhooks/')) return phoneLimiter(req, res, next);               // telephone provider traffic has its own budget (signed, per-caller limits apply inside)
   if (meetingPath.test(req.path)) { try { req.user = verify((req.headers.authorization || '').replace(/^Bearer /, '')); return meetingLimiter(req, res, next); } catch { /* no valid token: strict per-IP budget below */ } }
   return apiLimiter(req, res, next);
 });
@@ -373,7 +375,9 @@ const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit
 let limiter;
 const recording = registerRecording({ app, io, db, auth, member, fail, room, audit: recAudit, media: recMedia, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 limiter = makeLimit({ io, db, room, audit, upgradeUrl: process.env.UPGRADE_URL || '/pricing?reason=meeting-limit', onEnd: async (id) => { await recording.stopFor(id, 'meeting_ended'); await phone.endAll(id, 'time_limit'); } });
-const phone = registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas: (mid, pid) => !!active.get(mid)?.has(pid), phoneOnline, names, recording });
+const carrier = createCarrier(process.env);                 // a real telephone carrier only when PHONE_CARRIER and its credentials are set; otherwise inert
+const phone = registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas: (mid, pid) => !!active.get(mid)?.has(pid), phoneOnline, names, recording, carrier: carrier.configured ? carrier : null });
+const telephony = registerTelephony({ app, db, bridgeAuth, phone, carrier });
 app.get('/api/health',async(_req,res)=>{try{await db.query('SELECT 1');res.json({ok:true});}catch{res.status(503).json({ok:false});}});
 const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:message});
 io.use(async(socket,next)=>{
