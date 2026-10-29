@@ -282,6 +282,11 @@
   .qp .feat-note[data-state=active] { color: #166534; } .qp .feat-note[data-state=failed], .qp .feat-note[data-state=drift] { color: #b91c1c; } .feat-note { margin: 2px 0 8px; }
   .qp-head .qp-tabs { min-width: 0; } .hp-hist summary { min-height: 28px; display: flex; align-items: center; cursor: pointer; }
   @media (max-width: 760px) { .qp-tabs { flex-wrap: wrap; overflow: visible; } .qp-tabs button { flex: 1 1 28%; padding: 8px 6px; white-space: normal; } .qp-head .qp-tabs { flex-basis: 100%; } }
+  dialog.vi { border: 0; border-radius: 16px; padding: 22px 24px; width: min(380px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(15, 23, 42, .35); text-align: center; } dialog.vi::backdrop { background: rgba(15, 23, 42, .45); } .vi h2 { margin: 0 0 4px; font-size: 18px; } .vi-who { font-size: 20px; font-weight: 700; margin: 8px 0 4px; } .vi-sub { font-size: 13px; margin: 0 0 14px; } .vi-actions { display: flex; gap: 10px; justify-content: center; } .vi-actions .btn { min-width: 110px; }
+  .btn.danger { background: #dc2626; color: #fff; border-color: #dc2626; } .btn.danger:hover { background: #b91c1c; }
+  .vb { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 12px; background: #0f172a; color: #fff; border-radius: 999px; padding: 8px 10px 8px 16px; box-shadow: 0 10px 30px rgba(15, 23, 42, .4); max-width: calc(100vw - 24px); } .vb.hidden { display: none; } .vb-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; flex: none; } .vb-dot.ring { background: #f59e0b; animation: vbpulse 1.2s infinite; } @keyframes vbpulse { 50% { opacity: .3; } } @media (prefers-reduced-motion: reduce) { .vb-dot.ring { animation: none; } }
+  .vb-text { display: flex; flex-direction: column; min-width: 0; } .vb-text strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .vb-text small { color: #cbd5e1; font-size: 12px; } .vb .btn { white-space: nowrap; } .vb .btn:not(.danger) { background: #1e293b; color: #fff; border-color: #334155; } .vb .btn[aria-pressed=true] { background: #f59e0b; border-color: #f59e0b; color: #0f172a; }
+  .qp-colleagues h3 { margin: 10px 0 4px; font-size: 14px; } .qp-colleague { gap: 10px; } .qp-av.sm { width: 30px; height: 30px; font-size: 11px; }
   .qp .muted, .qp small { color: #475569; }   /* 7:1 on white and still above 4.5:1 on the tinted hover backgrounds (axe colour-contrast) */
   .qp-warn { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 10px; padding: 8px 10px; margin: 6px 0; font-size: 13px; } .qp-live { display: flex; align-items: center; gap: 10px; justify-content: center; background: #eef4ff; border-radius: 10px; padding: 6px 10px; margin: 4px 0; font-size: 13px; } .qp-cap small { display: block; } .ph-dot.warn { color: #c2410c; }
   .qp-tag.orange { background: #ffedd5; color: #c2410c; } .qp-tag.red { background: #fee2e2; color: #b91c1c; }
@@ -753,6 +758,18 @@
   <div id="homeHistory"></div>
 </template>
 
+<dialog id="voiceIncoming" class="vi" aria-labelledby="viTitle" aria-describedby="viWho">
+  <h2 id="viTitle">Incoming Qorlla call</h2>
+  <p id="viWho" class="vi-who"></p>
+  <p class="muted vi-sub">Internet call: no phone number is involved, and your microphone stays off until you answer.</p>
+  <div class="vi-actions"><button type="button" class="btn danger" id="viDecline">Decline</button><button type="button" class="btn primary" id="viAnswer">Answer</button></div>
+</dialog>
+<div id="voiceBar" class="vb hidden" role="region" aria-label="Active Qorlla call">
+  <span class="vb-dot" aria-hidden="true"></span>
+  <span class="vb-text"><strong id="vbPeer"></strong><small id="vbStatus" role="status" aria-live="polite"></small></span>
+  <button type="button" class="btn small" id="vbMute" aria-pressed="false">Mute</button>
+  <button type="button" class="btn small danger" id="vbEnd">End call</button>
+</div>
 <dialog id="startDialog" aria-labelledby="sdTitle" class="sd">
   <form id="startForm" novalidate>
     <header class="sd-head">
@@ -2153,6 +2170,7 @@
   // PHONE: dial pad, join a meeting by telephone, recent calls, settings. Honest about what exists: there is no carrier in this build, so the dial pad cannot place
   // calls and the dial-in directory only shows numbers an operator has really provisioned.
   // =====================================================================
+  // (voice is defined earlier in this script: see Qorlla Voice)
   function phoneApi(path, opts) { opts = opts || {}; var init = { method: opts.method || 'GET', headers: Object.assign({}, opts.headers) }; if (opts.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
     return fetch(BASE + path, init).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { var bad = null; if (r.status === 401) bad = new Error('Please sign in.'); else if (!r.ok) bad = new Error(j.error || 'Request failed (HTTP ' + r.status + ')'); if (bad) { bad.status = r.status; bad.stale = r.status === 404 && !j.error; bad.ref = r.headers.get('x-correlation-id') || ''; throw bad; } return j; }); }); }
   // a 404 with no JSON body means the route does not exist on the running server: it is an older build that was not restarted
@@ -2160,7 +2178,8 @@
   function copyPlain(text, msg) { if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { toast(msg, 'ok'); }, function () { toast(text); }); else toast(text); }
   VIEWS.phone = function () {
     if (!state.user) return gate(I18n.t('Phone'), 'calls and meeting dial-in');
-    cleanup = function () { stopMicTest(); };            // leaving the Phone view (or closing the page) always closes an open microphone
+    var voiceOff = [];
+    cleanup = function () { stopMicTest(); voiceOff.splice(0).forEach(function (f) { f(); }); };            // leaving the Phone view (or closing the page) always closes an open microphone and detaches its voice listeners
     var info = null, calls = null, cur = 'dial', filter = 'all', query = '', showAll = false, num = '';
     var COUNTRIES = [['US', '1', '🇺🇸', 'United States'], ['GB', '44', '🇬🇧', 'United Kingdom'], ['GH', '233', '🇬🇭', 'Ghana'], ['NG', '234', '🇳🇬', 'Nigeria'], ['CA', '1', '🇨🇦', 'Canada']];
     var tabs = [['dial', 'Dial Pad'], ['join', 'Join Meeting'], ['recent', 'Recent Calls'], ['contacts', 'Contacts'], ['settings', 'Numbers & Plans']];
@@ -2181,7 +2200,7 @@
       var pair = { dial: [dialCard, dialList], join: [joinCard, joinList], recent: [recentCard, recentDetail], contacts: [contactsCard, contactDetail], settings: [numberCard, plansCard] }[t];
       alt.classList.add('hidden'); grid.classList.remove('hidden');
       [dialCard, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { c.classList.toggle('hidden', pair.indexOf(c) < 0); });
-      if (t === 'contacts') loadContacts(); if (t === 'settings') loadPlans();
+      if (t === 'contacts') loadContacts(); if (t === 'settings') loadPlans(); if (t === 'recent' && recentCard._load && voice.ready) recentCard._load(); if (t === 'dial' && voice.ready) voiceLoadPeople();   // new internet calls appear when you open the tab
     }
     var copyIcon = function (text, label) { return h('button', { class: 'qp-copy', type: 'button', 'aria-label': label, title: label, text: '⧉', onclick: function () { copyPlain(text, I18n.t('Number copied')); } }); };
     // ---- 1. Make a call
@@ -2199,7 +2218,17 @@
       var note = h('p', { class: 'muted qp-hint', id: 'phCallNote', text: I18n.t('Calling is off: carrier calling requires a connected telephony provider and provisioned calling permissions.') });
       var caller = h('select', { id: 'qpCallerId', 'aria-label': I18n.t('Your caller ID'), disabled: true }, [h('option', { text: I18n.t('No Qorlla number assigned') })]);
       function e164() { var c = COUNTRIES.filter(function (x) { return x[0] === sel.value; })[0], d = num.replace(/[^0-9+]/g, ''); if (!d) return ''; var out = d.charAt(0) === '+' ? d : '+' + c[1] + d.replace(/^0+/, ''); return /^\+[1-9]\d{6,14}$/.test(out) ? out : null; }
-      function paint() { input.value = num; var n = e164(); clear.classList.toggle('hidden', !num); copy.disabled = !num; del.disabled = !num; hint.textContent = !num ? '' : n ? I18n.t('Will call') + ' ' + n : I18n.t('Enter a valid phone number (7 to 15 digits).'); call.disabled = !(n && info && info.carrierCalling); }
+      // 3 to 8 digits with no + sign is a Qorlla extension (internet call to a colleague); anything else is a telephone number, which needs a carrier
+      var isExt = function () { return /^[0-9]{3,8}$/.test(num); };
+      function extHint() { if (!voice.cfg || !voice.cfg.enabled) return I18n.t('Qorlla Voice is not set up on this server, so extensions cannot be called.'); if (!voice.ready) return I18n.t('Qorlla Voice is connecting\u2026'); if (num === voice.ext) return I18n.t('That is your own extension.'); var nm = voiceName(num); return nm ? I18n.t('Internet call to') + ' ' + nm + ' (' + I18n.t('ext') + ' ' + num + ')' : I18n.t('Internet call to extension') + ' ' + num; }
+      function paint() {
+        input.value = num; var n = e164(), ext = isExt(); clear.classList.toggle('hidden', !num); copy.disabled = !num; del.disabled = !num;
+        hint.textContent = !num ? '' : ext ? extHint() : n ? I18n.t('Will call') + ' ' + n : I18n.t('Enter a valid phone number (7 to 15 digits).');
+        call.disabled = ext ? !(voice.ready && voice.client && !voice.client.callId && num !== voice.ext) : !(n && info && info.carrierCalling);
+        myExt.textContent = voice.ready && voice.ext ? I18n.t('Your Qorlla extension') + ': ' + voice.ext + ' \u00B7 ' + I18n.t('internet calls to colleagues') : '';
+        if (voice.ready) note.textContent = I18n.t('Dial a colleague\u2019s extension (3 to 8 digits) for a free internet call. Calls to outside phone numbers need a telephony provider.'); else if (!(info && info.carrierCalling)) note.textContent = I18n.t('Calling is off: carrier calling requires a connected telephony provider and provisioned calling permissions.');
+      }
+      voiceOff.push(voiceOn(function () { paint(); }));
       function set(v) { num = v.slice(0, 24); paint(); }
       [['1', ''], ['2', 'ABC'], ['3', 'DEF'], ['4', 'GHI'], ['5', 'JKL'], ['6', 'MNO'], ['7', 'PQRS'], ['8', 'TUV'], ['9', 'WXYZ'], ['*', ''], ['0', '+'], ['#', '']].forEach(function (k) {
         var b = h('button', { type: 'button', class: 'qp-key ph-key', 'data-key': k[0], 'aria-label': k[0] === '*' ? 'star' : k[0] === '#' ? 'pound' : k[0] }, [h('strong', { text: k[0] }), h('small', { text: k[1] })]);
@@ -2218,10 +2247,10 @@
         function poll() { phoneApi('/api/phone/calls/' + encodeURIComponent(c.id)).then(show).catch(function () { timer = setTimeout(poll, 4000); }); }
         show(c);
       }
-      call.addEventListener('click', function () { var n = e164(); if (!n) return; dialList._add(n); call.disabled = true; var key = 'call-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+      call.addEventListener('click', function () { if (isExt()) { var x = num; dialList._add(x); voiceDial(x); return; } var n = e164(); if (!n) return; dialList._add(n); call.disabled = true; var key = 'call-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
         phoneApi('/api/phone/calls', { method: 'POST', body: { to: n }, headers: { 'Idempotency-Key': key } }).then(live).catch(function (e) { note.textContent = phoneWhy(e); toast(phoneWhy(e), 'err'); }).then(paint); });
       dialCard._set = set; dialCard._keys = function (e) { if (/^[0-9*#]$/.test(e.key)) { e.preventDefault(); set(num + e.key); } else if (e.key === 'Backspace') { e.preventDefault(); set(num.slice(0, -1)); } };
-      dialCard.appendChild(h('h2', { id: 'qpDialH', text: I18n.t('Make a call') })); dialCard.appendChild(h('p', { class: 'muted qp-sub', text: I18n.t('Enter a phone number to call') }));
+      dialCard.appendChild(h('h2', { id: 'qpDialH', text: I18n.t('Make a call') })); dialCard.appendChild(h('p', { class: 'muted qp-sub', text: I18n.t('Enter a phone number to call') })); var myExt = h('p', { class: 'muted qp-sub', id: 'qpMyExt', 'aria-live': 'polite' }); dialCard.appendChild(myExt);
       dialCard.appendChild(sel); dialCard.appendChild(h('div', { class: 'qp-numin' }, [input, clear])); dialCard.appendChild(hint); dialCard.appendChild(keys);
       dialCard.appendChild(h('div', { class: 'qp-callrow' }, [copy, call, del])); dialCard.appendChild(liveBox); dialCard.appendChild(note);
       dialCard.appendChild(h('label', { class: 'qp-lbl', for: 'qpCallerId', text: I18n.t('Your caller ID') })); dialCard.appendChild(caller);
@@ -2244,14 +2273,26 @@
         rows.forEach(function (x) {
           var w = when(x.at);
           box.appendChild(h('div', { class: 'qp-nrow' }, [
-            h('button', { type: 'button', class: 'qp-recent-num', 'aria-label': I18n.t('Use number') + ' ' + x.n, onclick: function () { dialCard._set(x.n); var i = document.getElementById('qpDialNumber'); if (i) i.focus(); } }, [h('span', { class: 'qp-ph', 'aria-hidden': 'true', text: '\u260E' }), h('span', { class: 'qp-nt' }, [h('strong', { text: x.n }), h('small', { class: 'muted', text: I18n.t('(no label)') })]), h('span', { class: 'qp-nw muted' }, [h('span', { text: w[0] }), h('span', { text: w[1] })]), h('span', { class: 'qp-chev', 'aria-hidden': 'true', text: '\u203A' })]),
+            h('button', { type: 'button', class: 'qp-recent-num', onclick: function () { dialCard._set(x.n); var i = document.getElementById('qpDialNumber'); if (i) i.focus(); } }, [h('span', { class: 'qp-ph', 'aria-hidden': 'true', text: '\u260E' }), h('span', { class: 'qp-nt' }, [h('strong', { text: x.n }), h('small', { class: 'muted', text: I18n.t('(no label)') })]), h('span', { class: 'qp-nw muted' }, [h('span', { text: w[0] }), h('span', { text: w[1] })]), h('span', { class: 'qp-chev', 'aria-hidden': 'true', text: '\u203A' })]),
             h('button', { type: 'button', class: 'qp-copy', 'aria-label': I18n.t('Copy number') + ' ' + x.n, title: I18n.t('Copy number'), text: '\u29C9', onclick: function () { copyPlain(x.n, I18n.t('Number copied')); } })]));
         });
       }
       dialList._add = function (n) { items = [{ n: n, at: Date.now() }].concat(items.filter(function (x) { return x.n !== n; })).slice(0, 20); save(items); paint(); };
       clr.addEventListener('click', function () { items = []; save(items); paint(); }); search.addEventListener('input', function () { q = search.value.trim(); paint(); });
       dialList.appendChild(h('div', { class: 'qp-jhead' }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '\uD83D\uDD52' }), h('div', {}, [h('h2', { id: 'qpRNH', text: I18n.t('Recent numbers') }), h('p', { class: 'muted qp-sub', text: I18n.t('Numbers you entered here are saved in this browser only. Real calling is not enabled yet.') })]), clr]));
-      dialList.appendChild(search); dialList.appendChild(box); paint();
+      var colBox = h('div', { class: 'qp-colleagues', id: 'qpColleagues' });
+      function paintCol() {
+        colBox.textContent = ''; if (!voice.cfg || !voice.cfg.enabled) return;
+        var others = voice.people.filter(function (p) { return !p.self; }); colBox.appendChild(h('h3', { text: I18n.t('Qorlla colleagues') }));
+        if (!others.length) colBox.appendChild(h('p', { class: 'muted', id: 'qpNoColleagues', text: voice.ready ? I18n.t('No one else has used Qorlla Voice yet.') : I18n.t('Connecting to Qorlla Voice\u2026') }));
+        others.slice(0, 8).forEach(function (p) {
+          colBox.appendChild(h('div', { class: 'qp-nrow' }, [
+            h('button', { type: 'button', class: 'qp-recent-num qp-colleague', 'data-ext': p.extension, onclick: function () { dialCard._set(p.extension); } }, [h('span', { class: 'qp-av sm', 'aria-hidden': 'true', text: initials(p.displayName) }), h('span', { class: 'qp-nt' }, [h('strong', { text: p.displayName }), h('small', { class: 'muted', text: I18n.t('ext') + ' ' + p.extension })])]),
+            h('button', { type: 'button', class: 'qp-copy qp-callnow', 'aria-label': I18n.t('Call') + ' ' + p.displayName, title: I18n.t('Call'), disabled: !voice.ready, text: '\u260E', onclick: function () { voiceDial(p.extension); } })]));
+        });
+      }
+      voiceOff.push(voiceOn(paintCol)); paintCol(); voiceInit().then(function () { if (voice.ready) voiceLoadPeople(); });
+      dialList.appendChild(colBox); dialList.appendChild(search); dialList.appendChild(box); paint();
     })();
     // ---- 2. Join a Qorlla meeting by phone: three steps on the left, the host's real meetings on the right
     var joinCard = h('section', { class: 'qp-card', id: 'join-by-phone', 'aria-labelledby': 'qpJoinH' });
@@ -2371,23 +2412,44 @@
         viewAll.textContent = all ? I18n.t('Show fewer') : I18n.t('View all') + ' (' + n + ')';
         count.textContent = !n ? '' : shown < n ? I18n.t('Showing') + ' ' + shown + ' ' + I18n.t('of') + ' ' + n + ' ' + I18n.t('calls') : I18n.t('Showing all') + ' ' + n + ' ' + (n === 1 ? I18n.t('call') : I18n.t('calls'));
       }
-      function statusText(st) { return { connected: 'Connected', waiting: 'Waiting room', ended: 'Completed', denied: 'Not admitted', removed: 'Removed by host' }[st] || st; }
+      function statusText(st) { return { connected: 'Connected', waiting: 'Waiting room', ended: 'Completed', denied: 'Not admitted', removed: 'Removed by host', missed: 'Missed', rejected: 'Declined', failed: 'Failed', active: 'In progress', ringing: 'Ringing' }[st] || st; }
       function paint() {
         list.textContent = '';
         if (err) { list.appendChild(h('p', { class: 'qp-bad', id: 'qpCallsErr', role: 'alert', text: phoneWhy(err) })); return list.appendChild(h('button', { class: 'btn small', type: 'button', text: I18n.t('Retry'), onclick: load })); }
         if (!calls) return list.appendChild(document.createTextNode(I18n.t('Loading\u2026')));
         var cutoff = range === '0' ? 0 : Date.now() - Number(range) * 86400000;
-        var rows = calls.filter(function (c) { return filter === 'all' || filter === 'meeting'; }).filter(function (c) { return !cutoff || !c.joinedAt || Date.parse(c.joinedAt) >= cutoff; }).filter(function (c) { return !query || (c.name + ' ' + c.title + ' ' + c.meetingId).toLowerCase().indexOf(query) >= 0; });
+        var rows = calls.filter(function (c) { return filter === 'all' || (filter === 'meeting' && c.kind !== 'voice') || (filter === 'calls' && c.kind === 'voice') || (filter === 'missed' && c.kind === 'voice' && c.status === 'missed'); }).filter(function (c) { return !cutoff || !c.joinedAt || Date.parse(c.joinedAt) >= cutoff; }).filter(function (c) { return !query || (c.name + ' ' + c.title + ' ' + c.meetingId).toLowerCase().indexOf(query) >= 0; });
         if (!rows.length) { sync(0); var why = !calls.length ? I18n.t('No calls yet. Meeting dial-in calls appear here once someone has called in; outgoing, incoming and missed calls need a telephony provider.') : filter === 'calls' || filter === 'missed' ? I18n.t('Nothing here: ordinary and missed calls need a telephony provider.') : I18n.t('No calls match.'); return list.appendChild(h('p', { class: 'muted', id: 'phNoCalls', text: why })); }
         sync(rows.length);
         rows.slice(0, viewAll._all ? 100 : 6).forEach(function (c) {
           var w = dayWhen(c.joinedAt), st = statusText(c.status);
-          var row = h('button', { type: 'button', class: 'qp-call-row', 'aria-pressed': String(c.id === selId), 'aria-label': c.title + ', ' + c.name + ', ' + st }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '\uD83C\uDFA5' }), h('span', { class: 'qp-ctext' }, [h('strong', { text: c.title }), h('small', { class: 'muted', text: I18n.t('Meeting ID') + ': ' + c.meetingId + ' \u00B7 ' + c.name })]), badge(I18n.t('Meeting call'), 'blue'), h('span', { class: 'qp-ctime' }, [h('span', { text: w[0] }), h('small', { class: 'muted', text: w[1] })]), h('span', { class: 'qp-dur muted', text: c.seconds ? fmtDur(c.seconds) : '\u2014' }), h('span', { class: 'qp-chev', 'aria-hidden': 'true', text: '\u203A' })]);
+          var row = h('button', { type: 'button', class: 'qp-call-row', 'aria-pressed': String(c.id === selId), 'aria-label': c.title + ', ' + c.name + ', ' + st }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: c.kind === 'voice' ? '\u260E' : '\uD83C\uDFA5' }), h('span', { class: 'qp-ctext' }, [h('strong', { text: c.title }), h('small', { class: 'muted', text: (c.kind === 'voice' ? '' : I18n.t('Meeting ID') + ': ') + c.meetingId + ' \u00B7 ' + c.name + (c.kind === 'voice' && c.status !== 'ended' ? ' \u00B7 ' + st : '') })]), badge(c.kind === 'voice' ? I18n.t('Internet call') : I18n.t('Meeting call'), c.kind === 'voice' ? 'green' : 'blue'), h('span', { class: 'qp-ctime' }, [h('span', { text: w[0] }), h('small', { class: 'muted', text: w[1] })]), h('span', { class: 'qp-dur muted', text: c.seconds ? fmtDur(c.seconds) : '\u2014' }), h('span', { class: 'qp-chev', 'aria-hidden': 'true', text: '\u203A' })]);
           row.addEventListener('click', function () { selId = c.id; Array.prototype.forEach.call(list.children, function (x) { x.setAttribute('aria-pressed', 'false'); }); row.setAttribute('aria-pressed', 'true'); detail(c, st); }); list.appendChild(row);
         });
       }
-      function load() { err = null; calls = null; paint(); phoneApi('/api/phone/calls/history').then(function (d) { calls = d.calls || []; paint(); }).catch(function (e) { err = e; paint(); }); }
+      function voiceRows() {
+        if (!voice.cfg || !voice.cfg.enabled || !voice.client) return Promise.resolve([]);
+        return voice.client.api('/calls?limit=50').then(function (d) {
+          var ids = d.calls.map(function (c) { return c.peer_account_id; });
+          return fetch(BASE + '/api/voice/names', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids }) }).then(function (r) { return r.ok ? r.json() : { names: {} }; }).then(function (n) {
+            return d.calls.map(function (c) { return { id: 'v-' + c.id, kind: 'voice', title: (c.direction === 'outgoing' ? I18n.t('Call to') : I18n.t('Call from')) + ' ' + (n.names[c.peer_account_id] || I18n.t('extension') + ' ' + c.peer_extension), name: c.direction === 'outgoing' ? I18n.t('Outgoing') : I18n.t('Incoming'), meetingId: I18n.t('ext') + ' ' + c.peer_extension, peerExt: c.peer_extension, status: c.status, joinedAt: c.created_at, seconds: c.seconds, endReason: c.end_reason, direction: c.direction }; });
+          });
+        }).catch(function () { return []; });
+      }
+      function voiceDetail(c, st) {
+        var box = recentDetail; box.textContent = ''; var w = dayWhen(c.joinedAt);
+        box.appendChild(h('div', { class: 'qp-jhead' }, [h('div', {}, [h('h2', { id: 'qpCDH', text: I18n.t('Call details') }), h('p', { class: 'muted qp-sub', text: I18n.t('An internet call between Qorlla accounts. No phone number was used.') })])]));
+        box.appendChild(h('div', { class: 'qp-dhead', id: 'qpVoiceDetail' }, [h('span', { class: 'qp-ico', 'aria-hidden': 'true', text: '\u260E' }), h('div', {}, [h('strong', { class: 'qp-dt', text: c.title }), badge(I18n.t('Internet call'), 'green')]), h('div', { class: 'qp-dwhen' }, [h('span', { text: w[0] + (w[1] ? ', ' + w[1] : '') }), h('strong', { text: c.seconds ? fmtDur(c.seconds) : '\u2014' })])]));
+        box.appendChild(h('div', { class: 'qp-facts' }, [field(I18n.t('Direction'), c.name), field(I18n.t('Status'), I18n.t(st)), field(I18n.t('Extension'), c.peerExt || '\u2014'), field(I18n.t('How it ended'), c.endReason ? String(c.endReason).replace(/_/g, ' ') : '\u2014')]));
+        box.appendChild(h('div', { class: 'row qp-actions' }, [h('button', { class: 'btn small primary', type: 'button', id: 'qpCallBack', disabled: !voice.ready, text: I18n.t('Call back'), onclick: function () { voiceDial(c.peerExt); } })]));
+      }
+      function load() {
+        err = null; calls = null; paint();
+        Promise.all([phoneApi('/api/phone/calls/history').then(function (d) { return d.calls || []; }), voiceRows()]).then(function (r) { calls = r[0].concat(r[1]).sort(function (a, b) { return Date.parse(b.joinedAt || 0) - Date.parse(a.joinedAt || 0); }); paint(); }).catch(function (e) { err = e; paint(); });
+      }
+      var histReady = false; voiceOff.push(voiceOn(function () { var up = !!voice.ready, was = histReady; histReady = up; if (calls && ((up && !was) || (cur === 'recent' && !up && was))) load(); }));   // refresh the history when voice connects, not on every ring-state change
       function detail(c, st) {
+        if (c.kind === 'voice') return voiceDetail(c, st);
         var box = recentDetail; box.textContent = ''; var w = dayWhen(c.joinedAt), peers = (calls || []).filter(function (x) { return x.meetingId === c.meetingId; });
         var msg = h('p', { class: 'muted', id: 'qpDetailMsg', role: 'status' }), more = h('div', { class: 'qp-peers hidden', id: 'qpPeers' }, [h('strong', { text: I18n.t('Phone participants') }), h('ul', {}, peers.map(function (p) { return h('li', { text: p.name + ' \u00B7 ' + statusText(p.status) + (p.muted ? ', ' + I18n.t('muted') : '') }); }))]);
         var openH = function () { show('history'); };
@@ -2771,12 +2833,17 @@
       var mode = 'checks', inner = h('div', { id: 'hpDiagBody', 'aria-live': 'polite' }), tabs = h('div', { class: 'qp-filters', role: 'tablist', 'aria-label': I18n.t('Diagnostics') });
       [['checks', 'Service checks'], ['guide', 'Error guide']].forEach(function (t) { tabs.appendChild(h('button', { type: 'button', role: 'tab', id: 'hpD-' + t[0], 'data-m': t[0], 'aria-selected': String(t[0] === mode), text: I18n.t(t[1]), onclick: function () { mode = t[0]; Array.prototype.forEach.call(tabs.children, function (b) { b.setAttribute('aria-selected', String(b.dataset.m === mode)); }); paint(); } })); });
       var results = null, running = false, err = null;
-      var defs = [['api', 'Phone API', 'Backend route and authorization'], ['meet', 'Meeting dial-in', 'Meeting service integration'], ['numbers', 'Dial-in numbers', 'Numbers provisioned for meetings'], ['provider', 'Telephone provider', 'Number provisioning and voice service'], ['audio', 'Audio bridge for phone callers', 'Telephone audio into the video meeting'], ['devices', 'Audio devices', 'Browser microphone and speaker access']];
+      var defs = [['api', 'Phone API', 'Backend route and authorization'], ['meet', 'Meeting dial-in', 'Meeting service integration'], ['numbers', 'Dial-in numbers', 'Numbers provisioned for meetings'], ['provider', 'Telephone provider', 'Number provisioning and voice service'], ['audio', 'Audio bridge for phone callers', 'Telephone audio into the video meeting'], ['devices', 'Audio devices', 'Browser microphone and speaker access'], ['voice', 'Qorlla Voice (internet calls)', 'Self-hosted voice service and signaling']];
       function audioCheck() {
         var md = navigator.mediaDevices; if (!md || !md.enumerateDevices) return Promise.resolve({ id: 'devices', status: 'unavailable', detail: 'This browser cannot list audio devices here (use https or localhost).' });
         return md.enumerateDevices().then(function (l) { var m = l.filter(function (d) { return d.kind === 'audioinput'; }).length, o = l.filter(function (d) { return d.kind === 'audiooutput'; }).length; return { id: 'devices', status: m ? 'ok' : 'warn', detail: m + ' microphone(s), ' + o + ' speaker(s) found. Nothing was recorded.' }; }).catch(function () { return { id: 'devices', status: 'warn', detail: 'Devices could not be listed.' }; });
       }
-      function run() { running = true; err = null; paint(); Promise.all([phoneApi('/api/phone/diagnostics').catch(function (e) { err = e; return null; }), audioCheck()]).then(function (r) { running = false; if (r[0]) { lastRef = r[0].correlationId || ''; results = r[0].checks.concat([r[1]]); results.ref = lastRef; results.at = r[0].checkedAt; } else results = null; paint(); }); }
+      function voiceCheck() {
+        if (!voice.cfg || !voice.cfg.enabled) return Promise.resolve({ id: 'voice', status: 'unavailable', detail: 'Qorlla Voice is not set up on this server.' });
+        if (!voice.client) return Promise.resolve({ id: 'voice', status: 'fail', detail: 'The voice service could not be reached from this page.' });
+        return voice.client.api('/diagnostics').then(function (d) { var ok = voice.ready && d.identity && d.identity.enabled; return { id: 'voice', status: !ok ? 'fail' : d.ice.turn ? 'ok' : 'warn', detail: (ok ? 'Signaling connected (' + d.signaling.devicesConnected + ' device(s)). Extension ' + d.identity.extension + '. ' : 'Signaling is not connected. ') + d.ice.note }; }).catch(function () { return { id: 'voice', status: 'fail', detail: 'The voice service did not answer.' }; });
+      }
+      function run() { running = true; err = null; paint(); Promise.all([phoneApi('/api/phone/diagnostics').catch(function (e) { err = e; return null; }), audioCheck(), voiceCheck()]).then(function (r) { running = false; if (r[0]) { lastRef = r[0].correlationId || ''; results = r[0].checks.concat([r[1], r[2]]); results.ref = lastRef; results.at = r[0].checkedAt; } else results = null; paint(); }); }
       function paint() {
         inner.textContent = '';
         if (mode === 'guide') { return inner.appendChild(h('table', { class: 'ph-table', id: 'hpGuide' }, [h('thead', {}, [h('tr', {}, ['Error', 'What it means', 'What to do'].map(function (t) { return h('th', { text: I18n.t(t) }); }))]), h('tbody', {}, [
@@ -3370,6 +3437,85 @@
   window.addEventListener('beforeunload', function () { if (cleanup) { try { cleanup(); } catch (e) {} } });
   window.addEventListener('hashchange', function () { var v = location.hash.slice(1); if (v && v !== state.view && VIEWS[v]) show(v); });
 
+  // =====================================================================
+  // Qorlla Voice: self-hosted internet calls between Qorlla accounts. The engine is a separate service; nothing here involves a carrier or a phone number.
+  // The microphone opens only when you start or answer a call, and is closed when the call ends.
+  // =====================================================================
+  var voice = { cfg: null, client: null, ready: false, state: 'off', ext: null, people: [], tok: null, listeners: [], incoming: null, bar: null, tone: null, retry: 0, history: [] };
+  function voiceOn(fn) { voice.listeners.push(fn); return function () { var i = voice.listeners.indexOf(fn); if (i >= 0) voice.listeners.splice(i, 1); }; }
+  function voiceChanged() { voice.listeners.slice().forEach(function (f) { try { f(); } catch (e) { /* a view that is gone */ } }); }
+  function voiceToken() {
+    if (voice.tok && voice.tok.exp - Date.now() > 60000) return Promise.resolve(voice.tok.token);
+    return fetch(BASE + '/api/voice/token', { method: 'POST', credentials: 'same-origin' }).then(function (r) { if (!r.ok) throw new Error('voice_token_' + r.status); return r.json(); }).then(function (d) { voice.tok = { token: d.token, exp: Date.now() + d.expiresIn * 1000 }; voice.ext = d.extension; return d.token; });
+  }
+  function voiceName(ext) { var p = voice.people.filter(function (x) { return x.extension === ext; })[0]; return p ? p.displayName : null; }
+  function voiceLoadPeople() { return fetch(BASE + '/api/voice/directory', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : { people: [] }; }).then(function (d) { voice.people = d.people || []; var me = voice.people.filter(function (p) { return p.self; })[0]; if (me) voice.ext = me.extension; voiceChanged(); }).catch(function () {}); }
+  function voiceInit() {
+    if (voice.initing) return voice.initing;
+    voice.initing = fetch(BASE + '/api/voice/config', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : { enabled: false }; }).then(function (cfg) {
+      voice.cfg = cfg; if (!cfg.enabled) { voice.state = 'off'; voiceChanged(); return; }
+      return import(BASE + '/voice-client.js').then(function (mod) { voice.client = new mod.QorllaVoiceClient(cfg.url, voiceToken, voiceEvent); window.qorllaVoice = voice.client; voice.state = 'connecting'; voiceChanged(); return voiceConnect(); });
+    }).catch(function () { voice.state = 'unavailable'; voiceChanged(); });
+    return voice.initing;
+  }
+  function voiceConnect() {
+    return voice.client.connect().then(function () { voice.ready = true; voice.state = 'ready'; voice.retry = 0; voiceChanged(); voiceLoadPeople(); }).catch(function () {
+      voice.ready = false; voice.state = 'unavailable'; voiceChanged(); var wait = Math.min(30000, 2000 * Math.pow(2, voice.retry++)); if (state.user) setTimeout(function () { if (state.user && !voice.ready) voiceConnect(); }, wait);
+    });
+  }
+  // ---- sounds: a ring for incoming calls and a soft ringback for the caller (generated here, no files); autoplay rules may keep them silent until you interact with the page
+  function voiceTone(kind) {
+    voiceToneStop(); var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; var ctx; try { ctx = new AC(); ctx.resume && ctx.resume().catch(function () {}); } catch (e) { return; }
+    var beep = function () { try { var o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = kind === 'ring' ? 880 : 440; g.gain.value = kind === 'ring' ? 0.12 : 0.06; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + (kind === 'ring' ? 0.5 : 1)); } catch (e) { /* closed */ } };
+    beep(); voice.tone = { ctx: ctx, iv: setInterval(beep, kind === 'ring' ? 1600 : 3000) };
+  }
+  function voiceToneStop() { if (!voice.tone) return; clearInterval(voice.tone.iv); try { voice.tone.ctx.close(); } catch (e) { /* closed */ } voice.tone = null; }
+  // ---- the call bar
+  function voiceBar(show, o) {
+    var bar = $('voiceBar'); if (!show) { bar.classList.add('hidden'); clearInterval(voice.bar && voice.bar.iv); voice.bar = null; return; }
+    bar.classList.remove('hidden'); if (o.peer) $('vbPeer').textContent = o.peer; $('vbStatus').textContent = o.text; $('vbMute').setAttribute('aria-pressed', String(!!(voice.client && voice.client.muted))); $('vbMute').textContent = voice.client && voice.client.muted ? 'Unmute' : 'Mute';
+    bar.querySelector('.vb-dot').classList.toggle('ring', !!o.ringing);
+    clearInterval(voice.bar && voice.bar.iv); voice.bar = { iv: null };
+    if (o.since) { var tick = function () { var s = Math.max(0, Math.round((Date.now() - o.since) / 1000)); $('vbStatus').textContent = I18n.t('Connected') + ' \u00B7 ' + String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }; tick(); voice.bar.iv = setInterval(tick, 1000); }
+  }
+  function voicePeerLabel(ext) { var n = voiceName(ext); return n ? n + ' (ext ' + ext + ')' : 'Extension ' + ext; }
+  var VOICE_ERR = { invalid_recipient: 'No one has that extension.', blocked: 'You cannot call that person.', busy: 'That person is on another call (or you are).', rate_limited: 'Too many attempts. Try again in a minute.', caller_disabled: 'Qorlla Voice is turned off for your account.', idempotency_conflict: 'Please try again.' };
+  function voiceDial(ext) {
+    if (!voice.ready || !voice.client) { toast(I18n.t('Qorlla Voice is not connected yet.'), 'err'); return Promise.resolve(); }
+    if (ext === voice.ext) { toast(I18n.t('That is your own extension.'), 'err'); return Promise.resolve(); }
+    voice.peerExt = ext; voiceBar(true, { peer: voicePeerLabel(ext), text: I18n.t('Calling\u2026'), ringing: true }); voiceTone('ringback');
+    return voice.client.dial(ext).catch(function (e) { voiceToneStop(); voiceBar(false); toast(I18n.t(VOICE_ERR[e.code] || 'The call could not be placed.'), 'err'); });
+  }
+  function voiceIncomingShow(e) {
+    voice.incoming = { id: e.call.id, ext: e.from && e.from.extension }; var who = voice.incoming.ext ? voicePeerLabel(voice.incoming.ext) : I18n.t('A colleague');
+    $('viWho').textContent = who; var d = $('voiceIncoming'); if (!d.open) { try { d.showModal(); } catch (x) { d.setAttribute('open', ''); } } $('viAnswer').focus(); voiceTone('ring');
+  }
+  function voiceIncomingHide() { voice.incoming = null; voiceToneStop(); var d = $('voiceIncoming'); if (d.open) d.close(); }
+  function voiceEvent(e) {
+    if (e.type === 'ready') { voice.ext = e.extension; voiceChanged(); }
+    else if (e.type === 'incoming') voiceIncomingShow(e);
+    else if (e.type === 'call_accepted') { voiceToneStop(); voiceBar(true, { peer: voicePeerLabel(voice.peerExt || ''), text: I18n.t('Connecting\u2026'), ringing: true }); }
+    else if (e.type === 'connected') { voiceToneStop(); var c = voice.client; voiceBar(true, { peer: $('vbPeer').textContent, since: c.startedAt || Date.now() }); }
+    else if (e.type === 'state' && e.call) {
+      if (voice.incoming && voice.incoming.id === e.call.id && e.call.status !== 'ringing') { var was = voice.incoming; voiceIncomingHide(); if (e.call.status === 'missed') toast(I18n.t('Missed call from') + ' ' + (was.ext ? voicePeerLabel(was.ext) : I18n.t('a colleague'))); }
+      if (e.call.status === 'missed' && voice.client && voice.client.callId === e.call.id) toast(I18n.t('No answer.'));
+      voiceHistoryDirty();
+    }
+    else if (e.type === 'call_ended') { voiceToneStop(); voiceBar(false); voice.peerExt = null; if (e.status === 'rejected') toast(I18n.t('The call was declined.')); else if (e.status === 'failed') toast(I18n.t('The call was lost.'), 'err'); else if (e.reason === 'account_disabled') toast(I18n.t('Qorlla Voice was turned off for this account.'), 'err'); else if (e.status !== 'missed') toast(I18n.t('Call ended.')); voiceHistoryDirty(); }
+    else if (e.type === 'taken_elsewhere') { voiceIncomingHide(); toast(I18n.t('Answered on another device.')); }
+    else if (e.type === 'mic_error') { voiceToneStop(); voiceBar(false); voiceIncomingHide(); toast(e.name === 'NotAllowedError' ? I18n.t('Microphone access was blocked. Allow it in the browser to take calls.') : I18n.t('No microphone could be used.'), 'err'); }
+    else if (e.type === 'connection_failed') toast(I18n.t('The audio connection failed. Both people may need to be on the same network, or the server needs a TURN relay.'), 'err');
+    else if (e.type === 'connection_unstable') { $('vbStatus').textContent = I18n.t('Connection unstable\u2026'); }
+    else if (e.type === 'audio_play_blocked') toast(I18n.t('Click anywhere on the page to hear the call.'), 'err');
+    else if (e.type === 'signaling_closed') { voice.ready = false; voice.state = 'connecting'; voiceChanged(); if (state.user) setTimeout(function () { if (state.user && !voice.ready) voiceConnect(); }, 1500); }
+  }
+  function voiceHistoryDirty() { voice.history = []; voiceChanged(); }
+  $('viAnswer').addEventListener('click', function () { var inc = voice.incoming; if (!inc) return; voiceToneStop(); voice.peerExt = inc.ext; $('viAnswer').disabled = true; voice.client.answer(inc.id).then(function () { voiceIncomingHide(); voiceBar(true, { peer: voicePeerLabel(inc.ext), text: I18n.t('Connecting\u2026'), ringing: true }); }).catch(function (e) { voiceIncomingHide(); if (e && e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') toast(I18n.t(e.status === 409 ? 'The caller already hung up.' : 'The call could not be answered.'), 'err'); }).then(function () { $('viAnswer').disabled = false; }); });
+  $('viDecline').addEventListener('click', function () { var inc = voice.incoming; voiceIncomingHide(); if (inc) voice.client.reject(inc.id).catch(function () {}); });
+  $('voiceIncoming').addEventListener('cancel', function (ev) { ev.preventDefault(); $('viDecline').click(); });
+  $('vbMute').addEventListener('click', function () { if (voice.client) { voice.client.setMuted(!voice.client.muted); $('vbMute').setAttribute('aria-pressed', String(voice.client.muted)); $('vbMute').textContent = voice.client.muted ? 'Unmute' : 'Mute'; } });
+  $('vbEnd').addEventListener('click', function () { voiceToneStop(); if (voice.client) voice.client.hangup(); voiceBar(false); voice.peerExt = null; voiceHistoryDirty(); });
+
   // initial unread badge, then first view
   function applyAccount(user) {
     state.user = user;
@@ -3380,6 +3526,7 @@
     $('avatarBtn').textContent = user.displayName.charAt(0).toUpperCase();
     $('avatarBtn').title = user.displayName + ' (@' + user.username + ')';
     if (state.view === 'home') paintClock();
+    voiceInit();                                          // internet calling: connects only when the server owner has configured Qorlla Voice
   }
   state.userReady = Promise.all([
     fetch(BASE + '/api/auth/me').then(function (r) { return r.ok ? r.json() : null; }).then(function (d) { if (d && d.user) applyAccount(d.user); }).catch(function () {}),

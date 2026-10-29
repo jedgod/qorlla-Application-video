@@ -1,0 +1,23 @@
+{
+  "name": "qorlla-voice-engine",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted Qorlla Voice Engine: internet voice calls between Qorlla accounts (no carrier, no Twilio)",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "db:migrate": "node src/migrate.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "jose": "^5.9.6",
+    "pg": "^8.13.1",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

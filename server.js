@@ -257,6 +257,9 @@ async function meetHandoff(meeting, who, req) {
     }
 }
 app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getMeeting: meetingById, getAccount: (req) => auth.getUser(req), verifyHostKey, checkPasscode, admitAccount, handoff: meetHandoff }));
+// ---- Qorlla Voice (self-hosted internet calling between Qorlla accounts; no carrier). The engine is a separate service: qorlla-voice-engine/. This app signs its identity tokens and provisions extensions.
+const qvoice = require('./voice')({ dataDir: DATA_ROOT });
+qvoice.register(app, { requireUser: auth.requireUser, listUsers: auth.listUsers });
 // ---- Qorlla Phone: dial-in numbers, phone PINs for meetings, calls. There is NO telephone carrier in this repository: numbers come only from configuration
 // (PHONE_DIAL_IN_NUMBERS, a JSON list of real provisioned numbers), outbound calling and number provisioning answer 503 until a provider is connected.
 // Regions the Join-by-phone page offers. Listing a country here does NOT mean a number exists there: "provisioned" is true only when a real number is configured for it.
