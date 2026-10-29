@@ -15,6 +15,7 @@ const LAN = Object.values(os.networkInterfaces()).flat().find((i) => i && i.fami
 test.describe('Qorlla Voice through a real TURN relay', () => {
   let stack, ok = false;
   test.beforeAll(async () => {
+    test.setTimeout(150000);                                                                                                                        // docker network + container + two services
     if (!LAN || docker('image', 'inspect', 'coturn/coturn:latest').status !== 0) return;
     docker('rm', '-f', NAME); docker('network', 'rm', NET); if (docker('network', 'create', '--subnet', '172.29.77.0/24', NET).status !== 0) return;
     const run = docker('run', '-d', '--name', NAME, '--network', NET, '--ip', IP, '-p', `${LAN}:${TURN_PORT}:3478/udp`, '-p', `${LAN}:${TURN_PORT}:3478/tcp`, '-p', `${LAN}:47200-47230:47200-47230/udp`, 'coturn/coturn:latest',

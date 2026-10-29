@@ -23,18 +23,23 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
     for (const a of accounts) await ev(c, a, 'room_state', { type: 'room_state', room: snap }, null);
   }
   const lockRoom = async (c, roomId) => (await c.query(`SELECT ${ROOM_COLS} FROM voice_rooms WHERE id=$1 FOR UPDATE`, [roomId])).rows[0] || null;
+  // History (v1.10): participation segments and a timeline are written in the same transaction as the change, so the record can never disagree with the room.
+  const openSeg = (c, roomId, account) => c.query('INSERT INTO voice_room_segments(room_id, account_id, segment_id, joined_at) VALUES($1,$2,$3,clock_timestamp()) ON CONFLICT DO NOTHING', [roomId, account, randomUUID()]);
+  const closeSegs = (c, roomId, account) => c.query('UPDATE voice_room_segments SET left_at=clock_timestamp() WHERE room_id=$1 AND account_id=$2 AND left_at IS NULL', [roomId, account]);
+  const note = (c, roomId, subject, kind, actor = null) => c.query('INSERT INTO voice_room_events(room_id, subject_account_id, actor_account_id, kind) VALUES($1,$2,$3,$4)', [roomId, subject, actor, kind]);
   const member = async (c, roomId, account) => (await c.query('SELECT * FROM voice_room_members WHERE room_id=$1 AND account_id=$2 FOR UPDATE', [roomId, account])).rows[0] || null;
 
   /** Common tail of leave / remove / lease expiry: the room ends when nobody is joined, and the host role passes to the longest-serving member when the host goes. */
   async function afterChange(c, room, extra) {
     const joined = (await c.query("SELECT account_id, role FROM voice_room_members WHERE room_id=$1 AND status='joined' ORDER BY joined_at, account_id", [room.id])).rows;
     if (!joined.length) {
-      const gone = (await c.query("UPDATE voice_room_members SET status='missed' WHERE room_id=$1 AND status='invited' RETURNING account_id", [room.id])).rows.map((r) => r.account_id);
+      const gone = (await c.query("UPDATE voice_room_members SET status='missed', outcome='cancelled' WHERE room_id=$1 AND status='invited' RETURNING account_id", [room.id])).rows.map((r) => r.account_id);
+      for (const g of gone) await note(c, room.id, g, 'cancelled');
       await c.query("UPDATE voice_rooms SET status='ended', ended_at=now(), end_reason=COALESCE(end_reason,'empty'), version=version+1 WHERE id=$1", [room.id]);
       extra = [...extra, ...gone];
     } else if (!joined.some((m) => m.role === 'host')) {
       await c.query("UPDATE voice_room_members SET role='member' WHERE room_id=$1 AND role='host'", [room.id]);
-      await c.query("UPDATE voice_room_members SET role='host' WHERE room_id=$1 AND account_id=$2", [room.id, joined[0].account_id]);
+      await c.query("UPDATE voice_room_members SET role='host' WHERE room_id=$1 AND account_id=$2", [room.id, joined[0].account_id]); await note(c, room.id, joined[0].account_id, 'host_transferred');
       await c.query('UPDATE voice_rooms SET host_id=$2, version=version+1 WHERE id=$1', [room.id, joined[0].account_id]);
     } else await c.query('UPDATE voice_rooms SET version=version+1 WHERE id=$1', [room.id]);
     const snap = await snapshot(c, room.id); await notify(c, snap, extra); return snap;
@@ -57,6 +62,7 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
       await c.query("INSERT INTO voice_rooms(id, host_id, title, meeting_ref, status, max_members) VALUES($1,$2,$3,$4,'live',$5)", [id, host, title, meetingRef, max]);
       await c.query(`INSERT INTO voice_room_members(room_id, account_id, role, status, device_id, lease_token, generation, lease_expires_at, joined_at) VALUES($1,$2,'host','joined',$3,$4,1,${leaseSql},now())`, [id, host, deviceId, randomUUID()]);
       for (const i of invitees) await c.query("INSERT INTO voice_room_members(room_id, account_id, role, status, invited_by) VALUES($1,$2,'member','invited',$3)", [id, i.account_id, host]);
+      await openSeg(c, id, host); await note(c, id, host, 'joined'); for (const i of invitees) await note(c, id, i.account_id, 'invited', host);
       const snap = await snapshot(c, id), from = { extension: await extensionOf(c, host), account_id: host }; await lockEvents(c, ids);
       for (const i of invitees) await ev(c, i.account_id, 'room_invite', { type: 'room_invite', room: snap, from }, null);
       await ev(c, host, 'room_state', { type: 'room_state', room: snap }, null);
@@ -75,7 +81,8 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
       if (await busyAccounts(c, [account])) throw fail('busy');
       if ((await c.query("SELECT count(*)::int AS n FROM voice_room_members WHERE room_id=$1 AND status='joined'", [roomId])).rows[0].n >= room.max_members) throw fail('room_full');
       const generation = Number(m.generation) + 1;
-      await c.query(`UPDATE voice_room_members SET status='joined', joined_at=now(), left_at=NULL, device_id=$3, lease_token=$4, generation=$5, lease_expires_at=${leaseSql} WHERE room_id=$1 AND account_id=$2`, [roomId, account, deviceId, randomUUID(), generation]);
+      await openSeg(c, roomId, account); await note(c, roomId, account, 'joined');
+      await c.query(`UPDATE voice_room_members SET outcome=NULL, status='joined', joined_at=now(), left_at=NULL, device_id=$3, lease_token=$4, generation=$5, lease_expires_at=${leaseSql} WHERE room_id=$1 AND account_id=$2`, [roomId, account, deviceId, randomUUID(), generation]);
       await c.query('UPDATE voice_rooms SET version=version+1 WHERE id=$1', [roomId]);
       const snap = await snapshot(c, roomId); await notify(c, snap);
       return { room: snap, lease: { generation, device_id: deviceId } };
@@ -87,7 +94,10 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
     const room = await lockRoom(c, roomId); if (!room || room.status !== 'live') return null;
     const m = await member(c, roomId, account); if (!m || !['invited', 'joined'].includes(m.status)) return null;
     const next = m.status === 'invited' ? (reason === 'left' ? 'declined' : 'removed') : 'left';
-    await c.query("UPDATE voice_room_members SET status=$3, left_at=now(), lease_expires_at=NULL WHERE room_id=$1 AND account_id=$2", [roomId, account, next]);
+    const outcome = m.status === 'invited' ? (reason === 'left' ? 'declined' : 'missed') : 'completed';
+    await c.query("UPDATE voice_room_members SET status=$3, outcome=$4, left_at=now(), lease_expires_at=NULL WHERE room_id=$1 AND account_id=$2", [roomId, account, next, outcome]);
+    if (m.status === 'joined') await closeSegs(c, roomId, account);
+    await note(c, roomId, account, m.status === 'joined' ? 'left' : (outcome === 'declined' ? 'declined' : 'missed'));
     return afterChange(c, room, [account]);
   }
   async function leave(roomId, account) { return tx(async (c) => { const snap = await leaveTx(c, roomId, account); if (!snap) throw fail('not_found'); return snap; }); }
@@ -96,8 +106,10 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
       const room = await lockRoom(c, roomId); if (!room || room.status !== 'live') throw fail('not_found');
       const m = await member(c, roomId, actor); if (!m || m.status !== 'joined') throw fail('not_found');
       if (room.host_id !== actor) throw fail('forbidden');
-      const all = (await c.query("SELECT account_id FROM voice_room_members WHERE room_id=$1 AND status IN ('invited','joined')", [roomId])).rows.map((r) => r.account_id);
-      await c.query("UPDATE voice_room_members SET status=CASE WHEN status='joined' THEN 'left' ELSE 'missed' END, left_at=now(), lease_expires_at=NULL WHERE room_id=$1 AND status IN ('invited','joined')", [roomId]);
+      const open = (await c.query("SELECT account_id, status FROM voice_room_members WHERE room_id=$1 AND status IN ('invited','joined')", [roomId])).rows, all = open.map((r) => r.account_id);
+      await c.query("UPDATE voice_room_members SET status=CASE WHEN status='joined' THEN 'left' ELSE 'missed' END, outcome=CASE WHEN status='joined' THEN 'completed' ELSE 'cancelled' END, left_at=now(), lease_expires_at=NULL WHERE room_id=$1 AND status IN ('invited','joined')", [roomId]);
+      await c.query('UPDATE voice_room_segments SET left_at=clock_timestamp() WHERE room_id=$1 AND left_at IS NULL', [roomId]);
+      for (const o of open) await note(c, roomId, o.account_id, o.status === 'joined' ? 'left' : 'cancelled', actor);
       await c.query("UPDATE voice_rooms SET status='ended', ended_at=now(), end_reason='ended_by_host', version=version+1 WHERE id=$1", [roomId]);
       const snap = await snapshot(c, roomId); await notify(c, snap, all); return snap;
     });
@@ -108,7 +120,9 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
       const m = await member(c, roomId, actor); if (!m || m.status !== 'joined') throw fail('not_found');
       if (room.host_id !== actor || targetAccount === actor) throw fail('forbidden');
       const t = await member(c, roomId, targetAccount); if (!t || !['invited', 'joined'].includes(t.status)) throw fail('not_found');
-      await c.query("UPDATE voice_room_members SET status='removed', left_at=now(), lease_expires_at=NULL WHERE room_id=$1 AND account_id=$2", [roomId, targetAccount]);
+      await c.query("UPDATE voice_room_members SET status='removed', outcome='kicked', left_at=now(), lease_expires_at=NULL WHERE room_id=$1 AND account_id=$2", [roomId, targetAccount]);
+      if (t.status === 'joined') await closeSegs(c, roomId, targetAccount);
+      await note(c, roomId, targetAccount, 'kicked', actor);
       return afterChange(c, room, [targetAccount]);
     });
   }
@@ -124,7 +138,8 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
       const t = await member(c, roomId, target);
       if (t && ['invited', 'joined'].includes(t.status)) return { room: await snapshot(c, roomId), reused: true };
       if ((await c.query("SELECT count(*)::int AS n FROM voice_room_members WHERE room_id=$1 AND status IN ('invited','joined')", [roomId])).rows[0].n >= room.max_members) throw fail('room_full');
-      if (t) await c.query("UPDATE voice_room_members SET status='invited', invited_by=$3, invited_at=now(), left_at=NULL, device_id=NULL, lease_expires_at=NULL WHERE room_id=$1 AND account_id=$2", [roomId, target, actor]);
+      await note(c, roomId, target, 'invited', actor);
+      if (t) await c.query("UPDATE voice_room_members SET outcome=NULL, status='invited', invited_by=$3, invited_at=now(), left_at=NULL, device_id=NULL, lease_expires_at=NULL WHERE room_id=$1 AND account_id=$2", [roomId, target, actor]);
       else await c.query("INSERT INTO voice_room_members(room_id, account_id, role, status, invited_by) VALUES($1,$2,'member','invited',$3)", [roomId, target, actor]);
       await c.query('UPDATE voice_rooms SET version=version+1 WHERE id=$1', [roomId]);
       const snap = await snapshot(c, roomId); await lockEvents(c, [target, ...snap.members.map((x) => x.account_id)]);
@@ -185,7 +200,7 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
     for (const r of rows) await tx(async (c) => {
       const room = await lockRoom(c, r.room_id); if (!room || room.status !== 'live') return;
       const m = await member(c, r.room_id, r.account_id); if (!m || m.status !== 'invited' || new Date(m.invited_at).getTime() > Date.now() - seconds * 1000) return;
-      await c.query("UPDATE voice_room_members SET status='missed', left_at=now() WHERE room_id=$1 AND account_id=$2", [r.room_id, r.account_id]); await afterChange(c, room, [r.account_id]); n++;
+      await c.query("UPDATE voice_room_members SET status='missed', outcome='missed', left_at=now() WHERE room_id=$1 AND account_id=$2", [r.room_id, r.account_id]); await note(c, r.room_id, r.account_id, 'missed'); await afterChange(c, room, [r.account_id]); n++;
     });
     return n;
   }

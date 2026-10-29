@@ -360,6 +360,10 @@ export class QorllaVoiceClient {
   exitRoom() { for (const id of [...this.peers.keys()]) this.dropPeer(id); this.roomStream?.getTracks().forEach((t) => t.stop()); clearInterval(this.roomLease); this.resetRoom(); }
   async resumeRoomIfAny() { return this.reconcile(); }
 
+  /** Group call history for Recent Calls: your own calls, newest first. Pass the returned nextCursor to get the next page. */
+  groupHistory({ limit = 25, cursor } = {}) { const q = new URLSearchParams({ limit: String(limit) }); if (cursor) q.set('cursor', cursor); return this.api('/history?' + q); }
+  groupHistoryDetail(callId) { return this.api('/history/' + encodeURIComponent(callId)); }
+
   // ------------------------------------------------------------------------------------------------ quality numbers and cleanup
   /** Quality numbers from the browser's own statistics (no audio content). Used by diagnostics and tests. */
   async stats(pc = this.pc) {

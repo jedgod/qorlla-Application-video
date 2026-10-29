@@ -22,8 +22,8 @@
 | QVE-10 | Redis/Postgres failure, recovery, backpressure, restart | Redis stop/start, all database connections killed, fail-closed backlog (503) and automatic recovery | A PostgreSQL primary failover; measured RTO/RPO |
 | QVE-11 | AuthZ, ticket replay, rate limits, abuse | Ticket replay/expiry/origin, token forgery, `alg:none`, stranger isolation, forged bus messages, per-socket and per-account limits, least-privilege role (DDL/TRUNCATE denied) | **An independent security review.** Not done |
 | QVE-12 | Metrics, alerts, on-call, rollback drill | Metrics + strict readiness endpoints, draft runbook | Dashboards, alerts, an on-call drill, a rollback rehearsal. **Not done** |
-| QVE-13 | Accessibility and browser compatibility | axe on the ring dialog, call bar, takeover banner and group selection (Chromium) | A browser/device matrix (Firefox, Safari, mobile), assistive-technology testing |
-| QVE-14 | Privacy, retention, deletion, logs, secrets | SDP/ICE never stored; retention window; the engine log carries no secret, token or ticket (asserted); admin secret never reaches a browser | A privacy and retention review |
+| QVE-13 | Accessibility and browser compatibility | axe on the ring dialog, call bar, takeover banner, group selection, Recent Calls with group rows and the group call detail (Chromium) | A browser/device matrix (Firefox, Safari, mobile), assistive-technology testing |
+| QVE-14 | Privacy, retention, deletion, logs, secrets | SDP/ICE never stored; group history shows a person only their own calls and never names other participants; retention window; the engine log carries no secret, token or ticket (asserted); admin secret never reaches a browser | A privacy and retention review, including a retention/deletion rule for group call history |
 | QVE-15 | Qorlla Meet integration: occurrence, host admission, attendance | **Not done.** `voice_rooms.meeting_ref` is unused groundwork | A server-side bridge into Meet's media plus host-admission rules |
 
 ## DR gates from v1.4 (same evidence, older numbering)
@@ -41,7 +41,7 @@ DR-01 = QVE-01, DR-02 = QVE-02, DR-03 = replay/resume (see QVE-05), DR-04 = QVE-
 
 ## Re-running the evidence
 ```
-cd qorlla-voice-engine && npm test      # 82 tests; real PostgreSQL (dev-stack database or VOICE_TEST_DATABASE_URL); Docker for Redis
+cd qorlla-voice-engine && npm test      # 89 tests; real PostgreSQL (dev-stack database or VOICE_TEST_DATABASE_URL); Docker for Redis
 npx playwright test tests/voice-engine.spec.js tests/voice-reliability.spec.js tests/voice-turn.spec.js --project=chromium
 # two-node staging (needs Docker):  see deploy/docker-compose.staging.yml, then  node scripts/staging-smoke.mjs http://127.0.0.1:4601 http://127.0.0.1:4602
 npm run release:gate -- certification-evidence.example.json     # -> BLOCKED

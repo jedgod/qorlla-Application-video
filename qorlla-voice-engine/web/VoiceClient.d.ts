@@ -29,6 +29,8 @@ export type VoiceEvent =
   | { type: 'signaling_closed'; code: number }
   | { type: 'error'; error: string };
 export type VoiceStats = { connectionState: string; iceConnectionState: string; bytesReceived: number; bytesSent: number; packetsLost: number; jitter: number; audioLevel: number; totalAudioEnergy: number; roundTripTime: number | null; candidateType: string | null; codec: string | null };
+export type GroupHistoryItem = { call_id: string; room_name: string; room_status: 'live' | 'ended'; created_at: string; started_at: string | null; ended_at: string | null; end_reason: string | null; role: 'host' | 'member'; status: 'ringing' | 'ongoing' | 'completed' | 'declined' | 'missed' | 'cancelled' | 'kicked'; duration_seconds: number; participants: number };
+export type GroupHistoryDetail = GroupHistoryItem & { segments: { segment_id: string; joined_at: string; left_at: string | null }[]; events: { event_type: string; occurred_at: string; subject_scope: 'self' | 'other' }[] };
 export class EventLog { constructor(limit?: number); cursor: number; accept(id: number | undefined): boolean; }
 export function collapseReplay(events: { id: number; kind: string; payload: any }[]): { id: number; kind: string; payload: any }[];
 export class QorllaVoiceClient {
@@ -39,6 +41,7 @@ export class QorllaVoiceClient {
   continueHere(call: VoiceCall, role: 'caller' | 'callee'): Promise<void>; resumeCall(call: VoiceCall, role: 'caller' | 'callee'): Promise<void>;
   createRoom(extensions: string[], title?: string): Promise<VoiceRoom>; joinRoom(roomId: string): Promise<VoiceRoom>; resumeRoom(room: VoiceRoom): Promise<VoiceRoom>; declineRoom(roomId: string): Promise<void>;
   inviteToRoom(extension: string): Promise<any>; kickFromRoom(accountId: string): Promise<any>; leaveRoom(): Promise<void>; endRoom(): Promise<void>;
+  groupHistory(o?: { limit?: number; cursor?: string }): Promise<{ items: GroupHistoryItem[]; nextCursor: string | null }>; groupHistoryDetail(callId: string): Promise<GroupHistoryDetail>;
   stats(): Promise<VoiceStats | null>; roomStats(): Promise<Record<string, VoiceStats | null>>;
   api(path: string, init?: RequestInit): Promise<any>;
 }

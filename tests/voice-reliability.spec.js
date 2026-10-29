@@ -152,4 +152,35 @@ test.describe('Qorlla Voice: reliability and group calls with real browsers', ()
     expect(stack.log.join('')).not.toMatch(/TypeError|ReferenceError|UnhandledPromise/);
     await alice.ctx.close(); await bob.ctx.close();
   });
+
+  test('group call history: each person sees their own record in Recent Calls (completed, declined), with their stays and timeline, and nobody else is named', async ({ browser }) => {
+    test.setTimeout(240000);
+    const alice = await person(browser, 'Hal'), bob = await person(browser, 'Ida'), carol = await person(browser, 'Jon');; await refresh(alice);   // names no earlier test used, so the colleague list has exactly one of each
+    await expect(alice.page.locator('#qpColSearch')).toBeVisible({ timeout: 20000 });                                                                      // more than 8 colleagues on this stack: the search appears
+    await alice.page.locator('#qpColSearch').fill('Jon Test'); await expect(alice.page.locator('.qp-colleague')).toHaveCount(1); await alice.page.locator('#qpGroupBtn').click(); await alice.page.getByLabel('Add Jon Test to the group call').check();
+    await alice.page.locator('#qpColSearch').fill('zzz-nobody'); await expect(alice.page.locator('#qpNoColMatch')).toBeVisible(); await alice.page.locator('#qpColSearch').fill('Ida Test'); await alice.page.getByLabel('Add Ida Test to the group call').check();
+    await alice.page.locator('#qpColSearch').fill(''); await alice.page.locator('#qpGroupGo').click();
+    await expect(bob.page.locator('#voiceIncoming')).toBeVisible({ timeout: 10000 }); await expect(carol.page.locator('#voiceIncoming')).toBeVisible({ timeout: 10000 });
+    await carol.page.locator('#viDecline').click(); await bob.page.locator('#viAnswer').click();
+    for (const p of [alice, bob]) await expect(p.page.locator('#vbStatus')).toContainText('Connected', { timeout: 40000 });
+    await alice.page.waitForTimeout(2500);                                                                                                              // a measurable stay
+    await bob.page.locator('#vbEnd').click(); await expect(bob.page.locator('#voiceBar')).toBeHidden(); await alice.page.locator('#vbEndAll').click(); await expect(alice.page.locator('#voiceBar')).toBeHidden();
+    const open = async (p) => { await p.page.locator('#phTab-recent').click(); return p.page.locator('.qp-call-row', { hasText: 'Group call' }).first(); };
+    // the host
+    const a = await open(alice); await expect(a).toContainText('Host'); await expect(a).toContainText('Completed'); await expect(a).toContainText('Group call'); await expect(a).toContainText('2 people'); await a.click();
+    await expect(alice.page.locator('#qpGroupDetail')).toContainText('Group call'); await expect(alice.page.locator('#qpGroupFacts')).toContainText('Host'); await expect(alice.page.locator('#qpGroupFacts')).toContainText('ended by host');
+    await expect(alice.page.locator('#qpGroupStays .qp-stay')).toHaveCount(1); await expect(alice.page.locator('#qpGroupTimeline')).toContainText('You joined'); await expect(alice.page.locator('#qpGroupTimeline')).toContainText('You left');
+    await expect(alice.page.locator('#qpCallBack')).toHaveCount(0);                                                                                      // a finished group call is not "called back"
+    expect(await bad(alice.page, '#recent-calls'), 'recent calls with a group call').toEqual([]); expect(await bad(alice.page, '#qpGroupDetail'), 'group call detail').toEqual([]);
+    // a member who stayed for a while, and one who declined
+    const b = await open(bob); await expect(b).toContainText('Member'); await expect(b).toContainText('Completed'); await b.click(); await expect(bob.page.locator('#qpGroupStays .qp-stay')).toHaveCount(1); await expect(bob.page.locator('#qpGroupTimeline')).toContainText('You were invited');
+    const c = await open(carol); await expect(c).toContainText('Declined'); await c.click(); await expect(carol.page.locator('#qpGroupStays')).toContainText('You did not join this call'); await expect(carol.page.locator('#qpGroupTimeline')).toContainText('You declined');
+    // nobody else is named anywhere on carol's screen, and the filters treat group calls as calls
+    const text = await carol.page.locator('#recent-calls').innerText(); expect(text).not.toContain(alice.name); expect(text).not.toContain(bob.name);
+    await carol.page.locator('#recent-calls [data-f=meeting]').click(); await expect(carol.page.locator('.qp-call-row', { hasText: 'Group call' })).toHaveCount(0); await carol.page.locator('#recent-calls [data-f=calls]').click(); await expect(carol.page.locator('.qp-call-row', { hasText: 'Group call' })).toHaveCount(1);
+    // the record comes from the engine, so it is still there after a reload
+    await alice.page.reload(); await expect.poll(() => alice.page.evaluate(() => !!(window.qorllaVoice && window.qorllaVoice.ws && window.qorllaVoice.ws.readyState === 1)), { timeout: 30000 }).toBe(true);
+    await alice.page.locator('.nav-item[data-view=phone]').click(); await alice.page.locator('#phTab-recent').click(); await expect(alice.page.locator('.qp-call-row', { hasText: 'Group call' }).first()).toContainText('Completed');
+    for (const p of [alice, bob, carol]) await p.ctx.close();
+  });
 });

@@ -14,6 +14,7 @@ import { OutboxWorker } from './outbox.mjs';
 import { RedisBus } from './bus.mjs';
 import { VoiceRouter } from './router.mjs';
 import { validRoomId } from './rooms.mjs';
+import { createHistory } from './history.mjs';
 
 const STATUS = { invalid_recipient: 404, not_found: 404, blocked: 403, forbidden: 403, caller_disabled: 403, voice_disabled: 403, invalid_origin: 403, busy: 409, invalid_transition: 409, idempotency_conflict: 409,
   extension_taken: 409, extensions_exhausted: 503, invalid_input: 400, too_many_tickets: 429, invalid_timeout: 400, overloaded: 503, device_not_owner: 409, lease_lost: 409, call_not_active: 409, room_full: 409,
@@ -25,7 +26,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   const app = express(); app.disable('x-powered-by'); app.set('trust proxy', env.VOICE_TRUST_PROXY === '1' ? 1 : false);
   app.use(helmet()); app.use(express.json({ limit: '16kb' }));
   const allowed = () => env.VOICE_ALLOWED_ORIGIN || '';
-  const reliability = createReliability(db);
+  const reliability = createReliability(db), history = createHistory(db);
   const router = new VoiceRouter();
   const bus = busOption !== undefined ? busOption : (env.REDIS_URL ? new RedisBus({ url: env.REDIS_URL, instanceId, onDelivery: (m) => router.onRemote(m) }) : null);
   if (bus) { router.bus = bus; if (!bus.onDelivery) bus.onDelivery = (m) => router.onRemote(m); }
@@ -123,6 +124,10 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     const call = await store.transition(id, req.account, mapping[action], undefined, opts); kick();
     res.json({ call: publicCall(call), generation: call._lease ? Number(call._lease.generation) : null });
   }));
+
+  // ---- group call history (what Recent Calls shows for rooms): only the caller's own calls, newest first, cursor-paginated
+  app.get('/v1/voice/history', auth, route(async (req, res) => { res.set('Cache-Control', 'private, no-store').json(await history.list(req.account, { limit: req.query.limit, cursor: req.query.cursor })); }));
+  app.get('/v1/voice/history/:id', auth, route(async (req, res) => { const d = await history.detail(req.account, req.params.id); res.set('Cache-Control', 'private, no-store'); if (!d) return res.status(404).json({ error: 'not_found' }); res.json(d); }));
 
   // ---- durable events: replay after a reconnect, and acknowledgements (the cursor only moves forward and only over this account's own events)
   app.get('/v1/voice/events', auth, route(async (req, res) => {

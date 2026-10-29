@@ -1,4 +1,4 @@
-# Qorlla Voice Engine (v1.0 - v1.9): self-hosted internet calls
+# Qorlla Voice Engine (v1.0 - v1.10): self-hosted internet calls
 
 Qorlla-to-Qorlla voice over the internet, with no Twilio and no carrier account: one-to-one calls and group calls (up to 6 people). It does **not** call ordinary mobile or landline numbers; that needs a separate public-telephone connection (the carrier adapter stays disabled).
 
@@ -16,6 +16,7 @@ Qorlla-to-Qorlla voice over the internet, with no Twilio and no carrier account:
 | 1.6-1.7 | Replay/ack and device fencing as supplied in the v1.5-v1.9 pack, integrated and extended (the browser SDK sends generation-fenced SDP/ICE, stops media on takeover and on lease loss) |
 | 1.8 | Two-node staging: `Dockerfile`, `deploy/docker-compose.staging.yml` (PostgreSQL with least-privilege roles, password-protected Redis, a migration job, two replicas), strict readiness endpoint `/v1/voice/operational/readiness`, `scripts/staging-smoke.mjs` |
 | 1.9 | Release gate (`npm run release:gate`, QVE-01..15), certification record table, server-side consumer dedupe (`voice_delivery_dedupe`), the `QORLLA_VOICE_ENABLED` switch, and the audit fixes: **event ordering under concurrent transactions** (per-account event locks, deadlock retry, version guards), least-privilege roles |
+| 1.10 | Group call history in Recent Calls: `GET /v1/voice/history` (cursor-paginated) and `/history/:id`, written in the same transaction as every room change |
 
 ## Architecture
 - `qorlla-voice-engine/` is a standalone Node service (express, ws, pg, jose, redis). **PostgreSQL is the source of truth.** Redis is optional and only moves messages between replicas; if it is down, calls on the same node keep working and committed events wait in the outbox.
@@ -25,6 +26,7 @@ Qorlla-to-Qorlla voice over the internet, with no Twilio and no carrier account:
 - Fencing: every SDP/ICE message carries the sender's **generation**. The engine reads the current lease from PostgreSQL for every message, so every replica decides identically. A device that was replaced gets `device_revoked`, stops its media at once, and cannot signal, renew, or fail the call.
 - `src/store.mjs` ties it together with advisory locks per account, so an account is in at most one call or joined room.
 - **Ordering:** every event writer takes a per-account lock before inserting and holds it to COMMIT, so for one account event-id order equals commit order and a replay cursor can never skip an event. Clients also ignore a call/room state older than the one they hold.
+- **Group call history** (`sql/007`, `src/history.mjs`): each member's outcome (`ongoing`, `completed`, `declined`, `missed`, `cancelled`, `kicked`; `ringing` while an invitation is open), one participation segment per stay (a person who leaves and rejoins has several; duration is their sum) and a timeline are written in the same transaction as the room change, so the history cannot lag or disagree with the room. A person sees only calls they were invited to or joined; other participants are counted, never named. The Qorlla Group Call History v1 package's API contract, statuses and privacy rules were adopted; its separate event projector and tables were not, because they would duplicate the room tables in the same database and need a reconciliation job for out-of-order events that this design does not have. Pagination uses an exact-microsecond `(created_at, id)` cursor.
 - Group calls are a full mesh: the member who joined later makes the offer to each earlier member. The server relays signaling only; it never carries or records audio.
 - Main app: `voice.js` mints the 300 s ES256 token, publishes the JWKS, serves the SDK (`/voice-client.js`), and provisions identities through the admin API (the admin secret never reaches a browser).
 
@@ -48,7 +50,7 @@ Migrations (`sql/001`-`006`, additive and idempotent; `npm run db:migrate`, or `
 
 ## Verified (and where)
 Everything below ran on **one machine**: real PostgreSQL (Docker), a disposable real Redis and coturn (our own containers), headless Chromium with a synthetic microphone.
-- Engine: 82 tests (`npm test` in `qorlla-voice-engine/`): atomic state+outbox with a simulated crash before COMMIT, ring timeout and suspension events, replay/ack rules and pagination, duplicate delivery, a dead worker's claim, device takeover and 12 concurrent claims, fail-closed backpressure, stale leases, two replicas with cross-node events/signaling/ownership, forged bus messages, Redis stopped and restarted, a replica killed and replaced mid-call, database connections killed, rooms (invite/join/kick/host transfer/end/expiry/caps/blocks), the SDK against a real engine, ICE policy, event ordering (a deterministic two-writer case and a 40-writer stress with a polling reader), the whole engine running as a least-privilege database role, the release gate.
+- Engine: 89 tests (`npm test` in `qorlla-voice-engine/`): atomic state+outbox with a simulated crash before COMMIT, ring timeout and suspension events, replay/ack rules and pagination, duplicate delivery, a dead worker's claim, device takeover and 12 concurrent claims, fail-closed backpressure, stale leases, two replicas with cross-node events/signaling/ownership, forged bus messages, Redis stopped and restarted, a replica killed and replaced mid-call, database connections killed, rooms (invite/join/kick/host transfer/end/expiry/caps/blocks), the SDK against a real engine, ICE policy, event ordering (a deterministic two-writer case and a 40-writer stress with a polling reader), the whole engine running as a least-privilege database role, the release gate, group call history (every outcome, rejoin segments, host-transfer timeline, privacy between accounts, pagination with identical timestamps, atomicity, migration backfill, concurrent joins/leaves).
 - Browsers (`tests/voice-engine.spec.js`, `tests/voice-reliability.spec.js`, `tests/voice-turn.spec.js`): one-to-one calls with audio both ways over Opus, decline/missed/busy/mic refused/second device ringing; a 3-browser group call with mute, leave and end-for-all; taking a call over on a second device; page reload mid-call; signaling socket drop; ICE restart, including both sides at once; the engine killed and restarted mid-call; a relay-only call through a real coturn.
 
 ## Not done / known limits
@@ -56,7 +58,7 @@ Everything below ran on **one machine**: real PostgreSQL (Docker), a disposable 
 - **No PostgreSQL primary failover drill**, no measured RTO/RPO, no Redis cluster/Sentinel test, no separate hosts or load balancer.
 - **Meet audio integration is not done.** Bridging into Qorlla Meet's media needs a server-side participant on the Meet SFU, which is a separate project. `voice_rooms.meeting_ref` is groundwork only; nothing uses it.
 - TURN is tested with a throwaway container, not deployed. Redis authentication/TLS is not configured by this repo.
-- Group calls are a mesh (6 people max). Larger rooms need an SFU. Group call history is not listed in Recent Calls yet.
+- Group calls are a mesh (6 people max). Larger rooms need an SFU. History retention/deletion policy for group calls is not defined yet (rows are kept; they are deleted with their room).
 - Two-node staging was run once in Docker on this machine (image build, roles, authenticated Redis, 15 smoke checks, then torn down). It is wiring evidence, not a staging certification.
 - Dev stack: `scripts/dev-stack.mjs` is wired for the engine (migrations, env, `VOICE_REDIS_URL`) but was not restarted in this session; restart it with `npm run dev:stack` to pick the engine up.
 - No PSTN, no emergency calling, no billing.
