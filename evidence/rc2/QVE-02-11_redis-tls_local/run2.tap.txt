@@ -1,0 +1,28 @@
+TAP version 13
+# Subtest: TLS with the private authority trusted: both ends connect and a message crosses; the link is encrypted (the plaintext port is closed)
+ok 1 - TLS with the private authority trusted: both ends connect and a message crosses; the link is encrypted (the plaintext port is closed)
+  ---
+  duration_ms: 9496.9917
+  type: 'test'
+  ...
+# Subtest: without trust in the authority the link is refused (never silently downgraded); a wrong password is refused over TLS too
+ok 2 - without trust in the authority the link is refused (never silently downgraded); a wrong password is refused over TLS too
+  ---
+  duration_ms: 7384.3414
+  type: 'test'
+  ...
+# Subtest: engine level: with the authority trusted the node reports Redis up; without it the node still serves (degraded) but is never connected, and says so
+ok 3 - engine level: with the authority trusted the node reports Redis up; without it the node still serves (degraded) but is never connected, and says so
+  ---
+  duration_ms: 11760.2378
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 36483.972

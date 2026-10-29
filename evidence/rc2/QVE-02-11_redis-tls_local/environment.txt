@@ -1,0 +1,10 @@
+revision: b66f57d61d12ee8c6515be9857f3f1cb4476fa17 (clean checkout of the frozen baseline; the test file test/redis-tls.test.mjs was added to that checkout, no engine code was changed)
+date: 2026-10-29T14:54:13.683Z
+environment: development (single Windows machine, Docker Desktop)
+node: v22.18.0
+docker server: 29.9.2
+redis image: redis@sha256:02f2cc4882f8bf87c79a220ac958f58c700bdec0dfb9b9ea61b62fb0e8f1bfcf
+openssl: OpenSSL 3.5.7 9 Jun 2026 (Library: OpenSSL 3.5.7 9 Jun 2026)
+command: cd qorlla-voice-engine && node --test --test-timeout=120000 test/redis-tls.test.mjs   (run 3 times; all 3 tests passed each time)
+what it shows: rediss:// with a private CA trusted through NODE_EXTRA_CA_CERTS works and a message crosses between two engine bus clients; plaintext to the TLS port, an untrusted certificate and a wrong password are all refused; at engine level the node reports redis "up" when the CA is trusted and serves "degraded" (redis "down") when it is not.
+what it does NOT show: a real certificate chain, mutual TLS, Redis on another host, Sentinel/cluster, cross-network behaviour.
