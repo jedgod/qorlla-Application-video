@@ -118,6 +118,7 @@ test('races: one number goes to exactly one of several claimants; one account ne
 
 test('failures never strand a person on "pending": retries with backoff, then the request fails and the number is quarantined; a provider failure event does the same', async (t) => {
   if (skip(t)) return;
+  for (let i = 0; i < 5 && (await worker()); i++);                                                                                     // jobs left over from the earlier tests are submitted first (the mock only fails for dave)
   await inventory('US', '+14155552671').then((x) => assert.equal(x.status, 201)); await evidence('dave', 'US'); const a = await assign('dave', 'US'); assert.equal(a.status, 202);
   for (let i = 0; i < 3; i++) { assert.equal(await worker(), 1, 'attempt ' + (i + 1)); await db.pool.query("UPDATE voice_num_outbox SET next_attempt_at = now(), lease_until = NULL WHERE status='queued'"); }
   assert.equal((await worker()), 0); const st = await row(a.body.id); assert.deepEqual([st.status, st.inv], ['failed', 'quarantined']); assert.equal((await db.pool.query("SELECT status, last_error FROM voice_num_outbox WHERE assignment_id=$1", [a.body.id])).rows[0].status, 'dead');
