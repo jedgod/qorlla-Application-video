@@ -1,0 +1,43 @@
+# Qorlla STAGING edge: automatic-TLS reverse proxy (HTTPS + WSS) and coturn on ONE dedicated VPS.
+# NOT provisioned. Do not run this on a development PC (it opens public ports). Needs the approvals in README.md first.
+# Qorlla Meet and the main application run as separate upstreams (QORLLA_MEET_UPSTREAM / QORLLA_APP_UPSTREAM); the database, Redis and every internal API stay private and are NOT in this file.
+services:
+  proxy:
+    image: caddy:2.8
+    restart: unless-stopped
+    network_mode: host            # serves 80/443 directly and reaches the loopback/private upstreams below; the firewall in README.md decides what is reachable
+    environment:
+      MEET_HOST: ${MEET_HOST:?set MEET_HOST}
+      APP_HOST: ${APP_HOST:?set APP_HOST}
+      TURN_HOST: ${TURN_HOST:?set TURN_HOST}
+      QORLLA_MEET_UPSTREAM: ${QORLLA_MEET_UPSTREAM:?set QORLLA_MEET_UPSTREAM}
+      QORLLA_APP_UPSTREAM: ${QORLLA_APP_UPSTREAM:?set QORLLA_APP_UPSTREAM}
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+  coturn:
+    image: coturn/coturn:4.6.2
+    restart: unless-stopped
+    network_mode: host            # the relay port range is large and UDP; host networking avoids per-port NAT. Restrict with the firewall rules in README.md.
+    depends_on: [proxy]
+    entrypoint: ["/bin/sh", "/etc/coturn/render-config.sh"]
+    environment:
+      TURN_REALM: ${TURN_HOST:?set TURN_HOST}
+      TURN_SHARED_SECRET_FILE: /run/secrets/turn_shared_secret
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:?set TURN_EXTERNAL_IP}
+      TURN_MIN_PORT: ${TURN_MIN_PORT:-49160}
+      TURN_MAX_PORT: ${TURN_MAX_PORT:-49200}
+      TURN_CERT_FILE: /certs-root/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${TURN_HOST}/${TURN_HOST}.crt
+      TURN_KEY_FILE: /certs-root/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${TURN_HOST}/${TURN_HOST}.key
+    secrets: [turn_shared_secret]
+    volumes:
+      - ./coturn/turnserver.conf.template:/etc/coturn/turnserver.conf.template:ro
+      - ./coturn/render-config.sh:/etc/coturn/render-config.sh:ro
+      - caddy_data:/certs-root:ro
+secrets:
+  turn_shared_secret:
+    file: ./secrets/turn_shared_secret       # created on the VPS only (README.md); gitignored; the SAME value is Meet's TURN_SHARED_SECRET
+volumes:
+  caddy_data:
+  caddy_config:

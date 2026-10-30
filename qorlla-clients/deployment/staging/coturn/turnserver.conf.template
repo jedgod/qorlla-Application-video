@@ -1,0 +1,54 @@
+# Qorlla STAGING coturn. Rendered by render-config.sh; never edit the rendered file, never commit it (it contains the shared secret).
+# Placeholders in ${...} come from the environment (see ../.env.example). Staging only: production traffic is not permitted.
+
+realm=${TURN_REALM}
+server-name=${TURN_REALM}
+
+# Authentication: short-lived REST credentials issued by Qorlla Meet (username = <expiry>:<participantId>, password = base64(HMAC-SHA1(secret, username))).
+# The secret is the SAME value as Meet's TURN_SHARED_SECRET. Anonymous allocations are refused because an auth mechanism is always configured.
+use-auth-secret
+static-auth-secret=${TURN_SHARED_SECRET}
+fingerprint
+
+# Ports: 3478 (UDP+TCP), 5349 (TLS). 443 is optional for networks that only allow HTTPS.
+listening-port=3478
+tls-listening-port=5349
+cert=${TURN_CERT_FILE}
+pkey=${TURN_KEY_FILE}
+no-tlsv1
+no-tlsv1_1
+
+# Relay: a deliberately small UDP range. Capacity = number of ports; size it for concurrent allocations (each relayed participant uses one or two).
+min-port=${TURN_MIN_PORT}
+max-port=${TURN_MAX_PORT}
+external-ip=${TURN_EXTERNAL_IP}
+
+# Abuse limits
+user-quota=6
+total-quota=200
+max-bps=1500000
+stale-nonce=600
+
+# WebRTC media uses UDP relay endpoints.
+no-tcp-relay
+no-multicast-peers
+no-cli
+no-software-attribute
+no-rfc5780
+
+# Never relay into private or special-use space (this is what stops the relay becoming a tunnel into a private network).
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=224.0.0.0-255.255.255.255
+# Note: peers behind NAT appear to the relay with their PUBLIC address, so these denials do not block normal traffic.
+
+# Logs: connection metadata only. Usernames contain participant ids, never passwords; do not enable verbose logging in staging logs that are shared.
+log-file=stdout
+simple-log
