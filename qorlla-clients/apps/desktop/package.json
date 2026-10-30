@@ -59,7 +59,8 @@
     "appImage": {
       "executableArgs": [
         "--enable-sandbox"
-      ]
+      ],
+      "artifactName": "qorlla-${version}-${arch}-NOT-DISTRIBUTABLE.${ext}"
     }
   },
   "description": "Qorlla desktop client for meetings and calling",
