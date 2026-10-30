@@ -67,6 +67,24 @@ jobs:
           find qorlla-clients/apps/desktop/dist -maxdepth 1 -type f \( -name '*.AppImage' -o -name '*.deb' \) -print | tee linux-packages.txt
           test -s linux-packages.txt
           while read -r f; do sha256sum "$f"; done < linux-packages.txt | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Packaging checks on the deb and the AppImage (packaging only; installing on a real distribution is a separate acceptance step)
+        working-directory: qorlla-clients/apps/desktop/dist
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          DEB=$(ls *.deb 2>/dev/null | head -1); APPIMAGE=$(ls *.AppImage 2>/dev/null | head -1)
+          test -n "$DEB" || fail "no .deb was produced"; test -n "$APPIMAGE" || fail "no .AppImage was produced"
+          echo "deb: $DEB   AppImage: $APPIMAGE"
+          echo '--- deb metadata'; dpkg-deb -I "$DEB" | grep -E "^ (Package|Version|Architecture|Maintainer|Homepage|Description):" | tee deb-info.txt
+          grep -q "^ Package: qorlla$" deb-info.txt || fail "deb Package is not qorlla"
+          dpkg-deb -c "$DEB" > deb-files.txt
+          echo '--- executable (must be executable and named qorlla)'; grep -E " \./opt/[^/]+/qorlla$" deb-files.txt | tee exe.txt; grep -qE "^-rwx" exe.txt || fail "the qorlla executable is missing or not executable"
+          echo '--- chrome-sandbox'; grep -E "chrome-sandbox$" deb-files.txt | tee sandbox.txt; grep -qE "^-rwsr-xr-x" sandbox.txt || fail "chrome-sandbox is missing or not setuid root-owned 4755"
+          echo '--- desktop entry'; grep -E " \./usr/share/applications/.*\.desktop$" deb-files.txt | tee desktop-path.txt; test -s desktop-path.txt || fail "no desktop entry in the deb"
+          DESKTOP=$(awk '{print $NF}' desktop-path.txt | head -1); dpkg-deb --fsys-tarfile "$DEB" | tar -xO "$DESKTOP" > desktop-entry.txt; cat desktop-entry.txt
+          grep -q "^Name=Qorlla$" desktop-entry.txt || fail "the displayed application name is not Qorlla"; grep -qE "^Exec=.*qorlla" desktop-entry.txt || fail "desktop Exec does not start the qorlla executable"; grep -q "^Icon=" desktop-entry.txt || fail "desktop entry has no Icon"
+          echo '--- installed icon'; grep -E " \./usr/share/icons/.*\.png$" deb-files.txt | tee icons.txt; test -s icons.txt || fail "no installed icon in the deb"
+          echo '--- AppImage'; test -x "$APPIMAGE" || fail "the AppImage is not executable"; "./$APPIMAGE" --appimage-extract > /dev/null; grep -E "^(Name|Exec|Icon)=" squashfs-root/*.desktop | tee appimage-desktop.txt; grep -q "^Name=Qorlla$" appimage-desktop.txt || fail "AppImage desktop name is not Qorlla"
+          echo "Linux packaging checks passed for $DEB and $APPIMAGE (not installed or run)" | tee -a "$GITHUB_STEP_SUMMARY"
   macos:
     runs-on: macos-latest
     timeout-minutes: 60
