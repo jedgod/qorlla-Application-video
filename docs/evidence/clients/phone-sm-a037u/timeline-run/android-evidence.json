@@ -1,0 +1,85 @@
+{
+  "platform": {
+    "model": "SM-A037U",
+    "serial": "[redacted]",
+    "android": "13",
+    "sdk": "33",
+    "abi": "arm64-v8a",
+    "emulator": false
+  },
+  "apk": {
+    "path": "app-release.apk",
+    "bytes": 20671960
+  },
+  "results": {
+    "permissionTaps": [
+      "Don’t allow",
+      "Don’t allow",
+      null
+    ],
+    "recoveryTimeline": [
+      {
+        "t": 0,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{8e7c4a8 u0 com.qorlla.mobile/.MainActivity} t4893}"
+      },
+      {
+        "t": 3,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{8e7c4a8 u0 com.qorlla.mobile/.MainActivity} t4893}"
+      },
+      {
+        "t": 6,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{8e7c4a8 u0 com.qorlla.mobile/.MainActivity} t4893}"
+      },
+      {
+        "t": 9,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{8e7c4a8 u0 com.qorlla.mobile/.MainActivity} t4893}"
+      },
+      {
+        "t": 12,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{8e7c4a8 u0 com.qorlla.mobile/.MainActivity} t4893}"
+      },
+      {
+        "t": 15,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{8e7c4a8 u0 com.qorlla.mobile/.MainActivity} t4893}"
+      },
+      {
+        "t": 18,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{8e7c4a8 u0 com.qorlla.mobile/.MainActivity} t4893}"
+      },
+      {
+        "t": 21,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{8e7c4a8 u0 com.qorlla.mobile/.MainActivity} t4893}"
+      },
+      {
+        "t": 24,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{8e7c4a8 u0 com.qorlla.mobile/.MainActivity} t4893}"
+      }
+    ],
+    "permissionDenied": {
+      "dialogShown": true,
+      "recoveryShown": true,
+      "joined": false
+    }
+  },
+  "cleanup": {
+    "appUninstalled": true
+  }
+}

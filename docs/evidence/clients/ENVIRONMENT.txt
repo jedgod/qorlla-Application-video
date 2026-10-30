@@ -8,3 +8,9 @@ electron: 33.4.11 (chrome 130.0.6723.191 per run evidence)
 expo: 54.0.38  react-native: 0.81.4  react-native-webview: 13.15.0
 emulator avd: qorlla-cert (system-images;android-35;google_apis;x86_64, 4 GB, 4 cores, host GPU, no accounts)
 emulator: Pkg.Revision=36.5.11
+
+--- physical phone runs (added 2026-10-30T12:12:09-04:00) ---
+phone: Samsung Galaxy A03s SM-A037U, Android 13 (SDK 33), arm64-v8a, unlocked by its owner, same home Wi-Fi subnet as the PC (addresses redacted)
+phone apk: 58a0bddd488351dfb44c44b08bcf8d2250b131cb4f6740e3d9af18f2a0bb0604  20671960 bytes (debug-signed TEST build, arm64-v8a only)
+emulator apk (earlier results): 69c93529d44296b896643a58d31710122518f1f8b173b14bb3bc3e5fe979eba0
+test harness commit for phone runs: 9400295b5c43adcb0762b26f699617fb747ddff2
