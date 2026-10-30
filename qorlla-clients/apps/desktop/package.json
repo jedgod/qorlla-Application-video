@@ -40,7 +40,14 @@
         "AppImage",
         "deb"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "category": "Network"
     }
+  },
+  "description": "Qorlla desktop client for meetings and calling",
+  "homepage": "https://github.com/jedgod/qorlla-Application-video",
+  "author": {
+    "name": "Qorlla",
+    "email": "jedgod@users.noreply.github.com"
   }
 }
