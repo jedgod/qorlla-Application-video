@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const MEET = 'http://localhost:3310';
+const MEET = 'http://localhost:' + (process.env.MEET_TEST_PORT || 3310);   // MEET_TEST_PORT: run an isolated test Meet beside another one on 3310
 const root = path.resolve(__dirname, '..', '..');
 const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
