@@ -41,7 +41,7 @@ async function prepare(device) {
   // a clean install: Android stops prompting after two denials ("don't ask again"), so each scenario starts from a fresh app with no granted or fixed permissions
   await device.shell(`pm uninstall ${PKG}`).catch(() => {}); await device.installApk(APK);
   await device.shell(`am force-stop ${PKG}`); await device.shell(`pm revoke ${PKG} android.permission.CAMERA`).catch(() => {}); await device.shell(`pm revoke ${PKG} android.permission.RECORD_AUDIO`).catch(() => {});
-  await device.shell('input keyevent KEYCODE_WAKEUP'); await device.shell('wm dismiss-keyguard').catch(() => {});
+  await device.shell('input keyevent KEYCODE_WAKEUP');   // wakes the screen only: a locked phone stays locked (the person unlocks it)
 }
 
 async function snapshot(device, name) { try { await device.screenshot({ path: path.join(OUT, name + '.png') }); fs.writeFileSync(path.join(OUT, name + '-ui.txt'), nodes(await ui(device)).map((a) => a.text || a['content-desc'] || '').filter(Boolean).join(' | ')); } catch { /* best effort */ } }
@@ -57,15 +57,21 @@ test.before(async () => {
   // the emulator's localhost -> this machine (a secure context for getUserMedia, and the build's only allowed http origins)
   const { execFileSync } = require('node:child_process'); for (const p of [MAIN_PORT, 3310]) execFileSync('adb', ['-s', device.serial(), 'reverse', `tcp:${p}`, `tcp:${p}`]);
 });
-test.after(async () => { if (device) await device.close().catch(() => {}); fs.writeFileSync(path.join(OUT, 'android-evidence.json'), JSON.stringify(evidence, null, 2)); });
+test.after(async () => {
+  // a real phone is left as it was found: the test app and the port mappings are removed
+  if (device && !/^emulator-/.test(device.serial())) { const { execFileSync } = require('node:child_process'); try { await device.shell(`pm uninstall ${PKG}`); evidence.cleanup = { appUninstalled: true }; } catch { evidence.cleanup = { appUninstalled: false }; } for (const p of [MAIN_PORT, 3310]) { try { execFileSync('adb', ['-s', device.serial(), 'reverse', '--remove', `tcp:${p}`]); } catch { /* already gone */ } } }
+  if (device) await device.close().catch(() => {}); fs.writeFileSync(path.join(OUT, 'android-evidence.json'), JSON.stringify(evidence, null, 2)); });
 
 test('denying camera and microphone shows the recovery message and does not open the meeting', { skip, timeout: 300000 }, async () => {
   const main = await startMain(MAIN_PORT); let host;
   try {
     host = await startHost(main, { title: 'Android permission control' }); await prepare(device);
     await device.shell(`am start -a android.intent.action.VIEW -d "qorlla://join?meeting=${host.meetingId}" ${PKG}`);
-    const first = await tapText(device, /permission_deny_button|Don.t allow|Deny/i, { timeout: 30000 }); assert.ok(first, 'the Android permission dialog appeared');
-    for (let i = 0; i < 2; i++) { await tapText(device, /permission_deny_button|Don.t allow|Deny/i, { timeout: 5000 }); }
+    await snapshot(device, 'perm-0-launched'); await sleep(2500); await snapshot(device, 'perm-1-dialog');
+    const first = await tapText(device, /permission_deny_button|Don.t allow|Deny/i, { timeout: 30000 }); assert.ok(first, 'the Android permission dialog appeared'); evidence.results.permissionTaps = [first];
+    for (let i = 0; i < 2; i++) { await snapshot(device, 'perm-' + (i + 2) + '-before-tap'); const t = await tapText(device, /permission_deny_button|Don.t allow|Deny/i, { timeout: 5000 }); evidence.results.permissionTaps.push(t); }
+    await snapshot(device, 'perm-4-after-taps');
+    const timeline = []; for (let t = 0; t <= 24; t += 3) { const xml = await ui(device); const top = (await sh(device, 'dumpsys activity activities')).split(String.fromCharCode(10)).find((l) => /topResumedActivity/.test(l)); timeline.push({ t, alert: /Camera and microphone/i.test(xml) && /Join without/i.test(xml), prejoin: /Ready to join|Test microphone and camera/i.test(xml), top: top ? top.trim().slice(0, 110) : null }); await sleep(3000); } evidence.results.recoveryTimeline = timeline;
     assert.ok(await screenHas(device, /Camera and microphone/i), 'the app explains what is missing'); assert.ok(await screenHas(device, /Join without/i), 'and offers to continue without');
     await device.screenshot({ path: path.join(OUT, 'android-permission-denied.png') });
     await tapText(device, /^Cancel$/i, { timeout: 5000 });
@@ -94,5 +100,5 @@ test('Android app joins a real meeting from a qorlla:// link and exchanges audio
     // navigation containment in the real WebView: another origin and a file: URL do not load
     const before = page.url(); await page.evaluate(() => { location.href = 'http://example.com/'; }).catch(() => {}); await sleep(2500); assert.equal(new URL(page.url()).origin, new URL(before).origin, 'a foreign origin is blocked in the app');
     evidence.results.containment = { foreignOriginBlocked: true };
-  } finally { await host?.close(); main.stop(); }
+  } catch (e) { await snapshot(device, 'android-failure-participation'); throw e; } finally { await host?.close(); main.stop(); }
 });
