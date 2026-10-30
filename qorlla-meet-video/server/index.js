@@ -4,7 +4,7 @@ import express from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createServer } from 'node:http';
-import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomUUID, randomBytes, timingSafeEqual, createHmac } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 // Native bcrypt (libuv thread pool). The pure-JS implementation blocks the event loop: 200 concurrent joins took 15 s p95.
@@ -259,6 +259,24 @@ app.get('/api/ready',async(_req,res)=>{
  }catch{res.status(503).json({ready:false,database:'unavailable'});}
 });
 app.get('/api/config', (_req,res) => { let iceServers=[]; try { iceServers=JSON.parse(process.env.ICE_SERVERS_JSON||'[]'); } catch {} res.json({iceServers,returnOrigins:(process.env.RETURN_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean)}); });
+// ---- TURN. STUN and operator-managed servers keep coming from ICE_SERVERS_JSON through the public /api/config, which must never hold a secret. TURN is different: with TURN_URLS and TURN_SHARED_SECRET every ADMITTED
+// participant gets short-lived credentials of their own (coturn "REST" scheme: username = expiry:participantId, credential = base64(HMAC-SHA1(secret, username))) from GET /api/meetings/:id/ice. They cannot be revoked
+// before they expire, so the lifetime is bounded (TURN_CREDENTIAL_TTL_SECONDS, 60..14400, default 3600); the relay must refuse private peer addresses (docs/TURN.md). ICE_TRANSPORT_POLICY=relay makes every client use
+// relay candidates ONLY, so a direct connection can never be mistaken for proof that the relay works. Bad configuration refuses to start (fail closed).
+const TURN_URLS = String(process.env.TURN_URLS || '').split(',').map((u) => u.trim()).filter(Boolean);
+const TURN_SECRET = String(process.env.TURN_SHARED_SECRET || '');
+const TURN_TTL = Math.min(14400, Math.max(60, Number(process.env.TURN_CREDENTIAL_TTL_SECONDS || 3600) || 3600));
+if (TURN_URLS.some((u) => !/^turns?:[^\s,]+$/i.test(u))) throw new Error('TURN_URLS must be a comma-separated list of turn: or turns: URLs');
+if (TURN_URLS.length && TURN_SECRET.length < 32) throw new Error('TURN_URLS needs TURN_SHARED_SECRET of at least 32 characters');
+if (process.env.ICE_TRANSPORT_POLICY && !['all', 'relay'].includes(process.env.ICE_TRANSPORT_POLICY)) throw new Error('ICE_TRANSPORT_POLICY must be "all" or "relay"');
+const ICE_POLICY = process.env.ICE_TRANSPORT_POLICY === 'relay' ? 'relay' : 'all';
+if (ICE_POLICY === 'relay' && !TURN_URLS.length) throw new Error('ICE_TRANSPORT_POLICY=relay needs TURN_URLS (otherwise nobody could connect)');
+export const turnCredentialsFor = (participantId, now = Math.floor(Date.now() / 1000), ttl = TURN_TTL, secret = TURN_SECRET) => { const username = (now + ttl) + ':' + participantId; return { username, credential: createHmac('sha1', secret).update(username).digest('base64') }; };
+app.get('/api/meetings/:id/ice', auth, member, (req,res) => {
+  let iceServers = []; try { iceServers = JSON.parse(process.env.ICE_SERVERS_JSON || '[]'); } catch { /* none */ }
+  if (TURN_URLS.length) iceServers = [...iceServers, { urls: TURN_URLS, ...turnCredentialsFor(req.user.participantId) }];
+  res.set('Cache-Control', 'no-store').json({ iceServers, iceTransportPolicy: ICE_POLICY, expiresIn: TURN_TTL });
+});
 app.post('/api/meetings', async (req,res) => {
  if(shieldCfg.enforce) return fail(res,403,'Meetings are created from your Qorlla account');       // guests and anonymous browsers cannot create meetings
  const title=clean(req.body.title,160), name=clean(req.body.name,70), passcode=clean(req.body.passcode,100);

@@ -7,8 +7,8 @@ const { MEET, startMain, organiser } = require(path.resolve(__dirname, '..', '..
 
 /** Runs before any page script: records every RTCPeerConnection the page creates so the test can read its statistics. */
 const RTC_HOOK = `(() => { const O = window.RTCPeerConnection; if (!O || window.__qpcs) return; window.__qpcs = []; window.__qlog = [];
-  const W = function (...a) { const pc = new O(...a); const n = window.__qpcs.push(pc); window.__qlog.push([Date.now(), 'created', n]);
-    pc.addEventListener('connectionstatechange', () => window.__qlog.push([Date.now(), 'connection#' + n, pc.connectionState])); pc.addEventListener('iceconnectionstatechange', () => window.__qlog.push([Date.now(), 'ice#' + n, pc.iceConnectionState])); return pc; };
+  const W = function (...a) { try { const c = a[0] || {}; (window.__qcfg = window.__qcfg || []).push({ policy: c.iceTransportPolicy || 'all', servers: (c.iceServers || []).map((x) => ({ urls: [].concat(x.urls).map((u) => String(u).split('?')[0]), expires: x.username ? String(x.username).split(':')[0] : null, hasCredential: !!x.credential })) }); } catch (e) { /* never break the page */ } const pc = new O(...a); const n = window.__qpcs.push(pc); window.__qlog.push([Date.now(), 'created', n]);
+    pc.addEventListener('connectionstatechange', () => window.__qlog.push([Date.now(), 'connection#' + n, pc.connectionState])); pc.addEventListener('iceconnectionstatechange', () => window.__qlog.push([Date.now(), 'ice#' + n, pc.iceConnectionState])); pc.addEventListener('icecandidateerror', (e) => window.__qlog.push([Date.now(), 'ice-error#' + n, String(e.errorCode) + ' ' + String(e.url || '').split('?')[0]])); return pc; };
   W.prototype = O.prototype; Object.setPrototypeOf(W, O); window.RTCPeerConnection = W; })();`;
 /** Evaluated in the page: totals of RTP bytes/frames over all peer connections, plus the nominated candidate pairs (so the path is on record). */
 const COLLECT = `(async () => { const o = { pcs: 0, connected: 0, audioIn: 0, videoIn: 0, audioOut: 0, videoOut: 0, framesDecoded: 0, framesEncoded: 0, pairs: [] };
