@@ -78,6 +78,8 @@ export function registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, l
     res.set('Cache-Control', 'no-store').json((await pool.query(`SELECT event_id, type, outcome, received_at, processed_at FROM portal.billing_events WHERE ($1::text IS NULL OR outcome=$1) ORDER BY received_at DESC LIMIT 100`, [q.outcome ?? null])).rows);
   }));
   app.post(`${A}/billing/refunds`, adminOnly, (limiters.refund || ((req, res, next) => next())), handle(async (req, res) => {
+    // two-person rule: when enabled, one administrator can no longer refund directly; the request/approval workflow in ops/ is the only way
+    if (cfg.ops?.refundTwoPerson) return res.status(409).json({ error: 'Refunds need a request and a second person to approve it', code: 'two_person_approval_required' });
     const p = z.object({ invoice_id: uuid, amount_cents: z.number().int().positive().optional(), reason: z.string().trim().min(3).max(300), idempotency_key: z.string().min(8).max(100) }).parse(req.body);
     const out = await launch.refund({ actor: req.actor, invoiceId: p.invoice_id, amountCents: p.amount_cents, reason: p.reason, idempotencyKey: p.idempotency_key });
     res.status(out.duplicate ? 200 : 201).json(out);

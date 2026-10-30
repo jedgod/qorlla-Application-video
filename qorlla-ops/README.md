@@ -1,5 +1,7 @@
 # Qorlla operations control
 
+> **Superseded** by the Portal-integrated implementation (`qorlla-portal/server/ops`, `docs/ENTERPRISE_OPS.md`) on branch `integration/enterprise-ops`: it reuses the Portal's authentication, billing and database instead of a second service with its own tables. Kept only for reference; do not deploy both.
+
 Staff tickets and external-calling purchase **requests**, with role authorization. Built from `qorlla-ops-starter` and hardened. **Not certified for production.** It is not wired into the Voice Engine, the main app or any carrier; it holds no payment data and activates nothing.
 
 ## What it does

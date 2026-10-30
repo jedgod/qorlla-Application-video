@@ -53,7 +53,7 @@ export function createAuth({ cfg, pool, jwks, fetchImpl = fetch, log, now = () =
       if (!cookie || !header) return res.status(403).json({ error: 'CSRF token required' });
       if (!sameValue(cookie, header) || !payload.csrf || !sameValue(sha256hex(header), payload.csrf)) return res.status(403).json({ error: 'CSRF token invalid' });
     }
-    req.actor = payload.sub.toLowerCase(); req.sid = payload.sid;
+    req.actor = payload.sub.toLowerCase(); req.sid = payload.sid; req.claims = payload;   // the verified JWT payload (amr / auth_time are read for MFA decisions)
     next();
   }
 

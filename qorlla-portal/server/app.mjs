@@ -23,6 +23,7 @@ import { createBillingLaunch } from './billing/launch.mjs';
 import { registerBillingLaunch } from './billing/routes.mjs';
 import { createPhoneWorker } from './telephony/worker.mjs';
 import { createDirectory } from './directory.mjs';
+import { registerOps } from './ops/index.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
 const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -30,7 +31,7 @@ const ALL_ROLES = ['owner', 'admin', 'billing', 'member'];
 const MANAGE = ['owner', 'admin'];
 const BILLING = ['owner', 'admin', 'billing'];
 
-export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogger(), now = () => Date.now(), stripe: stripeOverride, ai: aiOverride = {} } = {}) {
+export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogger(), now = () => Date.now(), stripe: stripeOverride, ai: aiOverride = {}, ops: opsOverride = {} } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', cfg.trustProxyHops);
@@ -241,6 +242,13 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags, limiters });
   registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags, limiters });
   registerPhone(app, { pool, cfg, auth, h, log, llm, limiters, ...(aiOverride.phone || {}) });
+  // Enterprise operations (Admin / Staff / Support): mounted only when OPS_ENABLED=true; otherwise these paths are the ordinary 404 below
+  const ops = cfg.ops?.enabled ? registerOps(app, { pool, cfg, auth, h, log, launch, limiters: { opsWrite: perUser('ops', 120) }, adapters: opsOverride.adapters, now }) : null;
+  if (ops) {   // the three browser pages (static, no inline script); the data they show still comes only from the authorized API above
+    const opsDir = path.join(root, 'ops'), page = (name) => (req, res) => { res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' }); res.sendFile(path.join(opsDir, name + '.html')); };
+    app.get(['/ops/admin', '/ops/staff', '/ops/support'], (req, res, next) => page(req.path.slice(5))(req, res, next));
+    app.use('/ops/assets', express.static(opsDir, { index: false, extensions: false, maxAge: '5m', setHeaders: (res, p) => { if (p.endsWith('.html')) res.set('Cache-Control', 'no-store'); } }));
+  }
   app.get('/shared/report/:token', (req, res) => { res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' }); res.sendFile(path.join(root, 'shared.html')); });
 
   app.get('/api/v1/:module/status', member, (req, res) => {
@@ -264,5 +272,5 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     log.error('unhandled error', { req_id: req.id, err: err.message });
     res.status(500).json({ error: 'Server error' });
   });
-  return { app, billing, launch, flags, auth, ai: { phoneWorker, worker: aiWorker, llm, meet, directory } };
+  return { app, billing, launch, flags, auth, ops, ai: { phoneWorker, worker: aiWorker, llm, meet, directory } };
 }

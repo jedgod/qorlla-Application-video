@@ -131,6 +131,28 @@ describe('PostgreSQL migration and rollback', () => {
     assert.equal((await p.query('SELECT amount_paid_cents FROM portal.invoices WHERE id=$1', [inv])).rows[0].amount_paid_cents, 100);
     await p.query(sqlFile('007_billing_launch.sql')); assert.ok((await tables(p)).includes('plan_changes'));
   });
+  test('008 (enterprise operations): re-runnable; the database enforces two-person refunds, append-only history and refuses "issued"/"active" states; rollback drops only ops tables and keeps invoices, refunds and billing requests', async () => {
+    const db = await freshDatabase(); dbs.push(db); const p = db.pool, ops = (all) => all.filter((t) => t.startsWith('ops_'));
+    await p.query(sqlFile('rollback', '008_enterprise_ops.down.sql')); const base = await tables(p); assert.deepEqual(ops(base), []);   // the helper already applied 008: start from the pre-008 schema
+    await p.query(sqlFile('008_enterprise_ops.sql')); await p.query(sqlFile('008_enterprise_ops.sql'));
+    for (const t of ['ops_staff', 'ops_tickets', 'ops_ticket_events', 'ops_ticket_messages', 'ops_shifts', 'ops_time_entries', 'ops_leave_requests', 'ops_refund_requests', 'ops_outbox', 'ops_audit_log', 'ops_number_requests', 'ops_external_call_requests']) assert.ok((await tables(p)).includes(t), t);
+    const ws = (await p.query("INSERT INTO portal.workspaces(name) VALUES('Ops') RETURNING id")).rows[0].id, [a, b, c] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    const inv = (await p.query("INSERT INTO portal.invoices(workspace_id,provider,provider_invoice_id,status,currency,amount_due_cents,amount_paid_cents,provider_payment_intent) VALUES($1,'stripe','in_ops','paid','usd',500,500,'pi_1') RETURNING id", [ws])).rows[0].id;
+    await p.query("INSERT INTO portal.refund_requests(workspace_id,provider_invoice_id,amount_cents,reason,requested_by,idempotency_key) VALUES($1,'in_ops',100,'billing own',$2,'k-billing-1')", [ws, a]);
+    await p.query("INSERT INTO portal.refunds(workspace_id,provider,provider_refund_id,provider_invoice_id,amount_cents,currency,reason) VALUES($1,'stripe','re_1','in_ops',100,'usd','x')", [ws]);
+    const r = (await p.query("INSERT INTO portal.ops_refund_requests(invoice_id,amount_cents,reason,requested_by,idempotency_key) VALUES($1,100,'because',$2,'k-ops-1') RETURNING id", [inv, a])).rows[0].id;
+    await assert.rejects(p.query("UPDATE portal.ops_refund_requests SET status='approved', approved_by=requested_by WHERE id=$1", [r]), /check/i, 'two people');
+    await assert.rejects(p.query("UPDATE portal.ops_refund_requests SET status='executing' WHERE id=$1", [r]), /must be approved/);
+    await assert.rejects(p.query("UPDATE portal.ops_refund_requests SET amount_cents=999 WHERE id=$1", [r]), /cannot be altered/);
+    await p.query("UPDATE portal.ops_refund_requests SET status='approved', approved_by=$2 WHERE id=$1", [r, b]); await assert.rejects(p.query("UPDATE portal.ops_refund_requests SET status='rejected' WHERE id=$1", [r]), /only start executing/);
+    await p.query("UPDATE portal.ops_refund_requests SET status='executing' WHERE id=$1", [r]); await p.query("UPDATE portal.ops_refund_requests SET status='succeeded' WHERE id=$1", [r]); await assert.rejects(p.query("UPDATE portal.ops_refund_requests SET status='approved' WHERE id=$1", [r]), /already succeeded/);
+    await assert.rejects(p.query("INSERT INTO portal.ops_number_requests(customer_id,country,range_prefix,requested_by,status) VALUES($1,'GB','0770090',$1,'issued')", [c]), /check/i); await assert.rejects(p.query("INSERT INTO portal.ops_external_call_requests(customer_id,plan_code,requested_by,status) VALUES($1,'X1',$1,'active')", [c]), /check/i);
+    await p.query("INSERT INTO portal.ops_audit_log(actor_id,action,resource_type,resource_id) VALUES($1,'x','x','x')", [a]); await assert.rejects(p.query("UPDATE portal.ops_audit_log SET action='y'"), /append-only/); await assert.rejects(p.query('TRUNCATE portal.ops_audit_log'), /append-only/);
+    await p.query(sqlFile('rollback', '008_enterprise_ops.down.sql')); await p.query(sqlFile('rollback', '008_enterprise_ops.down.sql'));
+    assert.deepEqual(await tables(p), base, 'only the ops tables are gone'); assert.equal((await p.query('SELECT amount_paid_cents FROM portal.invoices WHERE id=$1', [inv])).rows[0].amount_paid_cents, 500);
+    assert.equal(Number((await p.query('SELECT count(*) FROM portal.refund_requests')).rows[0].count), 1); assert.equal(Number((await p.query('SELECT count(*) FROM portal.refunds')).rows[0].count), 1, 'the billing authority keeps its records');
+    await p.query(sqlFile('008_enterprise_ops.sql')); assert.ok((await tables(p)).includes('ops_staff'));
+  });
   test('004 refuses to run without the Meet directory view (clear error, no half-applied schema)', async () => {
     const db = await freshDatabase({ migrate: false }); dbs.push(db); await db.pool.query(sqlFile('002_billing.sql'));
     await db.pool.query('DROP VIEW public.portal_meeting_directory');
