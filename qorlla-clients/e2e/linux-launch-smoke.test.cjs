@@ -19,3 +19,14 @@ test('status fields are read by name', () => { const s = 'Name:\tqorlla\nSeccomp
 test('on a platform that is not Linux the script refuses to claim anything (exit 2)', { skip: process.platform === 'linux' }, () => {
   assert.equal(spawnSync(process.execPath, [path.join(__dirname, 'linux-launch-smoke.cjs'), '/opt/Qorlla/qorlla'], { encoding: 'utf8' }).status, 2);
 });
+
+test('only numeric /proc directory names count as processes (a lost backslash once emptied the process table)', () => {
+  const { PID_DIR } = require('./linux-launch-smoke.cjs');
+  for (const ok of ['1', '3276', '99999']) assert.equal(PID_DIR.test(ok), true, ok);
+  for (const bad of ['', 'd', 'self', 'sys', '12a', 'a12', 'net', 'cpuinfo']) assert.equal(PID_DIR.test(bad), false, bad);
+});
+test('the process snapshot reads the real /proc: on Linux it finds this very process and its parent chain', { skip: process.platform !== 'linux' }, () => {
+  const fs = require('node:fs'), { parseStat, PID_DIR } = require('./linux-launch-smoke.cjs');
+  const table = fs.readdirSync('/proc').filter((d) => PID_DIR.test(d)).map((d) => { try { return parseStat(fs.readFileSync('/proc/' + d + '/stat', 'utf8')); } catch { return null; } }).filter(Boolean);
+  assert.ok(table.length > 3, 'a non-trivial process table: ' + table.length); const me = table.find((p) => p.pid === process.pid); assert.ok(me && me.ppid > 0, 'this process, with its parent');
+});

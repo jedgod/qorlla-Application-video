@@ -14,6 +14,8 @@ const { spawn } = require('node:child_process');
 const SANDBOX_OFF = /^--(no-sandbox|disable-setuid-sandbox|disable-gpu-sandbox|disable-seccomp-filter-sandbox|disable-namespace-sandbox|disable-renderer-sandbox|disable-sandbox)(=.*)?$/i;
 const REFUSAL = /setuid_sandbox_host|No usable sandbox|sandbox helper|namespace sandbox|Rather than run without sandboxing/i;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** A directory name under /proc that is a process id. (A lost backslash here once made the process table empty, so it is a named constant with a test.) */
+const PID_DIR = /^[0-9]+$/;
 
 /** /proc/<pid>/stat -> { pid, ppid }. The command name sits in parentheses and may itself contain spaces or parentheses, so parse from the LAST closing parenthesis. */
 function parseStat(text) { const i = text.lastIndexOf(')'); if (i < 0) return null; const rest = text.slice(i + 2).split(' '); return { pid: Number(text.slice(0, text.indexOf(' '))), ppid: Number(rest[1]) }; }
@@ -26,7 +28,7 @@ function procInfo(pid) {
   return { pid, type: (cmd.find((a) => a.startsWith('--type=')) || '--type=main').slice(7), cmd, seccomp: field(status, 'Seccomp'), noNewPrivs: field(status, 'NoNewPrivs'), uid: (field(status, 'Uid') || '').split(/\s+/)[0], apparmor: (read(`/proc/${pid}/attr/current`) || '').trim(), userNs };
 }
 /** The app's processes: the main process, everything below it, and anything else running the same executable (Chromium's namespace sandbox can reparent its children). Main first. */
-const snapshot = (rootPid, exe) => { const table = []; for (const d of fs.readdirSync('/proc')) if (/^d+$/.test(d)) { const s = parseStat(read(`/proc/${d}/stat`) || ''); if (s) table.push(s); }
+const snapshot = (rootPid, exe) => { const table = []; for (const d of fs.readdirSync('/proc')) if (PID_DIR.test(d)) { const s = parseStat(read(`/proc/${d}/stat`) || ''); if (s) table.push(s); }
   const pids = new Set(descendants(rootPid, table)); for (const s of table) { try { if (fs.readlinkSync(`/proc/${s.pid}/exe`) === exe) pids.add(s.pid); } catch { /* not readable */ } }
   return [...pids].sort((a, b) => (a === rootPid ? -1 : b === rootPid ? 1 : a - b)).map((pid) => ({ ...procInfo(pid), ppid: (table.find((t) => t.pid === pid) || {}).ppid })); };
 
@@ -95,5 +97,5 @@ async function main(argv) {
   console.log(`ok   media test in the sandboxed renderer: loopback call carried video (${m.videoBytes} B, ${m.framesDecoded} frames) and audio (${m.audioBytes} B), ${media.packetsLost} packets lost`);
   if (exited) return fail('the app exited during the test'); console.log('PASS'); return finish(0);
 }
-module.exports = { parseStat, descendants, field };
+module.exports = { parseStat, descendants, field, PID_DIR };
 if (require.main === module) main(process.argv.slice(2)).then((c) => process.exit(c), (e) => { console.error(e); process.exit(1); });

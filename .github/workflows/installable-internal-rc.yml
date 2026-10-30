@@ -92,7 +92,7 @@ jobs:
       - name: "Sandbox regression check (MANDATORY): fail if any packaged launcher disables the Chromium sandbox"
         run: |
           set -e
-          node --test qorlla-clients/e2e/linux-sandbox-check.test.cjs
+          node --test qorlla-clients/e2e/linux-sandbox-check.test.cjs qorlla-clients/e2e/linux-launch-smoke.test.cjs
           cd qorlla-clients/apps/desktop/dist
           rm -rf sbx && mkdir -p sbx/deb
           dpkg-deb -x qorlla-*-amd64.deb sbx/deb
@@ -133,6 +133,7 @@ jobs:
           echo "== 7. reinstall, then purge: nothing left behind"; sudo apt-get install -y -qq "$DEB" > /dev/null; loaded > /dev/null; sudo apt-get purge -y -qq qorlla > /dev/null; ! loaded; ! sudo test -e /etc/apparmor.d/qorlla
           echo "Debian install, AppArmor enforcement, launch, upgrade, remove and purge all behaved as required" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: "AppImage diagnostics (informational; the AppImage stays NOT distributable): reproduce the exit code with FULL output"
+        if: always()
         continue-on-error: true
         run: |
           set +e
