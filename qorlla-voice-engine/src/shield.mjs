@@ -54,7 +54,17 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
   const cfg = { reserveCents: num(env.SHIELD_PSTN_RESERVE_CENTS, 100), guestTtl: num(env.SHIELD_GUEST_WAIT_SECONDS, 900), mediaTtl: num(env.SHIELD_MEDIA_TOKEN_SECONDS, 120), authTtl: num(env.SHIELD_AUTH_TTL_SECONDS, 30),
     clientPerMin: num(env.SHIELD_GUEST_CLIENT_PER_MIN, 5), meetingPerMin: num(env.SHIELD_GUEST_MEETING_PER_MIN, 20), meetingFailLock: num(env.SHIELD_GUEST_MEETING_FAIL_LOCK, 30) };
 
-  async function audit(c, actor, action, decision, reason, requestId = null) { await c.query('INSERT INTO shield_events(actor, action, decision, reason, request_id) VALUES($1,$2,$3,$4,$5)', [actor, action, decision, reason, requestId]); }
+  async function audit(c, actor, action, decision, reason, requestId = null, ctx = null) { await c.query('INSERT INTO shield_events(actor, action, decision, reason, request_id, context) VALUES($1,$2,$3,$4,$5,$6)', [actor, action, decision, reason, requestId, ctx ? JSON.stringify(ctx) : null]); }
+  /** An event written OUTSIDE any request transaction (a refusal must be recorded even though the request's transaction rolls back). Never throws. */
+  const recordEvent = (actor, action, decision, reason, ctx) => db.query('INSERT INTO shield_events(actor, action, decision, reason, context) VALUES($1,$2,$3,$4,$5)', [String(actor || '').slice(0, 128) || null, action, decision, reason, ctx ? JSON.stringify(ctx) : null]).catch(() => {});
+  // TLS handshakes refused by the mutual-TLS listener: recorded at most once per (address, error) per minute so a flood cannot flood the append-only log; the rest are only counted
+  const tlsSeen = new Map(); let tlsDropped = 0;
+  function recordTlsRefusal(ip, code) {
+    const key = String(ip || '') + '|' + String(code || ''), now = Date.now(), last = tlsSeen.get(key) || 0;
+    if (tlsSeen.size > 5000) tlsSeen.clear();
+    if (now - last < 60000) { tlsDropped++; return; } tlsSeen.set(key, now);
+    return recordEvent('tls:' + String(ip || 'unknown'), 'tls.handshake', 'DENY', 'TLS_HANDSHAKE_REFUSED', { ip: String(ip || '').slice(0, 64), discriminator: String(code || 'unknown').slice(0, 64) });
+  }
   /** Atomic counter: true while the bucket is under its ceiling. */
   async function bump(c, bucket, windowSec, max) {
     const r = await c.query('INSERT INTO shield_counters(bucket, window_start, n) VALUES($1, to_timestamp(floor(extract(epoch from now())/$2::int)*$2::int), 1) ON CONFLICT (bucket, window_start) DO UPDATE SET n = shield_counters.n + 1 WHERE shield_counters.n < $3 RETURNING n', [bucket, windowSec, max]);
@@ -67,12 +77,12 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
   const requireMtls = env.SHIELD_REQUIRE_MTLS === 'true';
   async function certProof(req, payload) {
     const sock = req.socket, cnf = payload.cnf && payload.cnf['x5t#S256'], onTls = !!(sock && sock.encrypted && sock.authorized === true);
-    if (!onTls) return !requireMtls && cnf === undefined;
-    const raw = (sock.getPeerCertificate(true) || {}).raw; if (!Buffer.isBuffer(raw) || !raw.length) return false;
-    const thumb = createHash('sha256').update(raw).digest('base64url');
-    if (cnf !== undefined) { if (typeof cnf !== 'string') return false; const a = Buffer.from(cnf), b = Buffer.from(thumb); if (a.length !== b.length || !timingSafeEqual(a, b)) return false; }
-    else if (requireMtls) return false;
-    return !(await db.query('SELECT 1 FROM shield_revoked_certs WHERE thumbprint=$1', [thumb])).rowCount;
+    if (!onTls) return !requireMtls && cnf === undefined ? null : 'CERT_MISSING';
+    const raw = (sock.getPeerCertificate(true) || {}).raw; if (!Buffer.isBuffer(raw) || !raw.length) return 'CERT_MISSING';
+    const thumb = createHash('sha256').update(raw).digest('base64url'); req.certThumbprint = thumb;
+    if (cnf !== undefined) { if (typeof cnf !== 'string') return 'CERT_BINDING_MISMATCH'; const x = Buffer.from(cnf), y = Buffer.from(thumb); if (x.length !== y.length || !timingSafeEqual(x, y)) return 'CERT_BINDING_MISMATCH'; }
+    else if (requireMtls) return 'CERT_BINDING_MISSING';
+    return (await db.query('SELECT 1 FROM shield_revoked_certs WHERE thumbprint=$1', [thumb])).rowCount ? 'CERT_REVOKED' : null;
   }
   async function revokeCertificate({ thumbprint, reason, actor }) {
     if (typeof thumbprint !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(thumbprint) || typeof reason !== 'string' || reason.length < 3 || reason.length > 200) throw new ShieldError('invalid_input', 400);
@@ -88,11 +98,12 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       const { payload } = await jwtVerify(token, keys, { issuer: env.SHIELD_WORKLOAD_ISSUER, audience: 'qorlla-shield', algorithms: ['RS256', 'ES256', 'EdDSA'], clockTolerance: 5 });
       if (typeof payload.sub !== 'string' || typeof payload.jti !== 'string' || payload.jti.length < 16 || !payload.exp || !payload.iat || payload.exp - payload.iat > 300) return res.status(401).json({ error: 'unauthorized' });
       // proof of possession of the client certificate (never from a header: only from the TLS socket, and only if the handshake authorized it)
-      if (!(await certProof(req, payload))) { await db.query('INSERT INTO shield_events(actor, action, decision, reason) VALUES($1,$2,$3,$4)', [String(payload.sub).slice(0, 128), 'workload.' + scope, 'DENY', 'CERT_PROOF_FAILED']).catch(() => {}); return res.status(401).json({ error: 'unauthorized' }); }
+      const ctx = { workload: String(payload.sub).slice(0, 128), scope, ip: (req.socket && req.socket.remoteAddress) || null };
+      const proof = await certProof(req, payload); if (proof) { await recordEvent(payload.sub, 'workload.' + scope, 'DENY', proof, { ...ctx, ...(req.certThumbprint ? { discriminator: req.certThumbprint } : {}) }); return res.status(401).json({ error: 'unauthorized' }); }
       const scopes = workloads.get(payload.sub);
-      if (!scopes || !scopes.has(scope)) { await db.query('INSERT INTO shield_events(actor, action, decision, reason) VALUES($1,$2,$3,$4)', [String(payload.sub).slice(0, 128), 'workload.' + scope, 'DENY', 'WORKLOAD_NOT_AUTHORIZED']).catch(() => {}); return res.status(403).json({ error: 'forbidden' }); }
+      if (!scopes || !scopes.has(scope)) { await recordEvent(payload.sub, 'workload.' + scope, 'DENY', 'WORKLOAD_NOT_AUTHORIZED', ctx); return res.status(403).json({ error: 'forbidden' }); }
       const fresh = await db.query('INSERT INTO shield_workload_jti(jti_hash, expires_at) VALUES($1, to_timestamp($2)) ON CONFLICT DO NOTHING RETURNING 1', [sha(payload.jti), payload.exp + 60]);
-      if (!fresh.rowCount) return res.status(401).json({ error: 'unauthorized' });
+      if (!fresh.rowCount) { await recordEvent(payload.sub, 'workload.' + scope, 'DENY', 'WORKLOAD_REPLAY', ctx); return res.status(401).json({ error: 'unauthorized' }); }
       req.workload = payload.sub; next();
     } catch { res.status(401).json({ error: 'unauthorized' }); }
   };
@@ -138,7 +149,7 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       }
       await audit(c, accountId, suspended ? 'principal.suspend' : 'principal.restore', 'ALLOW', source); return { accountId, suspended: suspended ? true : !!r.rows[0].suspended, terminate };
     });
-    if (suspended) { await store.setEnabled(accountId, false).catch(() => {}); onVoiceDisabled?.(accountId); }
+    if (suspended) { const failed = await store.setEnabled(accountId, false).then(() => false, () => true); if (failed) await recordEvent('voice-engine', 'suspend.terminate', 'ALERT', 'SIGNALING_TERMINATION_FAILED', { discriminator: String(accountId).slice(0, 80), source: source }); onVoiceDisabled?.(accountId); }
     else if (!out.suspended) await store.setEnabled(accountId, true).catch(() => {});                       // every hold lifted: the voice identity comes back
     return out;
   }
@@ -336,7 +347,8 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
     const rows = (await c.query('SELECT p.account_id, p.org_id, p.verified, p.suspended, o.suspended AS org_suspended FROM shield_principals p LEFT JOIN shield_orgs o ON o.org_id=p.org_id WHERE p.account_id = ANY($1::text[])', [[callerId, calleeId]])).rows;
     const a = rows.find((r) => r.account_id === callerId), b = rows.find((r) => r.account_id === calleeId);
     if (!a) throw coded('unknown_principal'); if (a.suspended || a.org_suspended) throw coded('suspended'); if (!a.verified) throw coded('identity_unverified');
-    if (!b || b.suspended || b.org_suspended || !b.verified || (b.org_id ?? null) !== (a.org_id ?? null)) throw coded('invalid_recipient');
+    if (!b || b.suspended || b.org_suspended || !b.verified) throw coded('invalid_recipient');
+    if ((b.org_id ?? null) !== (a.org_id ?? null)) { recordEvent(callerId, 'call.guard', 'DENY', 'CROSS_TENANT', { tenant: a.org_id ?? 'default', discriminator: 'to:' + (b.org_id ?? 'default') }); throw coded('invalid_recipient'); }   // same answer as an unknown extension
   }
   /** Meet sends the sessions it is holding open; the shield names the ones that must be closed NOW (suspension, ended meeting, a principal that vanished). */
   async function meetRecheck({ participants }) {
@@ -363,9 +375,62 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       await c.query('UPDATE shield_media_tokens SET revoked_at=now() WHERE meeting_id=$1 AND revoked_at IS NULL', [meetingId]); await audit(c, null, 'meeting.end', 'ALLOW', 'ADMIN'); return { meetingId };
     });
   }
+  // ---- durable alerts: the API over the derived shield_alerts rows, reports from other services, the evaluator (escalation, outbox health) and the notification delivery
+  const ALERT_COLS = 'alert_id, kind, severity, workload, account, tenant, source_ip, detail, first_event_id, last_event_id, occurrences, first_at, last_at, ack_state, open_since, acknowledged_by, acknowledged_at, ack_note, reopen_count, resolved_by, resolved_at, escalation, escalated_at';
+  const alertView = (r) => ({ alertId: r.alert_id, kind: r.kind, severity: r.severity, eventId: String(r.last_event_id), firstEventId: String(r.first_event_id), context: { workload: r.workload, account: r.account, tenant: r.tenant, ip: r.source_ip, detail: r.detail }, occurrences: r.occurrences, firstAt: r.first_at, lastAt: r.last_at, ackState: r.ack_state, acknowledgedBy: r.acknowledged_by, acknowledgedAt: r.acknowledged_at, reopenCount: r.reopen_count, escalation: r.escalation, escalatedAt: r.escalated_at, openSince: r.open_since });
+  async function listAlerts({ state, severity, limit = 100 } = {}) {
+    if ((state && !['open', 'acknowledged', 'resolved', 'active'].includes(state)) || (severity && !['low', 'medium', 'high', 'critical'].includes(severity))) throw new ShieldError('invalid_input', 400);
+    const w = [], p = []; if (state === 'active') w.push("ack_state <> 'resolved'"); else if (state) { p.push(state); w.push('ack_state = $' + p.length); } if (severity) { p.push(severity); w.push('severity = $' + p.length); }
+    p.push(Math.min(500, Math.max(1, Number(limit) || 100)));
+    return (await db.query('SELECT ' + ALERT_COLS + ' FROM shield_alerts' + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY (ack_state = \'resolved\'), shield_sev_rank(severity) DESC, last_at DESC LIMIT $' + p.length, p)).rows.map(alertView);
+  }
+  async function changeAlert(alertId, actor, to, note) {
+    if (!uuid(alertId) || (note != null && (typeof note !== 'string' || note.length > 300))) throw new ShieldError('invalid_input', 400);
+    return tx(async (c) => {
+      const r = to === 'acknowledged'
+        ? await c.query("UPDATE shield_alerts SET ack_state='acknowledged', acknowledged_by=$2, acknowledged_at=now(), ack_note=$3 WHERE alert_id=$1 AND ack_state='open' RETURNING " + ALERT_COLS, [alertId, actor, note || null])
+        : await c.query("UPDATE shield_alerts SET ack_state='resolved', resolved_by=$2, resolved_at=now(), ack_note=COALESCE($3, ack_note) WHERE alert_id=$1 AND ack_state <> 'resolved' RETURNING " + ALERT_COLS, [alertId, actor, note || null]);
+      if (!r.rowCount) throw new ShieldError('not_found_or_already_' + to, 409);
+      await audit(c, actor, 'alert.' + (to === 'acknowledged' ? 'ack' : 'resolve'), 'ALLOW', String(r.rows[0].kind), null, { discriminator: alertId }); return alertView(r.rows[0]);
+    });
+  }
+  const KINDS = { signaling_termination_failed: 'SIGNALING_TERMINATION_FAILED', outbox_delivery_failed: 'OUTBOX_DELIVERY_FAILED' };
+  /** Other services (Meet, Numbers & Plans) report operational failures they observed; each becomes an event, hence an alert. Only these kinds, only with the reporter's own workload identity. */
+  async function report({ kind, source, ref }, workload) {
+    if (!KINDS[kind] || typeof source !== 'string' || !/^[A-Za-z0-9_.:-]{1,64}$/.test(source) || (ref != null && !/^[A-Za-z0-9_.:@-]{1,80}$/.test(ref))) throw new ShieldError('invalid_input', 400);
+    await db.query('INSERT INTO shield_events(actor, action, decision, reason, context) VALUES($1,$2,$3,$4,$5)', [workload, 'report.' + kind, 'ALERT', KINDS[kind], JSON.stringify({ workload, discriminator: source + (ref ? ':' + ref : '') })]); return { recorded: true };
+  }
+  const lastEmit = new Map();
+  /** Periodic: escalate unacknowledged high/critical alerts, and turn unhealthy outbox state into events (at most one per condition per SHIELD_ALERT_REPEAT_SECONDS, so a persistent fault is one counted alert, not a flood). */
+  async function evaluateAlerts({ queueStats, now = Date.now() } = {}) {
+    const crit = num(env.SHIELD_ALERT_ESCALATE_CRITICAL_SECONDS, 900), high = num(env.SHIELD_ALERT_ESCALATE_HIGH_SECONDS, 3600), repeat = num(env.SHIELD_ALERT_REPEAT_SECONDS, 600) * 1000, lag = num(env.SHIELD_ALERT_OUTBOX_LAG_SECONDS, 120), out = { emitted: [], escalated: 0 };
+    const emit = async (key, ctx) => { if (now - (lastEmit.get(key) || 0) < repeat) return; lastEmit.set(key, now); await recordEvent('voice-engine', 'outbox.monitor', 'ALERT', 'OUTBOX_DELIVERY_FAILED', { discriminator: key, detail: ctx }); out.emitted.push(key); };
+    if (queueStats) { const q = await queueStats(); if (q.dead > 0) await emit('dead', { dead: q.dead, pending: q.pending }); if (q.oldestSeconds > lag) await emit('lag', { oldestSeconds: q.oldestSeconds, pending: q.pending }); }
+    const rows = (await db.query("UPDATE shield_alerts SET escalation='escalated', escalated_at=now() WHERE ack_state='open' AND escalation='pending' AND open_since + make_interval(secs => CASE WHEN severity='critical' THEN $1::float8 ELSE $2::float8 END) <= now() RETURNING " + ALERT_COLS, [crit, high])).rows;
+    for (const r of rows) await db.query("INSERT INTO shield_alert_outbox(alert_id, kind, payload) VALUES($1,'escalated',$2)", [r.alert_id, JSON.stringify(alertView(r))]);
+    out.escalated = rows.length; return out;
+  }
+  /** At-least-once delivery of alert notifications through a sink function; a failed delivery is retried with backoff and never lost. Receivers de-duplicate by notificationId. */
+  async function deliverNotifications(send, { limit = 20 } = {}) {
+    if (typeof send !== 'function') return { sent: 0, failed: 0 };
+    const rows = (await db.query("UPDATE shield_alert_outbox o SET attempts = attempts + 1, next_attempt_at = now() + interval '60 seconds' WHERE notification_id IN (SELECT notification_id FROM shield_alert_outbox WHERE delivered_at IS NULL AND next_attempt_at <= now() ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED) RETURNING notification_id, alert_id, kind, attempts", [limit])).rows;
+    let sent = 0, failed = 0;
+    for (const n of rows) {
+      const a = (await db.query('SELECT ' + ALERT_COLS + ' FROM shield_alerts WHERE alert_id=$1', [n.alert_id])).rows[0];
+      try { await send({ notificationId: n.notification_id, kind: n.kind, attempt: n.attempts, alert: alertView(a) }); await db.query('UPDATE shield_alert_outbox SET delivered_at=now(), last_error=NULL WHERE notification_id=$1', [n.notification_id]); sent++; }
+      catch (e) { failed++; await db.query("UPDATE shield_alert_outbox SET last_error=$2, next_attempt_at = now() + make_interval(secs => LEAST(300, power(2, LEAST($3, 8))::int)) WHERE notification_id=$1", [n.notification_id, String(e.message || e).slice(0, 200), n.attempts]); }
+    }
+    return { sent, failed };
+  }
+  async function alertMetricLines() {
+    const g = (name, help, labels, v) => '# HELP ' + name + ' ' + help + '\n# TYPE ' + name + ' gauge\n' + name + labels + ' ' + Number(v || 0);
+    const bySev = (await db.query("SELECT severity, count(*)::int AS n FROM shield_alerts WHERE ack_state <> 'resolved' GROUP BY severity")).rows, s = Object.fromEntries(bySev.map((x) => [x.severity, x.n]));
+    const x = (await db.query("SELECT (SELECT count(*)::int FROM shield_alerts WHERE ack_state='open' AND escalation='escalated') AS escalated, (SELECT count(*)::int FROM shield_alert_outbox WHERE delivered_at IS NULL) AS pending, (SELECT COALESCE(max(attempts),0)::int FROM shield_alert_outbox WHERE delivered_at IS NULL) AS max_attempts")).rows[0];
+    return ['critical', 'high', 'medium', 'low'].map((v) => g('qorlla_shield_alerts_active', 'Active (not resolved) security alerts', '{severity="' + v + '"}', s[v])).concat([g('qorlla_shield_alerts_escalated', 'Open alerts that have been escalated', '', x.escalated), g('qorlla_shield_alert_notifications_pending', 'Alert notifications not yet delivered', '', x.pending), g('qorlla_shield_alert_notification_max_attempts', 'Highest delivery attempt count of a pending notification', '', x.max_attempts), g('qorlla_shield_tls_refusals_dropped_total', 'Refused TLS handshakes counted but not individually recorded (flood protection)', '', tlsDropped)]);
+  }
   /** Best-effort audit of a refused write: the caller is authenticated but is not the party allowed to do it. */
   function auditProvenance(actor, reason) { db.query('INSERT INTO shield_events(actor, action, decision, reason) VALUES($1,$2,$3,$4)', [String(actor || '').slice(0, 128), 'numbers.sync', 'DENY', reason]).catch(() => {}); }
   async function purgeExpired() { await store.tx(async (c) => { await c.query('DELETE FROM shield_workload_jti WHERE expires_at < now()'); await c.query("DELETE FROM shield_counters WHERE window_start < now() - interval '1 day'"); }); }
 
-  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, revokeCertificate, callGuard, auditProvenance, registerMeeting, meetAuthorize, meetRecheck, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
+  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, revokeCertificate, recordTlsRefusal, listAlerts, ackAlert: (id, actor, note) => changeAlert(id, actor, 'acknowledged', note), resolveAlert: (id, actor, note) => changeAlert(id, actor, 'resolved', note), report, evaluateAlerts, deliverNotifications, alertMetricLines, callGuard, auditProvenance, registerMeeting, meetAuthorize, meetRecheck, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
 }

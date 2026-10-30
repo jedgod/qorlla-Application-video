@@ -83,7 +83,7 @@ test('BINDING: the token must be bound to the certificate on THIS connection; a 
   assert.equal((await put('good', tok('svc:stranger', 'good'))).status, 403, 'a subject that is not on the allow-list');
   const once = tok('svc:good', 'good'); assert.equal((await put('good', once)).status, 200); assert.equal((await put('good', once)).status, 401, 'the same bound token twice (replay)');
   assert.equal((await put('good', tok('svc:good', 'good', { ttlSeconds: 3600 }))).status, 401, 'lifetime above 5 minutes');
-  assert.ok((await db.pool.query("SELECT 1 FROM shield_events WHERE decision='DENY' AND reason='CERT_PROOF_FAILED'")).rowCount >= 3, 'refused proofs are audited');
+  assert.ok((await db.pool.query("SELECT 1 FROM shield_events WHERE decision='DENY' AND reason IN ('CERT_MISSING','CERT_BINDING_MISMATCH','CERT_BINDING_MISSING','CERT_REVOKED')")).rowCount >= 3, 'refused proofs are audited');
   // the plain listener cannot carry a workload request when mTLS is required, and a bound token never works without its proof
   const viaPlain = (token) => fetch(r.base + '/v1/shield/admin/principals', { method: 'PUT', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: JSON.stringify(PRINCIPAL('p2')) }).then((x) => x.status);
   assert.equal(await viaPlain(tok('svc:good', 'good')), 401); assert.equal(await viaPlain(tok('svc:good', null)), 401, 'mTLS required: unbound tokens are refused on the plain listener too');
@@ -126,4 +126,24 @@ test('CLIENTS over mutual TLS: Numbers & Plans (event sink), the internal provid
   bridge.queue({ id: 'u_bridge1', verified: true, suspended: false }); await new Promise((ok) => setTimeout(ok, 800)); await bridge.flush();
   assert.equal((await db.pool.query("SELECT verified FROM shield_principals WHERE account_id='u_bridge1'")).rows[0]?.verified, true, 'the main app registered the account over mutual TLS');
   assert.equal(require('../../shield-bridge.js').transportFromEnv({}), null, 'no certificate configured = no transport (never a silent downgrade of a configured one: the bridge reads the files or fails)');
+});
+
+test('ESTABLISHED CONNECTIONS: revocation applies to a connection that is already open (the same TLS socket is reused), and a rotated transport follows its files without a restart', async (t) => {
+  if (skip(t)) return;
+  const agent = new https.Agent({ keepAlive: true, maxSockets: 1, ca: pki['test-ca'].cert, cert: pki.other.cert, key: pki.other.key });
+  const send = (token) => new Promise((ok) => { const rq = https.request({ host: '127.0.0.1', port: mtlsPort, path: '/v1/shield/admin/principals', method: 'PUT', agent, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token } }, (res) => { res.resume(); res.on('end', () => ok({ status: res.statusCode, reused: rq.reusedSocket })); }); rq.on('error', (e) => ok({ error: e.code })); rq.end(JSON.stringify(PRINCIPAL('p5'))); });
+  const t1 = tok('svc:good', 'other'); assert.deepEqual(await send(t1), { status: 200, reused: false }); const second = await send(tok('svc:good', 'other')); assert.deepEqual(second, { status: 200, reused: true }, 'the second request travels on the SAME established connection');
+  assert.equal((await over('good2', tok('svc:good', 'good2'), '/v1/shield/admin/certs/revoke', { thumbprint: certThumbprint(pki.other.cert), reason: 'revoke while connected' })).status, 200);
+  assert.deepEqual(await send(tok('svc:good', 'other')), { status: 401, reused: true }, 'the established connection is NOT trusted any further after revocation: authorization is decided per request');
+  agent.destroy();
+  // a transport that follows its files: rotate rot1 -> rot2 under a running client, survive a corrupt drop, and see revocation win over everything
+  const { reloadableTransport } = await import('../../qorlla-meet-video/server/telephony/workload-transport.mjs'), dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'qrot-')), live = (n) => path.join(dir2, n);
+  const put = (from) => { fs.writeFileSync(live('c.key'), pki[from].key); fs.writeFileSync(live('c.crt'), pki[from].cert); }; fs.writeFileSync(live('ca.crt'), pki['test-ca'].cert); put('good2');
+  const errors = []; const tr = reloadableTransport({ certFile: live('c.crt'), keyFile: live('c.key'), caFile: live('ca.crt'), checkMs: 100, onError: (e) => errors.push(e.message) });
+  const call = async () => (await tr.fetchImpl('https://127.0.0.1:' + mtlsPort + '/v1/shield/admin/principals', { method: 'PUT', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok('svc:good', null, { cnfThumbprint: tr.thumbprint }) }, body: JSON.stringify(PRINCIPAL('p6')) })).status;
+  assert.equal(await call(), 200); const t0 = tr.thumbprint; assert.equal(t0, certThumbprint(pki.good2.cert));
+  fs.writeFileSync(live('c.crt'), pki.rogue.cert); await new Promise((ok) => setTimeout(ok, 300)); assert.equal(await call(), 200, 'a half-written rotation (certificate and key do not match) keeps the previous good credentials'); assert.ok(errors.length >= 1); assert.equal(tr.thumbprint, t0);
+  fs.writeFileSync(live('c.crt'), 'garbage'); await new Promise((ok) => setTimeout(ok, 300)); assert.equal(await call(), 200, 'a corrupt certificate file does not take the client down');
+  assert.equal(tr.reloadNow() === t0, true);
+  fs.rmSync(dir2, { recursive: true, force: true });
 });

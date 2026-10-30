@@ -6,27 +6,37 @@
 // FAIL CLOSED: an account the shield has never heard of is refused by the shield, so a failure here can only delay access, never grant it.
 const crypto = require('crypto');
 const https = require('https');
+const tls = require('tls');
 const fs = require('fs');
 const path = require('path');
 const store = require('./store');
 
 const b64 = (b) => Buffer.from(b).toString('base64url');
 
-/** Mutual TLS from SHIELD_CLIENT_CERT / SHIELD_CLIENT_KEY / SHIELD_CA (file paths): a pinned CA, our client certificate, never rejectUnauthorized:false. Returns { fetchImpl, thumbprint } or null. */
-function transportFromEnv(env) {
+/** Mutual TLS from SHIELD_CLIENT_CERT / SHIELD_CLIENT_KEY / SHIELD_CA (file paths): a pinned CA, our client certificate, never rejectUnauthorized:false. The files are re-read when they change (at most every
+ *  SHIELD_CERT_RELOAD_SECONDS, default 5), so rotation needs no restart; a corrupt rotation keeps the last good credentials. Returns { fetchImpl, thumbprint (getter) } or null. */
+function transportFromEnv(env, onError = (e) => console.error('[shield-bridge] certificate reload failed, keeping the previous credentials:', e.message)) {
     if (!env.SHIELD_CLIENT_CERT || !env.SHIELD_CLIENT_KEY || !env.SHIELD_CA) return null;
-    const cert = fs.readFileSync(env.SHIELD_CLIENT_CERT), key = fs.readFileSync(env.SHIELD_CLIENT_KEY), ca = fs.readFileSync(env.SHIELD_CA);
-    const agent = new https.Agent({ ca, cert, key, rejectUnauthorized: true, keepAlive: true, minVersion: 'TLSv1.2' });
+    const files = [env.SHIELD_CLIENT_CERT, env.SHIELD_CLIENT_KEY, env.SHIELD_CA], checkMs = Math.max(100, Number(env.SHIELD_CERT_RELOAD_SECONDS || 5) * 1000);
+    let state = null, last = 0;
+    const read = () => {
+        const sig = files.map((f) => { const st = fs.statSync(f); return st.mtimeMs + ':' + st.size; }).join('|'); if (state && state.sig === sig) return state;
+        const cert = fs.readFileSync(files[0]), key = fs.readFileSync(files[1]), ca = fs.readFileSync(files[2]), thumbprint = crypto.createHash('sha256').update(new crypto.X509Certificate(cert).raw).digest('base64url');
+        tls.createSecureContext({ ca, cert, key });                                   // throws NOW on a key that does not match the certificate
+        const agent = new https.Agent({ ca, cert, key, rejectUnauthorized: true, keepAlive: true, minVersion: 'TLSv1.2' }); const old = state; state = { sig, agent, thumbprint }; if (old) setTimeout(() => old.agent.destroy(), 30000).unref(); return state;
+    };
+    const current = () => { const now = Date.now(); if (!state || now - last > checkMs) { last = now; try { read(); } catch (e) { if (!state) throw e; onError(e); } } return state; };
+    current();
     const fetchImpl = (url, init = {}) => new Promise((resolve, reject) => {
         const u = new URL(url); if (u.protocol !== 'https:') return reject(new Error('mTLS_requires_https'));
-        const body = init.body == null ? null : Buffer.from(init.body);
+        const body = init.body == null ? null : Buffer.from(init.body), agent = current().agent;
         const req = https.request(u, { agent, method: init.method || 'GET', timeout: 5000, headers: { ...(init.headers || {}), ...(body ? { 'content-length': body.length } : {}) } }, (res) => {
             const chunks = []; res.on('data', (c) => chunks.push(c));
             res.on('end', () => { const buf = Buffer.concat(chunks); resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, json: async () => JSON.parse(buf.toString('utf8')) }); });
         });
         req.on('timeout', () => req.destroy(new Error('timeout'))); req.on('error', reject); req.end(body);
     });
-    return { fetchImpl, thumbprint: crypto.createHash('sha256').update(new crypto.X509Certificate(cert).raw).digest('base64url') };
+    return { fetchImpl, get thumbprint() { return current().thumbprint; } };
 }
 
 function createShieldBridge({ dataDir, env = process.env, listAccounts, fetchImpl: injected, transport: injectedTransport, log = console }) {

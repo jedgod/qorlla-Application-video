@@ -2,7 +2,7 @@
 // A factory, so tests (and the real server) build the same thing. PostgreSQL is authoritative; Redis (optional) only carries delivery between replicas.
 import http from 'node:http';
 import https from 'node:https';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHmac } from 'node:crypto';
 import express from 'express';
 import helmet from 'helmet';
 import { WebSocketServer } from 'ws';
@@ -214,7 +214,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   }));
 
   // ---- Security Shield v2.2 (see docs/VOICE_SHIELD.md). Workload routes need a short-lived workload credential; user routes need a signed-in account. All of them fail closed.
-  const wl = (scope) => shield.requireWorkload(scope), sh = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { if (e instanceof ShieldError) return res.status(e.status).json({ error: e.code }); console.error('shield error', e && (e.code || e.message)); res.status(503).json({ allow: false, error: 'SECURITY_UNAVAILABLE' }); } };
+  const wl = (scope) => shield.requireWorkload(scope), sh = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { if (e instanceof ShieldError) return res.status(e.status).json({ error: e.code }); console.error('shield error', e && (e.code || e.message), e && (e.table || ''), e && (e.column || e.constraint || '')); res.status(503).json({ allow: false, error: 'SECURITY_UNAVAILABLE' }); } };
   const strict = (body, keys) => (body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).every((k) => keys.includes(k)) ? body : {});
   const shieldAdmin = wl('shield.admin'), shieldSuspend = wl('shield.suspend');                      // suspension has a scope of its own: provisioning rights do not imply it
   app.put('/v1/shield/admin/principals', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertPrincipal(strict(req.body, ['accountId', 'orgId', 'verified', 'billingHold'])))));
@@ -247,6 +247,11 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.post('/v1/shield/meet/recheck', wl('meet.signal'), sh(async (req, res) => res.set('Cache-Control', 'no-store').json(await shield.meetRecheck(strict(req.body, ['participants'])))));
   // Revoking a workload certificate: its own scope. The certificate is refused from the next request on, even though it is still inside its validity period.
   app.post('/v1/shield/admin/certs/revoke', wl('shield.cert.revoke'), sh(async (req, res) => res.json(await shield.revokeCertificate({ ...strict(req.body, ['thumbprint', 'reason']), actor: req.workload }))));
+  // Durable alerts (derived from shield_events inside PostgreSQL): list, acknowledge, resolve; and reports from other services. Each has its own scope.
+  app.get('/v1/shield/alerts', wl('alerts.read'), sh(async (req, res) => res.set('Cache-Control', 'no-store').json({ alerts: await shield.listAlerts({ state: req.query.state, severity: req.query.severity, limit: req.query.limit }) })));
+  app.post('/v1/shield/alerts/:id/ack', wl('alerts.ack'), sh(async (req, res) => res.json(await shield.ackAlert(req.params.id, req.workload, strict(req.body, ['note']).note))));
+  app.post('/v1/shield/alerts/:id/resolve', wl('alerts.ack'), sh(async (req, res) => res.json(await shield.resolveAlert(req.params.id, req.workload, strict(req.body, ['note']).note))));
+  app.post('/v1/shield/report', wl('alerts.report'), sh(async (req, res) => res.json(await shield.report(strict(req.body, ['kind', 'source', 'ref']), req.workload))));
   app.post('/v1/shield/media/consume', wl('media.consume'), sh(async (req, res) => res.set('Cache-Control', 'no-store').json(await shield.mediaConsume(strict(req.body, ['token', 'meetingId'])))));
   app.post('/v1/shield/guest/:id/decision', auth, sh(async (req, res) => { if (!enforce) return res.status(503).json({ error: 'shield_enforcement_off' }); res.json(await shield.guestDecide({ hostAccountId: req.account, admissionId: req.params.id, decision: (req.body || {}).decision })); }));
   app.post('/v1/shield/authorize', authLax, sh(async (req, res) => { if (!enforce) return res.status(503).json({ error: 'shield_enforcement_off' }); const b = strict(req.body, ['action', 'resourceOrgId']); const scopes = typeof (req.claims && req.claims.scope) === 'string' ? req.claims.scope.split(' ') : []; const r = await shield.authorizeUser({ accountId: req.account, iat: req.claims.iat, action: b.action, resourceOrgId: b.resourceOrgId == null ? null : b.resourceOrgId, scopes }); res.status(r.allow ? 200 : 403).json(r); }));
@@ -278,6 +283,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
         g('qorlla_voice_sockets_open', 'Open signaling sockets on this replica', router.total()), g('qorlla_voice_sockets_slow_closed_total', 'Sockets closed for not keeping up', router.slowClosed), g('qorlla_voice_bus_up', '1 when Redis delivery is up (1 also when Redis is not configured)', bus ? (bus.up ? 1 : 0) : 1),
         g('qorlla_voice_history_legal_holds', 'Rooms under legal hold', hs.legalHolds), g('qorlla_voice_history_deletions_waiting_on_hold', 'User deletion requests waiting for a legal hold to be released', hs.deletionsWaitingOnHold),
         g('qorlla_voice_history_retention_deleted_rooms_total', 'Rooms deleted by the retention policy', hs.ops.retention?.rooms), g('qorlla_voice_history_retention_days', 'Configured retention (0 = keep for ever)', retention.days)];
+      if (shield.enabled) rows.push(...(await shield.alertMetricLines()));
       return res.set('Cache-Control', 'no-store').type('text/plain; version=0.0.4').send(rows.join('\n') + '\n');
     }
     res.set('Cache-Control', 'no-store').json({ instance: instanceId, history: { retentionDays: retention.days, ...hs }, outbox: { ...q, published: worker?.stats.published ?? null, failed: worker?.stats.failed ?? null, maxPending: MAX_PENDING, maxAgeSeconds: MAX_AGE, failClosed: q.pending > MAX_PENDING || q.oldestSeconds > MAX_AGE },
@@ -342,10 +348,16 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   const heartbeat = setInterval(() => { for (const ws of wss.clients) { if (ws.isAlive === false) { ws.terminate(); continue; } ws.isAlive = false; try { ws.ping(); } catch { /* gone */ } } }, 30000); heartbeat.unref?.();
   const maint = maintenance ? startMaintenance({ store, db, reliability, history, historyRetentionDays: retention.days, afterChange: kick, intervalMs: maintenanceMs, ringSeconds: ringSeconds(env), leaseGraceSeconds: Number(env.VOICE_LEASE_GRACE_SECONDS || 120), retentionHours: Number(env.VOICE_EVENT_RETENTION_HOURS || 168) }) : null;
 
+  // Alert worker: escalation, outbox health, and at-least-once delivery of alert notifications to a webhook (SHIELD_ALERT_WEBHOOK_URL, signed with SHIELD_ALERT_WEBHOOK_SECRET). Off unless the shield is on.
+  const sendAlert = env.SHIELD_ALERT_WEBHOOK_URL ? async (payload) => {
+    const body = JSON.stringify(payload), ts = String(Math.floor(Date.now() / 1000)), sig = env.SHIELD_ALERT_WEBHOOK_SECRET ? 'sha256=' + createHmac('sha256', env.SHIELD_ALERT_WEBHOOK_SECRET).update(ts + '.' + body).digest('hex') : '';
+    const r = await fetch(env.SHIELD_ALERT_WEBHOOK_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-qorlla-timestamp': ts, ...(sig ? { 'x-qorlla-signature': sig } : {}) }, body, signal: AbortSignal.timeout(5000) }); if (!r.ok) throw new Error('webhook_' + r.status);
+  } : null;
+  const alertTimer = shield.enabled ? setInterval(() => { shield.evaluateAlerts({ queueStats: reliability.queueStats }).then(() => shield.deliverNotifications(sendAlert)).catch(() => {}); }, num(env.SHIELD_ALERT_INTERVAL_SECONDS, 30) * 1000) : null; alertTimer?.unref?.();
   let mtlsServer = null;
   const WORKLOAD_PATHS = /^\/v1\/(shield|voice\/admin)\//;
   return {
-    app, server, wss, sockets, send, router, bus, worker, reliability, maint, instanceId, kick, closeAccount,
+    app, server, wss, sockets, send, router, bus, worker, reliability, maint, instanceId, kick, closeAccount, shield,
     listen: async (port = 0, host) => {
       if (bus) { try { await Promise.race([bus.start(), new Promise((_r, rej) => setTimeout(() => rej(Error('redis_start_timeout')), 3000))]); } catch (e) { console.error('voice: Redis is not reachable yet; running degraded and retrying:', e.message); } }
       worker?.start(); worker?.kick();
@@ -355,8 +367,9 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     listenMtls: async (port = 0, host, { key, cert, ca, crl } = {}) => {
       if (!key || !cert || !ca) throw new Error('mTLS needs key, cert and ca');
       mtlsServer = https.createServer({ key, cert, ca, crl, requestCert: true, rejectUnauthorized: true, minVersion: 'TLSv1.2' }, (req, res) => (WORKLOAD_PATHS.test(req.url || '') ? app(req, res) : (res.statusCode = 404, res.end())));
+      mtlsServer.on('tlsClientError', (err, sock) => { shield.recordTlsRefusal(sock && sock.remoteAddress, err && (err.code || err.message)); });      // a refused handshake (no/untrusted/expired certificate) is a durable, deduplicated alert
       return new Promise((resolve) => mtlsServer.listen(port, host, () => resolve(mtlsServer.address().port)));
     },
-    close: async () => { if (mtlsServer) await new Promise((r) => { mtlsServer.close(() => r()); mtlsServer.closeAllConnections?.(); }); maint?.stop(); worker?.stop(); clearInterval(heartbeat); for (const ws of wss.clients) ws.close(1001); await new Promise((r) => server.close(() => r())); await bus?.close().catch(() => {}); }
+    close: async () => { clearInterval(alertTimer); if (mtlsServer) await new Promise((r) => { mtlsServer.close(() => r()); mtlsServer.closeAllConnections?.(); }); maint?.stop(); worker?.stop(); clearInterval(heartbeat); for (const ws of wss.clients) ws.close(1001); await new Promise((r) => server.close(() => r())); await bus?.close().catch(() => {}); }
   };
 }

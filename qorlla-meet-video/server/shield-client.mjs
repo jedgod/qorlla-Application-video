@@ -26,6 +26,8 @@ export function createShieldClient({ config, fetchImpl = (config.transport && co
     },
     /** -> { revoke: [...] } or null when the shield could not be asked (the caller applies the grace period). */
     async recheck(participants) { try { const r = await call('/v1/shield/meet/recheck', { participants }); if (r.status !== 200 || !Array.isArray(r.data.revoke)) return null; state.lastOk = now(); return r.data; } catch { return null; } },
+    /** Tell the Shield about an operational failure Meet could not handle itself (it becomes a durable alert). Best effort: never throws. */
+    async report(kind, ref) { try { return (await call('/v1/shield/report', { kind, source: 'meet', ...(ref ? { ref: String(ref).replace(/[^A-Za-z0-9_.:@-]/g, '').slice(0, 80) } : {}) })).status === 200; } catch { return false; } },
     async end(meetingId) { try { return (await call('/v1/shield/meet/end', { meetingId })).status === 200; } catch { return false; } }
   };
 }
@@ -36,11 +38,11 @@ export function startSessionGuard({ io, db, client, config, log = console }) {
     const live = [...io.sockets.sockets.values()].filter((s) => s.data && s.data.user);
     if (!live.length) { client.state.lastOk = Date.now(); return; }
     const list = live.map((s) => ({ meetingId: s.data.user.meetingId, participantId: s.data.user.participantId, ...(s.data.accountId ? { accountId: s.data.accountId } : {}) })).slice(0, 500);
-    const out = await client.recheck(list), stop = (s, reason) => { s.emit('session_revoked', { reason }); s.disconnect(true); };
+    const out = await client.recheck(list), stop = (s, reason) => { try { s.emit('session_revoked', { reason }); s.disconnect(true); } catch { client.report('signaling_termination_failed', s.data.user.participantId); } };
     if (!out) { if (Date.now() - client.state.lastOk > config.graceMs) { log.error('[shield] unreachable beyond the grace period: closing sessions'); for (const s of live) stop(s, 'SHIELD_UNAVAILABLE'); } return; }
     for (const rv of out.revoke) {
       const s = live.find((x) => x.data.user.participantId === rv.participantId && x.data.user.meetingId === rv.meetingId); if (s) stop(s, rv.reason);
-      await db.query("UPDATE participants SET admission='denied' WHERE id=$1 AND meeting_id=$2", [rv.participantId, rv.meetingId]).catch(() => {});      // the token cannot be used to come back
+      await db.query("UPDATE participants SET admission='denied' WHERE id=$1 AND meeting_id=$2", [rv.participantId, rv.meetingId]).catch(() => { client.report('signaling_termination_failed', rv.participantId); });      // the token cannot be used to come back
     }
   }, config.recheckMs); t.unref(); return () => clearInterval(t);
 }

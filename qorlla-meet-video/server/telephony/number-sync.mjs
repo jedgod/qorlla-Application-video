@@ -18,16 +18,19 @@ export function createEngineSink({ url, privateKeyPem, issuer, subject = 'svc:nu
   };
   const sink = async (event) => { const out = await post('/v1/shield/numbers/events', event); if (!['applied', 'duplicate', 'stale'].includes(out.result)) throw new Error('engine_result_' + out.result); return out; };
   sink.reconcile = (snapshot) => post('/v1/shield/numbers/reconcile', { numbers: snapshot });
+  sink.report = (kind, source, ref) => post('/v1/shield/report', { kind, source, ...(ref ? { ref } : {}) });
   return sink;
 }
 
 /** Background dispatcher: deliver the outbox, ask the carrier about unresolved operations, and hand the consumer a full snapshot now and then so a lost event can never leave it wrong. */
 export function startNumberSync({ svc, sink, intervalMs = 2000, reconcileEveryMs = 60000, snapshotEveryMs = 300000, log = console }) {
-  let lastRec = 0, lastSnap = 0, busy = false;
+  let lastRec = 0, lastSnap = 0, busy = false, failing = 0;
   const t = setInterval(async () => {
     if (busy) return; busy = true;
     try {
-      await svc.deliverOutbox(sink);
+      const d = await svc.deliverOutbox(sink);
+      failing = d.failed > 0 ? failing + 1 : 0;
+      if (failing === 5 && sink.report) sink.report('outbox_delivery_failed', 'numbers-plans').catch(() => {});        // five cycles in a row: a durable alert, once per streak
       const now = Date.now();
       if (now - lastRec > reconcileEveryMs) { lastRec = now; await svc.reconcileOperations(); }
       if (sink.reconcile && now - lastSnap > snapshotEveryMs) { lastSnap = now; await sink.reconcile(await svc.numberSnapshot()); }
