@@ -17,7 +17,7 @@ async function startMain(port, extraEnv = {}) {
   for (let i = 0; i < 60; i++) { try { if ((await fetch(base + '/')).ok) break; } catch (e) { /* not yet */ } await new Promise((r) => setTimeout(r, 500)); }
   const meetOk = await fetch(MEET + '/api/config').then((r) => r.ok).catch(() => false);
   if (!meetOk) throw new Error('Qorlla Meet is not running on :3310 (node scripts/start-recording-test-meet.cjs)');
-  return { base, stop() { try { child.kill(); } catch (e) { /* gone */ } try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (e) { /* busy */ } } };
+  return { base, dataDir, stop() { try { child.kill(); } catch (e) { /* gone */ } try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (e) { /* busy */ } } };
 }
 
 const PASSWORD = 'Handoff-pass-9917!x';

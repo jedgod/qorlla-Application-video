@@ -2227,12 +2227,12 @@
       function e164() { var c = COUNTRIES.filter(function (x) { return x[0] === sel.value; })[0], d = num.replace(/[^0-9+]/g, ''); if (!d) return ''; var out = d.charAt(0) === '+' ? d : '+' + c[1] + d.replace(/^0+/, ''); return /^\+[1-9]\d{6,14}$/.test(out) ? out : null; }
       // 3 to 8 digits with no + sign is a Qorlla extension (internet call to a colleague); anything else is a telephone number, which needs a carrier
       var isExt = function () { return /^[0-9]{3,8}$/.test(num); }, isEmergency = function () { return /^(911|112|999|000|110|119|100|101|102|108|122|933)$/.test(num); };   // kept in step with EMERGENCY_NUMBERS in the voice engine
-      function extHint() { if (isEmergency()) return I18n.t('Qorlla cannot place emergency calls. Use your phone\u2019s own dialer.'); if (!voice.cfg || !voice.cfg.enabled) return I18n.t('Qorlla Voice is not set up on this server, so extensions cannot be called.'); if (!voice.ready) return I18n.t('Qorlla Voice is connecting\u2026'); if (num === voice.ext) return I18n.t('That is your own extension.'); var nm = voiceName(num); return nm ? I18n.t('Internet call to') + ' ' + nm + ' (' + I18n.t('ext') + ' ' + num + ')' : I18n.t('Internet call to extension') + ' ' + num; }
+      function extHint() { if (isEmergency()) return I18n.t('Qorlla cannot place emergency calls. Use your phone\u2019s own dialer.'); if (!voice.cfg || !voice.cfg.enabled) return I18n.t('Qorlla Voice is not set up on this server, so extensions cannot be called.'); if (voice.state === 'verify') return I18n.t('Verify your email address to use Qorlla Voice (Settings, Account).'); if (voice.state === 'suspended') return I18n.t('Your account is suspended.'); if (voice.features && voice.features.internalCalls === false) return I18n.t('Internal calling is switched off by your administrator.'); if (!voice.ready) return I18n.t('Qorlla Voice is connecting\u2026'); if (num === voice.ext) return I18n.t('That is your own extension.'); var nm = voiceName(num); return nm ? I18n.t('Internet call to') + ' ' + nm + ' (' + I18n.t('ext') + ' ' + num + ')' : I18n.t('Internet call to extension') + ' ' + num; }
       function paint() {
         input.value = num; var n = e164(), ext = isExt(); clear.classList.toggle('hidden', !num); copy.disabled = !num; del.disabled = !num;
-        hint.textContent = !num ? '' : ext ? extHint() : n ? I18n.t('Will call') + ' ' + n : I18n.t('Enter a valid phone number (7 to 15 digits).');
-        call.disabled = ext ? !(voice.ready && voice.client && !voice.client.callId && num !== voice.ext && !isEmergency()) : !(n && info && info.carrierCalling);
-        myExt.textContent = voice.ready && voice.ext ? I18n.t('Your Qorlla extension') + ': ' + voice.ext + ' \u00B7 ' + I18n.t('internet calls to colleagues') : '';
+        hint.textContent = !num ? (voice.state === 'verify' ? I18n.t('Verify your email address to use Qorlla Voice (Settings, Account).') : voice.state === 'suspended' ? I18n.t('Your account is suspended.') : '') : ext ? extHint() : (n && !(info && info.carrierCalling)) ? I18n.t('Public telephone numbers are not available: Qorlla calls internal extensions only.') + ' (' + n + ')' : n ? I18n.t('Will call') + ' ' + n : I18n.t('Enter a valid phone number (7 to 15 digits).');
+        call.disabled = ext ? !(voice.ready && voice.client && !voice.client.callId && num !== voice.ext && !isEmergency() && !(voice.features && voice.features.internalCalls === false)) : !(n && info && info.carrierCalling);
+        myExt.textContent = voice.ready && voice.ext ? I18n.t('Your Qorlla extension') + ': ' + voice.ext + ' \u00B7 ' + I18n.t('internet calls to colleagues') + (voice.number ? ' \u00B7 ' + I18n.t('Your Qorlla number') + ': ' + (voice.number.e164 || '') : '') : voice.state === 'verify' ? I18n.t('Verify your email address to use Qorlla Voice.') : voice.state === 'suspended' ? I18n.t('Your account is suspended.') : '';
         if (voice.ready) note.textContent = I18n.t('Dial a colleague\u2019s extension (3 to 8 digits) for a free internet call. Calls to outside phone numbers need a telephony provider.'); else if (!(info && info.carrierCalling)) note.textContent = I18n.t('Calling is off: carrier calling requires a connected telephony provider and provisioned calling permissions.');
       }
       voiceOff.push(voiceOn(function () { paint(); }));
@@ -3508,10 +3508,18 @@
   function voiceChanged() { voice.listeners.slice().forEach(function (f) { try { f(); } catch (e) { /* a view that is gone */ } }); }
   function voiceToken() {
     if (voice.tok && voice.tok.exp - Date.now() > 60000) return Promise.resolve(voice.tok.token);
-    return fetch(BASE + '/api/voice/token', { method: 'POST', credentials: 'same-origin' }).then(function (r) { if (!r.ok) throw new Error('voice_token_' + r.status); return r.json(); }).then(function (d) { voice.tok = { token: d.token, exp: Date.now() + d.expiresIn * 1000 }; voice.ext = d.extension; return d.token; });
+    return fetch(BASE + '/api/voice/token', { method: 'POST', credentials: 'same-origin' }).then(function (r) { if (!r.ok) return r.json().catch(function () { return {}; }).then(function (b) { var e = new Error('voice_token_' + r.status); e.reason = b.error || ''; voice.reason = e.reason; throw e; }); return r.json(); }).then(function (d) { voice.reason = ''; voice.tok = { token: d.token, exp: Date.now() + d.expiresIn * 1000 }; voice.ext = d.extension; return d.token; });
   }
   function voiceName(ext) { var p = voice.people.filter(function (x) { return x.extension === ext; })[0]; return p ? p.displayName : null; }
   function voiceLoadPeople() { return fetch(BASE + '/api/voice/directory', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : { people: [] }; }).then(function (d) { voice.people = d.people || []; var me = voice.people.filter(function (p) { return p.self; })[0]; if (me) voice.ext = me.extension; voiceChanged(); }).catch(function () {}); }
+  // What the Shield and the server say about THIS account: features that are switched off, and (only if public numbers are enabled and the number authority says it is usable) the account's own number.
+  function voiceLoadStanding() {
+    if (!voice.client) return Promise.resolve();
+    return voice.client.api('/features').then(function (f) { voice.features = f; }).catch(function () { voice.features = null; }).then(function () {
+      voice.number = null; if (!voice.features || !voice.features.numbers) { voiceChanged(); return; }
+      return voice.client.api('/numbers/me').then(function (d) { voice.number = d && d.number ? d.number : null; }).catch(function () { voice.number = null; }).then(voiceChanged);
+    });
+  }
   function voiceInit() {
     if (voice.initing) return voice.initing;
     voice.initing = fetch(BASE + '/api/voice/config', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : { enabled: false }; }).then(function (cfg) {
@@ -3521,8 +3529,8 @@
     return voice.initing;
   }
   function voiceConnect() {
-    return voice.client.connect().then(function () { voice.ready = true; voice.state = 'ready'; voice.retry = 0; voiceChanged(); voiceLoadPeople(); }).catch(function () {
-      voice.ready = false; voice.state = 'unavailable'; voiceChanged(); var wait = Math.min(30000, 2000 * Math.pow(2, voice.retry++)); if (state.user) setTimeout(function () { if (state.user && !voice.ready) voiceConnect(); }, wait);
+    return voice.client.connect().then(function () { voice.ready = true; voice.state = 'ready'; voice.retry = 0; voiceChanged(); voiceLoadPeople(); voiceLoadStanding(); }).catch(function () {
+      voice.ready = false; voice.state = voice.reason === 'verification_required' ? 'verify' : 'unavailable'; voiceChanged(); var wait = Math.min(30000, 2000 * Math.pow(2, voice.retry++)); if (state.user) setTimeout(function () { if (state.user && !voice.ready) voiceConnect(); }, wait);
     });
   }
   // ---- sounds: a ring for incoming calls and a soft ringback for the caller (generated here, no files); autoplay rules may keep them silent until you interact with the page
@@ -3541,7 +3549,7 @@
     if (o.since) { var tick = function () { var s = Math.max(0, Math.round((Date.now() - o.since) / 1000)); $('vbStatus').textContent = I18n.t('Connected') + ' \u00B7 ' + String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }; tick(); voice.bar.iv = setInterval(tick, 1000); }
   }
   function voicePeerLabel(ext) { var n = voiceName(ext); return n ? n + ' (ext ' + ext + ')' : 'Extension ' + ext; }
-  var VOICE_ERR = { invalid_recipient: 'No one has that extension.', blocked: 'You cannot call that person.', busy: 'That person is on another call (or you are).', rate_limited: 'Too many attempts. Try again in a minute.', caller_disabled: 'Qorlla Voice is turned off for your account.', idempotency_conflict: 'Please try again.' };
+  var VOICE_ERR = { identity_unverified: 'Verify your email address to use Qorlla Voice.', suspended: 'Your account is suspended.', unknown_principal: 'Your account is still being set up. Try again in a moment.', feature_disabled: 'Calling is switched off by your administrator.', invalid_recipient: 'No one has that extension.', blocked: 'You cannot call that person.', busy: 'That person is on another call (or you are).', rate_limited: 'Too many attempts. Try again in a minute.', caller_disabled: 'Qorlla Voice is turned off for your account.', idempotency_conflict: 'Please try again.' };
   function voiceDial(ext) {
     if (!voice.ready || !voice.client) { toast(I18n.t('Qorlla Voice is not connected yet.'), 'err'); return Promise.resolve(); }
     if (ext === voice.ext) { toast(I18n.t('That is your own extension.'), 'err'); return Promise.resolve(); }
@@ -3583,6 +3591,7 @@
     else if (e.type === 'connection_failed') toast(I18n.t('The audio connection failed. Both people may need to be on the same network, or the server needs a TURN relay.'), 'err');
     else if (e.type === 'connection_unstable') { $('vbStatus').textContent = I18n.t('Connection unstable\u2026'); }
     else if (e.type === 'audio_play_blocked') toast(I18n.t('Click anywhere on the page to hear the call.'), 'err');
+    else if (e.type === 'signaling_closed' && e.code === 4003) { voice.ready = false; voice.state = 'suspended'; voice.retry = 99; voiceBar(false); voiceToneStop(); voiceChanged(); }
     else if (e.type === 'signaling_closed') { voice.ready = false; voice.state = 'connecting'; voiceChanged(); if (state.user) setTimeout(function () { if (state.user && !voice.ready) voiceConnect(); }, 1500); }
   }
   function voiceHistoryDirty() { voice.history = []; voice.histRev = (voice.histRev || 0) + 1; voiceChanged(); }

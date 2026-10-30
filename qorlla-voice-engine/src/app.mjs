@@ -103,7 +103,9 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     const profile = await store.identity(req.account); if (!profile?.enabled) return res.status(403).json({ error: 'voice_disabled' });
     try { res.set('Cache-Control', 'no-store').json(await issueTicket(req.account, origin, db, allowed(), deviceId)); } catch (e) { fail(res, Object.assign(e, { code: e.code || e.message })); }
   }));
-  app.get('/v1/voice/me', authLax, route(async (req, res) => { res.json({ identity: await store.identity(req.account) }); }));
+  app.get('/v1/voice/me', authLax, route(async (req, res) => { res.set('Cache-Control', 'private, no-store').json({ identity: await store.identity(req.account), ...(enforce ? { standing: await shield.standing(req.account) } : {}) }); }));
+  // Which features this server has switched on (the client greys out what is off instead of failing). Only booleans from server configuration; authenticated users only.
+  app.get('/v1/voice/features', authLax, (req, res) => res.set('Cache-Control', 'private, no-store').json({ internalCalls: FEATURES.internal_calls.on(), numbers: FEATURES.numbers.on(), pstn: FEATURES.pstn.on() }));
   app.get('/v1/voice/ice', auth, route(async (req, res) => { const { iceServers, iceTransportPolicy } = iceServersFor(req.account, env); res.set('Cache-Control', 'no-store').json({ iceServers, iceTransportPolicy, expiresIn: 600 }); }));
 
   // ---- one-to-one calls

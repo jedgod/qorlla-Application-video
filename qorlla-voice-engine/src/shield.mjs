@@ -340,6 +340,11 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       return { allow: true, reason: 'ALLOW', kind, capabilities: kind === 'host' ? HOST_CAPS : kind === 'member' ? MEMBER_CAPS : GUEST_CAPS };
     });
   }
+  /** The caller's OWN standing, for the UI: registered with the Shield? verified? suspended? (never anyone else's, never an organization name). */
+  async function standing(accountId) {
+    const p = (await store.tx((c) => c.query('SELECT p.verified, p.suspended, o.suspended AS org_suspended FROM shield_principals p LEFT JOIN shield_orgs o ON o.org_id=p.org_id WHERE p.account_id=$1', [accountId]))).rows[0];
+    return p ? { registered: true, verified: !!p.verified, suspended: !!(p.suspended || p.org_suspended) } : { registered: false, verified: false, suspended: false };
+  }
   /** Called INSIDE the call-creation transaction, after both accounts are locked: both parties must be known, verified and not suspended, and in the SAME tenant. Anything else is refused;
    *  the callee's side is always reported as "no such recipient" so a caller learns nothing about accounts in other tenants. Absent organization = the default namespace (all such accounts share it). */
   async function callGuard(c, callerId, calleeId) {
@@ -432,5 +437,5 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
   function auditProvenance(actor, reason) { db.query('INSERT INTO shield_events(actor, action, decision, reason) VALUES($1,$2,$3,$4)', [String(actor || '').slice(0, 128), 'numbers.sync', 'DENY', reason]).catch(() => {}); }
   async function purgeExpired() { await store.tx(async (c) => { await c.query('DELETE FROM shield_workload_jti WHERE expires_at < now()'); await c.query("DELETE FROM shield_counters WHERE window_start < now() - interval '1 day'"); }); }
 
-  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, revokeCertificate, recordTlsRefusal, listAlerts, ackAlert: (id, actor, note) => changeAlert(id, actor, 'acknowledged', note), resolveAlert: (id, actor, note) => changeAlert(id, actor, 'resolved', note), report, evaluateAlerts, deliverNotifications, alertMetricLines, callGuard, auditProvenance, registerMeeting, meetAuthorize, meetRecheck, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
+  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, revokeCertificate, recordTlsRefusal, listAlerts, ackAlert: (id, actor, note) => changeAlert(id, actor, 'acknowledged', note), resolveAlert: (id, actor, note) => changeAlert(id, actor, 'resolved', note), report, evaluateAlerts, deliverNotifications, alertMetricLines, standing, callGuard, auditProvenance, registerMeeting, meetAuthorize, meetRecheck, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
 }
