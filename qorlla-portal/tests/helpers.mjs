@@ -27,7 +27,7 @@ export async function freshDatabase({ migrate = true, ai = true } = {}) {
   await pool.query(meetSyncSql('001.sql')); await pool.query(meetSyncSql('006_meeting_directory.sql'));
   await pool.query(sql('001_portal.sql'));
   if (migrate) await pool.query(sql('002_billing.sql'));
-  if (migrate && ai) { await pool.query(sql('004_meeting_ai.sql')); await pool.query(sql('005_phone.sql')); await pool.query(sql('006_workspace_tools.sql')); await pool.query(sql('007_billing_launch.sql')); }
+  if (migrate && ai) { await pool.query(sql('004_meeting_ai.sql')); await pool.query(sql('005_phone.sql')); await pool.query(sql('006_workspace_tools.sql')); await pool.query(sql('007_billing_launch.sql')); await pool.query(sql('008_enterprise_ops.sql')); }
   return { pool, name, url, sql,
     async drop() { await pool.end(); const a = new pg.Client({ connectionString: ADMIN_URL }); await a.connect(); await a.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`); await a.end(); } };
 }
@@ -46,9 +46,9 @@ export async function startMainStandIn() {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const SECRET = 's'.repeat(40);
   const base = { issuer: 'https://qorlla.test', audience: 'qorlla-workplace' };
-  async function mint({ sub = crypto.randomUUID(), sid = crypto.randomBytes(32).toString('hex'), active = true, csrf = crypto.randomBytes(16).toString('base64url'), expIn = 900, iat = Math.floor(Date.now() / 1000), key = privateKey, iss = base.issuer, aud = base.audience, alg = 'RS256' } = {}) {
+  async function mint({ sub = crypto.randomUUID(), sid = crypto.randomBytes(32).toString('hex'), active = true, csrf = crypto.randomBytes(16).toString('base64url'), expIn = 900, iat = Math.floor(Date.now() / 1000), key = privateKey, iss = base.issuer, aud = base.audience, alg = 'RS256', mfa = false, authTime } = {}) {
     sessions.set(sid, active);
-    const jwt = await new SignJWT({ sid, csrf: crypto.createHash('sha256').update(csrf).digest('hex') }).setProtectedHeader({ alg, kid: 'test-key-1' })
+    const jwt = await new SignJWT({ sid, csrf: crypto.createHash('sha256').update(csrf).digest('hex'), ...(mfa ? { amr: ['pwd', 'mfa'], auth_time: authTime ?? iat } : {}) }).setProtectedHeader({ alg, kid: 'test-key-1' })
       .setSubject(sub).setIssuer(iss).setAudience(aud).setIssuedAt(iat).setExpirationTime(iat + expIn).sign(key);
     return { sub, sid, csrf, jwt };
   }
@@ -63,9 +63,9 @@ export function testConfig(over = {}, main) {
   return Object.assign(cfg, { rateLimits: { ai: 100000, draft: 100000, job: 100000, call: 100000, refund: 100000, webhook: 1000000 } }, over.cfg || {});
 }
 
-export async function startApp({ pool, cfg, jwks, fetchImpl, stripe, ai }) {
+export async function startApp({ pool, cfg, jwks, fetchImpl, stripe, ai, ops }) {
   const quiet = process.env.TEST_LOG ? createLogger() : createLogger(() => {});
-  const built = createApp({ pool, cfg, jwks, fetchImpl, log: quiet, stripe, ai });
+  const built = createApp({ pool, cfg, jwks, fetchImpl, log: quiet, stripe, ai, ops });
   const { app, billing } = built;
   const server = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;

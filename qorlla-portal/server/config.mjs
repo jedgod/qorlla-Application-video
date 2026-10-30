@@ -55,7 +55,18 @@ export function loadConfig(env = process.env) {
     complianceAck: trim(env.TELEPHONY_COMPLIANCE_ACK), allowInternational: env.TELEPHONY_ALLOW_INTERNATIONAL === 'true'
   };
   cfg.platformAdmins = String(env.PLATFORM_ADMIN_USER_IDS || '').split(',').map((x) => x.trim().toLowerCase()).filter((x) => /^[0-9a-f-]{36}$/.test(x));
-  cfg.metricsToken = trim(env.METRICS_TOKEN).length >= 24 ? trim(env.METRICS_TOKEN) : '';   // shorter tokens are ignored: the endpoint then stays off
+  // Enterprise operations (Admin / Staff / Support). OFF unless OPS_ENABLED is exactly "true". In production MFA for admins and two-person refunds cannot be waived.
+  const exact = (v) => v === 'true';
+  let approvedRanges = {}; try { const j = JSON.parse(env.OPS_APPROVED_NUMBER_RANGES || '{}'); if (j && typeof j === 'object' && !Array.isArray(j)) approvedRanges = Object.fromEntries(Object.entries(j).filter(([k, v]) => /^[A-Z]{2}$/.test(k) && Array.isArray(v)).map(([k, v]) => [k, v.filter((p) => /^[0-9]{4,8}$/.test(String(p))).map(String)])); } catch { /* malformed: no range is approved */ }
+  cfg.ops = {
+    enabled: exact(env.OPS_ENABLED),
+    requireMfa: production ? true : env.OPS_ADMIN_REQUIRE_MFA !== 'false', mfaMaxAgeSeconds: Number(env.OPS_MFA_MAX_AGE_SECONDS || 900) || 900,
+    refundTwoPerson: production ? true : env.OPS_REFUND_TWO_PERSON != null ? exact(env.OPS_REFUND_TWO_PERSON) : false,
+    workerEnabled: exact(env.OPS_WORKER_ENABLED), approvedRanges,
+    // release gates, reported to Admin exactly as configured (only the exact value "true" is on); the portal never turns any of them on
+    gates: { pstn: exact(env.VOICE_PSTN_ENABLED) || exact(env.PSTN_ENABLED), numbers: exact(env.VOICE_NUMBERS_ENABLED), countryAlias: exact(env.VOICE_COUNTRY_ALIAS_ENABLED), a38: exact(env.VOICE_A38_ENABLED) }
+  };
+  cfg.metricsToken =trim(env.METRICS_TOKEN).length >= 24 ? trim(env.METRICS_TOKEN) : '';   // shorter tokens are ignored: the endpoint then stays off
   cfg.authProblems = authProblems;
   cfg.authConfigured = authProblems.length === 0;
 

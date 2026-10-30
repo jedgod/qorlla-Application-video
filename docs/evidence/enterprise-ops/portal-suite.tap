@@ -1,0 +1,1399 @@
+TAP version 13
+# Subtest: authentication & authorization
+    # Subtest: private endpoints reject anonymous callers with 401 (never development records)
+    ok 1 - private endpoints reject anonymous callers with 401 (never development records)
+      ---
+      duration_ms: 1098.0099
+      type: 'test'
+      ...
+    # Subtest: identity headers and development env vars are never honoured
+    ok 2 - identity headers and development env vars are never honoured
+      ---
+      duration_ms: 34.5604
+      type: 'test'
+      ...
+    # Subtest: public catalogue works without a session
+    ok 3 - public catalogue works without a session
+      ---
+      duration_ms: 218.3688
+      type: 'test'
+      ...
+    # Subtest: a valid session sees only its own workspace data
+    ok 4 - a valid session sees only its own workspace data
+      ---
+      duration_ms: 211.2568
+      type: 'test'
+      ...
+    # Subtest: cross-workspace access is forbidden even when the workspace id is guessed
+    ok 5 - cross-workspace access is forbidden even when the workspace id is guessed
+      ---
+      duration_ms: 196.7425
+      type: 'test'
+      ...
+    # Subtest: a valid MAIN identity with no membership gets 403 but can read an empty /me
+    ok 6 - a valid MAIN identity with no membership gets 403 but can read an empty /me
+      ---
+      duration_ms: 104.3826
+      type: 'test'
+      ...
+    # Subtest: a signed-in user can create their first workspace and gets the Basic plan
+    ok 7 - a signed-in user can create their first workspace and gets the Basic plan
+      ---
+      duration_ms: 209.2273
+      type: 'test'
+      ...
+    # Subtest: expired, wrong-issuer, wrong-audience, forged-key, over-age, alg=none and garbage tokens are rejected
+    ok 8 - expired, wrong-issuer, wrong-audience, forged-key, over-age, alg=none and garbage tokens are rejected
+      ---
+      duration_ms: 256.2012
+      type: 'test'
+      ...
+    # Subtest: logout / revoked MAIN session ends portal access immediately, not at token expiry
+    ok 9 - logout / revoked MAIN session ends portal access immediately, not at token expiry
+      ---
+      duration_ms: 5295.6879
+      type: 'test'
+      ...
+    # Subtest: fails closed (503) when MAIN introspection is down, and when auth is not configured at all
+    ok 10 - fails closed (503) when MAIN introspection is down, and when auth is not configured at all
+      ---
+      duration_ms: 57.3334
+      type: 'test'
+      ...
+    # Subtest: writes need same Origin plus a double-submit CSRF token bound to the signed token
+    ok 11 - writes need same Origin plus a double-submit CSRF token bound to the signed token
+      ---
+      duration_ms: 90.044
+      type: 'test'
+      ...
+    # Subtest: role matrix: member cannot bill or manage; billing role bills but cannot manage members; admin manages; last owner protected
+    ok 12 - role matrix: member cannot bill or manage; billing role bills but cannot manage members; admin manages; last owner protected
+      ---
+      duration_ms: 386.0582
+      type: 'test'
+      ...
+    # Subtest: structured request logs never contain cookies, tokens, query strings or bodies
+    ok 13 - structured request logs never contain cookies, tokens, query strings or bodies
+      ---
+      duration_ms: 39.3134
+      type: 'test'
+      ...
+    1..13
+ok 1 - authentication & authorization
+  ---
+  duration_ms: 17979.9517
+  type: 'suite'
+  ...
+# Subtest: billing launch: plan changes, refunds, usage billing, admin console
+    # Subtest: plan changes
+        # Subtest: preview classifies the change: upgrade/seat increase now (with an estimate), downgrade/interval change at period end; nonsense is refused
+        ok 1 - preview classifies the change: upgrade/seat increase now (with an estimate), downgrade/interval change at period end; nonsense is refused
+          ---
+          duration_ms: 868.5631
+          type: 'test'
+          ...
+        # Subtest: upgrade: the provider is asked (price from the database, never from the client), and the plan changes only after the provider is re-read
+        ok 2 - upgrade: the provider is asked (price from the database, never from the client), and the plan changes only after the provider is re-read
+          ---
+          duration_ms: 341.7739
+          type: 'test'
+          ...
+        # Subtest: a provider that rejects the change leaves the plan untouched, records the failure, and allows a retry
+        ok 3 - a provider that rejects the change leaves the plan untouched, records the failure, and allows a retry
+          ---
+          duration_ms: 404.1789
+          type: 'test'
+          ...
+        # Subtest: if the provider has not confirmed payment the change stays pending; the matching provider event applies it; a mismatching event does not
+        ok 4 - if the provider has not confirmed payment the change stays pending; the matching provider event applies it; a mismatching event does not
+          ---
+          duration_ms: 655.704
+          type: 'test'
+          ...
+        # Subtest: downgrade is scheduled for the period end, can be cancelled, and is sent to the provider (no proration) shortly before renewal
+        ok 5 - downgrade is scheduled for the period end, can be cancelled, and is sent to the provider (no proration) shortly before renewal
+          ---
+          duration_ms: 433.7308
+          type: 'test'
+          ...
+        # Subtest: a scheduled change survives a provider outage (retried) and is dropped if the subscription is gone
+        ok 6 - a scheduled change survives a provider outage (retried) and is dropped if the subscription is gone
+          ---
+          duration_ms: 390.6591
+          type: 'test'
+          ...
+        # Subtest: guards: not while payment is failing or cancellation is pending; the target plan must fit the current members; roles and workspaces are respected
+        ok 7 - guards: not while payment is failing or cancellation is pending; the target plan must fit the current members; roles and workspaces are respected
+          ---
+          duration_ms: 926.856
+          type: 'test'
+          ...
+        # Subtest: idempotent requests and the platform kill switch
+        ok 8 - idempotent requests and the platform kill switch
+          ---
+          duration_ms: 674.2044
+          type: 'test'
+          ...
+        1..8
+    ok 1 - plan changes
+      ---
+      duration_ms: 4699.0729
+      type: 'suite'
+      ...
+    # Subtest: refunds (platform admin)
+        # Subtest: the console is invisible to everyone but platform admins
+        ok 1 - the console is invisible to everyone but platform admins
+          ---
+          duration_ms: 283.3899
+          type: 'test'
+          ...
+        # Subtest: partial then full refund: the provider is called once per request, invoice totals follow, the webhook replay does not double count
+        ok 2 - partial then full refund: the provider is called once per request, invoice totals follow, the webhook replay does not double count
+          ---
+          duration_ms: 1238.2997
+          type: 'test'
+          ...
+        # Subtest: provider failure leaves the invoice untouched and the request marked failed; unknown invoices and unrefundable invoices are refused
+        ok 3 - provider failure leaves the invoice untouched and the request marked failed; unknown invoices and unrefundable invoices are refused
+          ---
+          duration_ms: 332.5898
+          type: 'test'
+          ...
+        1..3
+    ok 2 - refunds (platform admin)
+      ---
+      duration_ms: 1856.5107
+      type: 'suite'
+      ...
+    # Subtest: usage-based AI billing
+        # Subtest: overage is opt-in and gated: paid plan, accepted terms, a published price - otherwise the hard plan limit stays
+        ok 1 - overage is opt-in and gated: paid plan, accepted terms, a published price - otherwise the hard plan limit stays
+          ---
+          duration_ms: 853.4737
+          type: 'test'
+          ...
+        # Subtest: beyond the quota: blocked without overage; with it, usage continues and every extra unit is recorded with the price in force at the time
+        ok 2 - beyond the quota: blocked without overage; with it, usage continues and every extra unit is recorded with the price in force at the time
+          ---
+          duration_ms: 1526.5722
+          type: 'test'
+          ...
+        # Subtest: a basic workspace can never accrue billable usage, and replays of one usage event are billed once
+        ok 3 - a basic workspace can never accrue billable usage, and replays of one usage event are billed once
+          ---
+          duration_ms: 980.05
+          type: 'test'
+          ...
+        # Subtest: month-end invoicing: one provider invoice item per workspace/feature/month, retried on failure, never duplicated, paused by the kill switch
+        ok 4 - month-end invoicing: one provider invoice item per workspace/feature/month, retried on failure, never duplicated, paused by the kill switch
+          ---
+          duration_ms: 485.6564
+          type: 'test'
+          ...
+        1..4
+    ok 3 - usage-based AI billing
+      ---
+      duration_ms: 3846.3704
+      type: 'suite'
+      ...
+    # Subtest: admin console, workflow and monitoring
+        # Subtest: overview, subscription/invoice/event listings and the MRR estimate come from the real tables
+        ok 1 - overview, subscription/invoice/event listings and the MRR estimate come from the real tables
+          ---
+          duration_ms: 649.3221
+          type: 'test'
+          ...
+        # Subtest: health raises alerts for stuck events, rejected events, past-due subscriptions, stalled queues and overdue sales leads
+        ok 2 - health raises alerts for stuck events, rejected events, past-due subscriptions, stalled queues and overdue sales leads
+          ---
+          duration_ms: 429.822
+          type: 'test'
+          ...
+        # Subtest: kill switch for AI: endpoints answer 503 and the queue pauses (jobs stay queued) until switched back on; switching off needs a reason and is audited
+        ok 3 - kill switch for AI: endpoints answer 503 and the queue pauses (jobs stay queued) until switched back on; switching off needs a reason and is audited
+          ---
+          duration_ms: 620.113
+          type: 'test'
+          ...
+        # Subtest: Enterprise sales workflow: public submissions land as new, admins triage through valid transitions with notes; workspace users cannot read leads
+        ok 4 - Enterprise sales workflow: public submissions land as new, admins triage through valid transitions with notes; workspace users cannot read leads
+          ---
+          duration_ms: 242.5889
+          type: 'test'
+          ...
+        # Subtest: metrics endpoint: off without a token, 404 for wrong tokens, Prometheus text for the right one; gauges reflect the data
+        ok 5 - metrics endpoint: off without a token, 404 for wrong tokens, Prometheus text for the right one; gauges reflect the data
+          ---
+          duration_ms: 121.7297
+          type: 'test'
+          ...
+        1..5
+    ok 4 - admin console, workflow and monitoring
+      ---
+      duration_ms: 2064.1383
+      type: 'suite'
+      ...
+    1..4
+ok 2 - billing launch: plan changes, refunds, usage billing, admin console
+  ---
+  duration_ms: 18593.5832
+  type: 'suite'
+  ...
+# Subtest: subscription lifecycle
+    # Subtest: catalogue is database-backed with annual as a first-class price, and says whether checkout is available
+    ok 1 - catalogue is database-backed with annual as a first-class price, and says whether checkout is available
+      ---
+      duration_ms: 272.5286
+      type: 'test'
+      ...
+    # Subtest: checkout is created server-side from the database price; the client cannot choose the amount
+    ok 2 - checkout is created server-side from the database price; the client cannot choose the amount
+      ---
+      duration_ms: 448.6517
+      type: 'test'
+      ...
+    # Subtest: only purchasable plans/intervals/seat counts are accepted
+    ok 3 - only purchasable plans/intervals/seat counts are accepted
+      ---
+      duration_ms: 305.8642
+      type: 'test'
+      ...
+    # Subtest: a provider failure during checkout is reported safely and nothing is activated
+    ok 4 - a provider failure during checkout is reported safely and nothing is activated
+      ---
+      duration_ms: 127.306
+      type: 'test'
+      ...
+    # Subtest: webhooks: missing, malformed, wrong-secret, stale and re-serialised bodies are all rejected (raw-body signature)
+    ok 5 - webhooks: missing, malformed, wrong-secret, stale and re-serialised bodies are all rejected (raw-body signature)
+      ---
+      duration_ms: 382.686
+      type: 'test'
+      ...
+    # Subtest: checkout.session.completed and the browser redirect are NOT proof of payment
+    ok 6 - checkout.session.completed and the browser redirect are NOT proof of payment
+      ---
+      duration_ms: 398.2989
+      type: 'test'
+      ...
+    # Subtest: activation: a signed PAID invoice whose subscription the provider confirms and whose price matches our snapshot
+    ok 7 - activation: a signed PAID invoice whose subscription the provider confirms and whose price matches our snapshot
+      ---
+      duration_ms: 630.1762
+      type: 'test'
+      ...
+    # Subtest: replayed events are idempotent (same event id, any number of deliveries, even concurrently)
+    ok 8 - replayed events are idempotent (same event id, any number of deliveries, even concurrently)
+      ---
+      duration_ms: 780.4342
+      type: 'test'
+      ...
+    # Subtest: a forged-but-signed-looking event for something we never created, or a price that differs from our snapshot, never activates
+    ok 9 - a forged-but-signed-looking event for something we never created, or a price that differs from our snapshot, never activates
+      ---
+      duration_ms: 749.4032
+      type: 'test'
+      ...
+    # Subtest: zero-amount, unpaid, or provider-not-active invoices do not activate
+    ok 10 - zero-amount, unpaid, or provider-not-active invoices do not activate
+      ---
+      duration_ms: 464.9988
+      type: 'test'
+      ...
+    # Subtest: provider unreachable during confirmation => 5xx so the provider retries, nothing recorded; retry then succeeds
+    ok 11 - provider unreachable during confirmation => 5xx so the provider retries, nothing recorded; retry then succeeds
+      ---
+      duration_ms: 417.0166
+      type: 'test'
+      ...
+    # Subtest: out-of-order delivery: a stale subscription.updated cannot undo a newer state
+    ok 12 - out-of-order delivery: a stale subscription.updated cannot undo a newer state
+      ---
+      duration_ms: 555.3618
+      type: 'test'
+      ...
+    # Subtest: payment failure: past_due keeps access during the grace period, then access ends and the lapse is made explicit
+    ok 13 - payment failure: past_due keeps access during the grace period, then access ends and the lapse is made explicit
+      ---
+      duration_ms: 1025.0486
+      type: 'test'
+      ...
+    # Subtest: renewals keep the plan; cancel_at_period_end is reflected; deletion ends access; cancel API asks the provider
+    ok 14 - renewals keep the plan; cancel_at_period_end is reflected; deletion ends access; cancel API asks the provider
+      ---
+      duration_ms: 1156.9937
+      type: 'test'
+      ...
+    # Subtest: refunds are recorded idempotently against the invoice; access is not silently removed
+    ok 15 - refunds are recorded idempotently against the invoice; access is not silently removed
+      ---
+      duration_ms: 696.3643
+      type: 'test'
+      ...
+    # Subtest: reconciliation repairs drift from the provider without webhooks
+    ok 16 - reconciliation repairs drift from the provider without webhooks
+      ---
+      duration_ms: 646.5008
+      type: 'test'
+      ...
+    # Subtest: one checkout can only ever be bound to ONE provider subscription
+    ok 17 - one checkout can only ever be bound to ONE provider subscription
+      ---
+      duration_ms: 481.6095
+      type: 'test'
+      ...
+    # Subtest: an already-subscribed workspace cannot start a second checkout; members cannot start one at all
+    ok 18 - an already-subscribed workspace cannot start a second checkout; members cannot start one at all
+      ---
+      duration_ms: 484.2295
+      type: 'test'
+      ...
+    # Subtest: billing is unavailable (503) unless explicitly enabled and fully configured; live keys need separate authorization
+    ok 19 - billing is unavailable (503) unless explicitly enabled and fully configured; live keys need separate authorization
+      ---
+      duration_ms: 261.0201
+      type: 'test'
+      ...
+    1..19
+ok 3 - subscription lifecycle
+  ---
+  duration_ms: 15560.9664
+  type: 'suite'
+  ...
+# Subtest: MAIN <-> portal identity contract (real MAIN auth module)
+    # Subtest: sign-in issues an HttpOnly Secure SameSite JWT cookie and a readable CSRF cookie; session cookie stays opaque
+    ok 1 - sign-in issues an HttpOnly Secure SameSite JWT cookie and a readable CSRF cookie; session cookie stays opaque
+      ---
+      duration_ms: 373.5494
+      type: 'test'
+      ...
+    # Subtest: the portal accepts MAIN's real token, creates the workspace for that account, and serves only that account's data
+    ok 2 - the portal accepts MAIN's real token, creates the workspace for that account, and serves only that account's data
+      ---
+      duration_ms: 595.3558
+      type: 'test'
+      ...
+    # Subtest: logout at MAIN clears the portal cookies and revokes the token before its 15 minutes are up
+    ok 3 - logout at MAIN clears the portal cookies and revokes the token before its 15 minutes are up
+      ---
+      duration_ms: 5394.404
+      type: 'test'
+      ...
+    # Subtest: a failed sign-in never issues portal cookies
+    ok 4 - a failed sign-in never issues portal cookies
+      ---
+      duration_ms: 217.2
+      type: 'test'
+      ...
+    # Subtest: token renewal needs a live MAIN session and a same-origin request
+    ok 5 - token renewal needs a live MAIN session and a same-origin request
+      ---
+      duration_ms: 140.7719
+      type: 'test'
+      ...
+    # Subtest: introspection endpoint is secret-protected and answers only about hashed session ids
+    ok 6 - introspection endpoint is secret-protected and answers only about hashed session ids
+      ---
+      duration_ms: 141.3121
+      type: 'test'
+      ...
+    # Subtest: key rotation: old tokens keep verifying for 24 h via the retired public key; new tokens use the new key id
+    ok 7 - key rotation: old tokens keep verifying for 24 h via the retired public key; new tokens use the new key id
+      ---
+      duration_ms: 890.9733
+      type: 'test'
+      ...
+    1..7
+ok 4 - MAIN <-> portal identity contract (real MAIN auth module)
+  ---
+  duration_ms: 11893.5486
+  type: 'suite'
+  ...
+# Subtest: backend entitlement enforcement, sales inquiries
+    # Subtest: Basic notes limit (20) is enforced by the server, including under concurrency
+    ok 1 - Basic notes limit (20) is enforced by the server, including under concurrency
+      ---
+      duration_ms: 2078.9489
+      type: 'test'
+      ...
+    # Subtest: paid plans raise the limits; an expired/cancelled/past-grace subscription falls back to Basic
+    ok 2 - paid plans raise the limits; an expired/cancelled/past-grace subscription falls back to Basic
+      ---
+      duration_ms: 653.4312
+      type: 'test'
+      ...
+    # Subtest: member limit follows the plan
+    ok 3 - member limit follows the plan
+      ---
+      duration_ms: 210.4295
+      type: 'test'
+      ...
+    # Subtest: metered usage: monthly AI-query quota is enforced, idempotent, and workspace-scoped
+    ok 4 - metered usage: monthly AI-query quota is enforced, idempotent, and workspace-scoped
+      ---
+      duration_ms: 259.0246
+      type: 'test'
+      ...
+    # Subtest: Enterprise "Contact sales" stores a real inquiry; validation, honeypot and rate limit protect the endpoint
+    ok 5 - Enterprise "Contact sales" stores a real inquiry; validation, honeypot and rate limit protect the endpoint
+      ---
+      duration_ms: 115.5354
+      type: 'test'
+      ...
+    1..5
+ok 5 - backend entitlement enforcement, sales inquiries
+  ---
+  duration_ms: 8650.5718
+  type: 'suite'
+  ...
+# Subtest: abuse limits: per-user rate limits on costly endpoints and request sizes that match the schemas
+    # Subtest: QorllaMate: the 4th message in a minute is refused with 429 for that user only, and nothing is charged for the refused call
+    ok 1 - QorllaMate: the 4th message in a minute is refused with 429 for that user only, and nothing is charged for the refused call
+      ---
+      duration_ms: 1203.4171
+      type: 'test'
+      ...
+    # Subtest: AI drafts, click-to-call, provider webhooks and refunds each have their own limit
+    ok 2 - AI drafts, click-to-call, provider webhooks and refunds each have their own limit
+      ---
+      duration_ms: 380.3389
+      type: 'test'
+      ...
+    # Subtest: documents may be large (up to the schema limits) but not unbounded
+    ok 3 - documents may be large (up to the schema limits) but not unbounded
+      ---
+      duration_ms: 262.2502
+      type: 'test'
+      ...
+    1..3
+ok 6 - abuse limits: per-user rate limits on costly endpoints and request sizes that match the schemas
+  ---
+  duration_ms: 7694.6681
+  type: 'suite'
+  ...
+# Subtest: AI meeting intelligence
+    # Subtest: transcript parsing
+        # Subtest: txt, vtt and srt produce speaker-labelled segments; unlabelled text is honestly unlabelled
+        ok 1 - txt, vtt and srt produce speaker-labelled segments; unlabelled text is honestly unlabelled
+          ---
+          duration_ms: 118.8088
+          type: 'test'
+          ...
+        # Subtest: empty, oversized, binary and unknown-format input is rejected
+        ok 2 - empty, oversized, binary and unknown-format input is rejected
+          ---
+          duration_ms: 50.0785
+          type: 'test'
+          ...
+        1..2
+    ok 1 - transcript parsing
+      ---
+      duration_ms: 170.1889
+      type: 'suite'
+      ...
+    # Subtest: meeting eligibility
+        # Subtest: only the host and workspace admins see a meeting; members, other workspaces and unsynced meetings never do
+        ok 1 - only the host and workspace admins see a meeting; members, other workspaces and unsynced meetings never do
+          ---
+          duration_ms: 382.6458
+          type: 'test'
+          ...
+        # Subtest: the AI status endpoint states plainly that recordings are not processed
+        ok 2 - the AI status endpoint states plainly that recordings are not processed
+          ---
+          duration_ms: 76.3727
+          type: 'test'
+          ...
+        1..2
+    ok 2 - meeting eligibility
+      ---
+      duration_ms: 460.0241
+      type: 'suite'
+      ...
+    # Subtest: consent
+        # Subtest: only the host can grant; admins cannot attest for them; the exact notice version is required
+        ok 1 - only the host can grant; admins cannot attest for them; the exact notice version is required
+          ---
+          duration_ms: 488.1799
+          type: 'test'
+          ...
+        # Subtest: no job without BOTH transcription and summary consent; nothing is stored or sent to the model
+        ok 2 - no job without BOTH transcription and summary consent; nothing is stored or sent to the model
+          ---
+          duration_ms: 125.3429
+          type: 'test'
+          ...
+        # Subtest: revoking consent cancels queued jobs, deletes the transcript text, withdraws reports, deletes action items and revokes shares
+        ok 3 - revoking consent cancels queued jobs, deletes the transcript text, withdraws reports, deletes action items and revokes shares
+          ---
+          duration_ms: 833.0575
+          type: 'test'
+          ...
+        # Subtest: consent revoked WHILE the worker is fetching: nothing is stored and the job is cancelled
+        ok 4 - consent revoked WHILE the worker is fetching: nothing is stored and the job is cancelled
+          ---
+          duration_ms: 1794.3372
+          type: 'test'
+          ...
+        1..4
+    ok 3 - consent
+      ---
+      duration_ms: 3242.3196
+      type: 'suite'
+      ...
+    # Subtest: meeting -> report pipeline
+        # Subtest: imported transcript becomes a report: summary, decisions, speaker-labelled transcript, action items WITH suggestions only, and accounting
+        ok 1 - imported transcript becomes a report: summary, decisions, speaker-labelled transcript, action items WITH suggestions only, and accounting
+          ---
+          duration_ms: 4223.2241
+          type: 'test'
+          ...
+        # Subtest: the Meet chat of an existing meeting is fetched read-only and summarised (speakers are unverified display names)
+        ok 2 - the Meet chat of an existing meeting is fetched read-only and summarised (speakers are unverified display names)
+          ---
+          duration_ms: 3161.1884
+          type: 'test'
+          ...
+        # Subtest: jobs are idempotent: same key => same job; different request under the same key => 409; concurrent creates => one job
+        ok 3 - jobs are idempotent: same key => same job; different request under the same key => 409; concurrent creates => one job
+          ---
+          duration_ms: 5419.0672
+          type: 'test'
+          ...
+        # Subtest: two workers, one job: exactly one processes it (leases); lease takeover cannot create a second report or double-bill
+        ok 4 - two workers, one job: exactly one processes it (leases); lease takeover cannot create a second report or double-bill
+          ---
+          duration_ms: 3218.5932
+          type: 'test'
+          ...
+        # Subtest: transient model failures are retried with backoff; the eventual success is billed once
+        ok 5 - transient model failures are retried with backoff; the eventual success is billed once
+          ---
+          duration_ms: 542.1855
+          type: 'test'
+          ...
+        # Subtest: permanent failures end as failed with a clear code, cost nothing, and do not use quota
+        ok 6 - permanent failures end as failed with a clear code, cost nothing, and do not use quota
+          ---
+          duration_ms: 681.4022
+          type: 'test'
+          ...
+        # Subtest: Meet unreachable => retried; Meet integration unconfigured => failed immediately; meeting missing in Meet => failed
+        ok 7 - Meet unreachable => retried; Meet integration unconfigured => failed immediately; meeting missing in Meet => failed
+          ---
+          duration_ms: 216.052
+          type: 'test'
+          ...
+        # Subtest: without an AI provider the job is BLOCKED with an explicit reason (never a simulated summary) and can be retried later
+        ok 8 - without an AI provider the job is BLOCKED with an explicit reason (never a simulated summary) and can be retried later
+          ---
+          duration_ms: 653.1732
+          type: 'test'
+          ...
+        # Subtest: hostile transcript text cannot change the instructions, owners or permissions (prompt-injection hygiene)
+        ok 9 - hostile transcript text cannot change the instructions, owners or permissions (prompt-injection hygiene)
+          ---
+          duration_ms: 329.5136
+          type: 'test'
+          ...
+        # Subtest: plan quota: Basic gets 3 reports a month; failed, blocked and cancelled jobs do not consume it; paid plans are unlimited
+        ok 10 - plan quota: Basic gets 3 reports a month; failed, blocked and cancelled jobs do not consume it; paid plans are unlimited
+          ---
+          duration_ms: 1201.1015
+          type: 'test'
+          ...
+        1..10
+    ok 4 - meeting -> report pipeline
+      ---
+      duration_ms: 19654.7431
+      type: 'suite'
+      ...
+    # Subtest: permissions (server-side)
+        # Subtest: a regular member cannot see a restricted report; the host, creator and admins can; other workspaces never
+        ok 1 - a regular member cannot see a restricted report; the host, creator and admins can; other workspaces never
+          ---
+          duration_ms: 1009.8407
+          type: 'test'
+          ...
+        # Subtest: workspace-visible reports can be read by members, but never the transcript or the share list
+        ok 2 - workspace-visible reports can be read by members, but never the transcript or the share list
+          ---
+          duration_ms: 495.9952
+          type: 'test'
+          ...
+        # Subtest: member shares grant view access and are revocable at once; sharing outside the workspace is refused
+        ok 3 - member shares grant view access and are revocable at once; sharing outside the workspace is refused
+          ---
+          duration_ms: 398.4758
+          type: 'test'
+          ...
+        # Subtest: action items: assign + due date by managers; an assignee sees ONLY their items (not the summary) and can only mark them done
+        ok 4 - action items: assign + due date by managers; an assignee sees ONLY their items (not the summary) and can only mark them done
+          ---
+          duration_ms: 778.0758
+          type: 'test'
+          ...
+        # Subtest: bearer links: shown once, stored only as a hash, read-only, expiring, countable and revocable; transcript only if the manager allowed it
+        ok 5 - bearer links: shown once, stored only as a hash, read-only, expiring, countable and revocable; transcript only if the manager allowed it
+          ---
+          duration_ms: 426.429
+          type: 'test'
+          ...
+        # Subtest: exports: valid PDF and DOCX containing the report; the transcript is included only for managers who ask for it
+        ok 6 - exports: valid PDF and DOCX containing the report; the transcript is included only for managers who ask for it
+          ---
+          duration_ms: 593.4009
+          type: 'test'
+          ...
+        1..6
+    ok 5 - permissions (server-side)
+      ---
+      duration_ms: 3702.9432
+      type: 'suite'
+      ...
+    # Subtest: persistence
+        # Subtest: everything survives an application restart (new process, same database): consents, jobs, transcripts, reports, items, shares, usage
+        ok 1 - everything survives an application restart (new process, same database): consents, jobs, transcripts, reports, items, shares, usage
+          ---
+          duration_ms: 945.8668
+          type: 'test'
+          ...
+        # Subtest: retention: transcript text older than the policy is deleted, the report stays
+        ok 2 - retention: transcript text older than the policy is deleted, the report stays
+          ---
+          duration_ms: 744.3661
+          type: 'test'
+          ...
+        # Subtest: MAIN-side display names flow into the members list
+        ok 3 - MAIN-side display names flow into the members list
+          ---
+          duration_ms: 68.5097
+          type: 'test'
+          ...
+        1..3
+    ok 6 - persistence
+      ---
+      duration_ms: 1762.3617
+      type: 'suite'
+      ...
+    1..6
+ok 7 - AI meeting intelligence
+  ---
+  duration_ms: 37902.7895
+  type: 'suite'
+  ...
+# Subtest: PostgreSQL migration and rollback
+    # Subtest: 001 -> 002 is idempotent (safe to re-run) and seeds the authoritative catalogue
+    ok 1 - 001 -> 002 is idempotent (safe to re-run) and seeds the authoritative catalogue
+      ---
+      duration_ms: 2741.8194
+      type: 'test'
+      ...
+    # Subtest: rollback restores the v4.0/4.1 schema and keeps pre-existing business data; re-applying works
+    ok 2 - rollback restores the v4.0/4.1 schema and keeps pre-existing business data; re-applying works
+      ---
+      duration_ms: 2009.6147
+      type: 'test'
+      ...
+    # Subtest: 004 (AI meeting intelligence): re-runnable; rollback restores the earlier schema and keeps data that pre-dates it
+    ok 3 - 004 (AI meeting intelligence): re-runnable; rollback restores the earlier schema and keeps data that pre-dates it
+      ---
+      duration_ms: 2224.4966
+      type: 'test'
+      ...
+    # Subtest: 005 (phone): re-runnable; DB constraints hold; rollback restores the 004 schema; forward again works
+    ok 4 - 005 (phone): re-runnable; DB constraints hold; rollback restores the 004 schema; forward again works
+      ---
+      duration_ms: 3666.4432
+      type: 'test'
+      ...
+    # Subtest: 006 (notes, documents, assistant): legacy notes stay workspace-visible; re-runnable; rollback keeps the notes and restores the 005 schema
+    ok 5 - 006 (notes, documents, assistant): legacy notes stay workspace-visible; re-runnable; rollback keeps the notes and restores the 005 schema
+      ---
+      duration_ms: 3089.1958
+      type: 'test'
+      ...
+    # Subtest: 007 (billing launch): re-runnable; constraints hold; legacy sales statuses survive; rollback restores the 006 schema and keeps invoices and refunds
+    ok 6 - 007 (billing launch): re-runnable; constraints hold; legacy sales statuses survive; rollback restores the 006 schema and keeps invoices and refunds
+      ---
+      duration_ms: 3055.565
+      type: 'test'
+      ...
+    # Subtest: 008 (enterprise operations): re-runnable; the database enforces two-person refunds, append-only history and refuses "issued"/"active" states; rollback drops only ops tables and keeps invoices, refunds and billing requests
+    ok 7 - 008 (enterprise operations): re-runnable; the database enforces two-person refunds, append-only history and refuses "issued"/"active" states; rollback drops only ops tables and keeps invoices, refunds and billing requests
+      ---
+      duration_ms: 5534.3929
+      type: 'test'
+      ...
+    # Subtest: 004 refuses to run without the Meet directory view (clear error, no half-applied schema)
+    ok 8 - 004 refuses to run without the Meet directory view (clear error, no half-applied schema)
+      ---
+      duration_ms: 1014.4607
+      type: 'test'
+      ...
+    # Subtest: database constraints block bad billing data (defence in depth behind the API)
+    ok 9 - database constraints block bad billing data (defence in depth behind the API)
+      ---
+      duration_ms: 2848.9109
+      type: 'test'
+      ...
+    1..9
+ok 8 - PostgreSQL migration and rollback
+  ---
+  duration_ms: 34636.7156
+  type: 'suite'
+  ...
+# Subtest: operations pages in a real browser
+    # Subtest: customer opens a case with hostile HTML; staff sees it as text, writes an internal note and a customer reply; the customer sees only the reply; nothing executes
+    ok 1 - customer opens a case with hostile HTML; staff sees it as text, writes an internal note and a customer reply; the customer sees only the reply; nothing executes
+      ---
+      duration_ms: 2593.4805
+      type: 'test'
+      ...
+    # Subtest: a customer opening the Staff page is told they have no access (nothing loads); Admin explains MFA, and with MFA shows the closed release gates
+    ok 2 - a customer opening the Staff page is told they have no access (nothing loads); Admin explains MFA, and with MFA shows the closed release gates
+      ---
+      duration_ms: 1523.9291
+      type: 'test'
+      ...
+    1..2
+ok 9 - operations pages in a real browser
+  ---
+  duration_ms: 32988.8944
+  type: 'suite'
+  ...
+# Subtest: enterprise operations
+    # Subtest: 1. an ordinary customer cannot reach Admin or Staff endpoints; neither can anonymous callers, non-admin staff, or suspended/terminated staff
+    ok 1 - 1. an ordinary customer cannot reach Admin or Staff endpoints; neither can anonymous callers, non-admin staff, or suspended/terminated staff
+      ---
+      duration_ms: 799.8958
+      type: 'test'
+      ...
+    # Subtest: admin needs MFA: no amr, stale auth_time, or a token without auth_time are refused; a fresh MFA token passes
+    ok 2 - admin needs MFA: no amr, stale auth_time, or a token without auth_time are refused; a fresh MFA token passes
+      ---
+      duration_ms: 87.0314
+      type: 'test'
+      ...
+    # Subtest: staff directory: bootstrap by a platform admin with MFA; only a super administrator grants administrator roles; nobody edits themselves; deactivation returns cases to the queue
+    ok 3 - staff directory: bootstrap by a platform admin with MFA; only a super administrator grants administrator roles; nobody edits themselves; deactivation returns cases to the queue
+      ---
+      duration_ms: 428.4421
+      type: 'test'
+      ...
+    # Subtest: 2. a staff member cannot see or touch another agent's cases, and restricted cases are limited to their assignee and leads; two agents claiming one ticket: one wins
+    ok 4 - 2. a staff member cannot see or touch another agent's cases, and restricted cases are limited to their assignee and leads; two agents claiming one ticket: one wins
+      ---
+      duration_ms: 1030.5945
+      type: 'test'
+      ...
+    # Subtest: ticket workflow: state machine, assignment needs an assignee, closed is final, append-only history in the database
+    ok 5 - ticket workflow: state machine, assignment needs an assignee, closed is final, append-only history in the database
+      ---
+      duration_ms: 803.6417
+      type: 'test'
+      ...
+    # Subtest: 3. customer replies and views never expose internal notes, staff identities or events; a customer sees only their own cases
+    ok 6 - 3. customer replies and views never expose internal notes, staff identities or events; a customer sees only their own cases
+      ---
+      duration_ms: 527.2375
+      type: 'test'
+      ...
+    # Subtest: 4. refunds: two people, verified payment, exactly once, reconciled
+        # Subtest: requester cannot approve; a second administrator can; double approval and double execution are impossible
+        ok 1 - requester cannot approve; a second administrator can; double approval and double execution are impossible
+          ---
+          duration_ms: 966.1829
+          type: 'test'
+          ...
+        # Subtest: eligibility: only paid invoices, never more than remains (counting requests still in flight), failed provider calls end as failed and free the amount, the direct admin route is closed
+        ok 2 - eligibility: only paid invoices, never more than remains (counting requests still in flight), failed provider calls end as failed and free the amount, the direct admin route is closed
+          ---
+          duration_ms: 557.5477
+          type: 'test'
+          ...
+        1..2
+    ok 7 - 4. refunds: two people, verified payment, exactly once, reconciled
+      ---
+      duration_ms: 1524.4644
+      type: 'suite'
+      ...
+    # Subtest: 5. a payment failure cannot grant calling privileges: every condition must hold, operations has no way to activate calling, and requests only record
+    ok 8 - 5. a payment failure cannot grant calling privileges: every condition must hold, operations has no way to activate calling, and requests only record
+      ---
+      duration_ms: 375.6259
+      type: 'test'
+      ...
+    # Subtest: 6. an unapproved number range cannot be issued: by default nothing is approved, only approved prefixes can even be REQUESTED, and nothing in operations issues a number
+    ok 9 - 6. an unapproved number range cannot be issued: by default nothing is approved, only approved prefixes can even be REQUESTED, and nothing in operations issues a number
+      ---
+      duration_ms: 411.1032
+      type: 'test'
+      ...
+    # Subtest: 7. an expired, revoked or forged session cannot reach protected operations; a failing session check fails closed
+    ok 10 - 7. an expired, revoked or forged session cannot reach protected operations; a failing session check fails closed
+      ---
+      duration_ms: 234.7664
+      type: 'test'
+      ...
+    # Subtest: 8. a support agent cannot join, admit, record or otherwise act inside a meeting; diagnostics are read-only, whitelisted, audited and permissioned
+    ok 11 - 8. a support agent cannot join, admit, record or otherwise act inside a meeting; diagnostics are read-only, whitelisted, audited and permissioned
+      ---
+      duration_ms: 260.2422
+      type: 'test'
+      ...
+    # Subtest: 9. a database or session-service failure never bypasses authorization: protected handlers answer 503 and do nothing
+    ok 12 - 9. a database or session-service failure never bypasses authorization: protected handlers answer 503 and do nothing
+      ---
+      duration_ms: 87.139
+      type: 'test'
+      ...
+    # Subtest: 10. production defaults keep the calling and security gates closed: ops is off unless enabled, gates need the exact value, MFA and two-person refunds cannot be waived in production, and nothing can flip a gate
+    ok 13 - 10. production defaults keep the calling and security gates closed: ops is off unless enabled, gates need the exact value, MFA and two-person refunds cannot be waived in production, and nothing can flip a gate
+      ---
+      duration_ms: 42.7723
+      type: 'test'
+      ...
+    # Subtest: browser pages: served only when ops is enabled, with the strict CSP, no inline script, and no innerHTML/eval anywhere in their code
+    ok 14 - browser pages: served only when ops is enabled, with the strict CSP, no inline script, and no innerHTML/eval anywhere in their code
+      ---
+      duration_ms: 40.6733
+      type: 'test'
+      ...
+    # Subtest: workforce: clock in/out once, approval by a different supervisor, shifts without overlap, leave decided by someone else, payroll export of approved hours only (formula-safe)
+    ok 15 - workforce: clock in/out once, approval by a different supervisor, shifts without overlap, leave decided by someone else, payroll export of approved hours only (formula-safe)
+      ---
+      duration_ms: 511.1272
+      type: 'test'
+      ...
+    1..15
+ok 10 - enterprise operations
+  ---
+  duration_ms: 11647.3701
+  type: 'suite'
+  ...
+# Subtest: telephony routing (pure logic)
+    # Subtest: hours are evaluated in the profile time zone and closures always win
+    ok 1 - hours are evaluated in the profile time zone and closures always win
+      ---
+      duration_ms: 34.2745
+      type: 'test'
+      ...
+    # Subtest: zonedToUtc handles daylight-saving transitions
+    ok 2 - zonedToUtc handles daylight-saving transitions
+      ---
+      duration_ms: 1.756
+      type: 'test'
+      ...
+    # Subtest: decide: first matching rule wins; forwarding is stopped when the plan has no minutes left; no rule falls back to voicemail
+    ok 3 - decide: first matching rule wins; forwarding is stopped when the plan has no minutes left; no rule falls back to voicemail
+      ---
+      duration_ms: 0.9658
+      type: 'test'
+      ...
+    # Subtest: openSlots excludes bookings, closures and slots that do not fit
+    ok 4 - openSlots excludes bookings, closures and slots that do not fit
+      ---
+      duration_ms: 8.1065
+      type: 'test'
+      ...
+    # Subtest: destination policy blocks premium-rate, emergency-style and (by default) international numbers
+    ok 5 - destination policy blocks premium-rate, emergency-style and (by default) international numbers
+      ---
+      duration_ms: 0.7841
+      type: 'test'
+      ...
+    # Subtest: webhook signature: valid accepted; any altered parameter, url or token rejected
+    ok 6 - webhook signature: valid accepted; any altered parameter, url or token rejected
+      ---
+      duration_ms: 1.7023
+      type: 'test'
+      ...
+    # Subtest: browser dialer token is a HS256 JWT with a voice grant limited to the TwiML app
+    ok 7 - browser dialer token is a HS256 JWT with a voice grant limited to the TwiML app
+      ---
+      duration_ms: 1.1404
+      type: 'test'
+      ...
+    1..7
+ok 11 - telephony routing (pure logic)
+  ---
+  duration_ms: 50.9874
+  type: 'suite'
+  ...
+# Subtest: AI receptionist and phone (API + webhooks against PostgreSQL)
+    # Subtest: off by default
+        # Subtest: with telephony unconfigured nothing is accepted, dialled or activated, and the status says why
+        ok 1 - with telephony unconfigured nothing is accepted, dialled or activated, and the status says why
+          ---
+          duration_ms: 322.0995
+          type: 'test'
+          ...
+        # Subtest: the compliance acknowledgement is required even when credentials are present
+        ok 2 - the compliance acknowledgement is required even when credentials are present
+          ---
+          duration_ms: 169.3486
+          type: 'test'
+          ...
+        1..2
+    ok 1 - off by default
+      ---
+      duration_ms: 492.2304
+      type: 'suite'
+      ...
+    # Subtest: webhook security
+        # Subtest: missing, wrong and replayed-to-another-url signatures are rejected and store nothing
+        ok 1 - missing, wrong and replayed-to-another-url signatures are rejected and store nothing
+          ---
+          duration_ms: 158.2411
+          type: 'test'
+          ...
+        # Subtest: webhooks do not need cookies or CSRF - and API endpoints still do
+        ok 2 - webhooks do not need cookies or CSRF - and API endpoints still do
+          ---
+          duration_ms: 346.176
+          type: 'test'
+          ...
+        # Subtest: inbound call to an unknown or inactive number is declined without creating a session
+        ok 3 - inbound call to an unknown or inactive number is declined without creating a session
+          ---
+          duration_ms: 245.9225
+          type: 'test'
+          ...
+        1..3
+    ok 2 - webhook security
+      ---
+      duration_ms: 751.019
+      type: 'suite'
+      ...
+    # Subtest: inbound call flow
+        # Subtest: open hours with a keypad menu: gather, then forward to the chosen destination; the whole call is recorded in the database
+        ok 1 - open hours with a keypad menu: gather, then forward to the chosen destination; the whole call is recorded in the database
+          ---
+          duration_ms: 255.7597
+          type: 'test'
+          ...
+        # Subtest: provider retries of the same inbound webhook do not create a second call
+        ok 2 - provider retries of the same inbound webhook do not create a second call
+          ---
+          duration_ms: 599.467
+          type: 'test'
+          ...
+        # Subtest: closed (closure today): closed greeting, recording notice BEFORE the beep, voicemail stored once, no consent shortcut
+        ok 3 - closed (closure today): closed greeting, recording notice BEFORE the beep, voicemail stored once, no consent shortcut
+          ---
+          duration_ms: 509.8785
+          type: 'test'
+          ...
+        # Subtest: a recording callback is ignored when no recording notice was played, and recording URLs outside the provider are refused
+        ok 4 - a recording callback is ignored when no recording notice was played, and recording URLs outside the provider are refused
+          ---
+          duration_ms: 370.1611
+          type: 'test'
+          ...
+        # Subtest: nobody answers the forwarded call: the caller is sent to voicemail, never left in silence
+        ok 5 - nobody answers the forwarded call: the caller is sent to voicemail, never left in silence
+          ---
+          duration_ms: 248.0969
+          type: 'test'
+          ...
+        # Subtest: escalation rings the escalation numbers and stays pending until a manager acknowledges it (once)
+        ok 6 - escalation rings the escalation numbers and stays pending until a manager acknowledges it (once)
+          ---
+          duration_ms: 309.7788
+          type: 'test'
+          ...
+        # Subtest: when the plan has no minutes left forwarding is replaced by voicemail
+        ok 7 - when the plan has no minutes left forwarding is replaced by voicemail
+          ---
+          duration_ms: 278.4861
+          type: 'test'
+          ...
+        1..7
+    ok 3 - inbound call flow
+      ---
+      duration_ms: 2572.5039
+      type: 'suite'
+      ...
+    # Subtest: call status, metering and failure recovery
+        # Subtest: status callbacks update the session, never regress a finished call, are idempotent, and meter minutes exactly once
+        ok 1 - status callbacks update the session, never regress a finished call, are idempotent, and meter minutes exactly once
+          ---
+          duration_ms: 348.6133
+          type: 'test'
+          ...
+        # Subtest: failed and unanswered calls are recorded as such and cost nothing
+        ok 2 - failed and unanswered calls are recorded as such and cost nothing
+          ---
+          duration_ms: 330.0031
+          type: 'test'
+          ...
+        # Subtest: status callbacks for calls we never tracked are acknowledged without side effects
+        ok 3 - status callbacks for calls we never tracked are acknowledged without side effects
+          ---
+          duration_ms: 135.8529
+          type: 'test'
+          ...
+        1..3
+    ok 4 - call status, metering and failure recovery
+      ---
+      duration_ms: 814.8818
+      type: 'suite'
+      ...
+    # Subtest: voicemails
+        # Subtest: transcript arrives, a leased job summarises it once, usage is counted once, and the summary is shown
+        ok 1 - transcript arrives, a leased job summarises it once, usage is counted once, and the summary is shown
+          ---
+          duration_ms: 328.8446
+          type: 'test'
+          ...
+        # Subtest: a duplicate transcription callback does not queue a second summary
+        ok 2 - a duplicate transcription callback does not queue a second summary
+          ---
+          duration_ms: 398.6647
+          type: 'test'
+          ...
+        # Subtest: model outage retries with backoff; permanent rejection fails the job and marks the voicemail
+        ok 3 - model outage retries with backoff; permanent rejection fails the job and marks the voicemail
+          ---
+          duration_ms: 501.6052
+          type: 'test'
+          ...
+        # Subtest: without an AI provider the voicemail is kept and the summary is explicitly blocked (nothing invented)
+        ok 4 - without an AI provider the voicemail is kept and the summary is explicitly blocked (nothing invented)
+          ---
+          duration_ms: 306.2868
+          type: 'test'
+          ...
+        # Subtest: only owners and admins can list, play and delete voicemails; audio is proxied with our credentials; other workspaces see nothing
+        ok 5 - only owners and admins can list, play and delete voicemails; audio is proxied with our credentials; other workspaces see nothing
+          ---
+          duration_ms: 320.7181
+          type: 'test'
+          ...
+        # Subtest: deleting a voicemail removes the transcript and summary and hides it
+        ok 6 - deleting a voicemail removes the transcript and summary and hides it
+          ---
+          duration_ms: 316.6276
+          type: 'test'
+          ...
+        # Subtest: a provider outage while fetching audio is a clean 502, not a crash
+        ok 7 - a provider outage while fetching audio is a clean 502, not a crash
+          ---
+          duration_ms: 256.1297
+          type: 'test'
+          ...
+        1..7
+    ok 5 - voicemails
+      ---
+      duration_ms: 2429.6679
+      type: 'suite'
+      ...
+    # Subtest: numbers, profiles and configuration
+        # Subtest: only owners/admins configure; members are refused; hours are required before enabling; invalid input is rejected
+        ok 1 - only owners/admins configure; members are refused; hours are required before enabling; invalid input is rejected
+          ---
+          duration_ms: 636.4706
+          type: 'test'
+          ...
+        # Subtest: phone numbers are unique across workspaces, validated, plan-limited, and cannot point at another workspace profile
+        ok 2 - phone numbers are unique across workspaces, validated, plan-limited, and cannot point at another workspace profile
+          ---
+          duration_ms: 281.1321
+          type: 'test'
+          ...
+        1..2
+    ok 6 - numbers, profiles and configuration
+      ---
+      duration_ms: 917.8743
+      type: 'suite'
+      ...
+    # Subtest: outbound calling
+        # Subtest: click-to-call rings the user first and bridges to the destination; the call is recorded as outbound by that user
+        ok 1 - click-to-call rings the user first and bridges to the destination; the call is recorded as outbound by that user
+          ---
+          duration_ms: 336.1046
+          type: 'test'
+          ...
+        # Subtest: destination policy and provider errors are enforced and surfaced honestly
+        ok 2 - destination policy and provider errors are enforced and surfaced honestly
+          ---
+          duration_ms: 527.2915
+          type: 'test'
+          ...
+        # Subtest: a workspace with no active number cannot dial; plan minutes exhausted blocks new outbound calls
+        ok 3 - a workspace with no active number cannot dial; plan minutes exhausted blocks new outbound calls
+          ---
+          duration_ms: 480.6459
+          type: 'test'
+          ...
+        # Subtest: browser dialer: token only for members of a workspace with an active number; the TwiML app only dials for real members
+        ok 4 - browser dialer: token only for members of a workspace with an active number; the TwiML app only dials for real members
+          ---
+          duration_ms: 353.2513
+          type: 'test'
+          ...
+        1..4
+    ok 7 - outbound calling
+      ---
+      duration_ms: 1697.7596
+      type: 'suite'
+      ...
+    # Subtest: appointments
+        # Subtest: free slots come from the business hours; booking removes the slot; a double booking is refused; the same key is idempotent
+        ok 1 - free slots come from the business hours; booking removes the slot; a double booking is refused; the same key is idempotent
+          ---
+          duration_ms: 723.6044
+          type: 'test'
+          ...
+        # Subtest: two simultaneous bookings for one slot: exactly one wins
+        ok 2 - two simultaneous bookings for one slot: exactly one wins
+          ---
+          duration_ms: 510.7602
+          type: 'test'
+          ...
+        # Subtest: outside business hours, in the past, closures and other workspaces are refused
+        ok 3 - outside business hours, in the past, closures and other workspaces are refused
+          ---
+          duration_ms: 502.5384
+          type: 'test'
+          ...
+        # Subtest: cancel: the booker or a manager only; the slot becomes free again
+        ok 4 - cancel: the booker or a manager only; the slot becomes free again
+          ---
+          duration_ms: 447.1709
+          type: 'test'
+          ...
+        1..4
+    ok 8 - appointments
+      ---
+      duration_ms: 2186.0741
+      type: 'suite'
+      ...
+    # Subtest: history and analytics
+        # Subtest: call history is manager-wide, personal for members, and analytics aggregate the real rows only
+        ok 1 - call history is manager-wide, personal for members, and analytics aggregate the real rows only
+          ---
+          duration_ms: 197.2596
+          type: 'test'
+          ...
+        1..1
+    ok 9 - history and analytics
+      ---
+      duration_ms: 197.4971
+      type: 'suite'
+      ...
+    1..9
+ok 12 - AI receptionist and phone (API + webhooks against PostgreSQL)
+  ---
+  duration_ms: 17438.7486
+  type: 'suite'
+  ...
+# Subtest: document content (pure)
+    # Subtest: each kind validates its own shape and rejects extras
+    ok 1 - each kind validates its own shape and rejects extras
+      ---
+      duration_ms: 9.689
+      type: 'test'
+      ...
+    # Subtest: plain-text extraction feeds search
+    ok 2 - plain-text extraction feeds search
+      ---
+      duration_ms: 0.7521
+      type: 'test'
+      ...
+    1..2
+ok 13 - document content (pure)
+  ---
+  duration_ms: 12.6467
+  type: 'suite'
+  ...
+# Subtest: notes, documents and QorllaMate (API against PostgreSQL)
+    # Subtest: notebooks and notes
+        # Subtest: notes are private by default; another member sees nothing, not even by id; workspace-visible notes are readable but only the author edits
+        ok 1 - notes are private by default; another member sees nothing, not even by id; workspace-visible notes are readable but only the author edits
+          ---
+          duration_ms: 428.9707
+          type: 'test'
+          ...
+        # Subtest: notes never cross workspaces
+        ok 2 - notes never cross workspaces
+          ---
+          duration_ms: 158.9164
+          type: 'test'
+          ...
+        # Subtest: notebooks are personal; notes can be filed and searched; deleting a notebook keeps its notes
+        ok 3 - notebooks are personal; notes can be filed and searched; deleting a notebook keeps its notes
+          ---
+          duration_ms: 799.3168
+          type: 'test'
+          ...
+        # Subtest: plan note quota still applies (soft-deleted notes do not count)
+        ok 4 - plan note quota still applies (soft-deleted notes do not count)
+          ---
+          duration_ms: 386.309
+          type: 'test'
+          ...
+        # Subtest: input is validated
+        ok 5 - input is validated
+          ---
+          duration_ms: 61.7924
+          type: 'test'
+          ...
+        1..5
+    ok 1 - notebooks and notes
+      ---
+      duration_ms: 1836.8724
+      type: 'suite'
+      ...
+    # Subtest: documents
+        # Subtest: owner creates, reads, edits with optimistic concurrency; a stale editor gets 409 and loses nothing
+        ok 1 - owner creates, reads, edits with optimistic concurrency; a stale editor gets 409 and loses nothing
+          ---
+          duration_ms: 385.026
+          type: 'test'
+          ...
+        # Subtest: versions are immutable history; restore creates a NEW version
+        ok 2 - versions are immutable history; restore creates a NEW version
+          ---
+          duration_ms: 227.3402
+          type: 'test'
+          ...
+        # Subtest: authorization: unshared documents are invisible (404) to members, admins and other workspaces; sharing grants exactly viewer or editor
+        ok 3 - authorization: unshared documents are invisible (404) to members, admins and other workspaces; sharing grants exactly viewer or editor
+          ---
+          duration_ms: 957.1352
+          type: 'test'
+          ...
+        # Subtest: sharing is limited to workspace members; deleting is for the owner or a workspace admin
+        ok 4 - sharing is limited to workspace members; deleting is for the owner or a workspace admin
+          ---
+          duration_ms: 302.2046
+          type: 'test'
+          ...
+        # Subtest: content validation, idempotent creation, and plan limits
+        ok 5 - content validation, idempotent creation, and plan limits
+          ---
+          duration_ms: 493.1041
+          type: 'test'
+          ...
+        # Subtest: sheets and slides round-trip and are searchable
+        ok 6 - sheets and slides round-trip and are searchable
+          ---
+          duration_ms: 122.3652
+          type: 'test'
+          ...
+        1..6
+    ok 2 - documents
+      ---
+      duration_ms: 2490.139
+      type: 'suite'
+      ...
+    # Subtest: AI document drafts
+        # Subtest: creates an owned draft labelled as AI; metered once; replay with the same key returns the same document without a second model call
+        ok 1 - creates an owned draft labelled as AI; metered once; replay with the same key returns the same document without a second model call
+          ---
+          duration_ms: 181.7789
+          type: 'test'
+          ...
+        # Subtest: sheet and slide drafts are valid content of their kind
+        ok 2 - sheet and slide drafts are valid content of their kind
+          ---
+          duration_ms: 504.2637
+          type: 'test'
+          ...
+        # Subtest: model outage / bad output saves and charges nothing; no provider is an explicit 503; the plan quota is enforced
+        ok 3 - model outage / bad output saves and charges nothing; no provider is an explicit 503; the plan quota is enforced
+          ---
+          duration_ms: 561.1442
+          type: 'test'
+          ...
+        1..3
+    ok 3 - AI document drafts
+      ---
+      duration_ms: 1247.5806
+      type: 'suite'
+      ...
+    # Subtest: QorllaMate
+        # Subtest: status is honest about what the assistant can and cannot do
+        ok 1 - status is honest about what the assistant can and cannot do
+          ---
+          duration_ms: 81.2763
+          type: 'test'
+          ...
+        # Subtest: threads are private to their owner
+        ok 2 - threads are private to their owner
+          ---
+          duration_ms: 271.7451
+          type: 'test'
+          ...
+        # Subtest: a request to create something yields a PROPOSAL only; nothing exists until the user approves, and approving twice does not duplicate
+        ok 3 - a request to create something yields a PROPOSAL only; nothing exists until the user approves, and approving twice does not duplicate
+          ---
+          duration_ms: 419.954
+          type: 'test'
+          ...
+        # Subtest: reject, document creation and the 7-day expiry
+        ok 4 - reject, document creation and the 7-day expiry
+          ---
+          duration_ms: 736.3216
+          type: 'test'
+          ...
+        # Subtest: email is an external action: it can be proposed, but approval is BLOCKED because no mail provider exists - nothing is sent or pretended
+        ok 5 - email is an external action: it can be proposed, but approval is BLOCKED because no mail provider exists - nothing is sent or pretended
+          ---
+          duration_ms: 184.7795
+          type: 'test'
+          ...
+        # Subtest: prompt injection in stored notes cannot make the assistant act: even a model that obeys it only produces a proposal, which stays blocked
+        ok 6 - prompt injection in stored notes cannot make the assistant act: even a model that obeys it only produces a proposal, which stays blocked
+          ---
+          duration_ms: 187.7038
+          type: 'test'
+          ...
+        # Subtest: retrieval only uses what the caller may read: other people's private notes and unshared documents never reach the model
+        ok 7 - retrieval only uses what the caller may read: other people's private notes and unshared documents never reach the model
+          ---
+          duration_ms: 455.0417
+          type: 'test'
+          ...
+        # Subtest: idempotent: retrying a message returns the same answer without a second model call or charge
+        ok 8 - idempotent: retrying a message returns the same answer without a second model call or charge
+          ---
+          duration_ms: 391.3582
+          type: 'test'
+          ...
+        # Subtest: provider problems store nothing and charge nothing; the plan message quota is enforced
+        ok 9 - provider problems store nothing and charge nothing; the plan message quota is enforced
+          ---
+          duration_ms: 267.5374
+          type: 'test'
+          ...
+        # Subtest: input limits
+        ok 10 - input limits
+          ---
+          duration_ms: 64.1386
+          type: 'test'
+          ...
+        1..10
+    ok 4 - QorllaMate
+      ---
+      duration_ms: 3060.8266
+      type: 'suite'
+      ...
+    1..4
+ok 14 - notes, documents and QorllaMate (API against PostgreSQL)
+  ---
+  duration_ms: 12667.4409
+  type: 'suite'
+  ...
+1..14
+# tests 187
+# suites 38
+# pass 187
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 245363.3933
+EXIT 0

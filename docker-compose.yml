@@ -56,6 +56,7 @@ services:
       - ./qorlla-portal/sql/005_phone.sql:/docker-entrypoint-initdb.d/012b_portal_005_phone.sql:ro
       - ./qorlla-portal/sql/006_workspace_tools.sql:/docker-entrypoint-initdb.d/012c_portal_006_workspace_tools.sql:ro
       - ./qorlla-portal/sql/007_billing_launch.sql:/docker-entrypoint-initdb.d/012d_portal_007_billing_launch.sql:ro
+      - ./qorlla-portal/sql/008_enterprise_ops.sql:/docker-entrypoint-initdb.d/012e_portal_008_enterprise_ops.sql:ro
       - ./qorlla-portal/sql/003_roles.sh:/docker-entrypoint-initdb.d/013_portal_roles.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qorlla_main"]
@@ -94,6 +95,10 @@ services:
       - AI_TRANSCRIPT_RETENTION_DAYS=${AI_TRANSCRIPT_RETENTION_DAYS:-90}
       - TRUST_PROXY_HOPS=1
       - BILLING_ENABLED=${BILLING_ENABLED:-false}
+      # enterprise operations: OFF unless exactly "true". MFA for admins and two-person refunds are always on in production. None of these turns on calling.
+      - OPS_ENABLED=${OPS_ENABLED:-false}
+      - OPS_WORKER_ENABLED=${OPS_WORKER_ENABLED:-false}
+      - OPS_APPROVED_NUMBER_RANGES=${OPS_APPROVED_NUMBER_RANGES:-}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
       - BILLING_LIVE_AUTHORIZED=${BILLING_LIVE_AUTHORIZED:-}

@@ -14,7 +14,8 @@ if (cfg.billing.enabled && !cfg.billing.available) log.warn('billing enabled but
 const pool = new pg.Pool({ connectionString: cfg.databaseUrl, max: Number(process.env.PG_POOL_MAX || 10) });
 pool.on('error', (e) => log.error('postgres pool error', { err: e.message }));
 const jwks = cfg.authConfigured ? createRemoteJWKSet(new URL(cfg.jwksUrl), { cooldownDuration: 30_000, cacheMaxAge: 10 * 60_000, timeoutDuration: 5000 }) : null;
-const { app, billing, launch, ai } = createApp({ pool, cfg, jwks, log });
+const { app, billing, launch, ai, ops } = createApp({ pool, cfg, jwks, log });
+if (ops && cfg.ops.workerEnabled) ops.startWorker();
 if (cfg.ai.workerEnabled) { ai.worker.start(); ai.phoneWorker.start(); }
 if (!ai.llm.available) log.warn('AI_LLM_API_KEY is not set: AI meeting jobs will be BLOCKED (no simulated output)');
 
