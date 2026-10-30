@@ -2,7 +2,7 @@
 import { FEATURES, FEATURE_IDS, cleanDesired, hashOf, evaluateFeature, featureSupport } from './features.mjs';
 import { classifyProviderError, nextBackoffSeconds } from './number-authority.mjs';
 import { capabilitiesOf } from './provider-contract.mjs';
-import { err, normalizeE164, assertAdmin, assertActor, screenDestination, allowedCountries, nextState, fromTwilioStatus, TERMINAL, deriveCapabilities } from './core.mjs';
+import { err, normalizeE164, assertAdmin, assertViewer, assertActor, screenDestination, allowedCountries, nextState, fromTwilioStatus, TERMINAL, deriveCapabilities } from './core.mjs';
 
 const KEY = /^[A-Za-z0-9_.:-]{8,80}$/;
 const last4 = (n) => String(n || '').slice(-4);
@@ -73,11 +73,11 @@ export class TelephonyService {
     await this.audit(actor.id, 'number.requested', ins.id, { country, kind }); return this.reqView(ins);
   }
   reqView(r) { return { id: r.id, country: r.country, kind: r.kind, state: r.state, error: r.error_code || null, numberId: r.number_id || null, createdAt: r.created_at, updatedAt: r.updated_at }; }
-  async listRequests(actor) { assertAdmin(actor); return (await this.db.query('SELECT * FROM qphone_provisioning_requests ORDER BY created_at DESC LIMIT 50')).rows.map((r) => this.reqView(r)); }
+  async listRequests(actor) { assertViewer(actor); return (await this.db.query('SELECT * FROM qphone_provisioning_requests ORDER BY created_at DESC LIMIT 50')).rows.map((r) => this.reqView(r)); }
   numView(n) { return { id: n.id, number: n.e164, country: n.country, kind: n.kind, state: n.state, assignedTo: n.assigned_to || null, callerIdVerified: !!n.caller_id_verified, confirmedAt: n.confirmed_at }; }
   async listNumbers(actor, { kind } = {}) {
     assertActor(actor); const where = [], p = [];
-    if (kind) { p.push(kind); where.push('kind=$' + p.length); } if (!actor.admin) { p.push(actor.id); where.push("(kind='dialin' OR assigned_to=$" + p.length + ')'); }
+    if (kind) { p.push(kind); where.push('kind=$' + p.length); } if (!(actor.admin || actor.viewer)) { p.push(actor.id); where.push("(kind='dialin' OR assigned_to=$" + p.length + ')'); }
     return (await this.db.query("SELECT * FROM qphone_numbers WHERE state='active'" + (where.length ? ' AND ' + where.join(' AND ') : '') + ' ORDER BY created_at DESC LIMIT 200', p)).rows.map((n) => this.numView(n));
   }
   async dialInDirectory() { return (await this.db.query("SELECT e164,country FROM qphone_numbers WHERE kind='dialin' AND state='active' ORDER BY created_at")).rows.map((n) => ({ number: n.e164, code: n.country, country: n.country, label: '', tollFree: false, confirmed: true })); }
@@ -331,7 +331,7 @@ export class TelephonyService {
   async diagnostics(actor) {
     assertActor(actor); const caps = await this.capabilities(actor.id), st = await this.providerStatus();
     return { provider: { name: this.carrier.name, configured: this.carrier.configured, healthOk: !!(st && st.health_ok), healthCheckedAt: st && st.health_checked_at, healthDetail: st && st.health_detail, webhookConfigured: !!this.carrier.webhookConfigured, webhookVerifiedAt: st && st.webhook_verified_at },
-      capabilities: caps, calls: await this.listCalls(actor), audit: actor.admin ? (await this.db.query('SELECT at, action, subject FROM qphone_audit ORDER BY id DESC LIMIT 20')).rows : undefined };
+      capabilities: caps, calls: await this.listCalls(actor), audit: (actor.admin || actor.viewer) ? (await this.db.query('SELECT at, action, subject FROM qphone_audit ORDER BY id DESC LIMIT 20')).rows : undefined };
   }
   // ------------------------------------------------------------------ saved preferences vs what the carrier enforces
   // DESIRED state is what the user saved. ACTIVE means the carrier adapter applied it and we READ IT BACK. Anything else is "saved, inactive" with the reason, never "on".
