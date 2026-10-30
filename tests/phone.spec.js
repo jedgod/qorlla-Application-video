@@ -98,7 +98,7 @@ test.describe('dial-in against the real Meet server', () => {
     const det = await (await m.ctx.request.get(B() + '/api/history/meetings/' + encodeURIComponent(m.item.meetingId))).json(); const ph = det.attendees.find((a) => a.phone); expect(ph.name).toBe('Phone ••••4567'); expect(det.uniqueAttendeeCount).toBeGreaterThanOrEqual(1);
     const everything = JSON.stringify([r.body, calls, done, det]); expect(everything).not.toContain('5551234567'); expect(everything).not.toContain(FROM1);
     const { Client } = require('../qorlla-meet-video/node_modules/pg'); const s = JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', '.dev-stack', 'secrets.json'), 'utf8'));
-    const c = new Client({ connectionString: 'postgres://qorlla:' + s.dbPassword + '@127.0.0.1:35432/qorlla_meet' }); await c.connect(); const rows = (await c.query('select * from phone_calls where provider_call_id=$1', [('call-join-1' + RUN)])).rows[0]; await c.end();
+    const c = new Client({ connectionString: 'postgres://qorlla:' + s.dbPassword + '@127.0.0.1:' + (process.env.MEET_DB_PORT || 35432) + '/qorlla_meet' }); await c.connect(); const rows = (await c.query('select * from phone_calls where provider_call_id=$1', [('call-join-1' + RUN)])).rows[0]; await c.end();
     expect(JSON.stringify(rows)).not.toContain('5551234567'); expect(rows.caller_hash).toMatch(/^[0-9a-f]{64}$/); expect(rows.caller_last4).toBe('4567');
     await m.ctx.close();
   });

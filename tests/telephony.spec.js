@@ -13,7 +13,7 @@ const { Pool } = require('pg');
 // and remain open. Needs `npm run dev:stack` once (database + secrets).
 const M = (f) => import(pathToFileURL(path.resolve(__dirname, '..', 'qorlla-meet-video', 'server', 'telephony', f)).href);
 const secrets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', '.dev-stack', 'secrets.json'), 'utf8'));
-const URL_DB = 'postgres://qorlla:' + secrets.dbPassword + '@127.0.0.1:35432/qorlla_meet';
+const URL_DB = 'postgres://qorlla:' + secrets.dbPassword + '@127.0.0.1:' + (process.env.MEET_DB_PORT || 35432) + '/qorlla_meet';
 const SID = 'ACtest0123456789abcdef', TOKEN = 'tok-' + 'x'.repeat(24);
 
 async function mockTwilio() {

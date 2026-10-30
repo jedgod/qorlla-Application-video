@@ -295,12 +295,14 @@ const numberViewer = require('./number-viewer');
 const phoneViewer = (u) => numberViewer.isViewer(u, phoneAdmin(u));
 function viewerAudit(u, route, req) {
     const rec = { at: new Date().toISOString(), event: 'number_authority_view', userId: u.id, username: u.username, route, ip: req && req.ip, correlationId: req && req.res && req.res.get && req.res.get('X-Correlation-Id') };
-    console.log(JSON.stringify(rec));
-    try { fs.mkdirSync(path.join(DATA_DIR, 'auth'), { recursive: true }); fs.appendFileSync(path.join(DATA_DIR, 'auth', 'number-authority-viewer-audit.jsonl'), JSON.stringify(rec) + '\n'); } catch (e) { console.error('[Audit] viewer audit file not written:', e.message); }
+    const ok = numberViewer.recordRead(path.join(DATA_DIR, 'auth', 'number-authority-viewer-audit.jsonl'), rec);
+    console.log(JSON.stringify(ok ? rec : { ...rec, audit: 'NOT_WRITTEN' }));
+    return ok;
 }
 const tel = (u, method, route, { viewerRead, req, ...o } = {}) => {
     const actor = numberViewer.actorFor(u, { admin: phoneAdmin(u), method, route, viewerRead });
-    if (actor.viewer) viewerAudit(u, method + ' ' + route, req);
+    // Fail closed: if the viewer's read cannot be audited it is refused (503) and nothing is sent to Meet.
+    if (actor.viewer && !viewerAudit(u, method + ' ' + route, req)) return Promise.resolve({ ok: false, status: 503, data: { error: 'The audit log is unavailable, so this read was refused.', code: 'AUDIT_UNAVAILABLE' } });
     return meetLaunch.telephony(method, route, { actor, ...o });
 };
 const telSend = async (req, res, method, route, o = {}) => {

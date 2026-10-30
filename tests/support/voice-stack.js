@@ -10,7 +10,7 @@ const ADMIN = 'v'.repeat(40);
 
 async function startVoiceStack({ mainPort, voicePort, engineEnv = {}, mainEnv = {} }) {
   const secrets = JSON.parse(fs.readFileSync(path.join(root, '.dev-stack', 'secrets.json'), 'utf8'));
-  const DB = 'postgres://qorlla:' + secrets.dbPassword + '@127.0.0.1:35432/qorlla_meet';
+  const DB = 'postgres://qorlla:' + secrets.dbPassword + '@127.0.0.1:' + (process.env.MEET_DB_PORT || 35432) + '/qorlla_meet';
   const schema = 'qe2e_' + Math.random().toString(36).slice(2, 9), admin = new Pool({ connectionString: DB }); await admin.query('CREATE SCHEMA ' + schema);
   const sp = new Pool({ connectionString: DB, options: '-c search_path=' + schema });
   const dir = path.join(root, 'qorlla-voice-engine'); for (const f of fs.readdirSync(path.join(dir, 'sql')).filter((x) => /^\d{3}_.+\.sql$/.test(x)).sort()) await sp.query(fs.readFileSync(path.join(dir, 'sql', f), 'utf8')); await sp.end();
