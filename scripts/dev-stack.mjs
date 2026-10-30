@@ -5,6 +5,7 @@
 //                                                       The ORIGINAL folder is never written to; the stack works on its own copy in .dev-stack/data.
 // Needs Docker (for Meet's PostgreSQL) and the dependencies installed in this folder and in qorlla-meet-video/. State lives in .dev-stack/ (git-ignored).
 import { spawn, spawnSync } from 'node:child_process';
+import { migrate } from './dev-db-migrate.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -40,33 +41,9 @@ if (!exists) {
 } else if (docker('ps', '--filter', `name=^${DB}$`, '--format', '{{.Names}}').stdout.trim() !== DB) docker('start', DB);
 for (let i = 0; i < 60 && docker('exec', DB, 'pg_isready', '-U', 'qorlla', '-d', 'qorlla_meet').status !== 0; i++) spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},1000)']);
 spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},1500)']);
-const has = docker('exec', DB, 'psql', '-U', 'qorlla', '-d', 'qorlla_meet', '-tAc', "select to_regclass('public.meetings') is not null").stdout.trim();
-if (has !== 't') {
-  for (const f of ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql']) {
-    const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', f)), encoding: 'utf8' });
-    if (r.status !== 0) { console.error('Meet schema step failed:', f, r.stderr); process.exit(1); }
-  }
-}
-
-// idempotent additions are applied on EVERY start, so an existing development database picks them up
-{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_7_recording_consent.sql')), encoding: 'utf8' });
-  if (r.status !== 0) { console.error('Recording-consent migration failed:', r.stderr); process.exit(1); } }
-{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_8_collab.sql')), encoding: 'utf8' });
-  if (r.status !== 0) { console.error('Collaboration migration failed:', r.stderr); process.exit(1); } }
-{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_9_recording_storage.sql')), encoding: 'utf8' });
-  if (r.status !== 0) { console.error('Recording-storage migration failed:', r.stderr); process.exit(1); } }
-{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_10_admission.sql')), encoding: 'utf8' });
-  if (r.status !== 0) { console.error('Admission migration failed:', r.stderr); process.exit(1); } }
-{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_11_history.sql')), encoding: 'utf8' });
-  if (r.status !== 0) { console.error('History migration failed:', r.stderr); process.exit(1); } }
-{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_12_limit.sql')), encoding: 'utf8' });
-  if (r.status !== 0) { console.error('Meeting-limit migration failed:', r.stderr); process.exit(1); } }
-{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_13_phone.sql')), encoding: 'utf8' });
-  if (r.status !== 0) { console.error('Phone migration failed:', r.stderr); process.exit(1); } }
-{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_14_telephony.sql')), encoding: 'utf8' });
-  if (r.status !== 0) { console.error('Telephony migration failed:', r.stderr); process.exit(1); } }
-{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_15_telephony_features.sql')), encoding: 'utf8' });
-  if (r.status !== 0) { console.error('Telephony features migration failed:', r.stderr); process.exit(1); } }
+// Meet's schema: ordered, tracked, atomic migrations; refuses a partial or incomplete schema (see scripts/dev-db-migrate.mjs). Startup stops on the first failure.
+try { const r = migrate({ container: DB, root, env: process.env, log: (m) => console.log('[db] ' + m) }); console.log('[db] migrations: applied ' + r.applied.length + ', already applied ' + r.skipped.length); }
+catch (e) { console.error('Database initialisation failed: ' + String(e.message || e)); process.exit(1); }
 
 const children = [];
 // Qorlla Voice (self-hosted internet calls): dependencies once, then its tables, then the service on :4600. Internal calls only: no carrier, no Twilio.
