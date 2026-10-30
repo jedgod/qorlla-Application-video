@@ -1,0 +1,42 @@
+{
+  "name": "@qorlla/desktop",
+  "version": "0.2.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "dev": "electron .",
+    "dist": "electron-builder --publish never",
+    "test": "node --test tests/*.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.qorlla.desktop",
+    "productName": "Qorlla",
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "index.html",
+      "package.json",
+      "security.cjs"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  }
+}

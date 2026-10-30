@@ -1,0 +1,4 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const {verifiedOrigin,navigationAllowed,externalAllowed}=require('../security.cjs');
+test('accepts only bare HTTPS origin',()=>{assert.equal(verifiedOrigin('https://meet.example.org/'),'https://meet.example.org');for(const x of ['http://meet.example.org/','https://meet.example.org/path','https://u:p@meet.example.org/','javascript:alert(1)'])assert.throws(()=>verifiedOrigin(x));});
+test('navigation is origin confined',()=>{assert.equal(navigationAllowed('https://meet.example.org/auth','https://meet.example.org'),true);assert.equal(navigationAllowed('https://evil.example.org','https://meet.example.org'),false);});
+test('external links require HTTPS',()=>{assert.equal(externalAllowed('https://example.org/help'),true);assert.equal(externalAllowed('file:///etc/passwd'),false);assert.equal(externalAllowed('mailto:a@b.com'),false);});

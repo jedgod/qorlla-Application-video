@@ -1,0 +1,1 @@
+export function createQorllaUrl(base,path){if(typeof base!=='string'||!/^https:\/\/[^/]+\/?$/.test(base))throw new Error('Configure a verified HTTPS origin');if(!/^\/[a-z0-9/_-]*$/i.test(path)||path.startsWith('//'))throw new Error('Invalid application path');return base.replace(/\/$/,'')+path;}
