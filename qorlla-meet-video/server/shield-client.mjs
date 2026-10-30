@@ -1,16 +1,17 @@
 // Qorlla Meet -> Security Shield. Meet stays the authority for meetings, passcodes, the waiting room and host approval; the shield decides whether an ADMITTED participant may keep a signaling session.
 // Authenticated with a short-lived workload credential (never a shared secret). With SHIELD_MEET_ENFORCE=true every failure here means "deny": Meet never grants a session the shield did not.
 import { signWorkloadJwt } from './telephony/number-sync.mjs';
+import { transportFromEnv } from './telephony/workload-transport.mjs';
 
 export function shieldConfig(env = process.env) {
   const enforce = env.SHIELD_MEET_ENFORCE === 'true', url = String(env.SHIELD_URL || '').replace(/\/+$/, '');
   const key = String(env.SHIELD_MEET_KEY_PEM || '').replace(/\\n/g, '\n'), issuer = env.SHIELD_WORKLOAD_ISSUER || '';
-  return { enforce, configured: !!(url && key && issuer), url, key, issuer, kid: env.SHIELD_WORKLOAD_KID || 'w1', recheckMs: Math.max(1000, Number(env.SHIELD_RECHECK_SECONDS || 15) * 1000), graceMs: Math.max(1000, Number(env.SHIELD_RECHECK_GRACE_SECONDS || 120) * 1000) };
+  return { enforce, configured: !!(url && key && issuer), url, key, issuer, kid: env.SHIELD_WORKLOAD_KID || 'w1', transport: transportFromEnv(env), recheckMs: Math.max(1000, Number(env.SHIELD_RECHECK_SECONDS || 15) * 1000), graceMs: Math.max(1000, Number(env.SHIELD_RECHECK_GRACE_SECONDS || 120) * 1000) };
 }
 
-export function createShieldClient({ config, fetchImpl = fetch, now = () => Date.now() }) {
+export function createShieldClient({ config, fetchImpl = (config.transport && config.transport.fetchImpl) || fetch, now = () => Date.now() }) {
   const call = async (path, body) => {
-    const r = await fetchImpl(config.url + path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + signWorkloadJwt({ privateKeyPem: config.key, kid: config.kid, issuer: config.issuer, subject: 'svc:meet' }) }, body: JSON.stringify(body), signal: AbortSignal.timeout(4000) });
+    const r = await fetchImpl(config.url + path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + signWorkloadJwt({ privateKeyPem: config.key, kid: config.kid, issuer: config.issuer, subject: 'svc:meet', cnfThumbprint: config.transport ? config.transport.thumbprint : undefined }) }, body: JSON.stringify(body), signal: AbortSignal.timeout(4000) });
     const data = await r.json().catch(() => ({})); return { status: r.status, data };
   };
   const state = { lastOk: now() };

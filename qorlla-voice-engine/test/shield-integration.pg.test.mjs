@@ -67,7 +67,7 @@ before(async () => {
   const idp = await identityProvider(); h = harness({ db, idp });
   engine = await h.replica({ env: {
     VOICE_PSTN_ENABLED: 'true', VOICE_NUMBERS_ENABLED: 'true', SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: `http://127.0.0.1:${ports.agg}/`, SHIELD_WORKLOAD_ISSUER: ISSUER, VOICE_ADMIN_SECRET: ENGINE_ADMIN,
-    SHIELD_WORKLOAD_ALLOWED: 'svc:main-app=shield.admin;svc:meet=meet.register|meet.signal;svc:ops=shield.admin|pstn.authorize|pstn.consume|pstn.settle|numbers.sync',
+    SHIELD_WORKLOAD_ALLOWED: 'svc:main-app=shield.admin|shield.suspend;svc:meet=meet.register|meet.signal;svc:ops=shield.admin|shield.suspend|pstn.authorize|pstn.consume|pstn.settle|numbers.sync',
     VOICE_JWKS_URL: `http://127.0.0.1:${ports.main}/.well-known/voice-jwks.json`, VOICE_JWT_ISSUER: 'qorlla-main', VOICE_JWT_AUDIENCE: 'qorlla-voice', VOICE_ALLOWED_ORIGIN: ORIGIN, SHIELD_PSTN_RESERVE_CENTS: '100', SHIELD_NUMBERS_AUTHORITY: 'svc:ops' } });
   // Meet: its own schema in the same isolated database, shield enforcing, a 1 s session re-check
   const c = await db.admin.connect(); try { await c.query('SET search_path TO ' + db.schema); for (const f of MEET_SQL) { try { await c.query(fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', f), 'utf8')); } catch (e) { throw new Error('Meet migration ' + f + ': ' + e.message); } } } finally { await c.query('SET search_path TO public').catch(() => {}); c.release(); }

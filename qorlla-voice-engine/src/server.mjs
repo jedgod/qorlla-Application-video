@@ -11,6 +11,11 @@ if (!process.env.TURN_URLS) console.warn('TURN_URLS is not set: calls between di
 process.on('unhandledRejection', (e) => console.error('voice: unhandled rejection', e?.code || e?.message || 'unknown'));
 const voice = createVoiceApp({ store, db: pool, authenticate });
 const port = await voice.listen(Number(process.env.PORT || 4600));
+if (process.env.SHIELD_MTLS_PORT) {                       // workload identity: a second, mutual-TLS listener for service-to-service routes
+  const { readFileSync } = await import('node:fs'); const f = (n) => readFileSync(process.env[n]);
+  const mp = await voice.listenMtls(Number(process.env.SHIELD_MTLS_PORT), undefined, { key: f('SHIELD_MTLS_KEY'), cert: f('SHIELD_MTLS_CERT'), ca: f('SHIELD_MTLS_CA'), crl: process.env.SHIELD_MTLS_CRL ? f('SHIELD_MTLS_CRL') : undefined });
+  console.log(`Qorlla voice workload mTLS listener on ${mp}`);
+} else if (process.env.SHIELD_REQUIRE_MTLS === 'true') console.error('SHIELD_REQUIRE_MTLS=true but SHIELD_MTLS_PORT is not set: no workload request can succeed');
 console.log(`Qorlla voice listening on ${port} (internet voice only: no PSTN, no carrier)`);
 // Graceful stop: sockets are closed with 1001 so clients reconnect (to another replica, or to this one after a restart) and resume from their cursor; undelivered events stay in PostgreSQL.
 const shutdown = async () => { await voice.close(); await pool.end(); process.exit(0); };

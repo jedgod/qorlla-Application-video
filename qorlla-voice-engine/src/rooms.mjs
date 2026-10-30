@@ -45,7 +45,7 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
     const snap = await snapshot(c, room.id); await notify(c, snap, extra); return snap;
   }
 
-  async function createRoom(host, extensions, { title = '', meetingRef = null, deviceId, maxMembers = 6 } = {}) {
+  async function createRoom(host, extensions, { title = '', meetingRef = null, deviceId, maxMembers = 6, guard = null } = {}) {
     if (!validDevice(deviceId) || !Array.isArray(extensions) || extensions.some((e) => !validExtension(e))) throw fail('invalid_input');
     const exts = [...new Set(extensions)], max = Math.min(8, Math.max(2, Number(maxMembers) || 6));
     if (exts.length > max - 1 || (!exts.length && !meetingRef)) throw fail('invalid_input');
@@ -54,6 +54,7 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
       const invitees = exts.length ? (await c.query('SELECT account_id, extension FROM voice_identities WHERE extension = ANY($1::text[]) AND enabled=true', [exts])).rows : [];
       if (invitees.length !== exts.length || invitees.some((i) => i.account_id === host)) throw fail('invalid_recipient');
       const ids = [host, ...invitees.map((i) => i.account_id)]; await lockAccounts(c, ids);
+      if (guard) for (const i of invitees) await guard(c, host, i.account_id);                           // every invitee: known, verified, not suspended, SAME tenant as the host
       if (!(await c.query('SELECT enabled FROM voice_identities WHERE account_id=$1', [host])).rows[0]?.enabled) throw fail('caller_disabled');
       if ((await c.query('SELECT 1 FROM voice_blocks WHERE (owner_id=$1 AND blocked_id = ANY($2::text[])) OR (blocked_id=$1 AND owner_id = ANY($2::text[]))', [host, ids.slice(1)])).rowCount) throw fail('blocked');
       if (await busyAccounts(c, [host])) throw fail('busy');
@@ -70,13 +71,14 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
     });
   }
 
-  async function join(roomId, account, deviceId) {
+  async function join(roomId, account, deviceId, guard = null) {
     if (!validDevice(deviceId)) throw fail('invalid_input');
     return tx(async (c) => {
       await lockAccounts(c, [account]);
       const room = await lockRoom(c, roomId); if (!room || room.status !== 'live') throw fail('not_found');
       const m = await member(c, roomId, account); if (!m || !['invited', 'joined'].includes(m.status)) throw fail('not_found');
       if (m.status === 'joined') throw fail('already_joined');
+      if (guard) await guard(c, account, room.host_id);                                                  // re-checked at acceptance, not only at invitation
       if (!(await c.query('SELECT enabled FROM voice_identities WHERE account_id=$1', [account])).rows[0]?.enabled) throw fail('caller_disabled');
       if (await busyAccounts(c, [account])) throw fail('busy');
       if ((await c.query("SELECT count(*)::int AS n FROM voice_room_members WHERE room_id=$1 AND status='joined'", [roomId])).rows[0].n >= room.max_members) throw fail('room_full');
@@ -126,7 +128,7 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
       return afterChange(c, room, [targetAccount], actor);
     });
   }
-  async function invite(roomId, actor, extension) {
+  async function invite(roomId, actor, extension, guard = null) {
     if (!validExtension(extension)) throw fail('invalid_input');
     return tx(async (c) => {
       const target = (await c.query('SELECT account_id FROM voice_identities WHERE extension=$1 AND enabled=true', [extension])).rows[0]?.account_id;
@@ -134,6 +136,7 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
       await lockAccounts(c, [actor, target]);
       const room = await lockRoom(c, roomId); if (!room || room.status !== 'live') throw fail('not_found');
       const m = await member(c, roomId, actor); if (!m || m.status !== 'joined') throw fail('not_found');
+      if (guard) await guard(c, actor, target);                                                          // no cross-tenant (or unverified, or suspended) invitee in a live room
       if ((await c.query('SELECT 1 FROM voice_blocks WHERE (owner_id=$1 AND blocked_id=$2) OR (owner_id=$2 AND blocked_id=$1)', [actor, target])).rowCount) throw fail('blocked');
       const t = await member(c, roomId, target);
       if (t && ['invited', 'joined'].includes(t.status)) return { room: await snapshot(c, roomId), reused: true };

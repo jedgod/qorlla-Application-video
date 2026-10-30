@@ -1,0 +1,31 @@
+# A3.4 certificate-based workload identity (mTLS) and the A3.4-A3.6 pack review
+
+**Status: implemented in the real engine and tested with real certificates over real TLS and PostgreSQL. Not production certified: there is no production CA, rotation automation or revocation distribution. Public numbers and PSTN stay disabled; release BLOCKED.** Branch `feature/number-authority-a3`.
+
+## What was taken from the two reference packs, and what was not
+The packs (`qorlla-a34-security-reference`, `qorlla-a34-a36-integration-pack`) describe themselves as reference sketches, "not a drop-in", with their own schema (uuid ids, a `tenant_id` column), their own Fastify server and their own outbox/worker. Dropping them in would create a **second voice service and a second authority** next to the engine that already has the transactional state machine, durable outbox, replay and revocation. So the ideas were mapped onto the real code instead:
+| Pack idea | Where it went |
+|---|---|
+| mTLS listener; peer certificate only from the TLS socket after `authorized === true`, never from headers; token bound to the certificate by `cnf['x5t#S256']` (SHA-256 of the DER); exact allow-list; short lifetime; EdDSA allowed | `shield.mjs` `certProof()`; `app.mjs` `listenMtls()`; `server.mjs` (`SHIELD_MTLS_PORT/KEY/CERT/CA/CRL`). ES256/RS256/EdDSA accepted. |
+| Distinct scopes for suspension and sync | `shield.suspend` (suspend/restore of principals and organizations) and `shield.cert.revoke` are scopes of their own; `shield.admin` no longer implies them. |
+| Recheck eligibility at acceptance, connection and relay-credential issuance | answer (`transition` guard), group-room create/join/invite (guard), `/v1/voice/ice` requires a verified, unsuspended principal. |
+| Tenant-scoped rooms and extension resolution; self-call refused | call and room guards compare the tenants of both parties inside the transaction (previous slice + rooms now). |
+| Relay-only client policy | `VOICE_MEDIA_POLICY=relay` (alias of `VOICE_RELAY_ONLY`): clients are told `iceTransportPolicy: relay`; refused (503) if no relay is configured. |
+| Public calling cannot be enabled | feature gates from the PSTN lockdown slice (default off). |
+| Not taken | the packs' parallel `voice_*` tables and Fastify server; per-tenant extension uniqueness (the engine keeps GLOBAL uniqueness, which is stricter); `TwilioMimicGateway`. |
+
+## How the mTLS identity works
+1. The engine has a **second listener** that requires a client certificate signed by the configured CA (the handshake is refused otherwise) and serves workload routes only (`/v1/shield/*`, `/v1/voice/admin/*`; everything else 404). Browsers use the normal listener.
+2. A workload request carries a short-lived token (issuer, audience `qorlla-shield`, one-time `jti`, lifetime <= 5 minutes, `sub` on the allow-list, scope per route) **bound to its certificate**: `cnf['x5t#S256']` must equal the thumbprint of the certificate presented on that very connection.
+3. `SHIELD_REQUIRE_MTLS=true`: every workload request must arrive on that listener with a bound token. Even without it, a token that carries `cnf` is never accepted without the proof, and a bound token over the plain listener is refused. A certificate alone grants nothing (scopes come from the token and the allow-list); a token alone is useless; replay is refused.
+4. **Revocation:** `POST /v1/shield/admin/certs/revoke` (scope `shield.cert.revoke`) stores the thumbprint in `shield_revoked_certs`; that certificate is refused from the next request on although it is valid, trusted and its token is fresh. **Rotation:** issue a new certificate and a token bound to it; the old token does not work on the new certificate.
+5. **Clients** present their certificate and verify the server against a pinned CA (never `rejectUnauthorized:false`): Numbers & Plans event delivery, the internal provider, Meet's Shield client (`workload-transport.mjs`, env `SHIELD_CLIENT_CERT/KEY`, `SHIELD_CA`) and the main app bridge (`shield-bridge.js`, same variables).
+
+## Verified (`test/mtls.pg.test.mjs`, 4 tests, 3 consecutive passes; `test/internal-security.pg.test.mjs`, 3 tests)
+Handshake refusal for no certificate, a certificate from another CA and an expired certificate; user routes not served on the workload listener; token bound to another certificate (stolen token), unbound token, token without certificate, certificate without token, missing scope, unlisted subject, replay, over-long lifetime: all refused and audited; plain listener behaviour with and without mTLS required; rotation; revocation (and its own scope); suspension scope separate from provisioning; the real Numbers & Plans sink, the internal provider and the main app bridge authenticating over mTLS and being refused with wrong or unbound credentials. Acceptance re-check (tenant change or lost verification while ringing), group-room tenant scoping at create, invite and join, and the relay-only policy (credential lifetime <= 10 minutes, fail-closed without a relay, no credentials for a suspended account).
+
+## NOT done (release stays BLOCKED)
+- **No production CA / issuer**: the test PKI is generated with openssl for the run. Production needs an issuing CA or SPIFFE/SPIRE, automated rotation, CRL/OCSP distribution (the engine accepts a CRL file; revocation by thumbprint is in the database), and protected private keys. Meet and the main app read certificate files at start: a rotation needs a restart or reload (not automated).
+- The mTLS listener is not yet exercised through the real Meet and main-app processes (the integration test still uses application-layer tokens on the plain listener); the clients were tested as libraries.
+- **Media**: relay-only says what clients should do; it does not cut media. Issued TURN credentials stay valid until they expire (<= 10 minutes). Only an SFU or a relay with allocation control can cut media on demand. Nothing here proves an established peer-to-peer stream stops.
+- A3.5 durable alerts and monitoring, A3.6 `voice.js`/Phone page integration with a real signaling UI, A3.8 migration rehearsal, TURN across independent networks, multi-host, PostgreSQL failover, physical devices, load and the security review are all still open (see the pack's certification matrix: every row is NOT RUN).

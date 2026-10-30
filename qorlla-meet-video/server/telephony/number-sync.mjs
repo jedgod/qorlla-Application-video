@@ -3,17 +3,17 @@
 import crypto from 'node:crypto';
 
 const b64 = (b) => Buffer.from(b).toString('base64url');
-export function signWorkloadJwt({ privateKeyPem, kid = 'w1', issuer, subject, audience = 'qorlla-shield', ttlSeconds = 120, now = Math.floor(Date.now() / 1000) }) {
-  const head = b64(JSON.stringify({ alg: 'ES256', typ: 'JWT', kid })), body = b64(JSON.stringify({ iss: issuer, sub: subject, aud: audience, iat: now, exp: now + ttlSeconds, jti: crypto.randomUUID() + crypto.randomUUID() }));
+export function signWorkloadJwt({ privateKeyPem, kid = 'w1', issuer, subject, audience = 'qorlla-shield', ttlSeconds = 120, now = Math.floor(Date.now() / 1000), cnfThumbprint }) {
+  const head = b64(JSON.stringify({ alg: 'ES256', typ: 'JWT', kid })), body = b64(JSON.stringify({ iss: issuer, sub: subject, aud: audience, iat: now, exp: now + ttlSeconds, jti: crypto.randomUUID() + crypto.randomUUID(), ...(cnfThumbprint ? { cnf: { 'x5t#S256': cnfThumbprint } } : {}) }));      // bound to the client certificate when there is one
   const sig = crypto.sign('sha256', Buffer.from(head + '.' + body), { key: privateKeyPem, dsaEncoding: 'ieee-p1363' });
   return head + '.' + body + '.' + b64(sig);
 }
 
 /** sink(event) for TelephonyService.deliverOutbox. Resolves only when the engine ACKNOWLEDGED the event (accepted, duplicate or stale); anything else throws so the outbox retries. */
-export function createEngineSink({ url, privateKeyPem, issuer, subject = 'svc:numbers-plans', kid, fetchImpl = fetch, timeoutMs = 5000 }) {
+export function createEngineSink({ url, privateKeyPem, issuer, subject = 'svc:numbers-plans', kid, fetchImpl = fetch, timeoutMs = 5000, cnfThumbprint }) {
   const base = String(url).replace(/\/+$/, '');
   const post = async (path, body) => {
-    const r = await fetchImpl(base + path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + signWorkloadJwt({ privateKeyPem, kid, issuer, subject }) }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
+    const r = await fetchImpl(base + path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + signWorkloadJwt({ privateKeyPem, kid, issuer, subject, cnfThumbprint }) }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
     const data = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error('engine_refused_' + r.status), { status: r.status }); return data;
   };
   const sink = async (event) => { const out = await post('/v1/shield/numbers/events', event); if (!['applied', 'duplicate', 'stale'].includes(out.result)) throw new Error('engine_result_' + out.result); return out; };

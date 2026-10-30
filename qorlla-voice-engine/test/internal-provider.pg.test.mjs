@@ -28,7 +28,7 @@ const ops = (method, path, body) => fetch(r.base + path, { method, headers: { 'c
 
 before(async () => {
   db = await isolatedDb(); if (!db) return; idp = await identityProvider(); const w = await workload(); pem = w.pem; jwksSrv = w.srv; jwksUrl = w.url; h = harness({ db, idp });
-  r = await h.replica({ env: { SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: ISSUER, SHIELD_WORKLOAD_ALLOWED: 'svc:numbers-plans=voice.admin;svc:ops=shield.admin' } });
+  r = await h.replica({ env: { SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: ISSUER, SHIELD_WORKLOAD_ALLOWED: 'svc:numbers-plans=voice.admin;svc:ops=shield.admin|shield.suspend' } });
   provider = new QorllaInternalProvider({ engineUrl: r.base, tokenProvider: () => tok('svc:numbers-plans') });
 });
 after(async () => { if (h) await h.closeAll(); if (idp) await idp.close(); if (jwksSrv) await new Promise((ok) => jwksSrv.close(ok)); if (db) await db.drop(); });

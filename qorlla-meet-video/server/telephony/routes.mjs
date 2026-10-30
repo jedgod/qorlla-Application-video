@@ -6,6 +6,7 @@ import { createCarrier, UnconfiguredBridge, UnconfiguredAudioGateway } from './p
 import { voiceTwiml } from './ivr.mjs';
 import { normalizeE164, assertAdmin } from './core.mjs';
 import { createEngineSink, startNumberSync } from './number-sync.mjs';
+import { transportFromEnv } from './workload-transport.mjs';
 
 export function registerTelephony({ app, db, bridgeAuth, phone, env = process.env, carrier = createCarrier(env), bridge = new UnconfiguredBridge(), audio = new UnconfiguredAudioGateway() }) {
   const svc = new TelephonyService({ db, carrier, bridge, audio, env });
@@ -31,7 +32,7 @@ export function registerTelephony({ app, db, bridgeAuth, phone, env = process.en
   app.post(B + '/numbers/reconcile', bridgeAuth, numbersOnly, wrap(async (req, a) => { assertAdmin(a); return svc.reconcileOperations(); }));
   app.get(B + '/numbers/snapshot', bridgeAuth, numbersOnly, wrap(async (req, a) => { assertAdmin(a); return { numbers: await svc.numberSnapshot() }; }));
   // Authority events to the voice engine: only when an engine URL and a workload signing key are configured (otherwise events simply wait in the outbox).
-  if (env.VOICE_NUMBERS_ENABLED === 'true' && env.PHONE_ENGINE_SYNC_URL && env.PHONE_ENGINE_SYNC_KEY_PEM && env.PHONE_ENGINE_SYNC_ISSUER) startNumberSync({ svc, sink: createEngineSink({ url: env.PHONE_ENGINE_SYNC_URL, privateKeyPem: env.PHONE_ENGINE_SYNC_KEY_PEM.replace(/\\n/g, '\n'), issuer: env.PHONE_ENGINE_SYNC_ISSUER, kid: env.PHONE_ENGINE_SYNC_KID || 'w1' }) });
+  if (env.VOICE_NUMBERS_ENABLED === 'true' && env.PHONE_ENGINE_SYNC_URL && env.PHONE_ENGINE_SYNC_KEY_PEM && env.PHONE_ENGINE_SYNC_ISSUER) startNumberSync({ svc, sink: createEngineSink({ url: env.PHONE_ENGINE_SYNC_URL, privateKeyPem: env.PHONE_ENGINE_SYNC_KEY_PEM.replace(/\\n/g, '\n'), issuer: env.PHONE_ENGINE_SYNC_ISSUER, kid: env.PHONE_ENGINE_SYNC_KID || 'w1', ...(() => { const t = transportFromEnv(env); return t ? { fetchImpl: t.fetchImpl, cnfThumbprint: t.thumbprint } : {}; })() }) });
   app.post(B + '/numbers/:id/caller-id', bridgeAuth, numbersOnly, json, wrap(async (req, a) => { await svc.setCallerIdVerified(a, req.params.id, (req.body || {}).verified === true); return { ok: true }; }));
   app.post(B + '/calls', bridgeAuth, pstnOnly, json, wrap((req, a) => svc.startCall(a, req.body || {}), 202));
   app.get(B + '/calls', bridgeAuth, pstnOnly, wrap((req, a) => svc.listCalls(a)));

@@ -1,6 +1,7 @@
 // QorllaInternalProvider: the provider for Qorlla's OWN numbering system: identities and extensions, fully managed by Qorlla's Voice Engine. No carrier, no Twilio account, no public telephone numbers, no PSTN.
 // It talks to the engine with a SHORT-LIVED WORKLOAD CREDENTIAL (scope voice.admin), never a shared secret. Public numbers and PSTN are explicitly NOT supported: asking for them fails closed.
 import { signWorkloadJwt } from './number-sync.mjs';
+import { transportFromEnv } from './workload-transport.mjs';
 import { unsupported } from './provider-contract.mjs';
 
 export class QorllaInternalProvider {         // duck-typed against provider-contract.mjs (it does not extend the carrier base class: it is not a carrier)
@@ -43,5 +44,6 @@ export class QorllaInternalProvider {         // duck-typed against provider-con
 export function createInternalProvider(env = process.env, { fetchImpl } = {}) {
   const url = env.QORLLA_ENGINE_URL || env.VOICE_INTERNAL_URL, pem = String(env.PHONE_ENGINE_SYNC_KEY_PEM || '').replace(/\\n/g, '\n'), issuer = env.PHONE_ENGINE_SYNC_ISSUER;
   if (!url || !pem || !issuer) return null;
-  return new QorllaInternalProvider({ engineUrl: url, fetchImpl, tokenProvider: () => signWorkloadJwt({ privateKeyPem: pem, kid: env.PHONE_ENGINE_SYNC_KID || 'w1', issuer, subject: env.PHONE_ENGINE_SYNC_SUBJECT || 'svc:numbers-plans' }) });
+  const t = transportFromEnv(env);
+  return new QorllaInternalProvider({ engineUrl: url, fetchImpl: fetchImpl || (t && t.fetchImpl) || fetch, tokenProvider: () => signWorkloadJwt({ privateKeyPem: pem, kid: env.PHONE_ENGINE_SYNC_KID || 'w1', issuer, subject: env.PHONE_ENGINE_SYNC_SUBJECT || 'svc:numbers-plans', cnfThumbprint: t ? t.thumbprint : undefined }) });
 }

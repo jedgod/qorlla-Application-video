@@ -61,14 +61,34 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
     return r.rowCount === 1;
   }
 
+  // Certificate-bound workload identity (RFC 8705 style). The token's cnf['x5t#S256'] must equal the SHA-256 thumbprint of the client certificate presented on THIS TLS connection, which must have been
+  // authorized against the trusted CA by the handshake. A certificate alone grants nothing (scopes come from the token and the allow-list); a token alone is useless without its certificate; a revoked
+  // certificate is refused. With SHIELD_REQUIRE_MTLS=true every workload request must arrive on the mutual-TLS listener with a bound token. A token that carries cnf is NEVER accepted without the proof.
+  const requireMtls = env.SHIELD_REQUIRE_MTLS === 'true';
+  async function certProof(req, payload) {
+    const sock = req.socket, cnf = payload.cnf && payload.cnf['x5t#S256'], onTls = !!(sock && sock.encrypted && sock.authorized === true);
+    if (!onTls) return !requireMtls && cnf === undefined;
+    const raw = (sock.getPeerCertificate(true) || {}).raw; if (!Buffer.isBuffer(raw) || !raw.length) return false;
+    const thumb = createHash('sha256').update(raw).digest('base64url');
+    if (cnf !== undefined) { if (typeof cnf !== 'string') return false; const a = Buffer.from(cnf), b = Buffer.from(thumb); if (a.length !== b.length || !timingSafeEqual(a, b)) return false; }
+    else if (requireMtls) return false;
+    return !(await db.query('SELECT 1 FROM shield_revoked_certs WHERE thumbprint=$1', [thumb])).rowCount;
+  }
+  async function revokeCertificate({ thumbprint, reason, actor }) {
+    if (typeof thumbprint !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(thumbprint) || typeof reason !== 'string' || reason.length < 3 || reason.length > 200) throw new ShieldError('invalid_input', 400);
+    return tx(async (c) => { await c.query('INSERT INTO shield_revoked_certs(thumbprint, revoked_by, reason) VALUES($1,$2,$3) ON CONFLICT (thumbprint) DO NOTHING', [thumbprint, String(actor || 'unknown').slice(0, 128), reason]); await audit(c, actor || null, 'cert.revoke', 'ALLOW', reason.slice(0, 80)); return { thumbprint, revoked: true }; });
+  }
+
   /** Express middleware factory: a short-lived workload credential (JWT) naming the calling service and the scope it needs. Replay-protected (jti), expiry-capped. */
   const requireWorkload = (scope) => async (req, res, next) => {
     try {
       if (!enabled) return res.status(503).json({ error: 'shield_disabled' });
       const token = (req.get('authorization') || '').match(/^Bearer (\S+)$/)?.[1];
       if (!keys || !env.SHIELD_WORKLOAD_ISSUER || !workloads.size || !token) return res.status(401).json({ error: 'unauthorized' });
-      const { payload } = await jwtVerify(token, keys, { issuer: env.SHIELD_WORKLOAD_ISSUER, audience: 'qorlla-shield', algorithms: ['RS256', 'ES256'], clockTolerance: 5 });
+      const { payload } = await jwtVerify(token, keys, { issuer: env.SHIELD_WORKLOAD_ISSUER, audience: 'qorlla-shield', algorithms: ['RS256', 'ES256', 'EdDSA'], clockTolerance: 5 });
       if (typeof payload.sub !== 'string' || typeof payload.jti !== 'string' || payload.jti.length < 16 || !payload.exp || !payload.iat || payload.exp - payload.iat > 300) return res.status(401).json({ error: 'unauthorized' });
+      // proof of possession of the client certificate (never from a header: only from the TLS socket, and only if the handshake authorized it)
+      if (!(await certProof(req, payload))) { await db.query('INSERT INTO shield_events(actor, action, decision, reason) VALUES($1,$2,$3,$4)', [String(payload.sub).slice(0, 128), 'workload.' + scope, 'DENY', 'CERT_PROOF_FAILED']).catch(() => {}); return res.status(401).json({ error: 'unauthorized' }); }
       const scopes = workloads.get(payload.sub);
       if (!scopes || !scopes.has(scope)) { await db.query('INSERT INTO shield_events(actor, action, decision, reason) VALUES($1,$2,$3,$4)', [String(payload.sub).slice(0, 128), 'workload.' + scope, 'DENY', 'WORKLOAD_NOT_AUTHORIZED']).catch(() => {}); return res.status(403).json({ error: 'forbidden' }); }
       const fresh = await db.query('INSERT INTO shield_workload_jti(jti_hash, expires_at) VALUES($1, to_timestamp($2)) ON CONFLICT DO NOTHING RETURNING 1', [sha(payload.jti), payload.exp + 60]);
@@ -347,5 +367,5 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
   function auditProvenance(actor, reason) { db.query('INSERT INTO shield_events(actor, action, decision, reason) VALUES($1,$2,$3,$4)', [String(actor || '').slice(0, 128), 'numbers.sync', 'DENY', reason]).catch(() => {}); }
   async function purgeExpired() { await store.tx(async (c) => { await c.query('DELETE FROM shield_workload_jti WHERE expires_at < now()'); await c.query("DELETE FROM shield_counters WHERE window_start < now() - interval '1 day'"); }); }
 
-  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, callGuard, auditProvenance, registerMeeting, meetAuthorize, meetRecheck, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
+  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, revokeCertificate, callGuard, auditProvenance, registerMeeting, meetAuthorize, meetRecheck, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
 }

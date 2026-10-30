@@ -113,13 +113,14 @@ export function createStore(db = pool) {
       WHERE c.caller_id=$1 OR c.callee_id=$1 ORDER BY c.created_at DESC LIMIT $2`, [account, Math.min(200, Math.max(1, limit))])).rows;
   }
   /** fence = { deviceId, generation }: when given, the acting device must hold the current lease (a replaced device cannot fail the call). deviceId: the answering device gets the callee lease. */
-  async function transition(id, actor, to, reason, { deviceId = null, fence = null } = {}) {
+  async function transition(id, actor, to, reason, { deviceId = null, fence = null, guard = null } = {}) {
     if (deviceId != null && !validDevice(deviceId)) throw fail('invalid_input');
     return tx(async (c) => {
       const call = (await c.query('SELECT ' + CALL_COLS + ' FROM voice_calls WHERE id=$1 FOR UPDATE', [id])).rows[0];
       if (!call || ![call.caller_id, call.callee_id].includes(actor)) throw fail('not_found');        // a non-participant learns nothing, not even that the call exists
       if (!allowedTransition(call.status, to)) throw fail('invalid_transition');
       if ((to === 'active' || to === 'rejected') && actor !== call.callee_id) throw fail('forbidden');
+      if (to === 'active' && guard) await guard(c, actor, call.caller_id);                              // eligibility is re-checked at ACCEPTANCE, not only at invitation (tenant, verification, suspension)
       if (fence) {
         const l = (await c.query('SELECT device_id, generation, expires_at > now() AS valid FROM voice_media_leases WHERE call_id=$1 AND account_id=$2', [id, actor])).rows[0];
         if (!l || !l.valid || l.device_id !== fence.deviceId || Number(l.generation) !== fence.generation) throw fail('device_not_owner');

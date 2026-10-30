@@ -1,6 +1,7 @@
 // Qorlla Voice Engine: REST API, authenticated one-use-ticket WebSocket signaling, durable call/room events (outbox + replay), device fencing, group rooms, maintenance.
 // A factory, so tests (and the real server) build the same thing. PostgreSQL is authoritative; Redis (optional) only carries delivery between replicas.
 import http from 'node:http';
+import https from 'node:https';
 import { randomUUID } from 'node:crypto';
 import express from 'express';
 import helmet from 'helmet';
@@ -139,7 +140,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     const { id, action } = req.params, mapping = { answer: 'active', reject: 'rejected', end: 'ended', fail: 'failed' }, body = req.body || {};
     if (!validCallId(id) || !mapping[action]) return res.status(400).json({ error: 'invalid_input' });
     const opts = {};
-    if (action === 'answer') { if (!store.validDevice(body.deviceId)) return res.status(400).json({ error: 'invalid_input' }); opts.deviceId = body.deviceId; }
+    if (action === 'answer') { if (!store.validDevice(body.deviceId)) return res.status(400).json({ error: 'invalid_input' }); opts.deviceId = body.deviceId; if (enforce) opts.guard = shield.callGuard; }
     if (action === 'fail') { if (!store.validDevice(body.deviceId) || !validGen(body.generation)) return res.status(400).json({ error: 'invalid_input' }); opts.fence = { deviceId: body.deviceId, generation: body.generation }; }
     const call = await store.transition(id, req.account, mapping[action], undefined, opts); kick();
     res.json({ call: publicCall(call), generation: call._lease ? Number(call._lease.generation) : null });
@@ -169,7 +170,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     if (!Array.isArray(extensions) || extensions.length > 7 || !store.validDevice(deviceId)) return res.status(400).json({ error: 'invalid_input' });
     if (!callLimit.take(req.account)) return res.status(429).json({ error: 'rate_limited' });
     if (!(await guardCapacity(res))) return;
-    const r = await store.rooms.createRoom(req.account, extensions, { title: title || '', deviceId }); kick();
+    const r = await store.rooms.createRoom(req.account, extensions, { title: title || '', deviceId, guard: enforce ? shield.callGuard : null }); kick();
     res.status(201).json({ room: r.room, generation: r.lease.generation });
   }));
   app.get('/v1/voice/rooms/live', auth, route(async (req, res) => {
@@ -186,14 +187,14 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     let out;
     if (action === 'join' || action === 'device') {
       if (!store.validDevice(body.deviceId)) return res.status(400).json({ error: 'invalid_input' });
-      const r = await (action === 'join' ? store.rooms.join : store.rooms.claimDevice)(id, req.account, body.deviceId); out = { room: r.room, generation: r.lease.generation, expiresIn: 90 };
+      const r = await (action === 'join' ? store.rooms.join(id, req.account, body.deviceId, enforce ? shield.callGuard : null) : store.rooms.claimDevice(id, req.account, body.deviceId)); out = { room: r.room, generation: r.lease.generation, expiresIn: 90 };
     } else if (action === 'device-refresh') {
       if (!store.validDevice(body.deviceId) || !validGen(body.generation)) return res.status(400).json({ error: 'invalid_input' });
       if (!(await store.rooms.refreshLease(id, req.account, body.deviceId, body.generation))) return res.status(409).json({ error: 'lease_lost' });
       out = { ok: true, expiresIn: 90 };
     } else if (action === 'leave' || action === 'decline') out = { room: await store.rooms.leave(id, req.account) };
     else if (action === 'end') out = { room: await store.rooms.end(id, req.account) };
-    else if (action === 'invite') { if (!(await guardCapacity(res))) return; out = await store.rooms.invite(id, req.account, body.extension); }
+    else if (action === 'invite') { if (!(await guardCapacity(res))) return; out = await store.rooms.invite(id, req.account, body.extension, enforce ? shield.callGuard : null); }
     else if (action === 'kick') { if (!validAccountId(body.accountId)) return res.status(400).json({ error: 'invalid_input' }); out = { room: await store.rooms.kick(id, req.account, body.accountId) }; }
     else return res.status(400).json({ error: 'invalid_input' });
     kick(); res.json(out);
@@ -215,7 +216,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   // ---- Security Shield v2.2 (see docs/VOICE_SHIELD.md). Workload routes need a short-lived workload credential; user routes need a signed-in account. All of them fail closed.
   const wl = (scope) => shield.requireWorkload(scope), sh = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { if (e instanceof ShieldError) return res.status(e.status).json({ error: e.code }); console.error('shield error', e && (e.code || e.message)); res.status(503).json({ allow: false, error: 'SECURITY_UNAVAILABLE' }); } };
   const strict = (body, keys) => (body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).every((k) => keys.includes(k)) ? body : {});
-  const shieldAdmin = wl('shield.admin');
+  const shieldAdmin = wl('shield.admin'), shieldSuspend = wl('shield.suspend');                      // suspension has a scope of its own: provisioning rights do not imply it
   app.put('/v1/shield/admin/principals', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertPrincipal(strict(req.body, ['accountId', 'orgId', 'verified', 'billingHold'])))));
   app.put('/v1/shield/admin/orgs', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertOrg(strict(req.body, ['orgId', 'pstnEnabled', 'allowedCountries', 'maxActiveCalls', 'maxCallsHour', 'spendLimitCents'])))));
   // Numbers & Plans authority events and reconciliation: the ONLY way numbers enter the engine. Workload identity (scope numbers.sync); the engine never buys, releases or activates a number.
@@ -229,10 +230,10 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.get('/v1/voice/numbers/me', authLax, gate('numbers'), sh(async (req, res) => { res.set('Cache-Control', 'private, no-store'); const p = (await store.tx((c) => c.query('SELECT verified, suspended FROM shield_principals WHERE account_id=$1', [req.account]))).rows[0]; if (!p || !p.verified || p.suspended) return res.json({ number: null, state: 'unverified' }); const n = await numberSync.numberFor(req.account); res.set('Cache-Control', 'private, no-store').json({ number: n && n.usable ? { e164: n.row.e164, country: n.row.country } : null, state: n && n.usable ? 'active' : n ? 'unavailable' : 'none' }); }));
   app.put('/v1/shield/admin/meetings', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertMeeting(strict(req.body, ['meetingId', 'orgId', 'hostAccountId', 'passcode', 'guestEnabled', 'requiresApproval', 'maxGuests', 'endsAt'])))));
   app.post('/v1/shield/admin/meetings/:id/end', shieldAdmin, sh(async (req, res) => res.json(await shield.endMeeting(req.params.id))));
-  app.post('/v1/shield/admin/principals/:id/suspend', shieldAdmin, sh(async (req, res) => { const r = await shield.setSuspended(req.params.id, true, { source: req.workload, onVoiceDisabled: (a) => closeAccount(a, 4003, 'suspended') }); kick(); res.json(r); }));
-  app.post('/v1/shield/admin/principals/:id/restore', shieldAdmin, sh(async (req, res) => res.json(await shield.setSuspended(req.params.id, false, { source: req.workload }))));
-  app.post('/v1/shield/admin/orgs/:id/suspend', shieldAdmin, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, true))));
-  app.post('/v1/shield/admin/orgs/:id/restore', shieldAdmin, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, false))));
+  app.post('/v1/shield/admin/principals/:id/suspend', shieldSuspend, sh(async (req, res) => { const r = await shield.setSuspended(req.params.id, true, { source: req.workload, onVoiceDisabled: (a) => closeAccount(a, 4003, 'suspended') }); kick(); res.json(r); }));
+  app.post('/v1/shield/admin/principals/:id/restore', shieldSuspend, sh(async (req, res) => res.json(await shield.setSuspended(req.params.id, false, { source: req.workload }))));
+  app.post('/v1/shield/admin/orgs/:id/suspend', shieldSuspend, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, true))));
+  app.post('/v1/shield/admin/orgs/:id/restore', shieldSuspend, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, false))));
   app.post('/v1/shield/pstn/authorize', wl('pstn.authorize'), gate('pstn'), sh(async (req, res) => { const r = await shield.pstnAuthorize(strict(req.body, ['requestId', 'accountId', 'destination', 'callerId'])); res.status(r.allow ? 200 : 403).json(r); }));
   app.post('/v1/shield/pstn/consume', wl('pstn.consume'), gate('pstn'), sh(async (req, res) => res.json(await shield.pstnConsume(strict(req.body, ['authorizationId', 'accountId', 'destination', 'callerId'])))));
   app.post('/v1/shield/pstn/settle', wl('pstn.settle'), gate('pstn'), sh(async (req, res) => res.json(await shield.pstnSettle(strict(req.body, ['authorizationId', 'actualCents'])))));
@@ -244,6 +245,8 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.post('/v1/shield/meet/end', wl('meet.register'), sh(async (req, res) => res.json(await shield.endMeeting((strict(req.body, ['meetingId']) || {}).meetingId))));
   app.post('/v1/shield/meet/authorize', wl('meet.signal'), sh(async (req, res) => { const r = await shield.meetAuthorize(strict(req.body, ['meetingId', 'participantId', 'accountId', 'role', 'admission'])); res.status(r.allow ? 200 : 403).set('Cache-Control', 'no-store').json(r); }));
   app.post('/v1/shield/meet/recheck', wl('meet.signal'), sh(async (req, res) => res.set('Cache-Control', 'no-store').json(await shield.meetRecheck(strict(req.body, ['participants'])))));
+  // Revoking a workload certificate: its own scope. The certificate is refused from the next request on, even though it is still inside its validity period.
+  app.post('/v1/shield/admin/certs/revoke', wl('shield.cert.revoke'), sh(async (req, res) => res.json(await shield.revokeCertificate({ ...strict(req.body, ['thumbprint', 'reason']), actor: req.workload }))));
   app.post('/v1/shield/media/consume', wl('media.consume'), sh(async (req, res) => res.set('Cache-Control', 'no-store').json(await shield.mediaConsume(strict(req.body, ['token', 'meetingId'])))));
   app.post('/v1/shield/guest/:id/decision', auth, sh(async (req, res) => { if (!enforce) return res.status(503).json({ error: 'shield_enforcement_off' }); res.json(await shield.guestDecide({ hostAccountId: req.account, admissionId: req.params.id, decision: (req.body || {}).decision })); }));
   app.post('/v1/shield/authorize', authLax, sh(async (req, res) => { if (!enforce) return res.status(503).json({ error: 'shield_enforcement_off' }); const b = strict(req.body, ['action', 'resourceOrgId']); const scopes = typeof (req.claims && req.claims.scope) === 'string' ? req.claims.scope.split(' ') : []; const r = await shield.authorizeUser({ accountId: req.account, iat: req.claims.iat, action: b.action, resourceOrgId: b.resourceOrgId == null ? null : b.resourceOrgId, scopes }); res.status(r.allow ? 200 : 403).json(r); }));
@@ -339,6 +342,8 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   const heartbeat = setInterval(() => { for (const ws of wss.clients) { if (ws.isAlive === false) { ws.terminate(); continue; } ws.isAlive = false; try { ws.ping(); } catch { /* gone */ } } }, 30000); heartbeat.unref?.();
   const maint = maintenance ? startMaintenance({ store, db, reliability, history, historyRetentionDays: retention.days, afterChange: kick, intervalMs: maintenanceMs, ringSeconds: ringSeconds(env), leaseGraceSeconds: Number(env.VOICE_LEASE_GRACE_SECONDS || 120), retentionHours: Number(env.VOICE_EVENT_RETENTION_HOURS || 168) }) : null;
 
+  let mtlsServer = null;
+  const WORKLOAD_PATHS = /^\/v1\/(shield|voice\/admin)\//;
   return {
     app, server, wss, sockets, send, router, bus, worker, reliability, maint, instanceId, kick, closeAccount,
     listen: async (port = 0, host) => {
@@ -346,6 +351,12 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
       worker?.start(); worker?.kick();
       return new Promise((resolve) => server.listen(port, host, () => resolve(server.address().port)));
     },
-    close: async () => { maint?.stop(); worker?.stop(); clearInterval(heartbeat); for (const ws of wss.clients) ws.close(1001); await new Promise((r) => server.close(() => r())); await bus?.close().catch(() => {}); }
+    /** A second listener that REQUIRES a client certificate signed by the given CA (the handshake is refused otherwise) and serves workload routes only (/v1/shield/*, /v1/voice/admin/*). Browsers use the normal listener. */
+    listenMtls: async (port = 0, host, { key, cert, ca, crl } = {}) => {
+      if (!key || !cert || !ca) throw new Error('mTLS needs key, cert and ca');
+      mtlsServer = https.createServer({ key, cert, ca, crl, requestCert: true, rejectUnauthorized: true, minVersion: 'TLSv1.2' }, (req, res) => (WORKLOAD_PATHS.test(req.url || '') ? app(req, res) : (res.statusCode = 404, res.end())));
+      return new Promise((resolve) => mtlsServer.listen(port, host, () => resolve(mtlsServer.address().port)));
+    },
+    close: async () => { if (mtlsServer) await new Promise((r) => { mtlsServer.close(() => r()); mtlsServer.closeAllConnections?.(); }); maint?.stop(); worker?.stop(); clearInterval(heartbeat); for (const ws of wss.clients) ws.close(1001); await new Promise((r) => server.close(() => r())); await bus?.close().catch(() => {}); }
   };
 }

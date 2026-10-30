@@ -61,7 +61,7 @@ before(async () => {
   db = await isolatedDb(); if (!db) return; idp = await identityProvider(); const w = await workload(); pem = w.pem; jwksSrv = w.srv; jwksUrl = w.url;
   await q(sql('v4_14_telephony.sql')); await q(sql('v4_16_number_authority.sql')); await q(sql('v4_18_billing_hold.sql'));
   h = harness({ db, idp });
-  r = await h.replica({ env: { VOICE_PSTN_ENABLED: 'true', VOICE_NUMBERS_ENABLED: 'true', SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: 'svc:numbers-plans=numbers.sync;svc:admin=shield.admin;svc:pstn=pstn.authorize|pstn.consume|pstn.settle;svc:other=guest.admit', SHIELD_PSTN_RESERVE_CENTS: '100' } });
+  r = await h.replica({ env: { VOICE_PSTN_ENABLED: 'true', VOICE_NUMBERS_ENABLED: 'true', SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: 'svc:numbers-plans=numbers.sync;svc:admin=shield.admin|shield.suspend;svc:pstn=pstn.authorize|pstn.consume|pstn.settle;svc:other=guest.admit', SHIELD_PSTN_RESERVE_CENTS: '100' } });
   carrier = new StubCarrier(); svc = new TelephonyService({ db: db.pool, carrier, bridge: { ready: false }, audio: { ready: false }, env: { PHONE_ALLOWED_COUNTRIES: 'US,CA,GB' } });
   await q("INSERT INTO qphone_provider_status(provider, health_ok, health_checked_at) VALUES('stub', true, now())");
   sink = createEngineSink({ url: r.base, privateKeyPem: pem, issuer: 'qorlla-workload', kid: 'w1' });

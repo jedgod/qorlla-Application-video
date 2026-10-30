@@ -5,12 +5,33 @@
 //   * pushes every account change at once and keeps retrying until it lands; a full reconcile runs at start and every few minutes, so nothing depends on one request succeeding.
 // FAIL CLOSED: an account the shield has never heard of is refused by the shield, so a failure here can only delay access, never grant it.
 const crypto = require('crypto');
+const https = require('https');
+const fs = require('fs');
 const path = require('path');
 const store = require('./store');
 
 const b64 = (b) => Buffer.from(b).toString('base64url');
 
-function createShieldBridge({ dataDir, env = process.env, listAccounts, fetchImpl = fetch, log = console }) {
+/** Mutual TLS from SHIELD_CLIENT_CERT / SHIELD_CLIENT_KEY / SHIELD_CA (file paths): a pinned CA, our client certificate, never rejectUnauthorized:false. Returns { fetchImpl, thumbprint } or null. */
+function transportFromEnv(env) {
+    if (!env.SHIELD_CLIENT_CERT || !env.SHIELD_CLIENT_KEY || !env.SHIELD_CA) return null;
+    const cert = fs.readFileSync(env.SHIELD_CLIENT_CERT), key = fs.readFileSync(env.SHIELD_CLIENT_KEY), ca = fs.readFileSync(env.SHIELD_CA);
+    const agent = new https.Agent({ ca, cert, key, rejectUnauthorized: true, keepAlive: true, minVersion: 'TLSv1.2' });
+    const fetchImpl = (url, init = {}) => new Promise((resolve, reject) => {
+        const u = new URL(url); if (u.protocol !== 'https:') return reject(new Error('mTLS_requires_https'));
+        const body = init.body == null ? null : Buffer.from(init.body);
+        const req = https.request(u, { agent, method: init.method || 'GET', timeout: 5000, headers: { ...(init.headers || {}), ...(body ? { 'content-length': body.length } : {}) } }, (res) => {
+            const chunks = []; res.on('data', (c) => chunks.push(c));
+            res.on('end', () => { const buf = Buffer.concat(chunks); resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, json: async () => JSON.parse(buf.toString('utf8')) }); });
+        });
+        req.on('timeout', () => req.destroy(new Error('timeout'))); req.on('error', reject); req.end(body);
+    });
+    return { fetchImpl, thumbprint: crypto.createHash('sha256').update(new crypto.X509Certificate(cert).raw).digest('base64url') };
+}
+
+function createShieldBridge({ dataDir, env = process.env, listAccounts, fetchImpl: injected, transport: injectedTransport, log = console }) {
+    const transport = injectedTransport !== undefined ? injectedTransport : transportFromEnv(env);
+    const fetchImpl = injected || (transport && transport.fetchImpl) || fetch;       // talking to the Shield (and to Meet's bridge) over mutual TLS when configured
     const keyFile = path.join(dataDir, 'shield-workload.json');
     const syncUrl = () => String(env.SHIELD_SYNC_URL || '').replace(/\/+$/, '');                   // the voice engine (Security Shield)
     const meetUrl = () => String(env.MEET_INTERNAL_URL || '').replace(/\/+$/, '');                 // Numbers & Plans lives in Qorlla Meet
@@ -31,11 +52,12 @@ function createShieldBridge({ dataDir, env = process.env, listAccounts, fetchImp
     }
     function workloadToken(now = Math.floor(Date.now() / 1000)) {
         const k = loadKeys(), head = b64(JSON.stringify({ alg: 'ES256', typ: 'JWT', kid: k.kid }));
-        const body = b64(JSON.stringify({ iss: issuer(), sub: 'svc:main-app', aud: 'qorlla-shield', iat: now, exp: now + 120, jti: crypto.randomUUID() + crypto.randomUUID() }));
+        const body = b64(JSON.stringify({ iss: issuer(), sub: 'svc:main-app', aud: 'qorlla-shield', iat: now, exp: now + 120, jti: crypto.randomUUID() + crypto.randomUUID(), ...(transport ? { cnf: { 'x5t#S256': transport.thumbprint } } : {}) }));
         return head + '.' + body + '.' + b64(crypto.sign('sha256', Buffer.from(head + '.' + body), { key: k.privateKey, dsaEncoding: 'ieee-p1363' }));
     }
-    const post = async (base, route, method, body, headers) => {
-        const r = await fetchImpl(base + route, { method, headers: { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+    const plainFetch = injected || fetch;                                  // Meet's bridge is authenticated by its own secret over the private network; only the Shield is reached over mutual TLS
+    const post = async (base, route, method, body, headers, f = fetchImpl) => {
+        const r = await f(base + route, { method, headers: { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(5000) });
         if (!r.ok) throw Object.assign(new Error('refused_' + r.status), { status: r.status }); return r.json().catch(() => ({}));
     };
 
@@ -45,7 +67,7 @@ function createShieldBridge({ dataDir, env = process.env, listAccounts, fetchImp
         await post(syncUrl(), '/v1/shield/admin/principals', 'PUT', { accountId: a.id, ...(a.orgId ? { orgId: a.orgId } : {}), verified: !!a.verified, ...(typeof a.billingHold === 'boolean' ? { billingHold: a.billingHold } : {}) }, shield);
         if (a.suspended) await post(syncUrl(), '/v1/shield/admin/principals/' + encodeURIComponent(a.id) + '/suspend', 'POST', {}, { authorization: 'Bearer ' + workloadToken() });
         else await post(syncUrl(), '/v1/shield/admin/principals/' + encodeURIComponent(a.id) + '/restore', 'POST', {}, { authorization: 'Bearer ' + workloadToken() });
-        if (meetUrl() && bridgeSecret().length >= 32) await post(meetUrl(), '/api/integrations/telephony/accounts/' + encodeURIComponent(a.id), 'PUT', { verified: !!a.verified, suspended: !!a.suspended, orgId: a.orgId || null, ...(typeof a.billingHold === 'boolean' ? { billingHold: a.billingHold } : {}) }, { 'x-qorlla-bridge-secret': bridgeSecret() });
+        if (meetUrl() && bridgeSecret().length >= 32) await post(meetUrl(), '/api/integrations/telephony/accounts/' + encodeURIComponent(a.id), 'PUT', { verified: !!a.verified, suspended: !!a.suspended, orgId: a.orgId || null, ...(typeof a.billingHold === 'boolean' ? { billingHold: a.billingHold } : {}) }, { 'x-qorlla-bridge-secret': bridgeSecret() }, plainFetch);
     }
 
     const pending = new Map();                                            // account id -> latest standing not yet accepted
@@ -63,6 +85,7 @@ function createShieldBridge({ dataDir, env = process.env, listAccounts, fetchImp
     async function reconcileAll() { if (!enabled()) return { skipped: true }; for (const a of listAccounts()) pending.set(a.id, a); return flush(); }
     function start({ everyMs = Math.max(1000, Number(env.SHIELD_RECONCILE_SECONDS || 300) * 1000) } = {}) { if (!enabled()) return () => {}; reconcileAll().catch(() => {}); const t = setInterval(() => reconcileAll().catch(() => {}), everyMs); if (t.unref) t.unref(); return () => clearInterval(t); }
     function register(app) { app.get('/.well-known/shield-workload-jwks.json', (req, res) => { if (!enabled()) return res.status(404).json({ error: 'shield_sync_disabled' }); res.set('Cache-Control', 'public, max-age=300').json({ keys: [loadKeys().publicJwk] }); }); }
-    return { enabled, queue, flush, reconcileAll, start, register, workloadToken, pendingCount: () => pending.size };
+    return { enabled, queue, flush, reconcileAll, start, register, workloadToken, publicJwk: () => loadKeys().publicJwk, pendingCount: () => pending.size };
 }
 module.exports = createShieldBridge;
+module.exports.transportFromEnv = transportFromEnv;

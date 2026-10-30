@@ -39,7 +39,7 @@ export function iceServersFor(accountId, env = process.env, now) {
   let turnOn = false;
   if (turn.length && env.TURN_SHARED_SECRET) { const c = turnCredentials(accountId, 600, now, env.TURN_SHARED_SECRET); iceServers.push({ urls: turn, username: c.username, credential: c.credential }); turnOn = true; }
   if (String(env.VOICE_REQUIRE_TURN || '').toLowerCase() === 'true' && !turnOn) throw Object.assign(new Error('turn_not_configured'), { code: 'turn_not_configured' });
-  const relayOnly = String(env.VOICE_RELAY_ONLY || '').toLowerCase() === 'true';
+  const relayOnly = String(env.VOICE_RELAY_ONLY || '').toLowerCase() === 'true' || env.VOICE_MEDIA_POLICY === 'relay';          // VOICE_MEDIA_POLICY=relay: every client is told to use relay candidates only
   if (relayOnly && !turnOn) throw Object.assign(new Error('turn_not_configured'), { code: 'turn_not_configured' });
   return { iceServers, iceTransportPolicy: relayOnly ? 'relay' : 'all', stun: stun.length > 0, turn: turnOn };
 }
