@@ -26,7 +26,29 @@ export const REQUIRED_TABLES = ['meetings', 'participants', 'qphone_numbers', 'q
 const PSQL = ['-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'];
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
-export function migrate({ container, root, env = process.env, log = () => {} }) {
+// ---- Development-only guard. It runs BEFORE any database work and fails closed. This tool targets a LOCAL DOCKER container by name only (never a connection string or host),
+// but names and ports are not authorisation, so in addition it requires:
+//  1. explicit authorisation: the dev stack passes authorized:true; the command line needs QORLLA_DEV_DB_MIGRATE=yes;
+//  2. no production-like configuration: NODE_ENV / QORLLA_ENV / APP_ENV / ENVIRONMENT / DEPLOY_ENV must not say production, staging, live, uat ...;
+//  3. a development-looking, production-free container name (dev, test, tmp, fresh, ...; never prod, live, staging ...), safe to pass to docker;
+//  4. a container that publishes ports only on the loopback interface (a database reachable from the network is refused).
+const PROD_WORD = '(prod|production|prd|live|staging|stage|preprod|uat)';
+const PROD_NAME = new RegExp('(^|[-_.])' + PROD_WORD + '([-_.]|$)', 'i'), PROD_VALUE = new RegExp('^' + PROD_WORD + '$', 'i');
+const DEV_NAME = /(^|[-_.])(dev|development|test|tmp|temp|fresh|partial|local)([-_.]|$)/i;
+const ENV_KEYS = ['NODE_ENV', 'QORLLA_ENV', 'APP_ENV', 'ENVIRONMENT', 'DEPLOY_ENV'];
+const dockerPorts = (container) => { const r = spawnSync('docker', ['inspect', '--format', '{{json .NetworkSettings.Ports}}', container], { encoding: 'utf8' }); if (r.status !== 0) throw new Error('container not found or not inspectable: ' + container); return JSON.parse(r.stdout.trim() || 'null'); };
+export function assertDevelopmentTarget({ container, env = process.env, authorized = false, ports = dockerPorts }) {
+  if (authorized !== true && env.QORLLA_DEV_DB_MIGRATE !== 'yes') throw new Error('Refusing: this is a development-only tool and needs explicit authorisation (the dev stack passes it; on the command line set QORLLA_DEV_DB_MIGRATE=yes).');
+  for (const k of ENV_KEYS) if (env[k] && PROD_VALUE.test(String(env[k]).trim())) throw new Error('Refusing: ' + k + '=' + env[k] + ' looks like a production-like environment.');
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/.test(String(container || ''))) throw new Error('Refusing: not a valid container name.');
+  if (PROD_NAME.test(container)) throw new Error('Refusing: the container name "' + container + '" looks like a production-like database.');
+  if (!DEV_NAME.test(container)) throw new Error('Refusing: the container name "' + container + '" does not look like a development database (it must contain dev, test, tmp, fresh or local).');
+  const p = ports(container) || {};
+  for (const [port, bindings] of Object.entries(p)) for (const b of bindings || []) if (!['127.0.0.1', '::1'].includes(b.HostIp)) throw new Error('Refusing: ' + container + ' publishes ' + port + ' on ' + (b.HostIp || 'all interfaces') + '; a development database must listen on the loopback interface only.');
+}
+
+export function migrate({ container, root, env = process.env, log = () => {}, authorized = false, ports }) {
+  assertDevelopmentTarget({ container, env, authorized, ports });
   const sqlDir = path.join(root, 'qorlla-meet-video', 'sql');
   const exec = (args, input) => spawnSync('docker', ['exec', ...(input !== undefined ? ['-i'] : []), container, 'psql', ...args], { input, encoding: 'utf8' });
   const scalar = (sql) => { const r = exec([...PSQL, '-tAc', sql]); if (r.status !== 0) throw new Error('query failed: ' + r.stderr.trim()); return r.stdout.trim(); };
@@ -64,7 +86,7 @@ export function migrate({ container, root, env = process.env, log = () => {} }) 
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const container = process.argv[2];
-  if (!container) { console.error('usage: node scripts/dev-db-migrate.mjs <container>'); process.exit(2); }
+  if (!container) { console.error('usage: QORLLA_DEV_DB_MIGRATE=yes node scripts/dev-db-migrate.mjs <dev-container>   (development only; see the guard in this file)'); process.exit(2); }
   try { const r = migrate({ container, root: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), log: (m) => console.log(m) }); console.log('ok: applied ' + r.applied.length + ', already applied ' + r.skipped.length); }
   catch (e) { console.error(String(e.message || e)); process.exit(1); }
 }

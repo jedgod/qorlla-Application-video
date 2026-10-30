@@ -42,7 +42,7 @@ if (!exists) {
 for (let i = 0; i < 60 && docker('exec', DB, 'pg_isready', '-U', 'qorlla', '-d', 'qorlla_meet').status !== 0; i++) spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},1000)']);
 spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},1500)']);
 // Meet's schema: ordered, tracked, atomic migrations; refuses a partial or incomplete schema (see scripts/dev-db-migrate.mjs). Startup stops on the first failure.
-try { const r = migrate({ container: DB, root, env: process.env, log: (m) => console.log('[db] ' + m) }); console.log('[db] migrations: applied ' + r.applied.length + ', already applied ' + r.skipped.length); }
+try { const r = migrate({ container: DB, root, env: process.env, authorized: true, log: (m) => console.log('[db] ' + m) }); console.log('[db] migrations: applied ' + r.applied.length + ', already applied ' + r.skipped.length); }
 catch (e) { console.error('Database initialisation failed: ' + String(e.message || e)); process.exit(1); }
 
 const children = [];
