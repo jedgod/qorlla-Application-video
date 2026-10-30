@@ -1,0 +1,41 @@
+TAP version 13
+# Subtest: TURN credential security: anonymous, wrong, tampered, foreign and expired credentials never allocate; credentials are opaque, scoped to one account, short-lived, and the password is never stored
+ok 1 - TURN credential security: anonymous, wrong, tampered, foreign and expired credentials never allocate; credentials are opaque, scoped to one account, short-lived, and the password is never stored
+  ---
+  duration_ms: 8196.6738
+  type: 'test'
+  ...
+# Subtest: suspension ENDS MEDIA: relayed packets flow, the account is suspended, and within the budget no packet is delivered; the old credential can neither allocate nor refresh; restoring needs a NEW credential
+ok 2 - suspension ENDS MEDIA: relayed packets flow, the account is suspended, and within the budget no packet is delivered; the old credential can neither allocate nor refresh; restoring needs a NEW credential
+  ---
+  duration_ms: 1825.5898
+  type: 'test'
+  ...
+# Subtest: organization suspension and administrative disable also end media; a repeat suspension is harmless
+ok 3 - organization suspension and administrative disable also end media; a repeat suspension is harmless
+  ---
+  duration_ms: 734.1305
+  type: 'test'
+  ...
+# Subtest: the suspension holds across an engine restart and across instances: a credential issued by one instance is revoked by another, and a restarted engine still refuses it
+ok 4 - the suspension holds across an engine restart and across instances: a credential issued by one instance is revoked by another, and a restarted engine still refuses it
+  ---
+  duration_ms: 1202.6269
+  type: 'test'
+  ...
+# Subtest: a relay the engine cannot reach is NOT silent: credentials are still deleted (no new allocation) and a critical media_termination_failure alert is recorded; a bad configuration refuses to start; A3.8 cannot be switched on
+ok 5 - a relay the engine cannot reach is NOT silent: credentials are still deleted (no new allocation) and a critical media_termination_failure alert is recorded; a bad configuration refuses to start; A3.8 cannot be switched on
+  ---
+  duration_ms: 853.526
+  type: 'test'
+  ...
+# voice maintenance failed Cannot use a pool after calling end on the pool
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 16757.2609

@@ -1,0 +1,30 @@
+{
+  "budgetMs": 3000,
+  "results": {
+    "credentials": {
+      "anonymousRefused": true,
+      "wrongRefused": true,
+      "tamperedRefused": true,
+      "foreignRefused": true,
+      "expiredRefused": true,
+      "passwordNotStored": true
+    },
+    "suspendEndsMedia": {
+      "packetsBeforeSuspend": 1,
+      "packetsAfterSuspend": 0,
+      "suspendReturnedMs": 122,
+      "oldCredentialAllocate": 401,
+      "oldCredentialRefresh": 401
+    },
+    "restartAndMultiInstance": {
+      "issuedBy": "instance-B",
+      "revokedBy": "instance-A",
+      "afterRestartIssue": 403,
+      "afterRestartOldCredential": 401
+    },
+    "relayUnreachable": {
+      "newAllocationRefused": true,
+      "alert": "media_termination_failure/critical"
+    }
+  }
+}
