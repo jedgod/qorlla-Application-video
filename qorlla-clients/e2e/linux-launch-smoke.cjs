@@ -25,7 +25,10 @@ function procInfo(pid) {
   let userNs = null; try { userNs = fs.readlinkSync(`/proc/${pid}/ns/user`); } catch { /* gone */ }
   return { pid, type: (cmd.find((a) => a.startsWith('--type=')) || '--type=main').slice(7), cmd, seccomp: field(status, 'Seccomp'), noNewPrivs: field(status, 'NoNewPrivs'), uid: (field(status, 'Uid') || '').split(/\s+/)[0], apparmor: (read(`/proc/${pid}/attr/current`) || '').trim(), userNs };
 }
-const snapshot = (rootPid) => { const table = []; for (const d of fs.readdirSync('/proc')) if (/^\d+$/.test(d)) { const s = parseStat(read(`/proc/${d}/stat`) || ''); if (s) table.push(s); } return descendants(rootPid, table).map(procInfo); };
+/** The app's processes: the main process, everything below it, and anything else running the same executable (Chromium's namespace sandbox can reparent its children). Main first. */
+const snapshot = (rootPid, exe) => { const table = []; for (const d of fs.readdirSync('/proc')) if (/^d+$/.test(d)) { const s = parseStat(read(`/proc/${d}/stat`) || ''); if (s) table.push(s); }
+  const pids = new Set(descendants(rootPid, table)); for (const s of table) { try { if (fs.readlinkSync(`/proc/${s.pid}/exe`) === exe) pids.add(s.pid); } catch { /* not readable */ } }
+  return [...pids].sort((a, b) => (a === rootPid ? -1 : b === rootPid ? 1 : a - b)).map((pid) => ({ ...procInfo(pid), ppid: (table.find((t) => t.pid === pid) || {}).ppid })); };
 
 const MEDIA_TEST = `(async () => {
   const c = document.createElement('canvas'); c.width = 320; c.height = 240; const g = c.getContext('2d'); let t = 0; const iv = setInterval(() => { g.fillStyle = 'hsl(' + ((t++ * 7) % 360) + ',80%,50%)'; g.fillRect(0, 0, 320, 240); g.fillStyle = '#fff'; g.fillText(String(t), 10, 20); }, 33);
@@ -74,10 +77,10 @@ async function main(argv) {
   if (!target) return fail(exited ? 'the app exited before any window appeared (exit ' + JSON.stringify(exited) + ')' : 'no window appeared within 60 s');
   console.log('ok   a window loaded: ' + target.type + ' "' + String(target.title).slice(0, 60) + '"'); evidence.window = { note: 'built-in offline page: no Qorlla service is configured in this test', type: target.type, title: String(target.title).slice(0, 80), scheme: String(target.url).split(':')[0] };
 
-  await sleep(3000); const procs = snapshot(child.pid); evidence.processes = procs.map((p) => ({ type: p.type, uidIsMain: p.uid === procs[0].uid, seccomp: p.seccomp, noNewPrivs: p.noNewPrivs, apparmor: p.apparmor, sameUserNsAsMain: p.userNs === procs[0].userNs }));
+  const exe = fs.realpathSync(bin); let procs = []; for (let k = 0; k < 40; k++) { await sleep(500); procs = snapshot(child.pid, exe); if (procs.some((p) => p.type === 'renderer')) break; }   // the renderer may start after the window target appears: wait up to 20 s evidence.processes = procs.map((p) => ({ type: p.type, uidIsMain: p.uid === procs[0].uid, seccomp: p.seccomp, noNewPrivs: p.noNewPrivs, apparmor: p.apparmor, sameUserNsAsMain: p.userNs === procs[0].userNs }));
   const off = procs.flatMap((p) => p.cmd.filter((a) => SANDBOX_OFF.test(a)).map((a) => p.type + ': ' + a)); if (off.length) return fail('a process runs with the sandbox disabled: ' + off.join(', '));
   console.log(`ok   ${procs.length} processes inspected: none carries a sandbox-disabling switch`);
-  const renderers = procs.filter((p) => p.type === 'renderer'); if (!renderers.length) return fail('no renderer process found to inspect');
+  const renderers = procs.filter((p) => p.type === 'renderer'); if (!renderers.length) return fail('no renderer process found to inspect after 20 s. Processes seen: ' + procs.map((p) => p.pid + ':' + p.type + '(ppid ' + p.ppid + ', seccomp ' + p.seccomp + ')').join(', '));
   const bad = renderers.filter((r) => r.seccomp !== '2' || r.noNewPrivs !== '1'); if (bad.length) return fail(`${bad.length} renderer(s) are NOT under a seccomp filter with no-new-privs (Seccomp=${bad[0].seccomp}, NoNewPrivs=${bad[0].noNewPrivs}): the sandbox is not in effect`);
   console.log(`ok   ${renderers.length} renderer process(es) run under a seccomp filter with no-new-privs (Chromium's sandbox is in effect)`);
   const zyg = procs.filter((p) => p.type === 'zygote' || p.type === 'renderer'); evidence.userNamespaceSandbox = zyg.some((p) => p.userNs !== procs[0].userNs); console.log('info user-namespace sandbox in use (child processes in their own user namespace): ' + evidence.userNamespaceSandbox);
