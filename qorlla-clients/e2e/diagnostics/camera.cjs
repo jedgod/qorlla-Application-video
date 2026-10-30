@@ -1,0 +1,20 @@
+'use strict';
+// Diagnostic only: does an Electron window with a fake camera keep its video track alive for 10 s? Variants: A = bare Electron, B = with the shell's permission handlers.
+const path = require('node:path'), fs = require('node:fs'), os = require('node:os'), http = require('node:http');
+const { _electron } = require(path.resolve(__dirname, '..', '..', '..', 'node_modules', 'playwright'));
+const DESKTOP = path.resolve(__dirname, '..', '..', 'apps', 'desktop'), electronExe = require(path.join(DESKTOP, 'node_modules', 'electron'));
+const PAGE = '<!doctype html><title>cam</title><video id=v autoplay muted playsinline></video><script>window.log=[];(async()=>{const s=await navigator.mediaDevices.getUserMedia({audio:true,video:{width:{ideal:1280},height:{ideal:720}}});s.getTracks().forEach(t=>t.addEventListener("ended",()=>window.log.push("ENDED "+t.kind+" @"+Math.round(performance.now()))));document.getElementById("v").srcObject=s;window.s=s;window.log.push("got");const a=new RTCPeerConnection(),b=new RTCPeerConnection();a.onicecandidate=e=>e.candidate&&b.addIceCandidate(e.candidate);b.onicecandidate=e=>e.candidate&&a.addIceCandidate(e.candidate);s.getTracks().forEach(t=>a.addTrack(t,s));const o=await a.createOffer();await a.setLocalDescription(o);await b.setRemoteDescription(o);const an=await b.createAnswer();await b.setLocalDescription(an);await a.setRemoteDescription(an);window.log.push("loopback started")})().catch(e=>window.log.push("ERR "+e.message))</script>';
+async function run(variant) {
+  const srv = http.createServer((q, r) => { r.setHeader('content-type', 'text/html'); r.end(PAGE); }); await new Promise((ok) => srv.listen(0, '127.0.0.1', ok)); const url = 'http://127.0.0.1:' + srv.address().port + '/';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qcam-')), main = path.join(dir, 'main.cjs');
+  const accel = variant === 'C' ? 'app.disableHardwareAcceleration();' : variant === 'E' ? "app.commandLine.appendSwitch('disable-features','MediaFoundationVideoCapture');" : variant === 'F' ? "app.commandLine.appendSwitch('disable-features','MediaFoundationD3D11VideoCapture');" : variant === 'G' ? "app.commandLine.appendSwitch('disable-accelerated-video-encode');app.commandLine.appendSwitch('disable-accelerated-video-decode');" : variant === 'D' ? "app.commandLine.appendSwitch('disable-features','MediaFoundationVideoCapture,MediaFoundationD3D11VideoCapture');" : '';
+  const handlers = variant === 'B' ? `const o=${JSON.stringify(url.replace(/\/$/, ''))};session.defaultSession.setPermissionRequestHandler((wc,p,cb,d)=>cb(['media','display-capture','notifications'].includes(p)&&(d.requestingUrl||wc.getURL()).startsWith(o)));session.defaultSession.setPermissionCheckHandler((wc,p,ro)=>['media','display-capture','notifications'].includes(p)&&String(ro).startsWith(o));` : '';
+  fs.writeFileSync(main, `const {app,BrowserWindow,session}=require('electron');app.commandLine.appendSwitch('use-fake-device-for-media-stream');app.commandLine.appendSwitch('use-fake-ui-for-media-stream');app.setPath('userData',${JSON.stringify(path.join(dir, 'ud'))});${accel}app.whenReady().then(()=>{${handlers}const w=new BrowserWindow({width:800,height:600,webPreferences:{sandbox:true,contextIsolation:true}});w.loadURL(${JSON.stringify(url)});});`);
+  fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"qcam","main":"main.cjs"}');
+  const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ executablePath: electronExe, args: [dir], env }); const win = await app.firstWindow();
+  await new Promise((r) => setTimeout(r, 10000));
+  const out = await win.evaluate(() => ({ log: window.log, states: window.s && window.s.getTracks().map((t) => t.kind + ':' + t.readyState) }));
+  console.log('variant', variant, JSON.stringify(out)); await app.close().catch(() => {}); srv.close();
+}
+(async () => { for (const v of (process.argv[2] || 'ACD').split('')) await run(v); process.exit(0); })().catch((e) => { console.error('FAIL', e.message); process.exit(1); });

@@ -1,0 +1,23 @@
+TAP version 13
+# Subtest: denying camera and microphone shows the recovery message and does not open the meeting
+ok 1 - denying camera and microphone shows the recovery message and does not open the meeting
+  ---
+  duration_ms: 163832.9532
+  type: 'test'
+  ...
+# Subtest: Android app joins a real meeting from a qorlla:// link and exchanges audio and video with another participant
+ok 2 - Android app joins a real meeting from a qorlla:// link and exchanges audio and video with another participant
+  ---
+  duration_ms: 102109.588
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 270638.4711
+RUN_EXIT 0

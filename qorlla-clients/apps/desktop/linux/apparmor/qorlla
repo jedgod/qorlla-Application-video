@@ -1,0 +1,18 @@
+# AppArmor profile for Qorlla (Debian package). Ubuntu 24.04 and later restrict unprivileged user namespaces for applications that have no profile
+# (kernel.apparmor_restrict_unprivileged_userns=1). Chromium's sandbox needs a user namespace, so without this profile Qorlla aborts at start rather than run unsandboxed.
+#
+# What this does, and what it does not:
+#  - It is attached to ONE executable, the installed /opt/Qorlla/qorlla (Chromium re-executes that same file for its renderer, GPU and utility processes, so they are covered too).
+#  - It grants exactly ONE capability beyond the default: creating user namespaces (`userns,`). The host-wide restriction stays on for every other application.
+#  - It does NOT confine files, network or capabilities: flags=(unconfined) means everything else behaves exactly as it did before the profile existed. The security boundary for
+#    web content remains Chromium's own sandbox, which this profile makes available. Full confinement of the application is a separate piece of work.
+#  - It is NOT used for the AppImage: a portable file cannot install a profile.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile qorlla /opt/Qorlla/qorlla flags=(unconfined) {
+  userns,
+
+  # Site-specific additions and overrides: put them in /etc/apparmor.d/local/qorlla (never edit this file; it is replaced on upgrade).
+  include if exists <local/qorlla>
+}

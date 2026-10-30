@@ -1,0 +1,16 @@
+name: Qorlla installer validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [integration/installable-clients]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - run: node --test packages/contracts/tests/*.test.cjs
+      - run: cd apps/desktop && npm ci && npm test
+      - run: cd apps/mobile && npm ci && npm test
+# Do not publish artifacts until OS signing, notarization, store review, and release approval.

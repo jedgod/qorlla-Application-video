@@ -1,0 +1,17 @@
+TAP version 13
+# Subtest: denying camera and microphone shows the recovery message and does not open the meeting
+ok 1 - denying camera and microphone shows the recovery message and does not open the meeting
+  ---
+  duration_ms: 198650.2361
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 203205.8639
+RUN_EXIT 0

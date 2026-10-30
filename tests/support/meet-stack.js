@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const MEET = 'http://localhost:3310';
+const MEET = process.env.QORLLA_TEST_MEET_URL || 'http://localhost:3310';   // another Meet instance (for example one running patched code) can be named; the default is unchanged
 const root = path.resolve(__dirname, '..', '..');
 const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
@@ -16,7 +16,7 @@ async function startMain(port, extraEnv = {}) {
   const base = 'http://localhost:' + port;
   for (let i = 0; i < 60; i++) { try { if ((await fetch(base + '/')).ok) break; } catch (e) { /* not yet */ } await new Promise((r) => setTimeout(r, 500)); }
   const meetOk = await fetch(MEET + '/api/config').then((r) => r.ok).catch(() => false);
-  if (!meetOk) throw new Error('Qorlla Meet is not running on :3310 (node scripts/start-recording-test-meet.cjs)');
+  if (!meetOk) throw new Error('Qorlla Meet is not running at ' + MEET + ' (node scripts/start-recording-test-meet.cjs, or qorlla-clients/e2e/start-meet.cjs)');
   return { base, dataDir, stop() { try { child.kill(); } catch (e) { /* gone */ } try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (e) { /* busy */ } } };
 }
 

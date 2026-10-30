@@ -1,0 +1,27 @@
+node_modules/
+dist/
+out/
+*.apk
+*.aab
+*.exe
+*.dmg
+test-results/
+
+# built installers and packages must never be committed
+apps/desktop/dist/
+*.apk
+*.aab
+*.AppImage
+*.deb
+*.dmg
+*.ipa
+
+# staging edge: secrets and real environment files are never committed
+deployment/staging/secrets/
+deployment/staging/.env
+*.jks
+*.keystore
+*.p12
+*.p8
+*.mobileprovision
+*.cer

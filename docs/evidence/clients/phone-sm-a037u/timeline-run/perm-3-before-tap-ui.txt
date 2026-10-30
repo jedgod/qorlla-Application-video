@@ -1,0 +1,1 @@
+Camera and microphone | Qorlla needs camera and microphone access to be seen and heard in a meeting. | JOIN WITHOUT | CANCEL

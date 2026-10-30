@@ -13,7 +13,8 @@ function setVideo(id,stream,muted=false){const el=tile(id,state.names.get(id)||i
 function renderPeople(){const root=$('peopleList');root.replaceChildren();for(const id of state.roster){const p=document.createElement('div');p.className='person';p.textContent=(state.names.get(id)||id.slice(0,8))+(id===state.participantId?' (You)':'');root.append(p);}}
 function openTab(tab){shell.tab=tab;document.querySelectorAll('[data-tab]').forEach(b=>{const on=b.dataset.tab===tab;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1;});document.querySelectorAll('.tab-view').forEach(v=>v.classList.toggle('hidden',v.id!=='tab-'+tab));}
 async function startMeeting(payload){Object.assign(state,{token:payload.token,meetingId:payload.meetingId,participantId:payload.participantId});const claims=JSON.parse(atob(payload.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));state.role=claims.role;$('recordBtn').classList.toggle('hidden',claims.role!=='host');state.name=claims.name;state.names.set(state.participantId,state.name);state.start=Date.now();sessionStorage.setItem('qorlla-session',JSON.stringify({token:state.token,meetingId:state.meetingId,participantId:state.participantId}));await waitForAdmission();                                                                    // a guest in the waiting room cannot see anything until the host admits them
-  const data=await api('/meetings/'+state.meetingId);state.settings=data.waiting_room===undefined?null:{waitingRoom:data.waiting_room,joinBeforeHost:data.join_before_host,lockOnHostJoin:data.lock_on_host_join,locked:data.locked};$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=(c=>/^\d{11}$/.test(c)?c.slice(0,3)+' '+c.slice(3,7)+' '+c.slice(7):c)(data.meeting_code||state.meetingId.slice(0,8));state.meetingInfo='Meeting ID: '+(data.meeting_code||state.meetingId);$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);try{const cfg=await api('/config');state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];}catch{}await startMedia();connect();collab.load();loadWaiting();}
+  await refreshIce();
+  const data=await api('/meetings/'+state.meetingId);state.settings=data.waiting_room===undefined?null:{waitingRoom:data.waiting_room,joinBeforeHost:data.join_before_host,lockOnHostJoin:data.lock_on_host_join,locked:data.locked};$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=(c=>/^\d{11}$/.test(c)?c.slice(0,3)+' '+c.slice(3,7)+' '+c.slice(7):c)(data.meeting_code||state.meetingId.slice(0,8));state.meetingInfo='Meeting ID: '+(data.meeting_code||state.meetingId);$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);try{const cfg=await api('/config');if(!state.iceServers||!state.iceServers.length)state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];}catch{}await startMedia();connect();collab.load();loadWaiting();}
 async function startMedia(){try{state.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:{width:{ideal:1280},height:{ideal:720}}});await applyDevicePrefs();}catch(e){notify('Media unavailable: '+e.message);state.stream=new MediaStream();state.mic=false;state.cam=false;}setVideo(state.participantId,state.stream,true);updateControls();}
 function updateControls(){
   const set=(id,label,off,pressed)=>{const b=$(id);b.querySelector('span').textContent=label;b.classList.toggle('off',!!off);b.setAttribute('aria-pressed',String(!!pressed));};
@@ -31,7 +32,7 @@ const newEpoch=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
 const sendSignal=(to,data)=>{if(state.socket?.connected)state.socket.emit('signal',{to,data});};
 function createPeer(id,initiator=false){
   if(state.peers.has(id))return state.peers.get(id);
-  const pc=new RTCPeerConnection({iceServers:state.iceServers});state.peers.set(id,pc);pc._queue=[];pc._restarts=0;if(initiator)pc._epoch=newEpoch();
+  const pc=new RTCPeerConnection({iceServers:state.iceServers,iceTransportPolicy:state.iceTransportPolicy||'all'});state.peers.set(id,pc);pc._queue=[];pc._restarts=0;if(initiator)pc._epoch=newEpoch();
   for(const track of state.stream.getTracks())pc.addTrack(track,state.stream);
   pc.onicecandidate=e=>{if(e.candidate)sendSignal(id,{type:'candidate',candidate:e.candidate,epoch:pc._epoch||pc._remoteEpoch});};
   pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);setVideo(id,stream);};
@@ -102,7 +103,7 @@ $('createBtn').onclick=async()=>{try{const p=await api('/meetings','POST',{title
 $('joinBtn').onclick=async()=>{try{const p=await api('/meetings/'+encodeURIComponent($('meetingId').value.trim())+'/join','POST',{name:$('displayName').value,passcode:$('joinPasscode').value});await startMeeting(p);}catch(e){error(e);}};
 $('chatForm').onsubmit=e=>{e.preventDefault();const input=$('chatText');if(!input.value.trim())return;state.socket.emit('chat',input.value,r=>{if(r?.ok)input.value='';else notify(r?.error||'Chat failed');});};
 $('micBtn').onclick=async()=>{const tracks=state.stream?.getAudioTracks()||[];if(!tracks.length){notify('No microphone track. Rejoin with permission.');return;}state.mic=!state.mic;tracks.forEach(t=>t.enabled=state.mic);state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});updateControls();};
-$('camBtn').onclick=()=>{const tracks=state.stream?.getVideoTracks()||[];if(!tracks.length){notify('No camera track. Rejoin with permission.');return;}state.cam=!state.cam;tracks.forEach(t=>t.enabled=state.cam);state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});updateControls();};
+$('camBtn').onclick=()=>{const tracks=state.stream?.getVideoTracks()||[];if(!tracks.length){notify('No camera track. Rejoin with permission.');return;}if(tracks.some(t=>t.readyState==='ended')){recoverCamera('manual');return;}state.cam=!state.cam;tracks.forEach(t=>t.enabled=state.cam);state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});updateControls();};
 $('handBtn').onclick=()=>{state.hand=!state.hand;state.socket.emit('hand',state.hand);setHand(state.participantId,state.hand);updateControls();};
 // Ending a share must reset the page whether the browser ended it ("Stop sharing" in the browser bar) or the person clicked Stop here: calling track.stop()
 // yourself does NOT fire the track's "ended" event, so both paths run the same cleanup.
@@ -153,7 +154,38 @@ if(query.get('passcode'))$('joinPasscode').value=query.get('passcode').slice(0,1
 const desiredMic=query.get('mic')!=='false' && query.get('mic')!=='off';
 const desiredCam=query.get('camera')!=='false' && query.get('cam')!=='false' && query.get('camera')!=='off';
 const originalStartMedia=startMedia;
-startMedia=async()=>{await originalStartMedia();state.mic=desiredMic&&state.mic;state.cam=desiredCam&&state.cam;state.stream.getAudioTracks().forEach(t=>t.enabled=state.mic);state.stream.getVideoTracks().forEach(t=>t.enabled=state.cam);updateControls();};
+// ICE servers and relay policy for THIS participant (short-lived TURN credentials; see server/index.js). Failing keeps the static list from /api/config, so deployments without TURN are unchanged.
+async function refreshIce(){
+  try{
+    const ice=await api('/meetings/'+state.meetingId+'/ice');state.iceServers=ice.iceServers;state.iceTransportPolicy=ice.iceTransportPolicy==='relay'?'relay':'all';
+    for(const pc of state.peers.values()){try{pc.setConfiguration({...pc.getConfiguration(),iceServers:state.iceServers});}catch(e){/* closed or not changeable */}}
+    clearTimeout(state.iceTimer);state.iceTimer=setTimeout(refreshIce,Math.max(30000,(Number(ice.expiresIn)||3600)*400));   // renew at 40% of the lifetime
+  }catch(e){/* keep what we have */}
+}
+startMedia=async()=>{await originalStartMedia();state.mic=desiredMic&&state.mic;state.cam=desiredCam&&state.cam;state.stream.getAudioTracks().forEach(t=>t.enabled=state.mic);state.stream.getVideoTracks().forEach(t=>t.enabled=state.cam);state.stream.getVideoTracks().forEach(watchCamera);updateControls();};
+// Camera recovery. A camera that ENDS by itself (device removed, driver reset, sleep/wake, a capture error) makes the browser fire "ended" on the track with no action from this page, which used to leave the person in the
+// meeting sending no video and not knowing. The page now takes a fresh camera track and swaps it into the local stream and into every call, retrying with a short backoff. Turning the camera off by hand only
+// DISABLES the track (it does not end it), and leaving stops tracks without firing "ended", so neither triggers this.
+let cameraRecovering=false;state.cameraRecoveries=0;document.documentElement.dataset.cameraRecoveries='0';   // read-only diagnostic: how many times the camera was recovered in this page
+function watchCamera(t){if(!t||t.__watched)return;t.__watched=true;t.addEventListener('ended',()=>{if(t.__expectedStop)return;recoverCamera('ended');});}
+async function recoverCamera(why){
+  if(cameraRecovering)return;cameraRecovering=true;notify('Camera lost. Reconnecting…');
+  try{
+    for(let attempt=1;attempt<=6;attempt++){
+      try{
+        const got=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}}}),nt=got.getVideoTracks()[0];if(!nt)throw new Error('no camera track');
+        state.stream.getVideoTracks().forEach(o=>{o.__expectedStop=true;state.stream.removeTrack(o);try{o.stop();}catch(e){/* already ended */}});
+        nt.enabled=state.cam;state.stream.addTrack(nt);watchCamera(nt);
+        if(state.screen)state.shareOld=nt;   // sharing right now: the share ends back onto the NEW camera
+        else for(const pc of state.peers.values()){const sender=pc.getSenders().find(x=>x.track?.kind==='video');if(sender)await sender.replaceTrack(nt).catch(()=>{});}
+        state.cameraLost=false;state.cameraRecoveries++;document.documentElement.dataset.cameraRecoveries=String(state.cameraRecoveries);notify('Camera reconnected.');return;
+      }catch(e){await new Promise(r=>setTimeout(r,attempt*1500));}
+    }
+    state.cameraLost=true;notify('Camera unavailable. It will be reconnected when it is available again, or choose Start video to try now.');
+  }finally{cameraRecovering=false;}
+}
+// A camera that is gone (unplugged, or its driver or the browser's capture process restarted) comes back as a device change: retry then, instead of waiting for the person to notice.
+navigator.mediaDevices?.addEventListener?.('devicechange',async()=>{if(!state.cameraLost||cameraRecovering)return;try{const d=await navigator.mediaDevices.enumerateDevices();if(!d.some(x=>x.kind==='videoinput'))return;}catch(e){return;}state.cameraLost=false;recoverCamera('devicechange');});
 if(initialName){if(query.get('start')==='new')$('createBtn').click();else if(query.get('start')==='join' && $('meetingId').value)$('joinBtn').click();}
 // launch parameters (name, passcode, mic/camera, start) have been consumed: do not leave them in the address bar, history or screenshots
 try{history.replaceState(null,'',location.pathname+(returnRaw?'?return='+encodeURIComponent(returnRaw):''));}catch{}

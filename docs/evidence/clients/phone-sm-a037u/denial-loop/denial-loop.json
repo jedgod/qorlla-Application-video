@@ -1,0 +1,175 @@
+{
+  "serial": "[redacted]",
+  "model": "SM-A037U",
+  "runs": 8,
+  "results": [
+    {
+      "run": 1,
+      "outcome": "recovery-stable",
+      "taps": [
+        {
+          "hit": "Don’t allow",
+          "atMs": 7411
+        },
+        {
+          "hit": "Don’t allow",
+          "atMs": 10505
+        }
+      ],
+      "timeline": "AAAAAAAAAAA",
+      "appLog": [
+        "[qorlla-app]', 'link', 'initial', 'accepted'",
+        "[qorlla-app]', 'joinMeeting: asking for permissions'",
+        "[qorlla-app]', 'joinMeeting: permissions', '{\"granted\":false,\"blocked\":false}'",
+        "[qorlla-app]', 'alert shown', 'not-blocked'"
+      ]
+    },
+    {
+      "run": 2,
+      "outcome": "recovery-stable",
+      "taps": [
+        {
+          "hit": "Don’t allow",
+          "atMs": 11119
+        },
+        {
+          "hit": "Don’t allow",
+          "atMs": 14937
+        }
+      ],
+      "timeline": "AAAAAAAAAAA",
+      "appLog": [
+        "[qorlla-app]', 'link', 'initial', 'accepted'",
+        "[qorlla-app]', 'joinMeeting: asking for permissions'",
+        "[qorlla-app]', 'joinMeeting: permissions', '{\"granted\":false,\"blocked\":false}'",
+        "[qorlla-app]', 'alert shown', 'not-blocked'"
+      ]
+    },
+    {
+      "run": 3,
+      "outcome": "recovery-stable",
+      "taps": [
+        {
+          "hit": "Don’t allow",
+          "atMs": 6314
+        },
+        {
+          "hit": "Don’t allow",
+          "atMs": 10858
+        }
+      ],
+      "timeline": "AAAAAAAAAAA",
+      "appLog": [
+        "[qorlla-app]', 'link', 'initial', 'accepted'",
+        "[qorlla-app]', 'joinMeeting: asking for permissions'",
+        "[qorlla-app]', 'joinMeeting: permissions', '{\"granted\":false,\"blocked\":false}'",
+        "[qorlla-app]', 'alert shown', 'not-blocked'"
+      ]
+    },
+    {
+      "run": 4,
+      "outcome": "recovery-stable",
+      "taps": [
+        {
+          "hit": "Don’t allow",
+          "atMs": 7717
+        },
+        {
+          "hit": "Don’t allow",
+          "atMs": 11657
+        }
+      ],
+      "timeline": "AAAAAAAAAAA",
+      "appLog": [
+        "[qorlla-app]', 'link', 'initial', 'accepted'",
+        "[qorlla-app]', 'joinMeeting: asking for permissions'",
+        "[qorlla-app]', 'joinMeeting: permissions', '{\"granted\":false,\"blocked\":false}'",
+        "[qorlla-app]', 'alert shown', 'not-blocked'"
+      ]
+    },
+    {
+      "run": 5,
+      "outcome": "recovery-stable",
+      "taps": [
+        {
+          "hit": "Don’t allow",
+          "atMs": 9086
+        },
+        {
+          "hit": "Don’t allow",
+          "atMs": 13513
+        }
+      ],
+      "timeline": "AAAAAAAAAAA",
+      "appLog": [
+        "[qorlla-app]', 'link', 'initial', 'accepted'",
+        "[qorlla-app]', 'joinMeeting: asking for permissions'",
+        "[qorlla-app]', 'joinMeeting: permissions', '{\"granted\":false,\"blocked\":false}'",
+        "[qorlla-app]', 'alert shown', 'not-blocked'"
+      ]
+    },
+    {
+      "run": 6,
+      "outcome": "recovery-stable",
+      "taps": [
+        {
+          "hit": "Don’t allow",
+          "atMs": 7708
+        },
+        {
+          "hit": "Don’t allow",
+          "atMs": 12347
+        }
+      ],
+      "timeline": "AAAAAAAAAAA",
+      "appLog": [
+        "[qorlla-app]', 'link', 'initial', 'accepted'",
+        "[qorlla-app]', 'joinMeeting: asking for permissions'",
+        "[qorlla-app]', 'joinMeeting: permissions', '{\"granted\":false,\"blocked\":false}'",
+        "[qorlla-app]', 'alert shown', 'not-blocked'"
+      ]
+    },
+    {
+      "run": 7,
+      "outcome": "recovery-stable",
+      "taps": [
+        {
+          "hit": "Don’t allow",
+          "atMs": 8007
+        },
+        {
+          "hit": "Don’t allow",
+          "atMs": 13503
+        }
+      ],
+      "timeline": "AAAAAAAAAAA",
+      "appLog": [
+        "[qorlla-app]', 'link', 'initial', 'accepted'",
+        "[qorlla-app]', 'joinMeeting: asking for permissions'",
+        "[qorlla-app]', 'joinMeeting: permissions', '{\"granted\":false,\"blocked\":false}'",
+        "[qorlla-app]', 'alert shown', 'not-blocked'"
+      ]
+    },
+    {
+      "run": 8,
+      "outcome": "recovery-stable",
+      "taps": [
+        {
+          "hit": "Don’t allow",
+          "atMs": 9065
+        },
+        {
+          "hit": "Don’t allow",
+          "atMs": 13367
+        }
+      ],
+      "timeline": "AAAAAAAAAAA",
+      "appLog": [
+        "[qorlla-app]', 'link', 'initial', 'accepted'",
+        "[qorlla-app]', 'joinMeeting: asking for permissions'",
+        "[qorlla-app]', 'joinMeeting: permissions', '{\"granted\":false,\"blocked\":false}'",
+        "[qorlla-app]', 'alert shown', 'not-blocked'"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,115 @@
+{
+  "platform": {
+    "model": "sdk_gphone64_x86_64",
+    "serial": "emulator-5554",
+    "android": "15",
+    "sdk": "35",
+    "abi": "x86_64",
+    "emulator": true
+  },
+  "apk": {
+    "path": "app-release.apk",
+    "bytes": 21124249
+  },
+  "results": {
+    "permissionDenied": {
+      "dialogShown": true,
+      "recoveryShown": true,
+      "joined": false
+    },
+    "participation": {
+      "androidApp": {
+        "before": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 13082,
+          "videoIn": 41043,
+          "audioOut": 12917,
+          "videoOut": 131408,
+          "framesDecoded": 51,
+          "framesEncoded": 65,
+          "pairs": [
+            {
+              "local": "prflx",
+              "remote": "host",
+              "protocol": "udp"
+            }
+          ]
+        },
+        "after": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 18182,
+          "videoIn": 47392,
+          "audioOut": 21969,
+          "videoOut": 192257,
+          "framesDecoded": 63,
+          "framesEncoded": 92,
+          "pairs": [
+            {
+              "local": "prflx",
+              "remote": "host",
+              "protocol": "udp"
+            },
+            {
+              "local": "prflx",
+              "remote": "host",
+              "protocol": "udp"
+            }
+          ]
+        },
+        "delta": {
+          "audioIn": 5100,
+          "videoIn": 6349,
+          "audioOut": 9052,
+          "videoOut": 60849,
+          "framesDecoded": 12,
+          "framesEncoded": 27
+        },
+        "ok": true
+      },
+      "host": {
+        "before": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 17497,
+          "videoIn": 161957,
+          "audioOut": 36811,
+          "videoOut": 72349,
+          "framesDecoded": 75,
+          "framesEncoded": 157,
+          "pairs": []
+        },
+        "after": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 24667,
+          "videoIn": 271045,
+          "audioOut": 48951,
+          "videoOut": 98070,
+          "framesDecoded": 97,
+          "framesEncoded": 231,
+          "pairs": [
+            {
+              "local": "host",
+              "remote": "prflx",
+              "protocol": "udp"
+            }
+          ]
+        },
+        "delta": {
+          "audioIn": 7170,
+          "videoIn": 109088,
+          "audioOut": 12140,
+          "videoOut": 25721,
+          "framesDecoded": 22,
+          "framesEncoded": 74
+        },
+        "ok": true
+      }
+    },
+    "containment": {
+      "foreignOriginBlocked": true
+    }
+  }
+}

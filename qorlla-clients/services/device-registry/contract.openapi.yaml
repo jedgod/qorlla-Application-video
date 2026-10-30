@@ -1,0 +1,22 @@
+openapi: 3.0.3
+info:
+  title: Qorlla Device Registry Contract
+  version: 0.3.0
+paths:
+  /api/v1/client-devices:
+    get:
+      summary: List current authenticated user's devices
+      responses:
+        '200': {description: Devices}
+    post:
+      summary: Register installation after device proof-of-possession and MAIN session validation
+      responses:
+        '201': {description: Registered}
+        '401': {description: Unauthorized}
+  /api/v1/client-devices/{id}/revoke:
+    post:
+      summary: Revoke own device or authorized administrative action
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '204': {description: Revoked}

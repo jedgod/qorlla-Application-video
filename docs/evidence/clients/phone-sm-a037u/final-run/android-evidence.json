@@ -1,0 +1,240 @@
+{
+  "platform": {
+    "model": "SM-A037U",
+    "serial": "[redacted]",
+    "android": "13",
+    "sdk": "33",
+    "abi": "arm64-v8a",
+    "emulator": false
+  },
+  "apk": {
+    "path": "app-release.apk",
+    "bytes": 20671960
+  },
+  "results": {
+    "permissionTaps": [
+      "Don’t allow",
+      "Don’t allow",
+      null
+    ],
+    "recoveryTimeline": [
+      {
+        "t": 0,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{1d1507d u0 com.qorlla.mobile/.MainActivity} t4894}"
+      },
+      {
+        "t": 3,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{1d1507d u0 com.qorlla.mobile/.MainActivity} t4894}"
+      },
+      {
+        "t": 6,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{1d1507d u0 com.qorlla.mobile/.MainActivity} t4894}"
+      },
+      {
+        "t": 9,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{1d1507d u0 com.qorlla.mobile/.MainActivity} t4894}"
+      },
+      {
+        "t": 12,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{1d1507d u0 com.qorlla.mobile/.MainActivity} t4894}"
+      },
+      {
+        "t": 15,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{1d1507d u0 com.qorlla.mobile/.MainActivity} t4894}"
+      },
+      {
+        "t": 18,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{1d1507d u0 com.qorlla.mobile/.MainActivity} t4894}"
+      },
+      {
+        "t": 21,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{1d1507d u0 com.qorlla.mobile/.MainActivity} t4894}"
+      },
+      {
+        "t": 24,
+        "alert": true,
+        "prejoin": false,
+        "top": "topResumedActivity=ActivityRecord{1d1507d u0 com.qorlla.mobile/.MainActivity} t4894}"
+      }
+    ],
+    "permissionDenied": {
+      "dialogShown": true,
+      "recoveryShown": true,
+      "joined": false
+    },
+    "participation": {
+      "androidApp": {
+        "before": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 13700,
+          "videoIn": 196389,
+          "audioOut": 12480,
+          "videoOut": 696212,
+          "framesDecoded": 98,
+          "framesEncoded": 133,
+          "pairs": [
+            {
+              "local": "host",
+              "remote": "host",
+              "protocol": "udp"
+            },
+            {
+              "local": "prflx",
+              "remote": "host",
+              "protocol": "udp"
+            },
+            {
+              "local": "prflx",
+              "remote": "host",
+              "protocol": "udp"
+            },
+            {
+              "local": "prflx",
+              "remote": "host",
+              "protocol": "udp"
+            }
+          ]
+        },
+        "after": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 26223,
+          "videoIn": 367087,
+          "audioOut": 25902,
+          "videoOut": 1060788,
+          "framesDecoded": 173,
+          "framesEncoded": 238,
+          "pairs": [
+            {
+              "local": "host",
+              "remote": "host",
+              "protocol": "udp"
+            },
+            {
+              "local": "prflx",
+              "remote": "host",
+              "protocol": "udp"
+            },
+            {
+              "local": "prflx",
+              "remote": "host",
+              "protocol": "udp"
+            },
+            {
+              "local": "prflx",
+              "remote": "host",
+              "protocol": "udp"
+            }
+          ]
+        },
+        "delta": {
+          "audioIn": 12523,
+          "videoIn": 170698,
+          "audioOut": 13422,
+          "videoOut": 364576,
+          "framesDecoded": 75,
+          "framesEncoded": 105
+        },
+        "ok": true
+      },
+      "host": {
+        "before": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 35257,
+          "videoIn": 1310487,
+          "audioOut": 37958,
+          "videoOut": 523876,
+          "framesDecoded": 343,
+          "framesEncoded": 257,
+          "pairs": [
+            {
+              "local": "host",
+              "remote": "host",
+              "protocol": "udp"
+            },
+            {
+              "local": "host",
+              "remote": "prflx",
+              "protocol": "udp"
+            },
+            {
+              "local": "host",
+              "remote": "prflx",
+              "protocol": "udp"
+            },
+            {
+              "local": "host",
+              "remote": "prflx",
+              "protocol": "udp"
+            }
+          ]
+        },
+        "after": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 47075,
+          "videoIn": 1516933,
+          "audioOut": 50558,
+          "videoOut": 734044,
+          "framesDecoded": 461,
+          "framesEncoded": 337,
+          "pairs": [
+            {
+              "local": "host",
+              "remote": "host",
+              "protocol": "udp"
+            },
+            {
+              "local": "host",
+              "remote": "prflx",
+              "protocol": "udp"
+            },
+            {
+              "local": "host",
+              "remote": "prflx",
+              "protocol": "udp"
+            },
+            {
+              "local": "host",
+              "remote": "prflx",
+              "protocol": "udp"
+            }
+          ]
+        },
+        "delta": {
+          "audioIn": 11818,
+          "videoIn": 206446,
+          "audioOut": 12600,
+          "videoOut": 210168,
+          "framesDecoded": 118,
+          "framesEncoded": 80
+        },
+        "ok": true
+      }
+    },
+    "containment": {
+      "foreignOriginBlocked": true
+    }
+  },
+  "cleanup": {
+    "appUninstalled": true
+  }
+}

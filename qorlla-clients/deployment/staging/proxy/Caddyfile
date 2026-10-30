@@ -1,0 +1,30 @@
+# Qorlla STAGING reverse proxy. Caddy obtains and renews publicly trusted certificates automatically (Let's Encrypt) for each host below.
+# WebSocket (WSS) upgrades are proxied transparently. Only these three hostnames are served; everything else gets no response.
+{
+	# Do not hand out a default certificate for unknown hostnames.
+	default_sni ""
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+}
+
+{$MEET_HOST} {
+	import security_headers
+	reverse_proxy {$QORLLA_MEET_UPSTREAM}
+}
+
+{$APP_HOST} {
+	import security_headers
+	reverse_proxy {$QORLLA_APP_UPSTREAM}
+}
+
+# The TURN host serves no web content. This block exists only so Caddy obtains and renews the certificate that coturn uses for TURN over TLS (turns:).
+{$TURN_HOST} {
+	respond "" 404
+}

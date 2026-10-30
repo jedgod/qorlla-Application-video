@@ -1,0 +1,71 @@
+{
+  "name": "@qorlla/desktop",
+  "version": "0.2.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "dev": "electron .",
+    "dist": "electron-builder --publish never",
+    "test": "node --test tests/*.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.qorlla.desktop",
+    "productName": "Qorlla",
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "index.html",
+      "package.json",
+      "security.cjs",
+      "build/icon.png"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "Network",
+      "artifactName": "qorlla-${version}-${arch}.${ext}",
+      "executableName": "qorlla",
+      "extraResources": [
+        {
+          "from": "linux/apparmor/qorlla",
+          "to": "apparmor/qorlla"
+        }
+      ]
+    },
+    "deb": {
+      "packageName": "qorlla",
+      "afterInstall": "linux/after-install.sh",
+      "afterRemove": "linux/after-remove.sh"
+    },
+    "appImage": {
+      "executableArgs": [
+        "--enable-sandbox"
+      ]
+    }
+  },
+  "description": "Qorlla desktop client for meetings and calling",
+  "homepage": "https://github.com/jedgod/qorlla-Application-video",
+  "author": {
+    "name": "Qorlla",
+    "email": "jedgod@users.noreply.github.com"
+  }
+}
