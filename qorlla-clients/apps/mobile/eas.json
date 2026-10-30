@@ -5,7 +5,10 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "QORLLA_BUILD_PROFILE": "development"
+      }
     },
     "preview": {
       "distribution": "internal",
@@ -17,6 +20,18 @@
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "QORLLA_BUILD_PROFILE": "production"
+      }
+    },
+    "staging": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "QORLLA_BUILD_PROFILE": "staging"
       }
     }
   },

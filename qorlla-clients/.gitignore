@@ -15,3 +15,13 @@ apps/desktop/dist/
 *.deb
 *.dmg
 *.ipa
+
+# staging edge: secrets and real environment files are never committed
+deployment/staging/secrets/
+deployment/staging/.env
+*.jks
+*.keystore
+*.p12
+*.p8
+*.mobileprovision
+*.cer
