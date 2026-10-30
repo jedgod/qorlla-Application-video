@@ -47,12 +47,19 @@ const MEDIA_TEST = `(async () => {
   return { connected, delta: { audioBytes: s2.audioBytes - s1.audioBytes, videoBytes: s2.videoBytes - s1.videoBytes, framesDecoded: s2.framesDecoded - s1.framesDecoded }, packetsLost: s2.lost };
 })()`;
 
-async function cdp(wsUrl, expression) {
+/** One DevTools protocol call; resolves with the `result` object. */
+async function cdpCall(wsUrl, method, params = {}) {
   const ws = new WebSocket(wsUrl); await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('devtools connection failed')); });
   const id = 1; const done = new Promise((res) => { ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id === id) res(d); }; });
-  ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } })); const r = await done; ws.close();
-  if (r.error || (r.result && r.result.exceptionDetails)) throw new Error('page evaluation failed: ' + JSON.stringify(r.error || r.result.exceptionDetails).slice(0, 300));
-  return r.result.result.value;
+  ws.send(JSON.stringify({ id, method, params })); const r = await done; ws.close();
+  if (r.error) throw new Error(method + ' failed: ' + JSON.stringify(r.error).slice(0, 300));
+  return r.result;
+}
+/** Evaluates an expression in the page and returns its value. */
+async function cdp(wsUrl, expression) {
+  const r = await cdpCall(wsUrl, 'Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+  if (r.exceptionDetails) throw new Error('page evaluation failed: ' + JSON.stringify(r.exceptionDetails).slice(0, 300));
+  return r.result.value;
 }
 
 async function main(argv) {
@@ -79,13 +86,19 @@ async function main(argv) {
   if (!target) return fail(exited ? 'the app exited before any window appeared (exit ' + JSON.stringify(exited) + ')' : 'no window appeared within 60 s');
   console.log('ok   a window loaded: ' + target.type + ' "' + String(target.title).slice(0, 60) + '"'); evidence.window = { note: 'built-in offline page: no Qorlla service is configured in this test', type: target.type, title: String(target.title).slice(0, 80), scheme: String(target.url).split(':')[0] };
 
-  const exe = fs.realpathSync(bin); let procs = []; for (let k = 0; k < 40; k++) { await sleep(500); procs = snapshot(child.pid, exe); if (procs.some((p) => p.type === 'renderer')) break; }   // the renderer may start after the window target appears: wait up to 20 s evidence.processes = procs.map((p) => ({ type: p.type, uidIsMain: p.uid === procs[0].uid, seccomp: p.seccomp, noNewPrivs: p.noNewPrivs, apparmor: p.apparmor, sameUserNsAsMain: p.userNs === procs[0].userNs }));
+  // Chromium itself says which process is which: SystemInfo.getProcessInfo (browser target) returns every process's real type and pid. The command line cannot be used: processes forked from the zygote do not carry --type.
+  // The renderer may start after the window target appears, so wait up to 20 s for one.
+  const exe = fs.realpathSync(bin), browserWs = (await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()).webSocketDebuggerUrl; let procs = [], info = [];
+  for (let k = 0; k < 40; k++) { await sleep(500); procs = snapshot(child.pid, exe); try { info = (await cdpCall(browserWs, 'SystemInfo.getProcessInfo')).processInfo || []; } catch (e) { info = []; evidence.processInfoError = String(e.message).slice(0, 120); } if (info.some((p) => p.type === 'renderer')) break; }
+  for (const e of info) if (!procs.some((p) => p.pid === e.id)) procs.push({ ...procInfo(e.id), ppid: null });                // anything Chromium reports that the ancestry/executable search missed
+  const typeOf = new Map(info.map((p) => [p.id, p.type])); for (const p of procs) p.type = typeOf.get(p.pid) || (p.pid === child.pid ? 'browser' : p.type);
+  evidence.processes = procs.map((p) => ({ type: p.type, sameUserAsMain: p.uid === procs[0].uid, seccomp: p.seccomp, noNewPrivs: p.noNewPrivs, apparmor: p.apparmor, sameUserNsAsMain: p.userNs === procs[0].userNs }));
   const off = procs.flatMap((p) => p.cmd.filter((a) => SANDBOX_OFF.test(a)).map((a) => p.type + ': ' + a)); if (off.length) return fail('a process runs with the sandbox disabled: ' + off.join(', '));
   console.log(`ok   ${procs.length} processes inspected: none carries a sandbox-disabling switch`);
   const renderers = procs.filter((p) => p.type === 'renderer'); if (!renderers.length) return fail('no renderer process found to inspect after 20 s. Processes seen: ' + procs.map((p) => p.pid + ':' + p.type + '(ppid ' + p.ppid + ', seccomp ' + p.seccomp + ')').join(', '));
   const bad = renderers.filter((r) => r.seccomp !== '2' || r.noNewPrivs !== '1'); if (bad.length) return fail(`${bad.length} renderer(s) are NOT under a seccomp filter with no-new-privs (Seccomp=${bad[0].seccomp}, NoNewPrivs=${bad[0].noNewPrivs}): the sandbox is not in effect`);
   console.log(`ok   ${renderers.length} renderer process(es) run under a seccomp filter with no-new-privs (Chromium's sandbox is in effect)`);
-  const zyg = procs.filter((p) => p.type === 'zygote' || p.type === 'renderer'); evidence.userNamespaceSandbox = zyg.some((p) => p.userNs !== procs[0].userNs); console.log('info user-namespace sandbox in use (child processes in their own user namespace): ' + evidence.userNamespaceSandbox);
+  evidence.userNamespaceSandbox = renderers.some((p) => p.userNs !== procs[0].userNs); console.log('info user-namespace sandbox in use (child processes in their own user namespace): ' + evidence.userNamespaceSandbox);
   if (expectProfile) { const a = procs[0].apparmor; evidence.apparmorMainProcess = a; if (!a.startsWith(expectProfile)) return fail(`the AppArmor profile "${expectProfile}" is NOT attached to the running process (attr/current = "${a || 'unavailable'}")`); console.log('ok   AppArmor profile attached to the running process: ' + a); }
 
   const page = await cdp(target.webSocketDebuggerUrl, '({ title: document.title, nodeExposed: typeof require !== "undefined" || typeof process !== "undefined", scheme: location.protocol })');
