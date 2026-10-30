@@ -39,4 +39,7 @@ const PERMISSIONS = new Set(['media', 'display-capture', 'notifications']);
 const permissionAllowed = (permission, requestingUrl, origins, opts) => PERMISSIONS.has(permission) && navigationAllowed(requestingUrl, origins, opts);
 /** The development exception for http://localhost: never in a packaged build, and only when explicitly asked for. */
 const localhostHttpAllowed = (env, isPackaged) => !isPackaged && env.QORLLA_DEV_ALLOW_LOCALHOST_HTTP === '1';
-module.exports = { verifiedOrigin, trustedOrigins, navigationAllowed, externalAllowed, parseJoinLink, prejoinUrl, permissionAllowed, localhostHttpAllowed, PERMISSIONS };
+/** Chromium switches that turn its process sandbox off. A packaged build must refuse to run with any of them, whatever launcher or desktop entry passed them. */
+const SANDBOX_OFF = /^--(no-sandbox|disable-setuid-sandbox|disable-gpu-sandbox|disable-seccomp-filter-sandbox|disable-namespace-sandbox|disable-renderer-sandbox|disable-sandbox)(=.*)?$/i;
+const sandboxDisabled = (argv) => (argv || []).some((a) => SANDBOX_OFF.test(String(a)));
+module.exports = { verifiedOrigin, trustedOrigins, navigationAllowed, externalAllowed, parseJoinLink, prejoinUrl, permissionAllowed, localhostHttpAllowed, sandboxDisabled, PERMISSIONS };

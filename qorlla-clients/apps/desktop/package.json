@@ -47,6 +47,11 @@
     },
     "deb": {
       "packageName": "qorlla"
+    },
+    "appImage": {
+      "executableArgs": [
+        "--enable-sandbox"
+      ]
     }
   },
   "description": "Qorlla desktop client for meetings and calling",

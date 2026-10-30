@@ -86,6 +86,28 @@ jobs:
           echo '--- installed icon'; grep -E " \./usr/share/icons/.*\.png$" deb-files.txt | tee icons.txt; test -s icons.txt || fail "no installed icon in the deb"
           echo '--- AppImage'; test -x "$APPIMAGE" || fail "the AppImage is not executable"; "./$APPIMAGE" --appimage-extract > /dev/null; grep -E "^(Name|Exec|Icon)=" squashfs-root/*.desktop | tee appimage-desktop.txt; grep -q "^Name=Qorlla$" appimage-desktop.txt || fail "AppImage desktop name is not Qorlla"
           echo "Linux packaging checks passed for $DEB and $APPIMAGE (not installed or run)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: "Sandbox regression check (MANDATORY): fail if any packaged launcher disables the Chromium sandbox"
+        run: |
+          set -e
+          node --test qorlla-clients/e2e/linux-sandbox-check.test.cjs
+          cd qorlla-clients/apps/desktop/dist
+          rm -rf sbx && mkdir -p sbx/deb
+          dpkg-deb -x qorlla-*-amd64.deb sbx/deb
+          chmod +x qorlla-*.AppImage
+          (cd sbx && ../qorlla-*.AppImage --appimage-extract > /dev/null)
+          cd - > /dev/null
+          node qorlla-clients/e2e/linux-sandbox-check.cjs qorlla-clients/apps/desktop/dist/sbx/deb qorlla-clients/apps/desktop/dist/sbx/squashfs-root | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: "Informational smoke (NOT certification): install the deb and start Qorlla and the AppImage as a normal user with the sandbox ON"
+        continue-on-error: true
+        run: |
+          DIST=$PWD/qorlla-clients/apps/desktop/dist
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb "$DIST"/qorlla-*-amd64.deb
+          { echo '### Linux smoke (runner image, informational)'; stat -c 'chrome-sandbox mode=%a owner=%U %n' /opt/Qorlla/chrome-sandbox; echo "unprivileged_userns_clone=$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo n/a) apparmor_restrict_unprivileged_userns=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo n/a)"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          run_smoke() { name=$1; shift; rc=0; timeout 20 xvfb-run -a "$@" > "smoke-$name.log" 2>&1 || rc=$?
+            if [ "$rc" = 124 ]; then echo "$name: still running after 20 s with the sandbox enabled (started as $(id -un), not root)" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "$name: exited early with code $rc; last log lines follow" | tee -a "$GITHUB_STEP_SUMMARY"; tail -n 8 "smoke-$name.log" | cut -c1-200 | tee -a "$GITHUB_STEP_SUMMARY"; return 1; fi; }
+          rc=0; run_smoke deb /opt/Qorlla/qorlla || rc=1
+          run_smoke appimage "$DIST"/qorlla-*.AppImage --appimage-extract-and-run || rc=1
+          exit $rc
   macos:
     runs-on: macos-latest
     timeout-minutes: 60

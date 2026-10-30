@@ -3,6 +3,12 @@ const { app, BrowserWindow, shell, session, dialog, desktopCapturer } = require(
 const path = require('node:path');
 const sec = require('./security.cjs');
 
+// A packaged build never runs with Chromium's sandbox disabled, whoever started it (a desktop entry, a wrapper script, a user). Refuse instead of running unprotected.
+if (app.isPackaged && sec.sandboxDisabled(process.argv)) {
+  dialog.showErrorBox('Qorlla will not start', 'Qorlla was started with the Chromium security sandbox disabled (--no-sandbox or similar). That is not allowed. Start Qorlla normally.');
+  process.exit(1);
+}
+
 // Development/test switches. Every one of them is ignored in a packaged build.
 const dev = !app.isPackaged;
 const insecureLocal = sec.localhostHttpAllowed(process.env, app.isPackaged);          // http://localhost for local stacks only
