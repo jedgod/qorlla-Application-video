@@ -1,0 +1,42 @@
+run 1: recovery-stable timeline=AAAAAAAAAAA taps=[{"hit":"Don’t allow","atMs":7411},{"hit":"Don’t allow","atMs":10505}]
+   [qorlla-app]', 'link', 'initial', 'accepted'
+   [qorlla-app]', 'joinMeeting: asking for permissions'
+   [qorlla-app]', 'joinMeeting: permissions', '{"granted":false,"blocked":false}'
+   [qorlla-app]', 'alert shown', 'not-blocked'
+run 2: recovery-stable timeline=AAAAAAAAAAA taps=[{"hit":"Don’t allow","atMs":11119},{"hit":"Don’t allow","atMs":14937}]
+   [qorlla-app]', 'link', 'initial', 'accepted'
+   [qorlla-app]', 'joinMeeting: asking for permissions'
+   [qorlla-app]', 'joinMeeting: permissions', '{"granted":false,"blocked":false}'
+   [qorlla-app]', 'alert shown', 'not-blocked'
+run 3: recovery-stable timeline=AAAAAAAAAAA taps=[{"hit":"Don’t allow","atMs":6314},{"hit":"Don’t allow","atMs":10858}]
+   [qorlla-app]', 'link', 'initial', 'accepted'
+   [qorlla-app]', 'joinMeeting: asking for permissions'
+   [qorlla-app]', 'joinMeeting: permissions', '{"granted":false,"blocked":false}'
+   [qorlla-app]', 'alert shown', 'not-blocked'
+run 4: recovery-stable timeline=AAAAAAAAAAA taps=[{"hit":"Don’t allow","atMs":7717},{"hit":"Don’t allow","atMs":11657}]
+   [qorlla-app]', 'link', 'initial', 'accepted'
+   [qorlla-app]', 'joinMeeting: asking for permissions'
+   [qorlla-app]', 'joinMeeting: permissions', '{"granted":false,"blocked":false}'
+   [qorlla-app]', 'alert shown', 'not-blocked'
+run 5: recovery-stable timeline=AAAAAAAAAAA taps=[{"hit":"Don’t allow","atMs":9086},{"hit":"Don’t allow","atMs":13513}]
+   [qorlla-app]', 'link', 'initial', 'accepted'
+   [qorlla-app]', 'joinMeeting: asking for permissions'
+   [qorlla-app]', 'joinMeeting: permissions', '{"granted":false,"blocked":false}'
+   [qorlla-app]', 'alert shown', 'not-blocked'
+run 6: recovery-stable timeline=AAAAAAAAAAA taps=[{"hit":"Don’t allow","atMs":7708},{"hit":"Don’t allow","atMs":12347}]
+   [qorlla-app]', 'link', 'initial', 'accepted'
+   [qorlla-app]', 'joinMeeting: asking for permissions'
+   [qorlla-app]', 'joinMeeting: permissions', '{"granted":false,"blocked":false}'
+   [qorlla-app]', 'alert shown', 'not-blocked'
+run 7: recovery-stable timeline=AAAAAAAAAAA taps=[{"hit":"Don’t allow","atMs":8007},{"hit":"Don’t allow","atMs":13503}]
+   [qorlla-app]', 'link', 'initial', 'accepted'
+   [qorlla-app]', 'joinMeeting: asking for permissions'
+   [qorlla-app]', 'joinMeeting: permissions', '{"granted":false,"blocked":false}'
+   [qorlla-app]', 'alert shown', 'not-blocked'
+run 8: recovery-stable timeline=AAAAAAAAAAA taps=[{"hit":"Don’t allow","atMs":9065},{"hit":"Don’t allow","atMs":13367}]
+   [qorlla-app]', 'link', 'initial', 'accepted'
+   [qorlla-app]', 'joinMeeting: asking for permissions'
+   [qorlla-app]', 'joinMeeting: permissions', '{"granted":false,"blocked":false}'
+   [qorlla-app]', 'alert shown', 'not-blocked'
+outcomes: {"recovery-stable":8}
+LOOP_EXIT 0
