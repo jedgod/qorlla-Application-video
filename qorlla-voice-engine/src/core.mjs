@@ -33,11 +33,11 @@ const iceUrls = (list, schemes) => String(list || '').split(',').map((s) => s.tr
  * The ICE servers a browser should use. Self-hosted only: no third-party STUN is added by default, and a TURN entry is included only when it is really configured
  * (an empty TURN entry makes RTCPeerConnection throw). Without any server, calls work on the same network (host candidates) and the diagnostics say so.
  */
-export function iceServersFor(accountId, env = process.env, now) {
+export function iceServersFor(accountId, env = process.env, now, issued) {
   const iceServers = [], stun = iceUrls(env.STUN_URL, ['stun:', 'stuns:']), turn = iceUrls(env.TURN_URLS, ['turn:', 'turns:']);
   if (stun.length) iceServers.push({ urls: stun });
   let turnOn = false;
-  if (turn.length && env.TURN_SHARED_SECRET) { const c = turnCredentials(accountId, 600, now, env.TURN_SHARED_SECRET); iceServers.push({ urls: turn, username: c.username, credential: c.credential }); turnOn = true; }
+  if (turn.length && (issued || env.TURN_SHARED_SECRET)) { const c = issued || turnCredentials(accountId, 600, now, env.TURN_SHARED_SECRET); iceServers.push({ urls: turn, username: c.username, credential: c.credential }); turnOn = true; }
   if (String(env.VOICE_REQUIRE_TURN || '').toLowerCase() === 'true' && !turnOn) throw Object.assign(new Error('turn_not_configured'), { code: 'turn_not_configured' });
   const relayOnly = String(env.VOICE_RELAY_ONLY || '').toLowerCase() === 'true' || env.VOICE_MEDIA_POLICY === 'relay';          // VOICE_MEDIA_POLICY=relay: every client is told to use relay candidates only
   if (relayOnly && !turnOn) throw Object.assign(new Error('turn_not_configured'), { code: 'turn_not_configured' });

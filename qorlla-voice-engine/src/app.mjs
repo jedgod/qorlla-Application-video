@@ -7,6 +7,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { WebSocketServer } from 'ws';
 import { bearer } from './auth.mjs';
+import { createTurnControl } from './turn.mjs';
 import { validExtension, validCallId, validIdempotencyKey, validAccountId, safeSignal, cleanCandidate, iceServersFor, secretEquals, makeLimiter, ringSeconds, callSeconds, publicCall } from './core.mjs';
 import { issueTicket, consumeTicketFull, originAllowed, ticketFromRequest, PROTOCOL } from './tickets.mjs';
 import { startMaintenance } from './maintenance.mjs';
@@ -42,6 +43,21 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   const kick = () => worker?.kick();
   const sockets = router.sockets, send = (account, payload, device) => router.send(account, payload, device);
   const closeAccount = (account, code = 4001, reason = 'account_changed') => router.send(account, { type: '__close', code, reason });
+  // A3.7.1: media control. A3.8 (prepaid international calling) is NOT implemented here, so the flag must never be on: refuse to start rather than pretend.
+  if (env.VOICE_A38_ENABLED === 'true') throw new Error('VOICE_A38_ENABLED=true: prepaid international calling is not implemented in this engine; leave it false');
+  const turn = createTurnControl({ env });
+  /** Ends the account's MEDIA (relay credentials and live relay allocations), not only its signaling. A failure is a critical alert, never silent. */
+  const endMedia = async (account, source) => {
+    const r = await turn.revokeAccount(account); const failed = r.errors.filter((e) => e !== 'cli_not_configured');
+    if (failed.length) await shield.recordEvent('voice-engine', 'media.terminate', 'ALERT', 'MEDIA_TERMINATION_FAILED', { discriminator: String(account).slice(0, 80), source, detail: failed.join(',').slice(0, 200) });
+    return r;
+  };
+  // Whether the account may still hold relay credentials: unsuspended principal and organization (when the Shield knows it) and an enabled voice identity.
+  const mediaAllowed = async (account) => {
+    const me = await store.identity(account); if (!me || !me.enabled) return false;
+    const p = (await db.query('SELECT p.suspended, o.suspended AS org_suspended FROM shield_principals p LEFT JOIN shield_orgs o ON o.org_id = p.org_id WHERE p.account_id=$1', [account])).rows[0];
+    return !p || (!p.suspended && !p.org_suspended);
+  };
   const apiLimit = makeLimiter({ max: num(env.VOICE_API_RATE_PER_MIN, 240), windowMs: 60000 }), callLimit = makeLimiter({ max: num(env.VOICE_CALL_RATE_PER_MIN, 20), windowMs: 60000 }), ticketLimit = makeLimiter({ max: 30, windowMs: 60000 }), adminLimit = makeLimiter({ max: num(env.VOICE_ADMIN_RATE_PER_MIN, 120), windowMs: 60000 });
 
   // Backpressure (DR-07): when the outbox is far behind, new calls and rooms are refused (fail closed) instead of piling up more undelivered work.
@@ -107,7 +123,10 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.get('/v1/voice/me', authLax, route(async (req, res) => { res.set('Cache-Control', 'private, no-store').json({ identity: await store.identity(req.account), ...(enforce ? { standing: await shield.standing(req.account) } : {}) }); }));
   // Which features this server has switched on (the client greys out what is off instead of failing). Only booleans from server configuration; authenticated users only.
   app.get('/v1/voice/features', authLax, (req, res) => res.set('Cache-Control', 'private, no-store').json({ internalCalls: FEATURES.internal_calls.on(), numbers: FEATURES.numbers.on(), pstn: FEATURES.pstn.on(), countryAlias: FEATURES.country_alias.on() }));
-  app.get('/v1/voice/ice', auth, route(async (req, res) => { const { iceServers, iceTransportPolicy } = iceServersFor(req.account, env); res.set('Cache-Control', 'no-store').json({ iceServers, iceTransportPolicy, expiresIn: 600 }); }));
+  app.get('/v1/voice/ice', auth, route(async (req, res) => {
+    let issued; if (turn.mode === 'userdb') { try { issued = await turn.issue(req.account, { stillActive: () => mediaAllowed(req.account) }); } catch (e) { if (e.code === 'suspended') return res.status(403).json({ error: 'suspended' }); throw e; } }
+    const { iceServers, iceTransportPolicy } = iceServersFor(req.account, env, undefined, issued); res.set('Cache-Control', 'no-store').json({ iceServers, iceTransportPolicy, expiresIn: issued ? issued.ttl : 600 });
+  }));
 
   // ---- one-to-one calls
   app.post('/v1/voice/calls', auth, gate('internal_calls'), route(async (req, res) => {
@@ -210,7 +229,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   // Diagnostics: state only. No secrets, tokens, SDP or call content.
   app.get('/v1/voice/diagnostics', auth, route(async (req, res) => {
     const me = await store.identity(req.account); let ice = { stun: false, turn: false }, iceError = null;
-    try { ice = iceServersFor(req.account, env); } catch (e) { iceError = e.code || e.message; }
+    try { ice = iceServersFor(req.account, env, undefined, turn.mode === 'userdb' ? { username: 'x', credential: 'x', ttl: 0 } : undefined); } catch (e) { iceError = e.code || e.message; }
     res.set('Cache-Control', 'no-store').json({ identity: me ? { extension: me.extension, enabled: me.enabled } : null, signaling: { devicesConnected: router.count(req.account), maxDevices: 3, queryTicket: String(env.VOICE_WS_QUERY_TICKET || 'on').toLowerCase() !== 'off', distributed: bus ? (bus.up ? 'redis' : 'redis_down') : 'single_instance' },
       ice: { stun: ice.stun, turn: ice.turn, relayOnly: ice.iceTransportPolicy === 'relay', error: iceError, note: iceError ? 'ICE is misconfigured: ' + iceError : ice.turn ? 'TURN relay is configured.' : 'No TURN relay is configured: calls work on the same network and between networks that allow direct UDP, but not behind strict firewalls.' },
       requestOriginAllowed: originAllowed(req.headers.origin, allowed()), ringSeconds: ringSeconds(env), pstn: false });
@@ -233,9 +252,14 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.get('/v1/voice/numbers/me', authLax, gate('numbers'), sh(async (req, res) => { res.set('Cache-Control', 'private, no-store'); const p = (await store.tx((c) => c.query('SELECT verified, suspended FROM shield_principals WHERE account_id=$1', [req.account]))).rows[0]; if (!p || !p.verified || p.suspended) return res.json({ number: null, state: 'unverified' }); const n = await numberSync.numberFor(req.account); res.set('Cache-Control', 'private, no-store').json({ number: n && n.usable ? { e164: n.row.e164, country: n.row.country } : null, state: n && n.usable ? 'active' : n ? 'unavailable' : 'none' }); }));
   app.put('/v1/shield/admin/meetings', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertMeeting(strict(req.body, ['meetingId', 'orgId', 'hostAccountId', 'passcode', 'guestEnabled', 'requiresApproval', 'maxGuests', 'endsAt'])))));
   app.post('/v1/shield/admin/meetings/:id/end', shieldAdmin, sh(async (req, res) => res.json(await shield.endMeeting(req.params.id))));
-  app.post('/v1/shield/admin/principals/:id/suspend', shieldSuspend, sh(async (req, res) => { const r = await shield.setSuspended(req.params.id, true, { source: req.workload, onVoiceDisabled: (a) => closeAccount(a, 4003, 'suspended') }); kick(); res.json(r); }));
+  app.post('/v1/shield/admin/principals/:id/suspend', shieldSuspend, sh(async (req, res) => { let mediaDone; const r = await shield.setSuspended(req.params.id, true, { source: req.workload, onVoiceDisabled: (a) => { closeAccount(a, 4003, 'suspended'); mediaDone = endMedia(a, 'suspend'); } }); kick(); await mediaDone; res.json(r); }));
   app.post('/v1/shield/admin/principals/:id/restore', shieldSuspend, sh(async (req, res) => res.json(await shield.setSuspended(req.params.id, false, { source: req.workload }))));
-  app.post('/v1/shield/admin/orgs/:id/suspend', shieldSuspend, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, true))));
+  app.post('/v1/shield/admin/orgs/:id/suspend', shieldSuspend, sh(async (req, res) => {
+    const r = await shield.setOrgSuspended(req.params.id, true);
+    const members = (await db.query('SELECT account_id FROM shield_principals WHERE org_id=$1', [req.params.id])).rows.map((x) => x.account_id);
+    for (const a of members) { closeAccount(a, 4003, 'suspended'); await endMedia(a, 'org_suspend'); }
+    res.json(r);
+  }));
   app.post('/v1/shield/admin/orgs/:id/restore', shieldSuspend, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, false))));
   app.post('/v1/shield/pstn/authorize', wl('pstn.authorize'), gate('pstn'), sh(async (req, res) => { const r = await shield.pstnAuthorize(strict(req.body, ['requestId', 'accountId', 'destination', 'callerId'])); res.status(r.allow ? 200 : 403).json(r); }));
   app.post('/v1/shield/pstn/consume', wl('pstn.consume'), gate('pstn'), sh(async (req, res) => res.json(await shield.pstnConsume(strict(req.body, ['authorizationId', 'accountId', 'destination', 'callerId'])))));
@@ -297,7 +321,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.get('/v1/voice/admin/identities', adminAuth, route(async (req, res) => { const ids = req.query.ids ? String(req.query.ids).split(',').slice(0, 500) : undefined; res.json({ identities: await store.listIdentities({ ids }) }); }));
   app.post('/v1/voice/admin/identities/:accountId/enabled', adminAuth, route(async (req, res) => {
     const enabled = (req.body || {}).enabled; if (!validAccountId(req.params.accountId) || typeof enabled !== 'boolean') return res.status(400).json({ error: 'invalid_input' });
-    const r = await store.setEnabled(req.params.accountId, enabled); kick(); if (!enabled) closeAccount(req.params.accountId, 4003, 'voice_disabled'); res.json({ identity: r.identity, endedCalls: r.ended.length });
+    const r = await store.setEnabled(req.params.accountId, enabled); kick(); if (!enabled) { closeAccount(req.params.accountId, 4003, 'voice_disabled'); await endMedia(req.params.accountId, 'admin_disable'); } res.json({ identity: r.identity, endedCalls: r.ended.length });
   }));
   // Legal holds (administrators only): a held room is never deleted, by retention or by a user; a user's deletion request then only hides the record from them.
   app.get('/v1/voice/admin/legal-holds', adminAuth, route(async (_req, res) => { res.json({ holds: await history.listHolds() }); }));
@@ -389,7 +413,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   let mtlsServer = null;
   const WORKLOAD_PATHS = /^\/v1\/(shield|voice\/admin)\//;
   return {
-    app, server, wss, sockets, send, router, bus, worker, reliability, maint, instanceId, kick, closeAccount, shield,
+    app, server, wss, sockets, send, router, bus, worker, reliability, maint, instanceId, kick, closeAccount, shield, turn,
     listen: async (port = 0, host) => {
       if (bus) { try { await Promise.race([bus.start(), new Promise((_r, rej) => setTimeout(() => rej(Error('redis_start_timeout')), 3000))]); } catch (e) { console.error('voice: Redis is not reachable yet; running degraded and retrying:', e.message); } }
       worker?.start(); worker?.kick();
@@ -402,6 +426,6 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
       mtlsServer.on('tlsClientError', (err, sock) => { shield.recordTlsRefusal(sock && sock.remoteAddress, err && (err.code || err.message)); });      // a refused handshake (no/untrusted/expired certificate) is a durable, deduplicated alert
       return new Promise((resolve) => mtlsServer.listen(port, host, () => resolve(mtlsServer.address().port)));
     },
-    close: async () => { clearInterval(alertTimer); if (mtlsServer) await new Promise((r) => { mtlsServer.close(() => r()); mtlsServer.closeAllConnections?.(); }); maint?.stop(); worker?.stop(); clearInterval(heartbeat); for (const ws of wss.clients) ws.close(1001); await new Promise((r) => server.close(() => r())); await bus?.close().catch(() => {}); }
+    close: async () => { clearInterval(alertTimer); await turn.close(); if (mtlsServer) await new Promise((r) => { mtlsServer.close(() => r()); mtlsServer.closeAllConnections?.(); }); maint?.stop(); worker?.stop(); clearInterval(heartbeat); for (const ws of wss.clients) ws.close(1001); await new Promise((r) => server.close(() => r())); await bus?.close().catch(() => {}); }
   };
 }
