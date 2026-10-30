@@ -57,7 +57,7 @@ test.describe('Phone page and voice.js wired to the Security Shield', () => {
     await page.locator('#qpDialNumber').fill('+16502530000'); await expect(page.locator('#qpDialHint')).toContainText('Public telephone numbers are not available'); await expect(page.locator('#phCall')).toBeDisabled();
     await page.locator('#qpDialNumber').fill('911'); await expect(page.locator('#qpDialHint')).toContainText('cannot place emergency calls'); await expect(page.locator('#phCall')).toBeDisabled();
     // what the server says is switched on: internal calls yes, public numbers and PSTN no; and the number endpoint refuses with the policy answer
-    expect(await page.evaluate(() => window.qorllaVoice.api('/features'))).toEqual({ internalCalls: true, numbers: false, pstn: false });
+    expect(await page.evaluate(() => window.qorllaVoice.api('/features'))).toEqual({ internalCalls: true, numbers: false, pstn: false, countryAlias: false }); await expect(page.locator('#qpAlias')).toBeEmpty();       // country numbers are off by default: no form, no number
     expect(await page.evaluate(() => window.qorllaVoice.api('/numbers/me').then(() => 'allowed', (e) => e.code))).toBe('feature_disabled');
     const me = await page.evaluate(() => window.qorllaVoice.api('/me')); expect(me.standing).toEqual({ registered: true, verified: true, suspended: false });
     await u.ctx.close();

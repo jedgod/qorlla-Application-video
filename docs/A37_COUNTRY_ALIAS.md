@@ -1,0 +1,32 @@
+# A3.7 country-aware Qorlla numbers (aliases) and dial preparation: internal only
+
+**Status: implemented in the existing Voice Engine behind `VOICE_COUNTRY_ALIAS_ENABLED=false` (OFF by default). Tested on real PostgreSQL and in real browsers. NOT production certified. External calling is out of scope and stays disabled: `VOICE_PSTN_ENABLED=false`, `VOICE_NUMBERS_ENABLED=false`. Release BLOCKED.** Branch `feature/number-authority-a3`.
+
+## What a Qorlla number is (and is not)
+A Qorlla-only, national-style alias for an account, reachable by other Qorlla accounts **of the same confirmed country and tenant**. It is **not** a telephone number: no carrier, no PSTN, not reachable from a phone network, never billable. The engine's globally unique **extension stays the authoritative routing identity**; the alias table (`sql/017_voice_country_aliases.sql`) is only an index onto it, not a second authority. The Phone page labels it "Qorlla-only: works for calls between Qorlla accounts, not from phone networks".
+
+## Reserved ranges (a policy decision that is YOURS)
+The engine has **no default** numbering. `VOICE_ALIAS_NAMESPACES` (JSON) names, per ISO country, the operator-approved reserved range aliases are drawn from, e.g. `{"GB":{"prefix":"0770090","length":11}}`: the prefix is fixed, the remaining digits (at least 4, `VOICE_ALIAS_MIN_RANDOM_DIGITS`) are random. A country that is not configured cannot get aliases (fail closed), and a malformed entry refuses to start. **The operator must choose ranges that are reserved or unallocated in that country**: a national-shaped alias that equals a real person's public number would let a caller appear to be them. The ranges used in the tests are made-up test values. Aliases are 9-15 digits so they can never be confused with an extension (3-8 digits).
+
+## Rules enforced
+- **Explicit country confirmation** (`POST /v1/voice/alias {country, confirm:true}`): the country is never inferred. IP addresses, headers and locale are never read; unknown body fields (an "ipCountry", a "geo") are refused (400).
+- **Eligibility:** verified, unsuspended, registered with the Shield, identity enabled. Unverified, suspended and foreign credentials are refused.
+- **One active alias per account, globally unique digits, never reused:** issued in one transaction with a per-account advisory lock and unique constraints; idempotent (a retry returns the same number; 12 simultaneous requests gave one number; 25 accounts at once got 25 distinct numbers). The database refuses duplicates, edits, deletes, truncation and un-retiring. Retired numbers stay in the table forever; when a range is used up the request is refused (`alias_capacity`, 503), it never recycles.
+- **Change of country is an explicit procedure**, never automatic: the same account asking for another country gets 409; an administrator retires the alias (`POST /v1/voice/admin/alias/:account/retire`, audited); only then can the account confirm a country again and receive a NEW number.
+- **Resolution** (`POST /v1/voice/dial/prepare`, authenticated, rate limited, enumeration-resistant): an alias resolves only for a caller with the **same confirmed country**, in the **same tenant**, to an **active, unsuspended** account. Every miss (unknown, other country, other tenant, never confirmed, retired, suspended) is the identical `404 {status:NOT_FOUND}`. Suspension keeps the number (not reissued); restoring brings it back.
+- **Dial classification** (`src/dial.mjs`): formatting ignored; `+` and 7-15 digits is an EXTERNAL REQUEST (answered `403 feature_disabled/pstn`, or `503 EXTERNAL_ROUTING_NOT_AVAILABLE` even with the flag on: there is no external route here); `00...` is INVALID (never turned into `+`); emergency numbers (including `000`) are DENIED, Qorlla does not place emergency calls; 3-8 digits extension; 9-15 digits alias; everything else INVALID. Preparing never creates a call: the page then dials the returned EXTENSION through the normal, guarded call path.
+
+## Phone page
+With the feature on and the account verified: the assigned number, its country and the Qorlla-only label; or, if none, a country list (only configured countries), a required confirmation checkbox and "Get my Qorlla number". Typing a 9-15 digit number is treated as a Qorlla number (hint: "never a phone-network call"), resolved through `prepare`; "no Qorlla user has that number in your country" on a miss. A typed `+` number still says public telephone numbers are not available. With the feature off nothing appears (no form, no number).
+
+## Verified
+`test/alias.pg.test.mjs` (8 tests, 3 passes): classification, flag semantics (only exact `true`; bad range config refuses to start), assignment rules and spoofing, duplicate allocation and concurrency, tenant/country isolation, suspension, retirement and exhaustion (never reused), external refusal/rate limit/restart-safety. `tests/voice-alias-ui.spec.js` (4 real-browser tests, 3 passes): choose country + confirm, persistence across reload, two same-country accounts holding a real call by Qorlla number, other-country and unconfirmed callers refused, unverified account sees no form. `tests/voice-shield-ui.spec.js` updated (feature off: no alias UI, `countryAlias:false`).
+
+## NOT done
+- **No policy-approved reserved ranges exist yet**: until you configure them, no alias can be issued in any country.
+- **Not implemented, deliberately:** `confirm-external`, rate quotes, wallet, vouchers, scratch cards, any carrier. Those need a licensed carrier, a payments authority and the PSTN/numbers flags, all out of scope here.
+- Account relocation, VPN or travel are not special-cased: the confirmed country changes only by the explicit administrator procedure. Tenant movement is handled by the call guard (a moved account is simply no longer in the caller's tenant). There is no user-facing change-of-country flow.
+- A verified mobile number is not used for anything here (it is never a routing key).
+- The alias directory is not tenant-filtered in the Phone page's colleague list (the engine refuses cross-tenant calls); new strings are English only; mobile layout and accessibility of the new block were not re-audited.
+- Group rooms do not accept aliases (extensions only). Established peer-to-peer media is not guaranteed to stop on suspension (unchanged).
+- Still open: TURN across independent networks, multi-host, PostgreSQL failover, physical devices, load, penetration review, production PKI. All 15 release gates remain pending.

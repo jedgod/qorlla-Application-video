@@ -17,6 +17,7 @@ import { VoiceRouter } from './router.mjs';
 import { validRoomId } from './rooms.mjs';
 import { createHistory, parseRetentionDays } from './history.mjs';
 import { createShield, ShieldError } from './shield.mjs';
+import { createAliases, classifyDial, AliasError } from './dial.mjs';
 import { createNumberProjection, SyncError, usable } from './number-sync.mjs';
 
 const STATUS = { invalid_recipient: 404, not_found: 404, blocked: 403, forbidden: 403, caller_disabled: 403, voice_disabled: 403, invalid_origin: 403, busy: 409, invalid_transition: 409, idempotency_conflict: 409,
@@ -33,7 +34,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   const reliability = createReliability(db), history = createHistory({ db, tx: store.tx }), retention = parseRetentionDays(env.VOICE_HISTORY_RETENTION_DAYS);
   if (retention.warning) console.warn('voice: ' + retention.warning);
   const shield = createShield({ store, db, env, jwks: shieldJwks }), enforce = env.SHIELD_ENFORCE === 'true';
-  const numberSync = createNumberProjection({ store });
+  const numberSync = createNumberProjection({ store }), aliases = createAliases({ store, env });
   const router = new VoiceRouter();
   const bus = busOption !== undefined ? busOption : (env.REDIS_URL ? new RedisBus({ url: env.REDIS_URL, instanceId, onDelivery: (m) => router.onRemote(m) }) : null);
   if (bus) { router.bus = bus; if (!bus.onDelivery) bus.onDelivery = (m) => router.onRemote(m); }
@@ -56,7 +57,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     if (req.method === 'OPTIONS') return res.status(ok ? 204 : 403).end();
     next();
   });
-  const fail = (res, e) => { const status = STATUS[e.code] || STATUS[e.message] || 500; if (status === 500) console.error('voice error', e?.code || e?.message); res.status(status).json({ error: status === 500 ? 'internal_error' : (e.code || e.message) }); };
+  const fail = (res, e) => { if (e instanceof AliasError) return res.status(e.status).json({ error: e.code }); const status = STATUS[e.code] || STATUS[e.message] || 500; if (status === 500) console.error('voice error', e?.code || e?.message); res.status(status).json({ error: status === 500 ? 'internal_error' : (e.code || e.message) }); };
   const authWith = (requireVerified) => async (req, res, next) => {
     try {
       const token = bearer(req); if (!token) return res.status(401).json({ error: 'unauthorized' });
@@ -78,7 +79,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   };
   // Feature gates (defense in depth; NOT permission to deploy PSTN). pstn and numbers are OFF unless the variable is exactly "true" (missing, empty, "TRUE", "1", " true" all mean off).
   // internal_calls is a kill switch: on unless exactly "false". The gate runs AFTER authentication (an anonymous caller still gets 401) and BEFORE any handler: no JWT, scope, role or session bypasses it.
-  const FEATURES = { pstn: { on: () => env.VOICE_PSTN_ENABLED === 'true', message: 'Public telephone calling is disabled.' }, numbers: { on: () => env.VOICE_NUMBERS_ENABLED === 'true', message: 'Public telephone numbers are disabled.' }, internal_calls: { on: () => env.VOICE_INTERNAL_CALLS_ENABLED !== 'false', message: 'Internal calling is disabled.' } };
+  const FEATURES = { pstn: { on: () => env.VOICE_PSTN_ENABLED === 'true', message: 'Public telephone calling is disabled.' }, numbers: { on: () => env.VOICE_NUMBERS_ENABLED === 'true', message: 'Public telephone numbers are disabled.' }, internal_calls: { on: () => env.VOICE_INTERNAL_CALLS_ENABLED !== 'false', message: 'Internal calling is disabled.' }, country_alias: { on: () => env.VOICE_COUNTRY_ALIAS_ENABLED === 'true', message: 'Country-aware Qorlla numbers are disabled.' } };
   const refuseFeature = (res, f) => res.status(403).json({ error: 'feature_disabled', feature: f, message: FEATURES[f].message });
   const gate = (f) => (req, res, next) => (FEATURES[f].on() ? next() : refuseFeature(res, f));
   const route = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { fail(res, e); } };
@@ -105,7 +106,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   }));
   app.get('/v1/voice/me', authLax, route(async (req, res) => { res.set('Cache-Control', 'private, no-store').json({ identity: await store.identity(req.account), ...(enforce ? { standing: await shield.standing(req.account) } : {}) }); }));
   // Which features this server has switched on (the client greys out what is off instead of failing). Only booleans from server configuration; authenticated users only.
-  app.get('/v1/voice/features', authLax, (req, res) => res.set('Cache-Control', 'private, no-store').json({ internalCalls: FEATURES.internal_calls.on(), numbers: FEATURES.numbers.on(), pstn: FEATURES.pstn.on() }));
+  app.get('/v1/voice/features', authLax, (req, res) => res.set('Cache-Control', 'private, no-store').json({ internalCalls: FEATURES.internal_calls.on(), numbers: FEATURES.numbers.on(), pstn: FEATURES.pstn.on(), countryAlias: FEATURES.country_alias.on() }));
   app.get('/v1/voice/ice', auth, route(async (req, res) => { const { iceServers, iceTransportPolicy } = iceServersFor(req.account, env); res.set('Cache-Control', 'no-store').json({ iceServers, iceTransportPolicy, expiresIn: 600 }); }));
 
   // ---- one-to-one calls
@@ -257,6 +258,35 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.post('/v1/shield/media/consume', wl('media.consume'), sh(async (req, res) => res.set('Cache-Control', 'no-store').json(await shield.mediaConsume(strict(req.body, ['token', 'meetingId'])))));
   app.post('/v1/shield/guest/:id/decision', auth, sh(async (req, res) => { if (!enforce) return res.status(503).json({ error: 'shield_enforcement_off' }); res.json(await shield.guestDecide({ hostAccountId: req.account, admissionId: req.params.id, decision: (req.body || {}).decision })); }));
   app.post('/v1/shield/authorize', authLax, sh(async (req, res) => { if (!enforce) return res.status(503).json({ error: 'shield_enforcement_off' }); const b = strict(req.body, ['action', 'resourceOrgId']); const scopes = typeof (req.claims && req.claims.scope) === 'string' ? req.claims.scope.split(' ') : []; const r = await shield.authorizeUser({ accountId: req.account, iat: req.claims.iat, action: b.action, resourceOrgId: b.resourceOrgId == null ? null : b.resourceOrgId, scopes }); res.status(r.allow ? 200 : 403).json(r); }));
+
+  // ---- A3.7 country-aware Qorlla numbers (aliases) and dial preparation. Internal only: nothing here places a call, reaches a carrier, quotes a price or touches a wallet.
+  const prepareLimit = makeLimiter({ max: num(env.VOICE_PREPARE_RATE_PER_MIN, 30), windowMs: 60000 });
+  app.get('/v1/voice/alias', auth, gate('country_alias'), route(async (req, res) => { res.set('Cache-Control', 'private, no-store').json(await aliases.get(req.account)); }));
+  // The country is an EXPLICIT choice (confirm: true). Unknown body fields (an "ipCountry", a "geo", anything) are refused, and no header or address is ever read.
+  app.post('/v1/voice/alias', auth, gate('country_alias'), route(async (req, res) => {
+    if (!callLimit.take(req.account)) return res.status(429).json({ error: 'rate_limited' });
+    const r = await aliases.assign(req.account, strict(req.body, ['country', 'confirm'])); res.status(r.reused ? 200 : 201).set('Cache-Control', 'private, no-store').json(r);
+  }));
+  app.post('/v1/voice/admin/alias/:accountId/retire', adminAuth, route(async (req, res) => {
+    if (!validAccountId(req.params.accountId)) return res.status(400).json({ error: 'invalid_input' });
+    res.json(await aliases.retire(req.params.accountId, { reason: strict(req.body, ['reason']).reason, actor: req.workload || 'admin' }));
+  }));
+  /** What would happen if this was dialled? -> INTERNAL_READY (with the extension to call) | NOT_FOUND | DENIED | INVALID | UNAVAILABLE. A miss is always the same NOT_FOUND: unknown, another tenant, another country, retired, suspended. */
+  app.post('/v1/voice/dial/prepare', auth, gate('internal_calls'), route(async (req, res) => {
+    if (!prepareLimit.take(req.account)) return res.status(429).json({ error: 'rate_limited' });
+    res.set('Cache-Control', 'private, no-store'); const p = classifyDial(strict(req.body, ['dial']).dial);                                                  // unknown fields: refused (the dial text is the only input)
+    if (p.kind === 'INVALID') return res.status(400).json({ status: 'INVALID', reason: p.reason });
+    if (p.kind === 'EMERGENCY') return res.status(403).json({ status: 'DENIED', reason: 'EMERGENCY_NUMBERS_NOT_SUPPORTED' });
+    if (p.kind === 'EXTERNAL_REQUEST') return FEATURES.pstn.on() ? res.status(503).json({ status: 'UNAVAILABLE', reason: 'EXTERNAL_ROUTING_NOT_AVAILABLE' }) : res.status(403).json({ error: 'feature_disabled', feature: 'pstn', message: FEATURES.pstn.message, status: 'UNAVAILABLE', reason: 'PSTN_DISABLED' });
+    let target = null, via = 'extension';
+    if (p.kind === 'INTERNAL_EXTENSION') { const r = (await store.tx((c) => c.query('SELECT account_id, extension FROM voice_identities WHERE extension=$1 AND enabled=true', [p.extension]))).rows[0]; target = r ? { accountId: r.account_id, extension: r.extension } : null; }
+    else { if (!FEATURES.country_alias.on()) return refuseFeature(res, 'country_alias'); via = 'alias'; target = await aliases.resolve(req.account, p.national); }
+    const miss = () => res.status(404).json({ status: 'NOT_FOUND', reason: 'QORLLA_USER_NOT_FOUND' });
+    if (!target) return miss();
+    if (target.accountId === req.account) return res.status(403).json({ status: 'DENIED', reason: 'OWN_NUMBER' });
+    if (enforce && !(await store.tx((c) => shield.callGuard(c, req.account, target.accountId)).then(() => true, () => false))) return miss();       // tenant, verification, suspension of the other side: indistinguishable from "no such number"
+    res.json({ status: 'INTERNAL_READY', extension: target.extension, via });
+  }));
 
   // ---- trusted provisioning and operations (server to server). Browsers never call these; the secret never leaves the main app's server.
   app.post('/v1/voice/admin/identities', adminAuth, route(async (req, res) => {
