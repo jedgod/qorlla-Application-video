@@ -104,6 +104,23 @@ jobs:
         with: { distribution: temurin, java-version: '17' }
       - name: Accept Android SDK licences (the runner image already ships the SDK; the setup-android action failed in sdkmanager)
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: Record the preinstalled Android SDK and fail clearly if what the build needs is absent
+        env:
+          REQUIRED_PLATFORM: android-36
+          MIN_BUILD_TOOLS_MAJOR: '35'
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          {
+            echo '### Android SDK on this runner'
+            echo "platforms: $(ls "$ANDROID_HOME/platforms" | paste -sd' ' -)"
+            echo "build-tools: $(ls "$ANDROID_HOME/build-tools" | paste -sd' ' -)"
+            echo "ndk: $(ls "$ANDROID_HOME/ndk" 2>/dev/null | paste -sd' ' -)"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          test -d "$ANDROID_HOME/platforms/$REQUIRED_PLATFORM" || { echo "::error::Required SDK platform $REQUIRED_PLATFORM is not preinstalled on this runner image"; exit 1; }
+          BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | awk -F. -v m="$MIN_BUILD_TOOLS_MAJOR" '$1>=m' | tail -1)
+          test -n "$BT" || { echo "::error::No Android build-tools >= $MIN_BUILD_TOOLS_MAJOR on this runner image"; exit 1; }
+          test -x "$ANDROID_HOME/build-tools/$BT/apksigner" || { echo "::error::apksigner missing from build-tools/$BT"; exit 1; }
+          echo "Using build-tools $BT"
       - name: Unit tests and native Android generation
         working-directory: qorlla-clients/apps/mobile
         run: |
