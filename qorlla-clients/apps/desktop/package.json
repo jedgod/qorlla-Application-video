@@ -43,10 +43,18 @@
       "icon": "build/icon.png",
       "category": "Network",
       "artifactName": "qorlla-${version}-${arch}.${ext}",
-      "executableName": "qorlla"
+      "executableName": "qorlla",
+      "extraResources": [
+        {
+          "from": "linux/apparmor/qorlla",
+          "to": "apparmor/qorlla"
+        }
+      ]
     },
     "deb": {
-      "packageName": "qorlla"
+      "packageName": "qorlla",
+      "afterInstall": "linux/after-install.sh",
+      "afterRemove": "linux/after-remove.sh"
     },
     "appImage": {
       "executableArgs": [

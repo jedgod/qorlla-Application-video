@@ -46,8 +46,9 @@ jobs:
           if (!$files) { throw 'No NSIS executable produced' }
           foreach ($f in $files) { $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower(); $s = (Get-AuthenticodeSignature $f.FullName).Status; "$h  $($f.Name)  authenticode=$s" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY }
   linux:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Pinned, not "latest": the install/launch gate below depends on Ubuntu 24.04's AppArmor 4 and its user-namespace restriction. A runner-image change must be a reviewed change, not a surprise.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Enforce immutable commit
@@ -78,8 +79,10 @@ jobs:
           grep -q "^ Package: qorlla$" deb-info.txt || fail "deb Package is not qorlla"
           dpkg-deb -c "$DEB" > deb-files.txt
           echo '--- executable (must be executable and named qorlla)'; grep -E " \./opt/[^/]+/qorlla$" deb-files.txt | tee exe.txt; grep -qE "^-rwx" exe.txt || fail "the qorlla executable is missing or not executable"
-          echo '--- chrome-sandbox (shipped 0755; electron-builder sets the setuid bit in postinst at install time, so the script is what can be checked here)'; grep -E "chrome-sandbox$" deb-files.txt | tee sandbox.txt; test -s sandbox.txt || fail "chrome-sandbox is missing from the deb"
-          dpkg-deb -e "$DEB" control-scripts; grep -n "chrome-sandbox" control-scripts/postinst | tee postinst-sandbox.txt; grep -qE "chmod 4755 .*chrome-sandbox" control-scripts/postinst || fail "postinst does not set chrome-sandbox to 4755"
+          echo '--- chrome-sandbox: shipped root-owned and NOT setuid; the setuid helper is not the solution (the AppArmor profile is)'; grep -E "chrome-sandbox$" deb-files.txt | tee sandbox.txt; test -s sandbox.txt || fail "chrome-sandbox is missing from the deb"; grep -qE "^-rwxr-xr-x 0/0 .* \./opt/Qorlla/chrome-sandbox$" sandbox.txt || fail "chrome-sandbox must be mode 0755 owned by root (not setuid)"
+          dpkg-deb -e "$DEB" control-scripts; ! grep -qE "4755|chmod u\+s" control-scripts/postinst control-scripts/postrm || fail "a maintainer script makes something setuid"
+          echo '--- AppArmor profile is shipped and the maintainer scripts handle it'; grep -E " \./opt/Qorlla/resources/apparmor/qorlla$" deb-files.txt | tee profile-path.txt; test -s profile-path.txt || fail "the AppArmor profile is not in the deb"; grep -qE "^-rw-r--r-- 0/0 " profile-path.txt || fail "the shipped AppArmor profile must be root-owned and mode 0644 (not writable by group or others): $(cat profile-path.txt)"
+          grep -q "apparmor_parser --replace" control-scripts/postinst || fail "postinst does not load the AppArmor profile"; grep -qE "apparmor_parser --remove" control-scripts/postrm || fail "postrm does not unload the AppArmor profile"; grep -qE "remove\|purge\)" control-scripts/postrm || fail "postrm must unload the profile on remove and purge only (not on upgrade)"
           echo '--- desktop entry'; grep -E " \./usr/share/applications/.*\.desktop$" deb-files.txt | tee desktop-path.txt; test -s desktop-path.txt || fail "no desktop entry in the deb"
           DESKTOP=$(awk '{print $NF}' desktop-path.txt | head -1); dpkg-deb --fsys-tarfile "$DEB" | tar -xO "$DESKTOP" > desktop-entry.txt; cat desktop-entry.txt
           grep -q "^Name=Qorlla$" desktop-entry.txt || fail "the displayed application name is not Qorlla"; grep -qE "^Exec=.*qorlla" desktop-entry.txt || fail "desktop Exec does not start the qorlla executable"; grep -q "^Icon=" desktop-entry.txt || fail "desktop entry has no Icon"
@@ -97,17 +100,58 @@ jobs:
           (cd sbx && ../qorlla-*.AppImage --appimage-extract > /dev/null)
           cd - > /dev/null
           node qorlla-clients/e2e/linux-sandbox-check.cjs qorlla-clients/apps/desktop/dist/sbx/deb qorlla-clients/apps/desktop/dist/sbx/squashfs-root | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: "Informational smoke (NOT certification): install the deb and start Qorlla and the AppImage as a normal user with the sandbox ON"
+      - name: "AppArmor profile syntax (MANDATORY): the shipped profile must compile"
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq; sudo apt-get install -y -qq apparmor-utils > /dev/null
+          rm -rf aa && mkdir aa && dpkg-deb --fsys-tarfile qorlla-clients/apps/desktop/dist/qorlla-*-amd64.deb | tar -xO ./opt/Qorlla/resources/apparmor/qorlla > aa/qorlla
+          cat aa/qorlla | grep -v '^#' | grep -v '^$'
+          sudo apparmor_parser --version | head -1
+          sudo apparmor_parser --skip-kernel-load --skip-cache --skip-read-cache aa/qorlla
+          echo "AppArmor profile compiles without errors" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: "Debian install, AppArmor enforcement and real launch (MANDATORY): install, profile loaded and attached, window, sandbox, media, fail-closed control, upgrade, remove, purge"
+        run: |
+          set -euo pipefail
+          DEB=$(ls "$PWD"/qorlla-clients/apps/desktop/dist/qorlla-*-amd64.deb); SMOKE="node qorlla-clients/e2e/linux-launch-smoke.cjs /opt/Qorlla/qorlla"
+          sudo apt-get install -y -qq xvfb > /dev/null
+          RESTRICT=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo n/a)
+          { echo '### Debian install and launch (mandatory gate)'; echo "$(. /etc/os-release; echo "$PRETTY_NAME"), kernel $(uname -r), kernel.apparmor_restrict_unprivileged_userns=$RESTRICT, running as $(id -un) (uid $(id -u))"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$(id -u)" != 0 || { echo "::error::must run as a normal user"; exit 1; }
+          test "$RESTRICT" = 1 || { echo "::error::this runner does not restrict unprivileged user namespaces, so this test would not prove the profile is what makes the sandbox work"; exit 1; }
+          loaded() { sudo cat /sys/kernel/security/apparmor/profiles | grep -E '^qorlla \('; }
+          echo "== 1. install"; sudo apt-get install -y -qq "$DEB"
+          sudo test -f /etc/apparmor.d/qorlla; echo "profile file installed, root-owned: $(sudo stat -c '%U:%G %a' /etc/apparmor.d/qorlla)"
+          echo "== 2. the profile is LOADED in the kernel (a file on disk proves nothing)"; loaded | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "== 3. launch as a normal user: window, sandbox, profile attached to the running process, media"; xvfb-run -a $SMOKE --expect-profile qorlla | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "== 4. NEGATIVE CONTROL: with the profile unloaded (runtime only; the host setting is untouched) the app must refuse to start, not run unsandboxed"
+          sudo apparmor_parser --remove /etc/apparmor.d/qorlla; ! loaded
+          xvfb-run -a $SMOKE --expect-sandbox-refusal | tee -a "$GITHUB_STEP_SUMMARY"
+          sudo apparmor_parser --replace /etc/apparmor.d/qorlla; loaded > /dev/null
+          echo "== 5. upgrade (same version reinstalled over itself): profile still loaded and the app still launches"; sudo dpkg -i "$DEB" > /dev/null; loaded > /dev/null; sudo test -f /etc/apparmor.d/qorlla
+          xvfb-run -a $SMOKE --expect-profile qorlla | tail -3 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "== 6. remove: profile unloaded and deleted"; sudo apt-get remove -y -qq qorlla > /dev/null; ! loaded; ! sudo test -e /etc/apparmor.d/qorlla; test ! -e /opt/Qorlla/qorlla
+          echo "== 7. reinstall, then purge: nothing left behind"; sudo apt-get install -y -qq "$DEB" > /dev/null; loaded > /dev/null; sudo apt-get purge -y -qq qorlla > /dev/null; ! loaded; ! sudo test -e /etc/apparmor.d/qorlla
+          echo "Debian install, AppArmor enforcement, launch, upgrade, remove and purge all behaved as required" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: "AppImage diagnostics (informational; the AppImage stays NOT distributable): reproduce the exit code with FULL output"
         continue-on-error: true
         run: |
-          DIST=$PWD/qorlla-clients/apps/desktop/dist
-          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb "$DIST"/qorlla-*-amd64.deb
-          { echo '### Linux smoke (runner image, informational)'; stat -c 'chrome-sandbox mode=%a owner=%U %n' /opt/Qorlla/chrome-sandbox; echo "unprivileged_userns_clone=$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo n/a) apparmor_restrict_unprivileged_userns=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo n/a)"; } | tee -a "$GITHUB_STEP_SUMMARY"
-          run_smoke() { name=$1; shift; rc=0; timeout 20 xvfb-run -a "$@" > "smoke-$name.log" 2>&1 || rc=$?
-            if [ "$rc" = 124 ]; then echo "$name: still running after 20 s with the sandbox enabled (started as $(id -un), not root)" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "$name: exited early with code $rc; last log lines follow" | tee -a "$GITHUB_STEP_SUMMARY"; tail -n 8 "smoke-$name.log" | cut -c1-200 | tee -a "$GITHUB_STEP_SUMMARY"; return 1; fi; }
-          rc=0; run_smoke deb /opt/Qorlla/qorlla || rc=1
-          run_smoke appimage "$DIST"/qorlla-*.AppImage --appimage-extract-and-run || rc=1
-          exit $rc
+          set +e
+          cd qorlla-clients/apps/desktop/dist; A=$(ls "$PWD"/qorlla-*.AppImage); echo "AppImage: $A"; file "$A" | cut -c1-200; ls -la "$A"
+          echo "--- required libraries missing for the AppImage runtime (type 2 needs libfuse2 unless extracted):"; ldconfig -p | grep -c "libfuse.so.2" | sed 's/^/libfuse.so.2 entries: /'
+          rm -rf ax && mkdir ax && (cd ax && "$A" --appimage-extract > /dev/null 2>&1; echo "extract exit: $?")
+          echo "--- extracted layout:"; ls -la ax/squashfs-root | head -12; file ax/squashfs-root/AppRun | cut -c1-200; head -c 600 ax/squashfs-root/AppRun | strings | head -12
+          echo "--- missing shared libraries of the main binary (ldd, not found only):"; ldd ax/squashfs-root/qorlla 2>&1 | grep -i "not found" | head; echo "(none listed above = none missing)"
+          for mode in "extract-and-run" "extracted AppRun" "extracted binary direct"; do
+            echo; echo "=== run: $mode"
+            case "$mode" in
+              "extract-and-run") CMD=("$A" --appimage-extract-and-run) ;;
+              "extracted AppRun") CMD=(bash -x ax/squashfs-root/AppRun) ;;
+              *) CMD=(ax/squashfs-root/qorlla) ;;
+            esac
+            export QORLLA_APP_URL=https://qorlla-ci.invalid; timeout 25 xvfb-run -a "${CMD[@]}" > "appimage-$$.log" 2>&1; rc=$?; echo "exit code: $rc (124 = still running after 25 s)"
+            grep -v -E "^/tmp/appimage_extracted|^\+\+ " "appimage-$$.log" | head -25 | cut -c1-260; echo "..."; grep -E "^\+ |FATAL|sandbox|No such file|not found|Permission denied" "appimage-$$.log" | tail -12 | cut -c1-260
+          done 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
   macos:
     runs-on: macos-latest
     timeout-minutes: 60

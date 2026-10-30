@@ -1,0 +1,4 @@
+# shell scripts and the AppArmor profile must keep LF endings (a CR breaks them on Linux)
+apps/desktop/linux/*.sh text eol=lf
+apps/desktop/linux/apparmor/* text eol=lf
+deployment/staging/coturn/*.sh text eol=lf
