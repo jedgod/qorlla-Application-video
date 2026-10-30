@@ -1,0 +1,144 @@
+name: Qorlla internal installable build verification
+# BUILD VERIFICATION ONLY. This repository is PUBLIC, so this workflow uploads NO installers, APKs or other build artifacts (anyone signed in to GitHub could download them).
+# Each job builds an UNSIGNED package, prints its SHA-256 into the run summary and discards it. Production release stays BLOCKED; a green run is evidence that the project builds, not a release candidate.
+# Triggers: a push to the integration branch that touches the clients, or a manual run (a manual run only registers once this file exists on the default branch; supply the full commit SHA).
+on:
+  push:
+    branches: [integration/installable-clients]
+    paths: ['qorlla-clients/**', '.github/workflows/installable-internal-rc.yml']
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact commit SHA to certify
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: installable-internal-rc-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce immutable commit
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          if ('${{ github.sha }}' -ne '${{ inputs.expected_sha }}') { throw 'SHA mismatch: select the exact commit in Run workflow' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: qorlla-clients/apps/desktop/package-lock.json }
+      - name: Test and package unsigned Windows installer
+        shell: pwsh
+        working-directory: qorlla-clients/apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm ci
+          npm test
+          npm run dist -- --win nsis --x64
+      - name: Hash installer (not uploaded)
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem qorlla-clients/apps/desktop/dist -File | Where-Object { $_.Extension -eq '.exe' }
+          if (!$files) { throw 'No NSIS executable produced' }
+          foreach ($f in $files) { $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower(); $s = (Get-AuthenticodeSignature $f.FullName).Status; "$h  $($f.Name)  authenticode=$s" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY }
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce immutable commit
+        if: github.event_name == 'workflow_dispatch'
+        run: test "${{ github.sha }}" = "${{ inputs.expected_sha }}"
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: qorlla-clients/apps/desktop/package-lock.json }
+      - name: Test and package unsigned Linux AppImage and deb
+        working-directory: qorlla-clients/apps/desktop
+        run: |
+          npm ci
+          npm test
+          npm run dist -- --linux AppImage deb --x64
+      - name: Hash packages (not uploaded)
+        run: |
+          ls -la qorlla-clients/apps/desktop/dist
+          find qorlla-clients/apps/desktop/dist -maxdepth 1 -type f \( -name '*.AppImage' -o -name '*.deb' \) -print | tee linux-packages.txt
+          test -s linux-packages.txt
+          while read -r f; do sha256sum "$f"; done < linux-packages.txt | tee -a "$GITHUB_STEP_SUMMARY"
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce immutable commit
+        if: github.event_name == 'workflow_dispatch'
+        run: test "${{ github.sha }}" = "${{ inputs.expected_sha }}"
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: qorlla-clients/apps/desktop/package-lock.json }
+      - name: Test and package unsigned, un-notarized macOS dmg
+        working-directory: qorlla-clients/apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm ci
+          npm test
+          npm run dist -- --mac dmg
+      - name: Hash dmg (not uploaded)
+        run: |
+          find qorlla-clients/apps/desktop/dist -maxdepth 1 -type f -name '*.dmg' -print | tee mac-packages.txt
+          test -s mac-packages.txt
+          while read -r f; do shasum -a 256 "$f"; codesign -dv "$f" 2>&1 | head -3 || true; done < mac-packages.txt | tee -a "$GITHUB_STEP_SUMMARY"
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce immutable commit
+        if: github.event_name == 'workflow_dispatch'
+        run: test "${{ github.sha }}" = "${{ inputs.expected_sha }}"
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: qorlla-clients/apps/mobile/package-lock.json }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - name: Unit tests and native Android generation
+        working-directory: qorlla-clients/apps/mobile
+        run: |
+          npm ci
+          npm test
+          npx expo prebuild --platform android --non-interactive --clean
+      - name: "Build release APK (no test flags, no origins configured: the app fails closed)"
+        working-directory: qorlla-clients/apps/mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+      - name: Verify and hash APK (not uploaded)
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1); echo "apksigner: $APKSIGNER"
+          find qorlla-clients/apps/mobile/android/app/build/outputs/apk/release -name '*.apk' -type f -print | tee android-apks.txt
+          test -s android-apks.txt
+          while read -r apk; do sha256sum "$apk" | tee -a "$GITHUB_STEP_SUMMARY"; "$APKSIGNER" verify --print-certs --verbose "$apk" 2>&1 | grep -E "Verifies|certificate (DN|SHA-256)|Signer" | tee -a "$GITHUB_STEP_SUMMARY"; done < android-apks.txt
+  ios-simulator:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce immutable commit
+        if: github.event_name == 'workflow_dispatch'
+        run: test "${{ github.sha }}" = "${{ inputs.expected_sha }}"
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: qorlla-clients/apps/mobile/package-lock.json }
+      - name: Unit tests and native iOS generation
+        working-directory: qorlla-clients/apps/mobile
+        run: |
+          npm ci
+          npm test
+          npx expo prebuild --platform ios --non-interactive --clean
+      - name: "Build for the iOS simulator (no Apple signing: this proves it compiles, NOT that it installs on an iPhone)"
+        working-directory: qorlla-clients/apps/mobile/ios
+        run: |
+          WS=$(ls -d *.xcworkspace | head -1); SCHEME="${WS%.xcworkspace}"
+          xcodebuild -workspace "$WS" -scheme "$SCHEME" -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build | tail -40
+          echo "iOS simulator build succeeded for scheme $SCHEME (unsigned, simulator only)" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -6,3 +6,12 @@ out/
 *.exe
 *.dmg
 test-results/
+
+# built installers and packages must never be committed
+apps/desktop/dist/
+*.apk
+*.aab
+*.AppImage
+*.deb
+*.dmg
+*.ipa
