@@ -1,0 +1,111 @@
+{
+  "platform": "win32 10.0.26300",
+  "electron": {
+    "electron": "33.4.11",
+    "chrome": "130.0.6723.191",
+    "packaged": false
+  },
+  "results": {
+    "participation": {
+      "meetingId": "redacted",
+      "windowsClient": {
+        "before": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 11914,
+          "videoIn": 169677,
+          "audioOut": 8757,
+          "videoOut": 68666,
+          "framesDecoded": 80,
+          "framesEncoded": 77,
+          "pairs": [
+            {
+              "local": "host",
+              "remote": "host",
+              "protocol": "udp"
+            }
+          ]
+        },
+        "after": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 21229,
+          "videoIn": 291498,
+          "audioOut": 14570,
+          "videoOut": 134697,
+          "framesDecoded": 139,
+          "framesEncoded": 135,
+          "pairs": [
+            {
+              "local": "host",
+              "remote": "host",
+              "protocol": "udp"
+            }
+          ]
+        },
+        "delta": {
+          "audioIn": 9315,
+          "videoIn": 121821,
+          "audioOut": 5813,
+          "videoOut": 66031,
+          "framesDecoded": 59,
+          "framesEncoded": 58
+        },
+        "ok": true
+      },
+      "host": {
+        "before": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 14617,
+          "videoIn": 136129,
+          "audioOut": 21310,
+          "videoOut": 293416,
+          "framesDecoded": 135,
+          "framesEncoded": 141,
+          "pairs": [
+            {
+              "local": "host",
+              "remote": "host",
+              "protocol": "udp"
+            }
+          ]
+        },
+        "after": {
+          "pcs": 1,
+          "connected": 1,
+          "audioIn": 19905,
+          "videoIn": 228113,
+          "audioOut": 30390,
+          "videoOut": 412423,
+          "framesDecoded": 196,
+          "framesEncoded": 201,
+          "pairs": [
+            {
+              "local": "host",
+              "remote": "host",
+              "protocol": "udp"
+            }
+          ]
+        },
+        "delta": {
+          "audioIn": 5288,
+          "videoIn": 91984,
+          "audioOut": 9080,
+          "videoOut": 119007,
+          "framesDecoded": 61,
+          "framesEncoded": 60
+        },
+        "ok": true
+      },
+      "meetOrigin": "http://localhost:3310"
+    },
+    "containment": {
+      "crossOriginBlocked": true,
+      "fileBlocked": true,
+      "hostileLinkIgnored": true,
+      "nodeExposed": false
+    },
+    "singleInstance": true
+  }
+}
