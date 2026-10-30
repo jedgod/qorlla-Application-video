@@ -4,9 +4,9 @@
 const test = process.env.QORLLA_TEST_BUILD === '1';
 module.exports = {
   expo: {
-    name: 'Qorlla', slug: 'qorlla', scheme: 'qorlla', version: '0.3.0', orientation: 'portrait', userInterfaceStyle: 'dark',
+    name: 'Qorlla', slug: 'qorlla', scheme: 'qorlla', version: '0.3.0', orientation: 'portrait', userInterfaceStyle: 'dark', icon: './assets/icon.png',
     ios: { bundleIdentifier: 'com.qorlla.mobile', infoPlist: { NSCameraUsageDescription: 'Qorlla uses the camera so other people in a meeting can see you.', NSMicrophoneUsageDescription: 'Qorlla uses the microphone so other people in a meeting can hear you.' } },
-    android: { package: 'com.qorlla.mobile', versionCode: 3, allowBackup: false, permissions: ['CAMERA', 'RECORD_AUDIO', 'MODIFY_AUDIO_SETTINGS', 'INTERNET'], blockedPermissions: ['android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE', 'android.permission.SYSTEM_ALERT_WINDOW'] },
+    android: { adaptiveIcon: { foregroundImage: './assets/adaptive-foreground.png', backgroundColor: '#001383' }, package: 'com.qorlla.mobile', versionCode: 3, allowBackup: false, permissions: ['CAMERA', 'RECORD_AUDIO', 'MODIFY_AUDIO_SETTINGS', 'INTERNET'], blockedPermissions: ['android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE', 'android.permission.SYSTEM_ALERT_WINDOW'] },
     plugins: [['expo-build-properties', { android: { usesCleartextTraffic: test } }]]
   }
 };

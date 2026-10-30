@@ -28,7 +28,7 @@ function openLink(raw) {
 }
 
 function createWindow(startUrl) {
-  win = new BrowserWindow({ width: 1280, height: 850, minWidth: 850, minHeight: 600, show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, webviewTag: false } });
+  win = new BrowserWindow({ icon: path.join(__dirname, 'build', 'icon.png'), width: 1280, height: 850, minWidth: 850, minHeight: 600, show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, webviewTag: false } });
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => { win = null; });
   win.webContents.setWindowOpenHandler(({ url }) => { if (sec.externalAllowed(url)) shell.openExternal(url).catch(() => {}); return { action: 'deny' }; });
