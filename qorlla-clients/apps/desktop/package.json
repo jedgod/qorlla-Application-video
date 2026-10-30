@@ -41,7 +41,12 @@
         "deb"
       ],
       "icon": "build/icon.png",
-      "category": "Network"
+      "category": "Network",
+      "artifactName": "qorlla-${version}-${arch}.${ext}",
+      "executableName": "qorlla"
+    },
+    "deb": {
+      "packageName": "qorlla"
     }
   },
   "description": "Qorlla desktop client for meetings and calling",
