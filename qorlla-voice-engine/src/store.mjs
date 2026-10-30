@@ -84,12 +84,13 @@ export function createStore(db = pool) {
   }
 
   // ---------------------------------------------------------------- calls
-  async function createCall(caller, extension, key, deviceId = null) {
+  async function createCall(caller, extension, key, deviceId = null, guard = null) {
     if (deviceId != null && !validDevice(deviceId)) throw fail('invalid_input');
     return tx(async (c) => {
       const callee = (await c.query('SELECT account_id FROM voice_identities WHERE extension=$1 AND enabled=true', [extension])).rows[0]?.account_id;
       if (!callee || callee === caller) throw fail('invalid_recipient');
       const ids = [caller, callee]; await lockAccounts(c, ids);                                          // serialise callers and recipients
+      if (guard) await guard(c, caller, callee);                                                         // eligibility of BOTH parties, re-read inside this transaction (verified, not suspended, same tenant)
       const old = (await c.query('SELECT call_id, extension FROM voice_idempotency WHERE account_id=$1 AND request_key=$2', [caller, key])).rows[0];
       if (old) { if (old.extension && old.extension !== extension) throw fail('idempotency_conflict'); return { call: (await c.query('SELECT ' + CALL_COLS + ' FROM voice_calls WHERE id=$1', [old.call_id])).rows[0], reused: true }; }
       if (!(await c.query('SELECT enabled FROM voice_identities WHERE account_id=$1', [caller])).rows[0]?.enabled) throw fail('caller_disabled');

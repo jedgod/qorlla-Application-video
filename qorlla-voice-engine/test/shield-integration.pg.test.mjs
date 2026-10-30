@@ -66,7 +66,7 @@ before(async () => {
   await new Promise((ok) => jwksSrv.listen(ports.agg, '127.0.0.1', ok));
   const idp = await identityProvider(); h = harness({ db, idp });
   engine = await h.replica({ env: {
-    SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: `http://127.0.0.1:${ports.agg}/`, SHIELD_WORKLOAD_ISSUER: ISSUER, VOICE_ADMIN_SECRET: ENGINE_ADMIN,
+    VOICE_PSTN_ENABLED: 'true', VOICE_NUMBERS_ENABLED: 'true', SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: `http://127.0.0.1:${ports.agg}/`, SHIELD_WORKLOAD_ISSUER: ISSUER, VOICE_ADMIN_SECRET: ENGINE_ADMIN,
     SHIELD_WORKLOAD_ALLOWED: 'svc:main-app=shield.admin;svc:meet=meet.register|meet.signal;svc:ops=shield.admin|pstn.authorize|pstn.consume|pstn.settle|numbers.sync',
     VOICE_JWKS_URL: `http://127.0.0.1:${ports.main}/.well-known/voice-jwks.json`, VOICE_JWT_ISSUER: 'qorlla-main', VOICE_JWT_AUDIENCE: 'qorlla-voice', VOICE_ALLOWED_ORIGIN: ORIGIN, SHIELD_PSTN_RESERVE_CENTS: '100', SHIELD_NUMBERS_AUTHORITY: 'svc:ops' } });
   // Meet: its own schema in the same isolated database, shield enforcing, a 1 s session re-check
@@ -219,6 +219,21 @@ test('MAIN APP built-in meeting room: guests and unverified accounts cannot crea
   const gone = new Promise((ok) => { sock.once('session_revoked', (e) => ok(e.reason)); sock.once('disconnect', () => ok('disconnect')); });
   assert.equal((await mainReq(adm.cookie, 'POST', '/api/admin/accounts/' + host.id + '/suspend', { suspended: true })).status, 200);
   assert.ok(['account_suspended', 'disconnect'].includes(await Promise.race([gone, sleep(8000).then(() => 'still-open')])), 'the built-in room session was terminated'); sock.close();
+});
+
+test('PSTN and public numbers are OFF in the real Meet and main app by default: the internal service routes refuse before any provider operation, while account sync still works', async (t) => {
+  if (skip(t)) return;
+  const bridge = (method, p, body) => meetApi(method, '/api/integrations/telephony' + p, body, { bridge: true });
+  const PSTN = { error: 'feature_disabled', feature: 'pstn', message: 'Public telephone calling is disabled.' }, NUM = { error: 'feature_disabled', feature: 'numbers', message: 'Public telephone numbers are disabled.' };
+  for (const [m, p, b] of [['POST', '/calls', { to: '+16502530000', idempotencyKey: 'k-12345678' }], ['GET', '/calls'], ['GET', '/calls/' + randomUUID()], ['POST', '/calls/' + randomUUID() + '/end']]) { const x = await bridge(m, p, b); assert.equal(x.status, 403, p); assert.deepEqual(x.body, PSTN, p); }
+  for (const [m, p, b] of [['POST', '/numbers/request', { country: 'US', idempotencyKey: 'k-12345678' }], ['GET', '/numbers/available?country=US'], ['GET', '/numbers'], ['POST', '/numbers/' + randomUUID() + '/state', { state: 'suspended' }], ['POST', '/numbers/' + randomUUID() + '/reassign', { to: 'x', reason: 'because' }], ['POST', '/numbers/' + randomUUID() + '/caller-id', { verified: true }], ['POST', '/numbers/reconcile'], ['GET', '/numbers/snapshot']]) { const x = await bridge(m, p, b); assert.equal(x.status, 403, p); assert.deepEqual(x.body, NUM, p); }
+  for (const w of ['voice', 'status']) { const x = await fetch(meet.base + '/api/integrations/telephony/webhooks/twilio/' + w, { method: 'POST' }); assert.equal(x.status, 404, 'webhook path under the bridge prefix does not exist'); }
+  const hook = await fetch(meet.base + '/api/telephony/webhooks/twilio/voice', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'CallSid=CA1' }); assert.equal(hook.status, 403, 'carrier webhooks are refused before signature handling'); assert.deepEqual(await hook.json(), PSTN);
+  assert.equal((await fetch(meet.base + '/api/integrations/telephony/calls', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 401, 'no bridge secret: still 401, authentication comes first');
+  assert.equal((await bridge('PUT', '/accounts/' + encodeURIComponent('gate-check'), { verified: true, suspended: false })).status, 200, 'account standing sync is not PSTN and keeps working');
+  // through the main app: a signed-in user cannot place a PSTN call
+  const u = await account('phoneuser', { verified: true }); const viaMain = await mainReq(u.cookie, 'POST', '/api/phone/calls', { to: '+16502530000', idempotencyKey: 'k-' + randomUUID().slice(0, 10) }); assert.ok([403, 503].includes(viaMain.status), 'main app: ' + viaMain.status + ' ' + JSON.stringify(viaMain.body));
+  assert.equal((await mainReq('', 'POST', '/api/phone/calls', { to: '+16502530000' })).status, 401, 'a guest has no PSTN');
 });
 
 test('FAIL CLOSED: when the shield is unreachable (or answers an error) Meet grants NO signaling session, to hosts, members or guests', async (t) => {

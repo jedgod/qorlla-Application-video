@@ -61,7 +61,7 @@ before(async () => {
   db = await isolatedDb(); if (!db) return; idp = await identityProvider(); const w = await workload(); pem = w.pem; jwksSrv = w.srv; jwksUrl = w.url;
   await q(sql('v4_14_telephony.sql')); await q(sql('v4_16_number_authority.sql')); await q(sql('v4_18_billing_hold.sql'));
   h = harness({ db, idp });
-  r = await h.replica({ env: { SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: 'svc:numbers-plans=numbers.sync;svc:admin=shield.admin;svc:pstn=pstn.authorize|pstn.consume|pstn.settle;svc:other=guest.admit', SHIELD_PSTN_RESERVE_CENTS: '100' } });
+  r = await h.replica({ env: { VOICE_PSTN_ENABLED: 'true', VOICE_NUMBERS_ENABLED: 'true', SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: 'svc:numbers-plans=numbers.sync;svc:admin=shield.admin;svc:pstn=pstn.authorize|pstn.consume|pstn.settle;svc:other=guest.admit', SHIELD_PSTN_RESERVE_CENTS: '100' } });
   carrier = new StubCarrier(); svc = new TelephonyService({ db: db.pool, carrier, bridge: { ready: false }, audio: { ready: false }, env: { PHONE_ALLOWED_COUNTRIES: 'US,CA,GB' } });
   await q("INSERT INTO qphone_provider_status(provider, health_ok, health_checked_at) VALUES('stub', true, now())");
   sink = createEngineSink({ url: r.base, privateKeyPem: pem, issuer: 'qorlla-workload', kid: 'w1' });
@@ -263,7 +263,7 @@ test('CALLER-ID SPOOFING, SUSPENSION AND TENANT ISOLATION across the integrated 
 test('PROVENANCE: a structurally valid number event from a workload that is not the Numbers & Plans authority is refused, even with the numbers.sync scope', async (t) => {
   if (skip(t)) return;
   // svc:other is a perfectly valid workload; give it the scope in a second engine and watch it be refused anyway
-  const r2 = await h.replica({ env: { SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: 'svc:numbers-plans=numbers.sync;svc:rogue=numbers.sync' } });
+  const r2 = await h.replica({ env: { VOICE_PSTN_ENABLED: 'true', VOICE_NUMBERS_ENABLED: 'true', SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: 'svc:numbers-plans=numbers.sync;svc:rogue=numbers.sync' } });
   const sid = 'PN' + randomBytes(10).toString('hex'), ev = { providerNumberId: sid, e164: '+14155557001', country: 'US', kind: 'personal', accountId: 'rogue-target', state: 'active', callerIdVerified: true, hold: false, version: 1 };
   const send = (sub, path = '/v1/shield/numbers/events', body = { eventId: randomUUID(), providerNumberId: sid, version: 1, type: 'number.changed', payload: ev }) => fetch(r2.base + path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + signWorkloadJwt({ privateKeyPem: pem, issuer: 'qorlla-workload', subject: sub, kid: 'w1' }) }, body: JSON.stringify(body) }).then(async (x) => ({ status: x.status, body: await x.json().catch(() => ({})) }));
   const bad = await send('svc:rogue'); assert.equal(bad.status, 403); assert.equal(bad.body.error, 'event_provenance');

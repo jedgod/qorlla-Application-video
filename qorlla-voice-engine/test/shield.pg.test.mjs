@@ -22,7 +22,7 @@ async function workloadProvider() {
   return { url: 'http://127.0.0.1:' + srv.address().port + '/jwks.json', token, close: () => new Promise((ok) => srv.close(ok)) };
 }
 const ALLOWED = 'svc:admin=shield.admin|voice.admin;svc:pstn=pstn.authorize|pstn.consume|pstn.settle;svc:edge=guest.admit;svc:media=media.consume;svc:numbers=numbers.sync';
-const ENV = () => ({ SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: workloadIdp.url, SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: ALLOWED, SHIELD_PSTN_RESERVE_CENTS: '100', SHIELD_NUMBERS_AUTHORITY: 'svc:numbers', SHIELD_GUEST_CLIENT_PER_MIN: '5', SHIELD_GUEST_MEETING_PER_MIN: '20' });
+const ENV = () => ({ VOICE_PSTN_ENABLED: 'true', VOICE_NUMBERS_ENABLED: 'true', SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: workloadIdp.url, SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: ALLOWED, SHIELD_PSTN_RESERVE_CENTS: '100', SHIELD_NUMBERS_AUTHORITY: 'svc:numbers', SHIELD_GUEST_CLIENT_PER_MIN: '5', SHIELD_GUEST_MEETING_PER_MIN: '20' });
 
 before(async () => {
   db = await isolatedDb(); if (!db) return; idp = await identityProvider(); workloadIdp = await workloadProvider();

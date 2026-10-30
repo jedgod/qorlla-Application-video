@@ -15,25 +15,28 @@ export function registerTelephony({ app, db, bridgeAuth, phone, env = process.en
     catch (e) { const status = e.status && e.status >= 400 && e.status < 600 ? e.status : 500; if (status === 500) console.error('[telephony]', e.code || '', e.message); res.status(status).json({ error: status === 500 ? 'Telephony request failed.' : e.message, code: e.code || 'ERROR' }); }
   };
   const B = '/api/integrations/telephony', json = express.json({ limit: '20kb' });
+  // Defense in depth, NOT permission to deploy: PSTN and public numbers are OFF unless the variable is exactly "true". Runs after bridge authentication and before any handler or provider operation.
+  const off = (feature, message) => (req, res, next) => ((feature === 'pstn' ? env.VOICE_PSTN_ENABLED : env.VOICE_NUMBERS_ENABLED) === 'true' ? next() : res.status(403).json({ error: 'feature_disabled', feature, message }));
+  const pstnOnly = off('pstn', 'Public telephone calling is disabled.'), numbersOnly = off('numbers', 'Public telephone numbers are disabled.');
   app.get(B + '/capabilities', bridgeAuth, wrap((req, a) => svc.capabilities(a && a.id)));
   app.post(B + '/test-connection', bridgeAuth, wrap((req, a) => svc.testConnection(a)));
-  app.get(B + '/numbers/available', bridgeAuth, wrap((req, a) => svc.availableNumbers(a, req.query.country, req.query.type)));
-  app.post(B + '/numbers/request', bridgeAuth, json, wrap((req, a) => svc.requestNumber(a, req.body || {}), 202));
-  app.get(B + '/numbers/requests', bridgeAuth, wrap((req, a) => svc.listRequests(a)));
-  app.get(B + '/numbers', bridgeAuth, wrap((req, a) => svc.listNumbers(a, { kind: req.query.kind })));
+  app.get(B + '/numbers/available', bridgeAuth, numbersOnly, wrap((req, a) => svc.availableNumbers(a, req.query.country, req.query.type)));
+  app.post(B + '/numbers/request', bridgeAuth, numbersOnly, json, wrap((req, a) => svc.requestNumber(a, req.body || {}), 202));
+  app.get(B + '/numbers/requests', bridgeAuth, numbersOnly, wrap((req, a) => svc.listRequests(a)));
+  app.get(B + '/numbers', bridgeAuth, numbersOnly, wrap((req, a) => svc.listNumbers(a, { kind: req.query.kind })));
   app.get(B + '/dial-in', bridgeAuth, wrap(() => svc.dialInDirectory()));
-  app.post(B + '/numbers/:id/state', bridgeAuth, json, wrap((req, a) => svc.setNumberState(a, req.params.id, (req.body || {}).state)));
-  app.post(B + '/numbers/:id/reassign', bridgeAuth, json, wrap((req, a) => svc.reassignNumber(a, req.params.id, (req.body || {}).to, (req.body || {}).reason)));
+  app.post(B + '/numbers/:id/state', bridgeAuth, numbersOnly, json, wrap((req, a) => svc.setNumberState(a, req.params.id, (req.body || {}).state)));
+  app.post(B + '/numbers/:id/reassign', bridgeAuth, numbersOnly, json, wrap((req, a) => svc.reassignNumber(a, req.params.id, (req.body || {}).to, (req.body || {}).reason)));
   app.put(B + '/accounts/:id', bridgeAuth, json, wrap((req) => svc.syncAccount({ accountId: req.params.id, verified: (req.body || {}).verified, suspended: (req.body || {}).suspended, orgId: (req.body || {}).orgId, billingHold: (req.body || {}).billingHold })));   // the main app reports each account's standing
-  app.post(B + '/numbers/reconcile', bridgeAuth, wrap(async (req, a) => { assertAdmin(a); return svc.reconcileOperations(); }));
-  app.get(B + '/numbers/snapshot', bridgeAuth, wrap(async (req, a) => { assertAdmin(a); return { numbers: await svc.numberSnapshot() }; }));
+  app.post(B + '/numbers/reconcile', bridgeAuth, numbersOnly, wrap(async (req, a) => { assertAdmin(a); return svc.reconcileOperations(); }));
+  app.get(B + '/numbers/snapshot', bridgeAuth, numbersOnly, wrap(async (req, a) => { assertAdmin(a); return { numbers: await svc.numberSnapshot() }; }));
   // Authority events to the voice engine: only when an engine URL and a workload signing key are configured (otherwise events simply wait in the outbox).
-  if (env.PHONE_ENGINE_SYNC_URL && env.PHONE_ENGINE_SYNC_KEY_PEM && env.PHONE_ENGINE_SYNC_ISSUER) startNumberSync({ svc, sink: createEngineSink({ url: env.PHONE_ENGINE_SYNC_URL, privateKeyPem: env.PHONE_ENGINE_SYNC_KEY_PEM.replace(/\\n/g, '\n'), issuer: env.PHONE_ENGINE_SYNC_ISSUER, kid: env.PHONE_ENGINE_SYNC_KID || 'w1' }) });
-  app.post(B + '/numbers/:id/caller-id', bridgeAuth, json, wrap(async (req, a) => { await svc.setCallerIdVerified(a, req.params.id, (req.body || {}).verified === true); return { ok: true }; }));
-  app.post(B + '/calls', bridgeAuth, json, wrap((req, a) => svc.startCall(a, req.body || {}), 202));
-  app.get(B + '/calls', bridgeAuth, wrap((req, a) => svc.listCalls(a)));
-  app.get(B + '/calls/:id', bridgeAuth, wrap((req, a) => svc.getCall(a, req.params.id)));
-  app.post(B + '/calls/:id/end', bridgeAuth, wrap((req, a) => svc.endCall(a, req.params.id)));
+  if (env.VOICE_NUMBERS_ENABLED === 'true' && env.PHONE_ENGINE_SYNC_URL && env.PHONE_ENGINE_SYNC_KEY_PEM && env.PHONE_ENGINE_SYNC_ISSUER) startNumberSync({ svc, sink: createEngineSink({ url: env.PHONE_ENGINE_SYNC_URL, privateKeyPem: env.PHONE_ENGINE_SYNC_KEY_PEM.replace(/\\n/g, '\n'), issuer: env.PHONE_ENGINE_SYNC_ISSUER, kid: env.PHONE_ENGINE_SYNC_KID || 'w1' }) });
+  app.post(B + '/numbers/:id/caller-id', bridgeAuth, numbersOnly, json, wrap(async (req, a) => { await svc.setCallerIdVerified(a, req.params.id, (req.body || {}).verified === true); return { ok: true }; }));
+  app.post(B + '/calls', bridgeAuth, pstnOnly, json, wrap((req, a) => svc.startCall(a, req.body || {}), 202));
+  app.get(B + '/calls', bridgeAuth, pstnOnly, wrap((req, a) => svc.listCalls(a)));
+  app.get(B + '/calls/:id', bridgeAuth, pstnOnly, wrap((req, a) => svc.getCall(a, req.params.id)));
+  app.post(B + '/calls/:id/end', bridgeAuth, pstnOnly, wrap((req, a) => svc.endCall(a, req.params.id)));
   app.get(B + '/usage', bridgeAuth, wrap((req, a) => svc.usage(a)));
   app.post(B + '/usage/:id/adjust', bridgeAuth, json, wrap((req, a) => svc.adjust(a, req.params.id, req.body || {}), 201));
   app.put(B + '/limits/:owner', bridgeAuth, json, wrap((req, a) => svc.setLimit(a, req.params.owner, (req.body || {}).monthlyLimitMicros)));
@@ -61,8 +64,8 @@ export function registerTelephony({ app, db, bridgeAuth, phone, env = process.en
       await db.query('UPDATE qphone_provider_events SET result=$3 WHERE provider=$1 AND provider_event_id=$2', [carrier.name, ev.eventId, xml]); res.type('text/xml').send(xml);
     } catch (e) { console.error('[telephony] webhook failed:', e.code || '', e.message); if (!res.headersSent) res.status(500).type('text/plain').send('Telephony request failed.'); }
   }
-  app.post(W + 'voice', form, (req, res) => webhook(req, res, 'voice'));
-  app.post(W + 'status', form, (req, res) => webhook(req, res, 'status'));
+  app.post(W + 'voice', pstnOnly, form, (req, res) => webhook(req, res, 'voice'));
+  app.post(W + 'status', pstnOnly, form, (req, res) => webhook(req, res, 'status'));
 
   // ---- workers: only when a carrier is configured (nothing to do otherwise)
   let timer = null;

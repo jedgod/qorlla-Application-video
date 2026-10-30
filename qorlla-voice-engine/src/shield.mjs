@@ -309,6 +309,15 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       return { allow: true, reason: 'ALLOW', kind, capabilities: kind === 'host' ? HOST_CAPS : kind === 'member' ? MEMBER_CAPS : GUEST_CAPS };
     });
   }
+  /** Called INSIDE the call-creation transaction, after both accounts are locked: both parties must be known, verified and not suspended, and in the SAME tenant. Anything else is refused;
+   *  the callee's side is always reported as "no such recipient" so a caller learns nothing about accounts in other tenants. Absent organization = the default namespace (all such accounts share it). */
+  async function callGuard(c, callerId, calleeId) {
+    const coded = (code) => Object.assign(new Error(code), { code });
+    const rows = (await c.query('SELECT p.account_id, p.org_id, p.verified, p.suspended, o.suspended AS org_suspended FROM shield_principals p LEFT JOIN shield_orgs o ON o.org_id=p.org_id WHERE p.account_id = ANY($1::text[])', [[callerId, calleeId]])).rows;
+    const a = rows.find((r) => r.account_id === callerId), b = rows.find((r) => r.account_id === calleeId);
+    if (!a) throw coded('unknown_principal'); if (a.suspended || a.org_suspended) throw coded('suspended'); if (!a.verified) throw coded('identity_unverified');
+    if (!b || b.suspended || b.org_suspended || !b.verified || (b.org_id ?? null) !== (a.org_id ?? null)) throw coded('invalid_recipient');
+  }
   /** Meet sends the sessions it is holding open; the shield names the ones that must be closed NOW (suspension, ended meeting, a principal that vanished). */
   async function meetRecheck({ participants }) {
     if (!Array.isArray(participants) || participants.length > 500) throw new ShieldError('invalid_input', 400);
@@ -338,5 +347,5 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
   function auditProvenance(actor, reason) { db.query('INSERT INTO shield_events(actor, action, decision, reason) VALUES($1,$2,$3,$4)', [String(actor || '').slice(0, 128), 'numbers.sync', 'DENY', reason]).catch(() => {}); }
   async function purgeExpired() { await store.tx(async (c) => { await c.query('DELETE FROM shield_workload_jti WHERE expires_at < now()'); await c.query("DELETE FROM shield_counters WHERE window_start < now() - interval '1 day'"); }); }
 
-  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, auditProvenance, registerMeeting, meetAuthorize, meetRecheck, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
+  return { enabled, requireWorkload, workloadOkForAdmin, upsertPrincipal, upsertOrg, upsertMeeting, setSuspended, setOrgSuspended, assertPrincipalActive, authorizeUser, pstnAuthorize, pstnConsume, pstnSettle, pstnTerminations, callGuard, auditProvenance, registerMeeting, meetAuthorize, meetRecheck, guestRequest, guestDecide, guestClaim, mediaConsume, endMeeting, purgeExpired };
 }

@@ -20,7 +20,7 @@ import { createNumberProjection, SyncError, usable } from './number-sync.mjs';
 
 const STATUS = { invalid_recipient: 404, not_found: 404, blocked: 403, forbidden: 403, caller_disabled: 403, voice_disabled: 403, invalid_origin: 403, busy: 409, invalid_transition: 409, idempotency_conflict: 409,
   extension_taken: 409, extensions_exhausted: 503, invalid_input: 400, too_many_tickets: 429, invalid_timeout: 400, overloaded: 503, device_not_owner: 409, lease_lost: 409, call_not_active: 409, room_full: 409,
-  room_exists: 409, already_joined: 409, call_in_progress: 409, turn_not_configured: 503, invalid_cursor: 400, replay_unavailable: 503 };
+  room_exists: 409, already_joined: 409, call_in_progress: 409, turn_not_configured: 503, invalid_cursor: 400, replay_unavailable: 503, identity_unverified: 403, unknown_principal: 401, suspended: 403 };
 const GSIGNALS = ['g_offer', 'g_answer', 'g_ice'];
 const validGen = (g) => Number.isSafeInteger(g) && g >= 1;
 
@@ -75,6 +75,11 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     if (!secretEquals(given, secret)) return res.status(401).json({ error: 'unauthorized' });
     next();
   };
+  // Feature gates (defense in depth; NOT permission to deploy PSTN). pstn and numbers are OFF unless the variable is exactly "true" (missing, empty, "TRUE", "1", " true" all mean off).
+  // internal_calls is a kill switch: on unless exactly "false". The gate runs AFTER authentication (an anonymous caller still gets 401) and BEFORE any handler: no JWT, scope, role or session bypasses it.
+  const FEATURES = { pstn: { on: () => env.VOICE_PSTN_ENABLED === 'true', message: 'Public telephone calling is disabled.' }, numbers: { on: () => env.VOICE_NUMBERS_ENABLED === 'true', message: 'Public telephone numbers are disabled.' }, internal_calls: { on: () => env.VOICE_INTERNAL_CALLS_ENABLED !== 'false', message: 'Internal calling is disabled.' } };
+  const refuseFeature = (res, f) => res.status(403).json({ error: 'feature_disabled', feature: f, message: FEATURES[f].message });
+  const gate = (f) => (req, res, next) => (FEATURES[f].on() ? next() : refuseFeature(res, f));
   const route = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { fail(res, e); } };
 
   app.get('/healthz', (_req, res) => res.json({ ok: true, service: 'qorlla-voice', pstn: false, instance: instanceId }));
@@ -101,12 +106,13 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.get('/v1/voice/ice', auth, route(async (req, res) => { const { iceServers, iceTransportPolicy } = iceServersFor(req.account, env); res.set('Cache-Control', 'no-store').json({ iceServers, iceTransportPolicy, expiresIn: 600 }); }));
 
   // ---- one-to-one calls
-  app.post('/v1/voice/calls', auth, route(async (req, res) => {
+  app.post('/v1/voice/calls', auth, gate('internal_calls'), route(async (req, res) => {
     const { extension, idempotencyKey, deviceId } = req.body || {};
+    if (typeof extension === 'string' && /^\+/.test(extension)) return refuseFeature(res, 'pstn');                      // a public telephone number is never an extension: this engine places no PSTN calls
     if (!validExtension(extension) || !validIdempotencyKey(idempotencyKey) || !store.validDevice(deviceId)) return res.status(400).json({ error: 'invalid_input' });
     if (!callLimit.take(req.account)) return res.status(429).json({ error: 'rate_limited' });
     if (!(await guardCapacity(res))) return;
-    const result = await store.createCall(req.account, extension, idempotencyKey, deviceId); kick();
+    const result = await store.createCall(req.account, extension, idempotencyKey, deviceId, enforce ? shield.callGuard : null); kick();
     res.status(result.reused ? 200 : 201).json({ call: publicCall(result.call), reused: result.reused, generation: result.lease ? Number(result.lease.generation) : null });
   }));
   app.get('/v1/voice/calls', auth, route(async (req, res) => {
@@ -158,7 +164,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   }));
 
   // ---- group rooms
-  app.post('/v1/voice/rooms', auth, route(async (req, res) => {
+  app.post('/v1/voice/rooms', auth, gate('internal_calls'), route(async (req, res) => {
     const { extensions, title, deviceId } = req.body || {};
     if (!Array.isArray(extensions) || extensions.length > 7 || !store.validDevice(deviceId)) return res.status(400).json({ error: 'invalid_input' });
     if (!callLimit.take(req.account)) return res.status(429).json({ error: 'rate_limited' });
@@ -175,6 +181,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     const room = await store.rooms.get(req.params.id, req.account); if (!room) return res.status(404).json({ error: 'not_found' }); res.set('Cache-Control', 'no-store').json({ room });
   }));
   app.post('/v1/voice/rooms/:id/:action', auth, route(async (req, res) => {
+    if (req.params.action === 'join' && !FEATURES.internal_calls.on()) return refuseFeature(res, 'internal_calls');       // leaving and hanging up are never blocked by the kill switch
     const { id, action } = req.params, body = req.body || {}; if (!validRoomId(id)) return res.status(400).json({ error: 'invalid_input' });
     let out;
     if (action === 'join' || action === 'device') {
@@ -215,21 +222,21 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   const numbersAuthority = env.SHIELD_NUMBERS_AUTHORITY || 'svc:numbers-plans';
   const fromAuthority = (req, res, next) => (req.workload === numbersAuthority ? next() : (shield.auditProvenance(req.workload, 'number_event_wrong_origin'), res.status(403).json({ error: 'event_provenance' })));       // identity + scope + provenance: only the Numbers & Plans authority may write numbers
   const ns = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { if (e instanceof SyncError) return res.status(e.status).json({ error: e.code }); if (e instanceof ShieldError) return res.status(e.status).json({ error: e.code }); console.error('number sync error', e && (e.code || e.message)); res.status(503).json({ error: 'SYNC_UNAVAILABLE' }); } };
-  app.post('/v1/shield/numbers/events', wl('numbers.sync'), fromAuthority, ns(async (req, res) => { const r = await numberSync.applyEvent(strict(req.body, ['eventId', 'providerNumberId', 'version', 'type', 'payload', 'createdAt'])); res.status(r.result === 'gap' ? 409 : 200).json(r); }));
-  app.post('/v1/shield/numbers/reconcile', wl('numbers.sync'), fromAuthority, express.json({ limit: '4mb' }), ns(async (req, res) => res.json(await numberSync.reconcile((req.body || {}).numbers))));
-  app.post('/v1/shield/numbers/status', wl('numbers.sync'), ns(async (_req, res) => res.json(await numberSync.status())));
+  app.post('/v1/shield/numbers/events', wl('numbers.sync'), gate('numbers'), fromAuthority, ns(async (req, res) => { const r = await numberSync.applyEvent(strict(req.body, ['eventId', 'providerNumberId', 'version', 'type', 'payload', 'createdAt'])); res.status(r.result === 'gap' ? 409 : 200).json(r); }));
+  app.post('/v1/shield/numbers/reconcile', wl('numbers.sync'), gate('numbers'), fromAuthority, express.json({ limit: '4mb' }), ns(async (req, res) => res.json(await numberSync.reconcile((req.body || {}).numbers))));
+  app.post('/v1/shield/numbers/status', wl('numbers.sync'), gate('numbers'), ns(async (_req, res) => res.json(await numberSync.status())));
   // a signed-in person sees their own number only when the authority AND the shield both agree it is usable
-  app.get('/v1/voice/numbers/me', authLax, sh(async (req, res) => { res.set('Cache-Control', 'private, no-store'); const p = (await store.tx((c) => c.query('SELECT verified, suspended FROM shield_principals WHERE account_id=$1', [req.account]))).rows[0]; if (!p || !p.verified || p.suspended) return res.json({ number: null, state: 'unverified' }); const n = await numberSync.numberFor(req.account); res.set('Cache-Control', 'private, no-store').json({ number: n && n.usable ? { e164: n.row.e164, country: n.row.country } : null, state: n && n.usable ? 'active' : n ? 'unavailable' : 'none' }); }));
+  app.get('/v1/voice/numbers/me', authLax, gate('numbers'), sh(async (req, res) => { res.set('Cache-Control', 'private, no-store'); const p = (await store.tx((c) => c.query('SELECT verified, suspended FROM shield_principals WHERE account_id=$1', [req.account]))).rows[0]; if (!p || !p.verified || p.suspended) return res.json({ number: null, state: 'unverified' }); const n = await numberSync.numberFor(req.account); res.set('Cache-Control', 'private, no-store').json({ number: n && n.usable ? { e164: n.row.e164, country: n.row.country } : null, state: n && n.usable ? 'active' : n ? 'unavailable' : 'none' }); }));
   app.put('/v1/shield/admin/meetings', shieldAdmin, sh(async (req, res) => res.json(await shield.upsertMeeting(strict(req.body, ['meetingId', 'orgId', 'hostAccountId', 'passcode', 'guestEnabled', 'requiresApproval', 'maxGuests', 'endsAt'])))));
   app.post('/v1/shield/admin/meetings/:id/end', shieldAdmin, sh(async (req, res) => res.json(await shield.endMeeting(req.params.id))));
   app.post('/v1/shield/admin/principals/:id/suspend', shieldAdmin, sh(async (req, res) => { const r = await shield.setSuspended(req.params.id, true, { source: req.workload, onVoiceDisabled: (a) => closeAccount(a, 4003, 'suspended') }); kick(); res.json(r); }));
   app.post('/v1/shield/admin/principals/:id/restore', shieldAdmin, sh(async (req, res) => res.json(await shield.setSuspended(req.params.id, false, { source: req.workload }))));
   app.post('/v1/shield/admin/orgs/:id/suspend', shieldAdmin, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, true))));
   app.post('/v1/shield/admin/orgs/:id/restore', shieldAdmin, sh(async (req, res) => res.json(await shield.setOrgSuspended(req.params.id, false))));
-  app.post('/v1/shield/pstn/authorize', wl('pstn.authorize'), sh(async (req, res) => { const r = await shield.pstnAuthorize(strict(req.body, ['requestId', 'accountId', 'destination', 'callerId'])); res.status(r.allow ? 200 : 403).json(r); }));
-  app.post('/v1/shield/pstn/consume', wl('pstn.consume'), sh(async (req, res) => res.json(await shield.pstnConsume(strict(req.body, ['authorizationId', 'accountId', 'destination', 'callerId'])))));
-  app.post('/v1/shield/pstn/settle', wl('pstn.settle'), sh(async (req, res) => res.json(await shield.pstnSettle(strict(req.body, ['authorizationId', 'actualCents'])))));
-  app.post('/v1/shield/pstn/terminations', wl('pstn.consume'), sh(async (_req, res) => res.json({ terminate: await shield.pstnTerminations() })));
+  app.post('/v1/shield/pstn/authorize', wl('pstn.authorize'), gate('pstn'), sh(async (req, res) => { const r = await shield.pstnAuthorize(strict(req.body, ['requestId', 'accountId', 'destination', 'callerId'])); res.status(r.allow ? 200 : 403).json(r); }));
+  app.post('/v1/shield/pstn/consume', wl('pstn.consume'), gate('pstn'), sh(async (req, res) => res.json(await shield.pstnConsume(strict(req.body, ['authorizationId', 'accountId', 'destination', 'callerId'])))));
+  app.post('/v1/shield/pstn/settle', wl('pstn.settle'), gate('pstn'), sh(async (req, res) => res.json(await shield.pstnSettle(strict(req.body, ['authorizationId', 'actualCents'])))));
+  app.post('/v1/shield/pstn/terminations', wl('pstn.consume'), gate('pstn'), sh(async (_req, res) => res.json({ terminate: await shield.pstnTerminations() })));
   app.post('/v1/shield/guest/request', wl('guest.admit'), sh(async (req, res) => { const r = await shield.guestRequest(strict(req.body, ['meetingId', 'passcode', 'displayName', 'clientKey'])); res.status(r.status === 'DENIED' ? (r.reason === 'RATE_LIMIT' || r.reason === 'MEETING_LOCKED' ? 429 : 403) : 202).json(r); }));
   app.post('/v1/shield/guest/claim', wl('guest.admit'), sh(async (req, res) => { const r = await shield.guestClaim(strict(req.body, ['admissionId', 'claimSecret'])); res.status(r.status === 'DENIED' ? 403 : 200).set('Cache-Control', 'no-store').json(r); }));
   // Qorlla Meet (workload identity svc:meet): it registers meeting policy, asks before opening each signaling session, and rechecks the sessions it holds.
