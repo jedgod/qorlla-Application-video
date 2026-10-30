@@ -16,7 +16,10 @@ async function startMain(port, extraEnv = {}) {
   const base = 'http://localhost:' + port;
   for (let i = 0; i < 60; i++) { try { if ((await fetch(base + '/')).ok) break; } catch (e) { /* not yet */ } await new Promise((r) => setTimeout(r, 500)); }
   const meetOk = await fetch(MEET + '/api/config').then((r) => r.ok).catch(() => false);
-  if (!meetOk) throw new Error('Qorlla Meet is not running on :3310 (node scripts/start-recording-test-meet.cjs)');
+  if (!meetOk) throw new Error('Qorlla Meet is not running on ' + MEET + ' (MEET_TEST_PORT=<free port> MEET_DB_PORT=<port> node scripts/start-recording-test-meet.cjs)');
+  // Fail closed: an unrelated Meet that merely answers HTTP (another environment, other secrets, maybe another database) must never be used. It has to accept this worktree's bridge secret.
+  const probe = await fetch(MEET + '/api/integrations/telephony/capabilities', { headers: { 'x-qorlla-bridge-secret': secrets.bridge, 'x-qorlla-actor': 'u_harness_probe', 'x-qorlla-admin': '0' } }).then((r) => r.status).catch(() => 0);
+  if (probe !== 200) { try { child.kill(); } catch (e) { /* gone */ } throw new Error('The Meet on ' + MEET + ' does not belong to this environment (it refused this worktree\'s bridge secret, status ' + probe + '). Refusing to run against it. Start an isolated one: MEET_TEST_PORT=<free port> MEET_DB_PORT=<port> node scripts/start-recording-test-meet.cjs'); }
   return { base, dataDir, stop() { try { child.kill(); } catch (e) { /* gone */ } try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (e) { /* busy */ } } };
 }
 

@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 // They do NOT prove real inbound calls, real numbers or audio: there is no carrier and no PSTN-to-WebRTC media gateway in this repository (BLOCKED).
 // Needs Meet on :3310 started with scripts/start-recording-test-meet.cjs (it enables the test provider).
 const { startMain, organiser } = require('./support/meet-stack');
-const MEET = 'http://localhost:3310', SECRET = 'phone-test-secret-123456';
+const MEET = 'http://localhost:' + (process.env.MEET_TEST_PORT || 3310), SECRET = 'phone-test-secret-123456';
 const sign = (raw, t = Math.floor(Date.now() / 1000)) => 't=' + t + ',v1=' + crypto.createHmac('sha256', SECRET).update(t + '.' + raw).digest('hex');
 const RUN = '-' + crypto.randomBytes(4).toString('hex');                       // call ids are unique per run (the table remembers every call)
 let seq = 0; const eid = () => 'evt-' + Date.now() + '-' + (++seq) + '-' + crypto.randomBytes(3).toString('hex');
