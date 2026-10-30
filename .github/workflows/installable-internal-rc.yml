@@ -78,7 +78,8 @@ jobs:
           grep -q "^ Package: qorlla$" deb-info.txt || fail "deb Package is not qorlla"
           dpkg-deb -c "$DEB" > deb-files.txt
           echo '--- executable (must be executable and named qorlla)'; grep -E " \./opt/[^/]+/qorlla$" deb-files.txt | tee exe.txt; grep -qE "^-rwx" exe.txt || fail "the qorlla executable is missing or not executable"
-          echo '--- chrome-sandbox'; grep -E "chrome-sandbox$" deb-files.txt | tee sandbox.txt; grep -qE "^-rwsr-xr-x" sandbox.txt || fail "chrome-sandbox is missing or not setuid root-owned 4755"
+          echo '--- chrome-sandbox (shipped 0755; electron-builder sets the setuid bit in postinst at install time, so the script is what can be checked here)'; grep -E "chrome-sandbox$" deb-files.txt | tee sandbox.txt; test -s sandbox.txt || fail "chrome-sandbox is missing from the deb"
+          dpkg-deb -e "$DEB" control-scripts; grep -n "chrome-sandbox" control-scripts/postinst | tee postinst-sandbox.txt; grep -qE "chmod 4755 .*chrome-sandbox" control-scripts/postinst || fail "postinst does not set chrome-sandbox to 4755"
           echo '--- desktop entry'; grep -E " \./usr/share/applications/.*\.desktop$" deb-files.txt | tee desktop-path.txt; test -s desktop-path.txt || fail "no desktop entry in the deb"
           DESKTOP=$(awk '{print $NF}' desktop-path.txt | head -1); dpkg-deb --fsys-tarfile "$DEB" | tar -xO "$DESKTOP" > desktop-entry.txt; cat desktop-entry.txt
           grep -q "^Name=Qorlla$" desktop-entry.txt || fail "the displayed application name is not Qorlla"; grep -qE "^Exec=.*qorlla" desktop-entry.txt || fail "desktop Exec does not start the qorlla executable"; grep -q "^Icon=" desktop-entry.txt || fail "desktop entry has no Icon"
