@@ -6,6 +6,8 @@ server-name=${TURN_REALM}
 
 # Authentication: short-lived REST credentials issued by Qorlla Meet (username = <expiry>:<participantId>, password = base64(HMAC-SHA1(secret, username))).
 # The secret is the SAME value as Meet's TURN_SHARED_SECRET. Anonymous allocations are refused because an auth mechanism is always configured.
+# lt-cred-mech is REQUIRED with use-auth-secret: without it coturn answers "Cannot find credentials of user" to every correctly signed REST credential (found by testing against a real coturn).
+lt-cred-mech
 use-auth-secret
 static-auth-secret=${TURN_SHARED_SECRET}
 fingerprint

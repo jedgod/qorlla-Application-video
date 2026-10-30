@@ -12,6 +12,7 @@ test('the committed coturn template and compose file pass', () => { assert.deepE
 test('the coturn template cannot lose its safety directives unnoticed', () => {
   const t = read('coturn/turnserver.conf.template');
   assert.ok(checkCoturnTemplate(t.replace('use-auth-secret\n', '')).some((p) => /use-auth-secret/.test(p)));
+  assert.ok(checkCoturnTemplate(t.replace('\nlt-cred-mech\n', '\n')).some((p) => /lt-cred-mech/.test(p)), 'a template without lt-cred-mech would refuse every valid credential');
   assert.ok(checkCoturnTemplate(t.replace('denied-peer-ip=10.0.0.0-10.255.255.255\n', '')).some((p) => /10\.0\.0\.0/.test(p)));
   assert.ok(checkCoturnTemplate(t.replace('no-cli\n', '')).some((p) => /no-cli/.test(p)));
   assert.ok(checkCoturnTemplate(t + '\nno-auth\n').some((p) => /forbidden/.test(p)));

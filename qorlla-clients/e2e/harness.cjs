@@ -11,15 +11,17 @@ const RTC_HOOK = `(() => { const O = window.RTCPeerConnection; if (!O || window.
     pc.addEventListener('connectionstatechange', () => window.__qlog.push([Date.now(), 'connection#' + n, pc.connectionState])); pc.addEventListener('iceconnectionstatechange', () => window.__qlog.push([Date.now(), 'ice#' + n, pc.iceConnectionState])); pc.addEventListener('icecandidateerror', (e) => window.__qlog.push([Date.now(), 'ice-error#' + n, String(e.errorCode) + ' ' + String(e.url || '').split('?')[0]])); return pc; };
   W.prototype = O.prototype; Object.setPrototypeOf(W, O); window.RTCPeerConnection = W; })();`;
 /** Evaluated in the page: totals of RTP bytes/frames over all peer connections, plus the nominated candidate pairs (so the path is on record). */
-const COLLECT = `(async () => { const o = { pcs: 0, connected: 0, audioIn: 0, videoIn: 0, audioOut: 0, videoOut: 0, framesDecoded: 0, framesEncoded: 0, pairs: [] };
+const COLLECT = `(async () => { const o = { pcs: 0, connected: 0, audioIn: 0, videoIn: 0, audioOut: 0, videoOut: 0, framesDecoded: 0, framesEncoded: 0, packetsLost: 0, packetsReceived: 0, jitterMsMax: 0, pairs: [] };
   for (const pc of window.__qpcs || []) { o.pcs++; if (pc.connectionState === 'connected') o.connected++; const rep = await pc.getStats(); const by = {}; rep.forEach((s) => { by[s.id] = s; });
-    rep.forEach((s) => { if (s.type === 'inbound-rtp') { if (s.kind === 'audio') o.audioIn += s.bytesReceived || 0; else { o.videoIn += s.bytesReceived || 0; o.framesDecoded += s.framesDecoded || 0; } }
+    rep.forEach((s) => { if (s.type === 'inbound-rtp') { o.packetsLost += s.packetsLost || 0; o.packetsReceived += s.packetsReceived || 0; o.jitterMsMax = Math.max(o.jitterMsMax, Math.round((s.jitter || 0) * 1000)); if (s.kind === 'audio') o.audioIn += s.bytesReceived || 0; else { o.videoIn += s.bytesReceived || 0; o.framesDecoded += s.framesDecoded || 0; } }
       if (s.type === 'outbound-rtp') { if (s.kind === 'audio') o.audioOut += s.bytesSent || 0; else { o.videoOut += s.bytesSent || 0; o.framesEncoded += s.framesEncoded || 0; } }
-      if (s.type === 'candidate-pair' && s.nominated && s.state === 'succeeded') { const l = by[s.localCandidateId] || {}, r = by[s.remoteCandidateId] || {}; o.pairs.push({ local: l.candidateType, remote: r.candidateType, protocol: l.protocol }); } }); }
+      if (s.type === 'candidate-pair' && s.nominated && s.state === 'succeeded') { const l = by[s.localCandidateId] || {}, r = by[s.remoteCandidateId] || {}; o.pairs.push({ local: l.candidateType, remote: r.candidateType, protocol: l.protocol, relayProtocol: l.relayProtocol, rttMs: s.currentRoundTripTime === undefined ? null : Math.round(s.currentRoundTripTime * 1000) }); } }); }
   return o; })()`;
 const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, (c) => '\\' + c);
 const MEET_RE = new RegExp(escapeRe(MEET.replace(/^https?:\/\//, '')));   // matches the Meet host:port wherever it runs
 const FAKE_MEDIA = ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'];
+/** Playwright context permissions for camera/microphone. QORLLA_TEST_NO_CTX_PERMISSIONS=1 omits them (the fake-media flags already auto-accept the prompt): with the grant, Chromium enumerates every network interface and a LOOPBACK relay yields no candidates, so loopback relay tests need this off. */
+const ctxPermissions = () => (process.env.QORLLA_TEST_NO_CTX_PERMISSIONS === '1' ? {} : { permissions: ['camera', 'microphone'] });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function sample(page) { return page.evaluate(COLLECT); }
 /** Two samples `ms` apart: every media counter must have grown, in both directions. */
@@ -30,7 +32,7 @@ async function flowing(page, ms = 3000) {
 }
 /** A Chromium host (a signed-in organiser) starts a scheduled meeting through the real Workplace UI, waiting room off. Returns what a participant needs to join. */
 async function startHost(main, { title = 'Client certification' } = {}) {
-  const browser = await chromium.launch({ args: FAKE_MEDIA }); const context = await browser.newContext({ permissions: ['camera', 'microphone'] }); await context.addInitScript(RTC_HOOK);
+  const browser = await chromium.launch({ args: FAKE_MEDIA }); const context = await browser.newContext(ctxPermissions()); await context.addInitScript(RTC_HOOK);
   const { item } = await organiser(context, main.base, { title }); const page = await context.newPage();
   await page.goto(main.base + '/qorlla.html#home'); await page.locator('.meeting', { hasText: title }).locator('.join-pill').click();
   await page.waitForFunction(() => document.querySelector('#sdPassNote') && document.querySelector('#sdPassNote').textContent !== 'Checking…'); await page.click('#sdWait'); await page.click('#sdGo');
@@ -67,4 +69,4 @@ function summarize(r) {
     medianPerInterval: { clientVideoOut: median(r.samples.map((s) => s.client.videoOut)), clientVideoIn: median(r.samples.map((s) => s.client.videoIn)), clientFramesEncoded: median(r.samples.map((s) => s.client.framesEncoded)), clientFramesDecoded: median(r.samples.map((s) => s.client.framesDecoded)) },
     lowestVideoOutInAnInterval: r.samples.length ? Math.min(...r.samples.map((s) => s.client.videoOut)) : null };
 }
-module.exports = { MEET, MEET_RE, startMain, startHost, joinAsGuest, flowing, sample, sleep, stability, summarize, RTC_HOOK, FAKE_MEDIA, chromium };
+module.exports = { ctxPermissions, MEET, MEET_RE, startMain, startHost, joinAsGuest, flowing, sample, sleep, stability, summarize, RTC_HOOK, FAKE_MEDIA, chromium };

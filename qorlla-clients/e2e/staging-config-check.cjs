@@ -10,11 +10,11 @@ const read = (p) => fs.readFileSync(path.join(DIR, p), 'utf8');
 /** The TURN configuration must always authenticate, deny private-space peers, and carry the abuse limits. Returns a list of problems (empty = ok). */
 function checkCoturnTemplate(text) {
   const problems = [], has = (re) => re.test(text), line = (re) => text.split(/\r?\n/).filter((l) => !l.trim().startsWith('#')).some((l) => re.test(l));
-  for (const [re, why] of [[/^use-auth-secret$/m, 'use-auth-secret (REST credentials)'], [/^static-auth-secret=\$\{TURN_SHARED_SECRET\}$/m, 'the secret must come from a placeholder, never a literal'], [/^fingerprint$/m, 'fingerprint'],
+  for (const [re, why] of [[/^lt-cred-mech$/m, 'lt-cred-mech (REQUIRED with use-auth-secret: without it every valid REST credential is refused)'], [/^use-auth-secret$/m, 'use-auth-secret (REST credentials)'], [/^static-auth-secret=\$\{TURN_SHARED_SECRET\}$/m, 'the secret must come from a placeholder, never a literal'], [/^fingerprint$/m, 'fingerprint'],
     [/^no-cli$/m, 'no-cli (admin CLI off)'], [/^no-tcp-relay$/m, 'no-tcp-relay'], [/^no-multicast-peers$/m, 'no-multicast-peers'], [/^user-quota=\d+$/m, 'user-quota'], [/^total-quota=\d+$/m, 'total-quota'],
     [/^min-port=\$\{TURN_MIN_PORT\}$/m, 'bounded relay range (min)'], [/^max-port=\$\{TURN_MAX_PORT\}$/m, 'bounded relay range (max)'], [/^no-tlsv1$/m, 'no-tlsv1'], [/^no-tlsv1_1$/m, 'no-tlsv1_1']]) if (!has(re)) problems.push('missing: ' + why);
   for (const range of ['10.0.0.0-10.255.255.255', '127.0.0.0-127.255.255.255', '169.254.0.0-169.254.255.255', '172.16.0.0-172.31.255.255', '192.168.0.0-192.168.255.255', '100.64.0.0-100.127.255.255']) if (!has(new RegExp('^denied-peer-ip=' + range.replace(/\./g, '\\.') + '$', 'm'))) problems.push('missing denied-peer-ip=' + range);
-  for (const bad of [/^no-auth$/, /^allow-loopback-peers$/, /^allowed-peer-ip=/, /^no-stun-backward-compatibility$/, /^cli-password=/, /^lt-cred-mech$/, /^user=/, /^static-auth-secret=(?!\$\{)/]) if (line(bad)) problems.push('forbidden directive: ' + bad.source);
+  for (const bad of [/^no-auth$/, /^allow-loopback-peers$/, /^allowed-peer-ip=/, /^no-stun-backward-compatibility$/, /^cli-password=/, /^user=/, /^static-auth-secret=(?!\$\{)/]) if (line(bad)) problems.push('forbidden directive: ' + bad.source);
   return problems;
 }
 /** The compose file must not publish databases or caches, must use a secret FILE (not an inline value), and must not run privileged. */

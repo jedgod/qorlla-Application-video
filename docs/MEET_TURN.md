@@ -20,6 +20,7 @@
 ## 2. Production-intended coturn configuration (sketch; review before use)
 ```
 realm=turn.example.com
+lt-cred-mech                        # REQUIRED with use-auth-secret; without it coturn refuses every valid REST credential
 use-auth-secret
 static-auth-secret=<the 32+ character secret>
 fingerprint
@@ -50,6 +51,17 @@ Never run coturn without an auth mechanism (it accepts anonymous allocations); o
 
 ## 3. What is tested today (`qorlla-clients/e2e/turn-config.test.cjs`, no relay needed)
 Credentials are refused without a token, with a tampered token and with a token for another meeting; they are scoped to the participant, about one hour, equal an independent HMAC computation, and absent from `/api/config`. With `ICE_TRANSPORT_POLICY=relay` and an **unreachable** TURN server, no host/srflx/prflx candidate exists and no media flows (the negative control).
+
+## 3b. Local relay proof against a real coturn (`qorlla-clients/e2e/turn-relay.test.cjs`)
+A throwaway coturn in a Docker container (loopback only, never the staging config) and Meet with `ICE_TRANSPORT_POLICY=relay`. **Passed over UDP**: both participants' nominated pair is `relay`/`relay` with `relayProtocol=udp`, audio and video counters grow in both directions, 0 packets lost, RTT about 80 ms; coturn answers `401` to a wrong password and to an expired (correctly signed) credential, and a valid credential gets a relay candidate (control). Evidence: `docs/evidence/clients/turn-local-relay/`.
+
+What this does **not** prove: anything cross-network, NAT traversal, cellular behaviour, `turns:` over TLS, public exposure, or the staging deployment. Both participants and the relay were on one PC.
+
+Things this test found that matter for production:
+- **`lt-cred-mech` is required together with `use-auth-secret`.** Without it coturn logs `Cannot find credentials of user` for every correctly signed REST credential and no relay ever works. The staging template and the linter now require it.
+- Granting camera/microphone through a Playwright browser context changes Chromium's interface enumeration so that a loopback relay yields no candidates (a test-environment artifact: the harness has `QORLLA_TEST_NO_CTX_PERMISSIONS=1`). It does not affect a relay on a public address.
+- A loopback relay in Docker needs `external-ip=127.0.0.1/<container address>` (and `allow-loopback-peers`, test only) so coturn can translate relay-to-relay addresses. The staging config forbids `allow-loopback-peers`.
+- Repeated failed attempts reach the allocation quota (`486`); size `user-quota` for reconnect storms.
 
 ## 4. The cross-network test (needs infrastructure; NOT yet run)
 Needed: a TURN server with a public address (and a certificate for `turns:`), and Meet and the main app reachable by the phone over HTTPS/WSS. Phone: Galaxy A03s, Wi-Fi off, cellular data on. PC: its normal network. Run each mode and record, from both ends:

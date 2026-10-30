@@ -1,0 +1,143 @@
+{
+  "meet": "http://localhost:3314",
+  "transportExpected": "udp",
+  "scope": "local loopback mechanism test, not cross-network",
+  "diagnostics": {
+    "guest": {
+      "events": [
+        [
+          "created",
+          1
+        ],
+        [
+          "ice#1",
+          "checking"
+        ],
+        [
+          "connection#1",
+          "connecting"
+        ],
+        [
+          "ice#1",
+          "connected"
+        ],
+        [
+          "connection#1",
+          "connected"
+        ]
+      ],
+      "pairs": [
+        {
+          "state": "succeeded",
+          "nominated": true,
+          "local": "relay",
+          "remote": "relay",
+          "sent": 427004,
+          "received": 430559
+        }
+      ]
+    },
+    "host": {
+      "events": [
+        [
+          "created",
+          1
+        ],
+        [
+          "ice#1",
+          "checking"
+        ],
+        [
+          "connection#1",
+          "connecting"
+        ],
+        [
+          "ice#1",
+          "connected"
+        ],
+        [
+          "connection#1",
+          "connected"
+        ]
+      ],
+      "pairs": [
+        {
+          "state": "succeeded",
+          "nominated": true,
+          "local": "relay",
+          "remote": "relay",
+          "sent": 430724,
+          "received": 427004
+        }
+      ]
+    }
+  },
+  "relayMeeting": {
+    "guest": {
+      "pairs": [
+        {
+          "local": "relay",
+          "remote": "relay",
+          "protocol": "udp",
+          "relayProtocol": "udp",
+          "rttMs": 82
+        }
+      ],
+      "deltaBytesAndFrames": {
+        "audioIn": 15931,
+        "videoIn": 55421,
+        "audioOut": 15319,
+        "videoOut": 85227,
+        "framesDecoded": 84,
+        "framesEncoded": 99
+      },
+      "packetsLost": 0,
+      "packetsReceived": 1250,
+      "jitterMsMax": 33
+    },
+    "host": {
+      "pairs": [
+        {
+          "local": "relay",
+          "remote": "relay",
+          "protocol": "udp",
+          "relayProtocol": "udp",
+          "rttMs": 78
+        }
+      ],
+      "deltaBytesAndFrames": {
+        "audioIn": 15051,
+        "videoIn": 30827,
+        "audioOut": 15659,
+        "videoOut": 25477,
+        "framesDecoded": 52,
+        "framesEncoded": 51
+      },
+      "packetsLost": 0,
+      "packetsReceived": 1582,
+      "jitterMsMax": 35
+    },
+    "coturnSuccessfulAllocations": 3
+  },
+  "credentialEnforcement": {
+    "validRelayCandidates": 1,
+    "wrongPassword": {
+      "relayCandidates": 0,
+      "errors": [
+        {
+          "code": 401,
+          "text": "Unauthorized."
+        }
+      ]
+    },
+    "expired": {
+      "relayCandidates": 0,
+      "errors": [
+        {
+          "code": 401,
+          "text": "Unauthorized."
+        }
+      ]
+    }
+  }
+}

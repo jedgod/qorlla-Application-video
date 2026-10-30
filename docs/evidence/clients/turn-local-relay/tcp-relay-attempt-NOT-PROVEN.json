@@ -1,0 +1,96 @@
+{
+  "meet": "http://localhost:3315",
+  "transportExpected": "tcp",
+  "scope": "local loopback mechanism test, not cross-network",
+  "diagnostics": {
+    "guest": {
+      "events": [
+        [
+          "created",
+          1
+        ],
+        [
+          "ice#1",
+          "checking"
+        ],
+        [
+          "connection#1",
+          "connecting"
+        ],
+        [
+          "ice#1",
+          "disconnected"
+        ],
+        [
+          "connection#1",
+          "failed"
+        ],
+        [
+          "ice#1",
+          "checking"
+        ],
+        [
+          "connection#1",
+          "connecting"
+        ]
+      ],
+      "pairs": [
+        {
+          "state": "in-progress",
+          "nominated": false,
+          "local": "relay",
+          "remote": "relay",
+          "sent": 0,
+          "received": 0
+        }
+      ]
+    },
+    "host": {
+      "events": [
+        [
+          "created",
+          1
+        ],
+        [
+          "ice#1",
+          "checking"
+        ],
+        [
+          "connection#1",
+          "connecting"
+        ]
+      ],
+      "pairs": [
+        {
+          "state": "in-progress",
+          "nominated": false,
+          "local": "relay",
+          "remote": "relay",
+          "sent": 0,
+          "received": 0
+        }
+      ]
+    }
+  },
+  "credentialEnforcement": {
+    "validRelayCandidates": 1,
+    "wrongPassword": {
+      "relayCandidates": 0,
+      "errors": [
+        {
+          "code": 401,
+          "text": "Unauthorized."
+        }
+      ]
+    },
+    "expired": {
+      "relayCandidates": 0,
+      "errors": [
+        {
+          "code": 401,
+          "text": "Unauthorized."
+        }
+      ]
+    }
+  }
+}
