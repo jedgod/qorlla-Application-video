@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { _electron } = require(path.resolve(__dirname, '..', '..', 'node_modules', 'playwright'));
-const { MEET, startMain, startHost, joinAsGuest, flowing, sleep, RTC_HOOK } = require('./harness.cjs');
+const { MEET, startMain, startHost, joinAsGuest, flowing, sleep, stability, summarize, RTC_HOOK } = require('./harness.cjs');
 
 const DESKTOP = path.resolve(__dirname, '..', 'apps', 'desktop');
 let electronExe = null; try { electronExe = require(path.join(DESKTOP, 'node_modules', 'electron')); } catch { /* not installed */ }
@@ -59,6 +59,24 @@ test('the shell refuses everything outside the trusted origins and ignores hosti
     assert.equal(await client.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1, 'one window'); await win.waitForURL(/\/guest\/meeting\/12345678901\/prejoin/, { timeout: 15000 });
     await second?.close().catch(() => {}); evidence.results.singleInstance = true;
   } finally { await client?.close(); main.stop(); }
+});
+
+// Long meeting. Runs only when STABILITY_MINUTES is set (for example 30). Samples every 30 s; see harness.stability for what a good interval is.
+const MINUTES = Number(process.env.STABILITY_MINUTES || 0);
+test('Windows client stays in a meeting for the requested time with media flowing both ways, no connection drops and bounded memory', { skip: skip || (MINUTES > 0 ? false : 'set STABILITY_MINUTES to run'), timeout: (MINUTES + 10) * 60000 }, async () => {
+  const main = await startMain(5297); let host, client;
+  try {
+    host = await startHost(main, { title: 'Windows stability' }); client = await launch(main, ['qorlla://join?meeting=' + host.meetingId]);
+    const win = await client.app.firstWindow(); await win.context().addInitScript(RTC_HOOK); await win.waitForURL(/prejoin/); await joinAsGuest(win, 'Windows Stability');
+    await win.waitForFunction(() => document.querySelectorAll('.tile').length >= 2, null, { timeout: 45000 }); await host.page.waitForFunction(() => document.querySelectorAll('.tile').length >= 2, null, { timeout: 45000 }); await sleep(5000);
+    const metrics = async () => client.app.evaluate(({ app }) => { const m = app.getAppMetrics(); return { workingSetKB: m.reduce((n, p) => n + p.memory.workingSetSize, 0), privateKB: m.reduce((n, p) => n + (p.memory.privateBytes || 0), 0), cpuPercent: +m.reduce((n, p) => n + p.cpu.percentCPUUsage, 0).toFixed(1), processes: m.length }; });
+    const startMem = await metrics(); console.log('stability: started, ' + MINUTES + ' min, start memory ' + JSON.stringify(startMem));
+    const r = await stability({ client: win, host: host.page, minutes: MINUTES, extra: metrics, log: (s) => { if (Math.round(s.tMin * 2) % 10 === 0) console.log(`  t=${s.tMin} min good=${s.good} clientVideoOut=${s.client.videoOut} framesEncoded=${s.client.framesEncoded} ws=${Math.round(s.extra.workingSetKB / 1024)}MB`); } });
+    const sum = summarize(r), endMem = r.samples.at(-1).extra; evidence.results.stability = { minutes: MINUTES, startMem, endMem, ...sum, samples: r.samples, clientEvents: r.clientEvents.slice(0, 200) };
+    assert.equal(sum.clientBadStates.length + sum.hostBadStates.length, 0, 'no failed/disconnected/closed connection or ICE states: ' + JSON.stringify([sum.clientBadStates, sum.hostBadStates]));
+    assert.equal(sum.clientConnectionsCreated, 1, 'no reconnects: the client created exactly one peer connection'); assert.ok(sum.goodPercent >= 97, 'media flowed both ways in at least 97% of intervals, got ' + sum.goodPercent + '%');
+    assert.ok(endMem.workingSetKB < startMem.workingSetKB * 2, `memory did not double: ${Math.round(startMem.workingSetKB / 1024)} MB -> ${Math.round(endMem.workingSetKB / 1024)} MB`);
+  } finally { await client?.close(); await host?.close(); main.stop(); }
 });
 
 test.after(() => { const f = process.env.CLIENTS_EVIDENCE_FILE; if (f) fs.writeFileSync(f, JSON.stringify(evidence, null, 2)); });

@@ -102,7 +102,7 @@ $('createBtn').onclick=async()=>{try{const p=await api('/meetings','POST',{title
 $('joinBtn').onclick=async()=>{try{const p=await api('/meetings/'+encodeURIComponent($('meetingId').value.trim())+'/join','POST',{name:$('displayName').value,passcode:$('joinPasscode').value});await startMeeting(p);}catch(e){error(e);}};
 $('chatForm').onsubmit=e=>{e.preventDefault();const input=$('chatText');if(!input.value.trim())return;state.socket.emit('chat',input.value,r=>{if(r?.ok)input.value='';else notify(r?.error||'Chat failed');});};
 $('micBtn').onclick=async()=>{const tracks=state.stream?.getAudioTracks()||[];if(!tracks.length){notify('No microphone track. Rejoin with permission.');return;}state.mic=!state.mic;tracks.forEach(t=>t.enabled=state.mic);state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});updateControls();};
-$('camBtn').onclick=()=>{const tracks=state.stream?.getVideoTracks()||[];if(!tracks.length){notify('No camera track. Rejoin with permission.');return;}state.cam=!state.cam;tracks.forEach(t=>t.enabled=state.cam);state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});updateControls();};
+$('camBtn').onclick=()=>{const tracks=state.stream?.getVideoTracks()||[];if(!tracks.length){notify('No camera track. Rejoin with permission.');return;}if(tracks.some(t=>t.readyState==='ended')){recoverCamera('manual');return;}state.cam=!state.cam;tracks.forEach(t=>t.enabled=state.cam);state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});updateControls();};
 $('handBtn').onclick=()=>{state.hand=!state.hand;state.socket.emit('hand',state.hand);setHand(state.participantId,state.hand);updateControls();};
 // Ending a share must reset the page whether the browser ended it ("Stop sharing" in the browser bar) or the person clicked Stop here: calling track.stop()
 // yourself does NOT fire the track's "ended" event, so both paths run the same cleanup.
@@ -153,7 +153,30 @@ if(query.get('passcode'))$('joinPasscode').value=query.get('passcode').slice(0,1
 const desiredMic=query.get('mic')!=='false' && query.get('mic')!=='off';
 const desiredCam=query.get('camera')!=='false' && query.get('cam')!=='false' && query.get('camera')!=='off';
 const originalStartMedia=startMedia;
-startMedia=async()=>{await originalStartMedia();state.mic=desiredMic&&state.mic;state.cam=desiredCam&&state.cam;state.stream.getAudioTracks().forEach(t=>t.enabled=state.mic);state.stream.getVideoTracks().forEach(t=>t.enabled=state.cam);updateControls();};
+startMedia=async()=>{await originalStartMedia();state.mic=desiredMic&&state.mic;state.cam=desiredCam&&state.cam;state.stream.getAudioTracks().forEach(t=>t.enabled=state.mic);state.stream.getVideoTracks().forEach(t=>t.enabled=state.cam);state.stream.getVideoTracks().forEach(watchCamera);updateControls();};
+// Camera recovery. A camera that ENDS by itself (device removed, driver reset, sleep/wake, a capture error) makes the browser fire "ended" on the track with no action from this page, which used to leave the person in the
+// meeting sending no video and not knowing. The page now takes a fresh camera track and swaps it into the local stream and into every call, retrying with a short backoff. Turning the camera off by hand only
+// DISABLES the track (it does not end it), and leaving stops tracks without firing "ended", so neither triggers this.
+let cameraRecovering=false;state.cameraRecoveries=0;document.documentElement.dataset.cameraRecoveries='0';   // read-only diagnostic: how many times the camera was recovered in this page
+function watchCamera(t){if(!t||t.__watched)return;t.__watched=true;t.addEventListener('ended',()=>{if(t.__expectedStop)return;recoverCamera('ended');});}
+async function recoverCamera(why){
+  if(cameraRecovering)return;cameraRecovering=true;notify('Camera lost. Reconnecting…');
+  try{
+    for(let attempt=1;attempt<=6;attempt++){
+      try{
+        const got=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}}}),nt=got.getVideoTracks()[0];if(!nt)throw new Error('no camera track');
+        state.stream.getVideoTracks().forEach(o=>{o.__expectedStop=true;state.stream.removeTrack(o);try{o.stop();}catch(e){/* already ended */}});
+        nt.enabled=state.cam;state.stream.addTrack(nt);watchCamera(nt);
+        if(state.screen)state.shareOld=nt;   // sharing right now: the share ends back onto the NEW camera
+        else for(const pc of state.peers.values()){const sender=pc.getSenders().find(x=>x.track?.kind==='video');if(sender)await sender.replaceTrack(nt).catch(()=>{});}
+        state.cameraLost=false;state.cameraRecoveries++;document.documentElement.dataset.cameraRecoveries=String(state.cameraRecoveries);notify('Camera reconnected.');return;
+      }catch(e){await new Promise(r=>setTimeout(r,attempt*1500));}
+    }
+    state.cameraLost=true;notify('Camera unavailable. It will be reconnected when it is available again, or choose Start video to try now.');
+  }finally{cameraRecovering=false;}
+}
+// A camera that is gone (unplugged, or its driver or the browser's capture process restarted) comes back as a device change: retry then, instead of waiting for the person to notice.
+navigator.mediaDevices?.addEventListener?.('devicechange',async()=>{if(!state.cameraLost||cameraRecovering)return;try{const d=await navigator.mediaDevices.enumerateDevices();if(!d.some(x=>x.kind==='videoinput'))return;}catch(e){return;}state.cameraLost=false;recoverCamera('devicechange');});
 if(initialName){if(query.get('start')==='new')$('createBtn').click();else if(query.get('start')==='join' && $('meetingId').value)$('joinBtn').click();}
 // launch parameters (name, passcode, mic/camera, start) have been consumed: do not leave them in the address bar, history or screenshots
 try{history.replaceState(null,'',location.pathname+(returnRaw?'?return='+encodeURIComponent(returnRaw):''));}catch{}

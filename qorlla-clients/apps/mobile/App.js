@@ -10,6 +10,8 @@ import { createPolicy, navigationDecision, parseJoinLink, testHooksEnabled, ANDR
 // Meetings run on Qorlla's existing Meet web client and media path (signaling, TURN, SFU/mesh as deployed): this app adds the native shell, permissions, deep links and navigation rules.
 // Test hooks (http://localhost, debuggable WebView) exist only in dev or a build made with EXPO_PUBLIC_QORLLA_TEST_BUILD=1; the production profile cannot carry them.
 const TEST = testHooksEnabled({ dev: typeof __DEV__ !== 'undefined' && __DEV__, testBuild: process.env.EXPO_PUBLIC_QORLLA_TEST_BUILD });
+// Event log for the certification runs only (test builds): event names and results, never meeting ids, URLs or user data.
+const log = TEST ? (...a) => console.log('[qorlla-app]', ...a) : () => {};
 let policy = null, configError = null;
 try { policy = createPolicy({ appUrl: process.env.EXPO_PUBLIC_QORLLA_URL, meetUrls: process.env.EXPO_PUBLIC_QORLLA_MEET_URLS, allowLocalhostHttp: TEST }); } catch (e) { configError = e.message; }
 
@@ -27,25 +29,28 @@ async function ensureMeetingPermissions() {
 export default function App() {
   const [url, setUrl] = useState(null), [meeting, setMeeting] = useState(''), [error, setError] = useState(''), web = useRef(null), canGoBack = useRef(false);
 
-  const openUrl = useCallback((u) => { setError(''); setUrl(u); }, []);
+  const openUrl = useCallback((u, why) => { log('openUrl', why || 'direct'); setError(''); setUrl(u); }, []);
   const joinMeeting = useCallback(async (meetingId) => {
     if (!policy) return;
     let target; try { target = policy.prejoinUrl(meetingId); } catch { setError('Enter the 11-digit meeting ID.'); return; }
+    log('joinMeeting: asking for permissions');
     const p = await ensureMeetingPermissions();
+    log('joinMeeting: permissions', JSON.stringify(p));
     if (!p.granted) {
+      log('alert shown', p.blocked ? 'blocked' : 'not-blocked');
       // Permission recovery: say what is missing and how to fix it; the person can still join and use the meeting without camera or microphone.
       Alert.alert('Camera and microphone', 'Qorlla needs camera and microphone access to be seen and heard in a meeting.' + (p.blocked ? ' Allow them in Settings.' : ''),
-        [...(p.blocked ? [{ text: 'Open settings', onPress: () => Linking.openSettings() }] : []), { text: 'Join without', onPress: () => openUrl(target) }, { text: 'Cancel', style: 'cancel' }]);
+        [...(p.blocked ? [{ text: 'Open settings', onPress: () => Linking.openSettings() }] : []), { text: 'Join without', onPress: () => { log('alert: Join without pressed'); openUrl(target, 'join-without'); } }, { text: 'Cancel', style: 'cancel', onPress: () => log('alert: Cancel pressed') }], { onDismiss: () => log('alert dismissed') });
       return;
     }
-    openUrl(target);
+    openUrl(target, 'granted');
   }, [openUrl]);
 
   // A qorlla://join?meeting=<id> link (from the system, a browser or a message) joins that meeting; any other link is ignored.
   useEffect(() => {
-    const handle = (link) => { const j = link && parseJoinLink(link); if (j) joinMeeting(j.meetingId); };
-    Linking.getInitialURL().then(handle).catch(() => {});
-    const sub = Linking.addEventListener('url', (e) => handle(e.url)); return () => sub.remove();
+    const handle = (link, src) => { const j = link && parseJoinLink(link); log('link', src, j ? 'accepted' : link ? 'rejected' : 'none'); if (j) joinMeeting(j.meetingId); };
+    Linking.getInitialURL().then((l) => handle(l, 'initial')).catch(() => {});
+    const sub = Linking.addEventListener('url', (e) => handle(e.url, 'event')); return () => sub.remove();
   }, [joinMeeting]);
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => { if (!url) return false; if (canGoBack.current && web.current) { web.current.goBack(); return true; } setUrl(null); return true; });
