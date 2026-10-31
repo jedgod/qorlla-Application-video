@@ -21,7 +21,8 @@ function main() {
   const digest = execFileSync('docker', ['image', 'inspect', BUILDER_IMAGE, '--format', '{{index .RepoDigests 0}}'], { encoding: 'utf8' }).trim();   // node@sha256:...
   if (!/@sha256:[0-9a-f]{64}$/.test(digest)) throw new Error('cannot pin the builder image by digest: ' + digest);
   console.log(`building commit ${full.slice(0, 12)} in ${digest.slice(0, 30)}…`);
-  const archive = spawnSync('git', ['archive', '--format=tar', full, '--', 'qorlla-clients', '.github'], { cwd: repo, maxBuffer: 1 << 30 });
+  // tar.umask=0022 is set explicitly: git archive otherwise applies 0002 and turns the repository's 0644 files into 0664 (the AppArmor profile would ship group-writable). The inside script verifies the modes either way.
+  const archive = spawnSync('git', ['-c', 'tar.umask=0022', 'archive', '--format=tar', full, '--', 'qorlla-clients', '.github'], { cwd: repo, maxBuffer: 1 << 30 });
   if (archive.status !== 0) throw new Error('git archive failed: ' + archive.stderr);
   const run = spawnSync('docker', ['run', '-i', '--rm', '-v', outDir + ':/out', digest, 'bash', '-c', 'mkdir /w && tar x -C /w && bash /w/qorlla-clients/tools/build-test-package.inside.sh'], { input: archive.stdout, encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, MSYS_NO_PATHCONV: '1' } });
   process.stdout.write((run.stdout || '').split('\n').filter((l) => /^==|^[0-9a-f]{64}/.test(l)).join('\n') + '\n');
