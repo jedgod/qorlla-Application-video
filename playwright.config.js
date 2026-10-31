@@ -16,6 +16,9 @@ module.exports = defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : 2,
   reporter: 'html',
+  // On CI Playwright embeds the git commit (author and committer name and e-mail, the commit message body, the branch) and a source diff in the HTML report, which this repository's pipeline may upload as a public artifact.
+  // Nothing in the report needs them, so they are switched off at the source; ci/scan-playwright-report.cjs is the safety net if they ever come back.
+  captureGitInfo: { commit: false, diff: false },
   webServer: {
     command: 'node server.js',
     url: baseURL + '/api/health',

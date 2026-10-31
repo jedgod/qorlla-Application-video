@@ -1,0 +1,26 @@
+{
+  "_comment": "Values the pre-upload scan accepts in a Playwright report. Everything else is a finding. Add an entry only for data that is demonstrably synthetic; never add a real address, host or credential. This file is reviewed like code. Names under the reserved RFC 2606 names (.example, .test, .invalid, .localhost, example.com/org/net) are always accepted. The ips listed are simulated client addresses written in tests/lockout.spec.js.",
+  "emailDomains": [
+    "example.com",
+    "example.org",
+    "example.net"
+  ],
+  "hosts": [
+    "localhost",
+    "127.0.0.1",
+    "www.w3.org",
+    "ns.adobe.com",
+    "cv.iptc.org",
+    "tailwindcss.com",
+    "cdn.tailwindcss.com",
+    "github.com"
+  ],
+  "ips": [
+    "127.0.0.1",
+    "7.7.7.7",
+    "8.8.8.8",
+    "9.9.9.9",
+    "10.0.0.9"
+  ],
+  "passwords": []
+}

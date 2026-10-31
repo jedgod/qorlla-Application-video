@@ -37,10 +37,26 @@ jobs:
         run: |
           for f in server.js appointments.js docs.js post-meeting.js notifications.js workplace.js auth.js store.js mailer.js; do node --check "$f" || exit 1; done
 
-      # 5) Build and orchestrate isolated container runtime engines
+      # 4b) Self-test the report scanner and the artifact upload policy. It needs only Node, so it runs BEFORE the container cluster: a broken scanner or a weakened upload policy fails the pipeline even when the cluster cannot start,
+      # and the upload steps below can never rely on an untested scanner.
+      - name: Self-test the Playwright report scanner and the artifact upload policy
+        run: |
+          node --test ci/tests/*.test.cjs
+
+      # 5a) Repair of the pre-existing CI failure (docker-compose.yml requires database passwords and secrets that CI never provided): generate EPHEMERAL, distinct, random values for the disposable cluster only.
+      # They are written to $RUNNER_TEMP (never the repository), masked in logs, never printed, never exported as values, and deleted at teardown. Authentication stays required: nothing is defaulted or left empty.
+      - name: Generate the disposable cluster's ephemeral secrets
+        run: |
+          bash ci/cluster.sh prepare
+
+      - name: Validate the compose configuration (the resolved configuration is not printed)
+        run: |
+          bash ci/cluster.sh check
+
+      # 5b) Build and orchestrate isolated container runtime engines
       - name: Initialize Docker Compose Multi-Container Cluster
         run: |
-          docker compose up --build -d
+          bash ci/cluster.sh up
           echo "Awaiting virtual service cluster boot sequences..."
           sleep 5
 
@@ -52,29 +68,44 @@ jobs:
 
       # 7) Execute the complete Playwright E2E Integration Suite
       - name: Execute Playwright Automated Integration Test Matrix
+        id: playwright
         run: |
           npx playwright test
         env:
           CI: true
           NODE_ENV: test
 
-      # 8) Aggregate system runtime outputs on error triggers
-      - name: Capture Internal Container Log Traces on Failure
+      # 8) Diagnostics on failure. This is a PUBLIC log: raw `docker compose logs` can carry database credentials, connection strings and authentication headers, so it is never printed.
+      # The summary shows service states and only error, warning and lifecycle lines, with secrets, addresses and tokens redacted (ci/sanitize-diagnostics.cjs).
+      - name: Sanitized diagnostics on failure (service states and redacted error lines only)
         if: failure()
         run: |
-          docker compose logs --tail=100
+          bash ci/cluster.sh diagnostics
 
-      # 9) Archive structural output summaries for verification visual reviews
-      - name: Archive Integration Test Output Artifact Reports
-        if: always()
+      # 9a) Fail-closed scan of the Playwright report BEFORE anything can be uploaded. This repository is PUBLIC: an artifact can be downloaded by anyone signed in to GitHub.
+      # The scan opens the trace archives (and archives inside them), the base64 archive embedded in index.html, network captures and screenshot metadata, and refuses anything sensitive or not understood.
+      - name: Scan the Playwright report for sensitive content (fail-closed)
+        id: scan
+        if: ${{ !cancelled() && steps.playwright.outcome == 'failure' && hashFiles('playwright-report/**') != '' }}
+        run: |
+          node ci/scan-playwright-report.cjs playwright-report --allowlist ci/artifact-scan-allowlist.json
+        env:
+          # Attestation that this run handled only synthetic data: a throwaway docker-compose cluster, Chromium's fake camera and microphone, generated example.com accounts, no production data and no secrets.
+          # Screenshots are refused without it.
+          QORLLA_CI_SYNTHETIC_DATA: '1'
+
+      # 9b) Upload the report ONLY when the Playwright tests failed (the report is then needed to diagnose) AND the scan above passed. Seven days, not thirty. Nothing is uploaded when the tests pass.
+      - name: Archive the Playwright report (tests failed and the scan passed)
+        if: ${{ !cancelled() && steps.playwright.outcome == 'failure' && steps.scan.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-execution-report
           path: playwright-report/
-          retention-days: 30
+          retention-days: 7
+          if-no-files-found: error
 
       # 10) Teardown transient resource limits cleanly
       - name: Teardown Active Cluster Containers
         if: always()
         run: |
-          docker compose down --volumes
+          bash ci/cluster.sh down

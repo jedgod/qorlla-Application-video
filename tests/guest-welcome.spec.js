@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { measureOverflow } = require('./support/overflow');
 
 // Guest Welcome design integration: every control goes to an existing route, nothing here grants access, layout holds at three widths.
 const sizes = { desktop: { width: 1366, height: 768 }, tablet: { width: 820, height: 1180 }, phone: { width: 390, height: 844 } };
@@ -36,7 +37,7 @@ test('rail previews land on Explore anchors, Help anchors exist, and a guest sti
 for (const [name, vp] of Object.entries(sizes)) {
   test(`layout at ${name}: no horizontal overflow, rail placement, all four tiles and the sign-in button reachable`, async ({ page }) => {
     await page.setViewportSize(vp); await page.goto('/guest/welcome');
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    const m = await measureOverflow(page); expect(m.scrollWidth <= m.clientWidth, 'horizontal overflow: ' + JSON.stringify(m)).toBe(true);
     for (const n of ['Join Meeting', 'Explore Qorlla', 'Help & Tutorials', 'Create Account']) await expect(page.getByRole('heading', { name: n })).toBeVisible();
     await page.getByRole('link', { name: 'Sign in to Qorlla Workspace' }).scrollIntoViewIfNeeded(); await expect(page.getByRole('link', { name: 'Sign in to Qorlla Workspace' })).toBeVisible();
     const box = await page.locator('.sidebar').boundingBox();

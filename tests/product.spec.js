@@ -1,4 +1,5 @@
 ﻿const { test, expect } = require('@playwright/test');
+const { measureOverflow } = require('./support/overflow');
 
 test('account tabs expose selection and support arrow-key navigation', async ({ page }) => {
   await page.goto('/login.html?standalone=1');
@@ -40,7 +41,7 @@ for (const locale of ['en','fr','pt-PT']) {
       await page.goto(url);
       await expect(page.locator('html')).toHaveAttribute('lang',locale);
       await expect(page.locator('[data-language-select]')).toBeVisible();
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      const m = await measureOverflow(page); expect(m.scrollWidth <= m.innerWidth, 'horizontal overflow at ' + url + ': ' + JSON.stringify(m)).toBe(true);
     }
   });
 }

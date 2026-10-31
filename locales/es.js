@@ -314,7 +314,7 @@ window.QorllaLocales["es"] = {
   "Text message": "Mensaje de texto",
   "Share...": "Compartir...",
   "Email addresses": "Direcciones de correo",
-  "name@example.com, other@example.com": "nombre@ejemplo.com, otro@ejemplo.com",
+  "name@example.com, other@example.com": "nombre@example.com, otro@example.com",
   "Send invitations": "Enviar invitaciones",
   "This meeting needs a passcode. Enter it in the Passcode box.": "Esta reunión requiere un código de acceso. Introdúcelo en el cuadro de código.",
   "Join my Qorlla meeting": "Únete a mi reunión de Qorlla",
