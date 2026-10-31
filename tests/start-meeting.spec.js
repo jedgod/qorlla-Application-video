@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const MEET_URL = new RegExp('localhost:' + (process.env.MEET_TEST_PORT || 3310));   // MEET_TEST_PORT: the isolated test Meet's port
 const { MEET, startMain, organiser, login } = require('./support/meet-stack');
 
 // v4.0.2b secure pre-meeting experience: server-provided facts, opt-in device checks, admission policy that the SERVER (Meet) enforces, safe Start (no duplicates,
@@ -92,7 +93,7 @@ test('Start is safe: one click = one start; a failure keeps every entry and offe
   await page.fill('#sdTitleIn', 'Quarterly review'); await page.fill('#sdName', 'stryker'); await page.fill('#sdPass', 'secret-pass-1'); await page.uncheck('#sdWait'); await page.check('#sdLock');
   await page.dblclick('#sdGo'); await expect(page.locator('#sdErr')).toHaveText('Temporary failure'); expect(calls).toBe(1);                                           // a double click sent ONE request
   await expect(page.locator('#sdGo')).toHaveText('Retry start'); await expect(page.locator('#sdTitleIn')).toHaveValue('Quarterly review'); await expect(page.locator('#sdPass')).toHaveValue('secret-pass-1'); await expect(page.locator('#sdLock')).toBeChecked();   // nothing was lost
-  fail = false; await page.click('#sdGo'); await page.waitForURL(/localhost:3310/); await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });
+  fail = false; await page.click('#sdGo'); await page.waitForURL(MEET_URL); await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });
   await expect(page.locator('#roomTitle')).toHaveText('Quarterly review');                                                                                          // the new title reached Meet
   const pf = await (await api(context, 'get', '/api/meetings/' + encodeURIComponent(item.meetingId) + '/preflight')).json(); expect(pf).toMatchObject({ title: 'Quarterly review', passcodeRequired: true, explicit: true, settings: { waitingRoom: false, lockAfterJoin: true } });
   // idempotency: the same request id returns the same answer (no second start)
@@ -105,7 +106,7 @@ test('the waiting room is enforced by Meet: guests wait, see nothing, are admitt
   const oc = await browser.newContext({ permissions: PERM }); const { item } = await organiser(oc, MAIN);
   const hp = await hostIn(browser, oc, item, { waitingRoom: true, joinBeforeHost: false });                                                                           // waiting room ON
   await hp.click('[data-tab=people]');
-  const { gc, gp } = await prejoin(browser, item, 'Gail'); await gp.waitForURL(/localhost:3310/); await expect(gp.locator('#waiting')).toBeVisible({ timeout: 20000 }); await expect(gp.locator('#waitingMsg')).toContainText('let you in');
+  const { gc, gp } = await prejoin(browser, item, 'Gail'); await gp.waitForURL(MEET_URL); await expect(gp.locator('#waiting')).toBeVisible({ timeout: 20000 }); await expect(gp.locator('#waitingMsg')).toContainText('let you in');
   await expect(gp.locator('#app')).toHaveClass(/hidden/); await expect(gp.locator('#liveBadge')).toBeHidden();                                                      // sees nothing of the meeting
   // the server refuses a waiting guest on every meeting route
   const sess = await gp.evaluate(() => JSON.parse(sessionStorage.getItem('qorlla-session'))); const meetId = sess.meetingId;
@@ -118,11 +119,11 @@ test('the waiting room is enforced by Meet: guests wait, see nothing, are admitt
   await hp.getByRole('button', { name: 'Admit Gail' }).click(); await expect(gp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 20000 }); await expect(hp.locator('.tile')).toHaveCount(2, { timeout: 30000 });
   await expect(hp.locator('#waitingBox')).toBeHidden();
   // a second guest is denied
-  const g2 = await prejoin(browser, item, 'Dan'); await g2.gp.waitForURL(/localhost:3310/); await expect(g2.gp.locator('#waiting')).toBeVisible({ timeout: 20000 });
+  const g2 = await prejoin(browser, item, 'Dan'); await g2.gp.waitForURL(MEET_URL); await expect(g2.gp.locator('#waiting')).toBeVisible({ timeout: 20000 });
   await hp.getByRole('button', { name: 'Deny Dan' }).click(); await expect(g2.gp.locator('#landingError')).toContainText('did not let you in', { timeout: 20000 }); await expect(hp.locator('.tile')).toHaveCount(2);
   // the host can switch it off in the meeting: the next guest walks straight in
   await hp.click('[data-tab=more]'); await hp.locator('.mg-h', { hasText: 'Meeting management' }).click(); await hp.getByLabel(/Waiting room/).uncheck();
-  const g3 = await prejoin(browser, item, 'Eve'); await g3.gp.waitForURL(/localhost:3310/); await expect(g3.gp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });
+  const g3 = await prejoin(browser, item, 'Eve'); await g3.gp.waitForURL(MEET_URL); await expect(g3.gp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });
   for (const c of [oc, gc, g2.gc, g3.gc]) await c.close();
 });
 
@@ -132,7 +133,7 @@ test('join-before-host off: guests wait for the host and are let in when the hos
   // set the policy first (no waiting room, no join-before-host, lock when I join) without opening the meeting yet
   expect((await api(oc, 'patch', '/api/meetings/' + encodeURIComponent(item.meetingId) + '/settings', { waitingRoom: false, joinBeforeHost: false, lockAfterJoin: true })).status()).toBe(200);
   // register with Meet (an invitee arriving first is what triggers it) - the guest arrives BEFORE the host
-  const { gc, gp } = await prejoin(browser, item, 'Early Ed'); await gp.waitForURL(/localhost:3310/); await expect(gp.locator('#waiting')).toBeVisible({ timeout: 20000 }); await expect(gp.locator('#waitingMsg')).toContainText('host to start');
+  const { gc, gp } = await prejoin(browser, item, 'Early Ed'); await gp.waitForURL(MEET_URL); await expect(gp.locator('#waiting')).toBeVisible({ timeout: 20000 }); await expect(gp.locator('#waitingMsg')).toContainText('host to start');
   const hp = await hostIn(browser, oc, item, { waitingRoom: false, joinBeforeHost: false, lockAfterJoin: true });
   await expect(gp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });                                                                                      // admitted automatically when the host arrived
   await expect(hp.locator('.tile')).toHaveCount(2, { timeout: 30000 });
@@ -244,7 +245,7 @@ test.describe('Join meeting screen', () => {
     await page.fill('#sdMid', '000 0000 0000'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('Check the meeting ID and password'); await page.fill('#sdMid', '12345'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('11-digit');
     await page.fill('#sdMid', item.meetingId.replace(/ /g, '')); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('needs a password'); await expect(page.locator('#sdPass')).toBeFocused();
     await page.fill('#sdPass', 'wrong-guess'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('Check the meeting ID and password'); await expect(page.locator('#startDialog')).toBeVisible();
-    await page.fill('#sdPass', 'secret-door'); await page.click('#sdGo'); await expect(page).toHaveURL(/localhost:3310|\/index\.html\?start=join/);   // into the meeting: Meet when it is running, else the basic room
+    await page.fill('#sdPass', 'secret-door'); await page.click('#sdGo'); await expect(page).toHaveURL(new RegExp('localhost:' + (process.env.MEET_TEST_PORT || 3310) + '|\\/index\\.html\\?start=join'));   // into the meeting: Meet when it is running, else the basic room
     await oc.close();
   });
 });

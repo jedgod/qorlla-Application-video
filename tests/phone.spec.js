@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 // They do NOT prove real inbound calls, real numbers or audio: there is no carrier and no PSTN-to-WebRTC media gateway in this repository (BLOCKED).
 // Needs Meet on :3310 started with scripts/start-recording-test-meet.cjs (it enables the test provider).
 const { startMain, organiser } = require('./support/meet-stack');
-const MEET = 'http://localhost:3310', SECRET = 'phone-test-secret-123456';
+const MEET = 'http://localhost:' + (process.env.MEET_TEST_PORT || 3310), SECRET = 'phone-test-secret-123456';
 const sign = (raw, t = Math.floor(Date.now() / 1000)) => 't=' + t + ',v1=' + crypto.createHmac('sha256', SECRET).update(t + '.' + raw).digest('hex');
 const RUN = '-' + crypto.randomBytes(4).toString('hex');                       // call ids are unique per run (the table remembers every call)
 let seq = 0; const eid = () => 'evt-' + Date.now() + '-' + (++seq) + '-' + crypto.randomBytes(3).toString('hex');
@@ -47,8 +47,13 @@ test.describe('dial-in against the real Meet server', () => {
     const m = await meeting(browser); const api = (p, o) => m.ctx.request.fetch(B() + p, o);
     const dn = await (await api('/api/phone/dial-in-numbers')).json(); expect(dn.configured).toBe(true); expect(dn.numbers.map((n) => n.number)).toEqual(['+12125550100', '+18005550100']); expect(dn.numbers[1].tollFree).toBe(true); expect(dn.carrierCalling).toBe(false); expect(dn.joinEnabled).toBe(false); expect(dn.notice).toContain('not available yet'); expect(dn.numbers.every((n) => n.confirmed === false)).toBe(true);   // junk entries dropped, nothing invented, and joining by phone is not claimed while the bridge is uncertified
     expect((await (await browser.newContext()).request.get(B() + '/api/phone/dial-in-numbers')).status()).toBe(401);
-    expect((await api('/api/phone/calls', { method: 'POST', data: { to: '+15551230000' } })).status()).toBe(400);   // an idempotency key is required
-    const nc = await api('/api/phone/calls', { method: 'POST', data: { to: '+15551230000' }, headers: { 'Idempotency-Key': 'call-test-0001' } }); expect(nc.status()).toBe(503); expect((await nc.json()).error).toContain('Carrier calling is not enabled'); expect((await api('/api/phone/numbers/provision', { method: 'POST', data: { country: 'US' }, headers: { 'Idempotency-Key': 'req-test-0001' } })).status()).toBe(403);   // not an administrator
+    // Since the PSTN lockdown (61404e7) the feature gate answers BEFORE any validation or provider work: every carrier-calling and number-provisioning request is 403 feature_disabled,
+    // with or without an idempotency key and whoever asks. The older outcomes (400 without a key, 503 "Carrier calling is not enabled", 403 "not an administrator") are not reachable while the gate is closed.
+    // Exact status AND error are asserted: a refusal that changed its reason or became a success must fail this test.
+    const gated = async (p, o) => { const r = await api(p, o); expect(r.status(), p).toBe(403); expect((await r.json()).error, p).toBe('feature_disabled'); };
+    await gated('/api/phone/calls', { method: 'POST', data: { to: '+15551230000' } });
+    await gated('/api/phone/calls', { method: 'POST', data: { to: '+15551230000' }, headers: { 'Idempotency-Key': 'call-test-0001' } });
+    await gated('/api/phone/numbers/provision', { method: 'POST', data: { country: 'US' }, headers: { 'Idempotency-Key': 'req-test-0001' } });
     const pa = await (await api('/api/meetings/' + encodeURIComponent(m.item.meetingId) + '/phone-access', { method: 'POST', data: {} })).json(); expect(pa.pin).toMatch(/^\d{8}$/); expect(pa.pin).not.toBe(m.pin); expect(pa.shownOnce).toBe(true); expect(pa.telephony.enabled).toBe(true); expect(pa.telephony.provider).toBe('test-double');
     expect(pa.invitation).not.toContain('+12125550100'); expect(pa.invitation).toContain('not available yet'); expect(pa.invitation).toContain('Meeting ID: ' + m.digits + '#'); expect(pa.invitation).toContain('PIN: ' + pa.pin + '#'); expect(pa.invitation).toContain('audio only');
     const other = await browser.newContext(); await other.request.post(B() + '/api/auth/register', { data: { username: 'oth' + Math.random().toString(36).slice(2, 7), displayName: 'Other', password: 'Handoff-pass-9917!x' } });
@@ -98,7 +103,7 @@ test.describe('dial-in against the real Meet server', () => {
     const det = await (await m.ctx.request.get(B() + '/api/history/meetings/' + encodeURIComponent(m.item.meetingId))).json(); const ph = det.attendees.find((a) => a.phone); expect(ph.name).toBe('Phone ••••4567'); expect(det.uniqueAttendeeCount).toBeGreaterThanOrEqual(1);
     const everything = JSON.stringify([r.body, calls, done, det]); expect(everything).not.toContain('5551234567'); expect(everything).not.toContain(FROM1);
     const { Client } = require('../qorlla-meet-video/node_modules/pg'); const s = JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', '.dev-stack', 'secrets.json'), 'utf8'));
-    const c = new Client({ connectionString: 'postgres://qorlla:' + s.dbPassword + '@127.0.0.1:35432/qorlla_meet' }); await c.connect(); const rows = (await c.query('select * from phone_calls where provider_call_id=$1', [('call-join-1' + RUN)])).rows[0]; await c.end();
+    const c = new Client({ connectionString: 'postgres://qorlla:' + s.dbPassword + '@127.0.0.1:' + (process.env.MEET_DB_PORT || 35432) + '/qorlla_meet' }); await c.connect(); const rows = (await c.query('select * from phone_calls where provider_call_id=$1', [('call-join-1' + RUN)])).rows[0]; await c.end();
     expect(JSON.stringify(rows)).not.toContain('5551234567'); expect(rows.caller_hash).toMatch(/^[0-9a-f]{64}$/); expect(rows.caller_last4).toBe('4567');
     await m.ctx.close();
   });
@@ -109,8 +114,17 @@ test.describe('dial-in against the real Meet server', () => {
     const r1 = await dial(m, FROM1, { callId: ('w-1' + RUN) }), r2 = await dial(m, FROM2, { callId: ('w-2' + RUN) }); expect(r1.body.result).toBe('waiting'); expect(r1.body.say).toContain('hold'); expect(r2.body.result).toBe('waiting');
     const wl = (await m.host('/waiting')).body.waiting; expect(wl.map((x) => x.name).sort()).toEqual(['Phone ••••4321', 'Phone ••••4567']); expect((await m.host('/')).body.online.length).toBe(0);      // not in the room yet
     const first = wl.find((x) => x.name.endsWith('4567')), second = wl.find((x) => x.name.endsWith('4321'));
-    expect((await m.host('/admit', 'POST', { participantId: first.participantId, allow: true })).status).toBe(200); expect((await m.host('/admit', 'POST', { participantId: second.participantId, allow: false })).status).toBe(200);
-    const calls = await attendance(m); expect(calls.find((c) => c.name.endsWith('4567')).status).toBe('connected'); expect(calls.find((c) => c.name.endsWith('4321')).status).toBe('denied'); expect((await m.host('/')).body.online.length).toBe(1);
+    const a1 = await m.host('/admit', 'POST', { participantId: first.participantId, allow: true }), a2 = await m.host('/admit', 'POST', { participantId: second.participantId, allow: false });
+    expect(a1.status).toBe(200); expect(a1.body.changed).toBe(1); expect(a2.status).toBe(200); expect(a2.body.changed).toBe(1);   // each call changed exactly the one participant it named
+    // DURABLE before the response: the admission decisions are an awaited UPDATE of the participants rows, so nobody is left waiting. No polling for this.
+    expect((await m.host('/waiting')).body.waiting).toEqual([]);
+    // ASYNCHRONOUS by design: the call itself (connected, or denied and hung up) is applied AFTER the response by phone.onAdmission, which /admit does not await, and the in-memory presence list is updated
+    // after the database writes. So each of these is a bounded poll (5 s) for the EXACT final state, read from this meeting's persisted phone_calls rows: 'waiting' is never accepted as an answer.
+    const final = { timeout: 5000, intervals: [100, 200, 400] };
+    const statusOf = async (suffix) => { const cs = (await attendance(m)).filter((c) => c.name.endsWith(suffix)); return cs.length === 1 ? cs[0].status : 'ambiguous:' + cs.length; };   // exactly one record per caller in THIS meeting
+    await expect.poll(() => statusOf('4567'), final).toBe('connected');
+    await expect.poll(() => statusOf('4321'), final).toBe('denied');
+    await expect.poll(async () => (await m.host('/')).body.online.length, final).toBe(1);
     await m.ctx.close();
     const h = await meeting(browser, { joinBeforeHost: false, title: 'Host absent' }); const w = await dial(h, FROM3, { callId: ('ha-1' + RUN) }); expect(w.body.result).toBe('waiting');
     const hp = await h.ctx.newPage(); await hp.goto(h.startUrl); await expect(hp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });   // the host connects: callers that waited for the host are let in
@@ -166,7 +180,7 @@ test.describe('dial-in against the real Meet server', () => {
     await mid.fill(m.digits + '99'); await expect(mid).toHaveValue(m.digits.slice(0, 3) + ' ' + m.digits.slice(3, 7) + ' ' + m.digits.slice(7, 11)); await expect(dir).toContainText('+12125550100'); await expect(dir).toContainText('Toll-free'); await expect(dir).not.toContainText('555,');   // a real meeting resolves; only real numbers
     await expect(page.locator('#phone-pin')).toHaveCount(0);   // the PIN is typed on the phone, never on this page
     await page.locator('#qpShowHow').click(); await expect(page.locator('#qpHow')).toContainText('followed by #'); await expect(page.locator('#qpHow')).toContainText(m.digits.slice(0, 3) + ' ' + m.digits.slice(3, 7) + ' ' + m.digits.slice(7, 11));
-    await page.locator('#phTab-settings').click(); await expect(page.locator('#qpNumber')).toContainText('No Qorlla number assigned'); await page.locator('#qpReqNum').click(); await expect(page.locator('#qpReqMsg')).toContainText('administrators');   // honest: no number can be requested without a provider
+    await page.locator('#phTab-settings').click(); await expect(page.locator('#qpNumber')).toContainText('No number assigned'); await page.locator('#qpReqNum').click(); await expect(page.locator('#qpReqMsg')).toContainText('feature_disabled');   /* the numbers gate refuses first (PSTN lockdown 61404e7); no number can be requested */   // honest: no number can be requested without a provider
     await page.locator('#phTab-join').click(); await expect(page.locator('#qpMeetings')).toBeVisible(); await page.locator('.qp-pick', { hasText: 'Dial me' }).click(); await expect(mid).toHaveValue(m.digits.slice(0, 3) + ' ' + m.digits.slice(3, 7) + ' ' + m.digits.slice(7, 11));   // a click on a meeting fills the Meeting ID
     await expect(page.locator('.ph-meeting', { hasText: 'Dial me' })).toBeVisible();
     const box = page.locator('.ph-meeting', { hasText: 'Dial me' }); await box.getByRole('button', { name: 'Create phone PIN' }).click(); await expect(box.locator('.ph-pinv')).toHaveText(/^\d{8}$/); const pin = await box.locator('.ph-pinv').textContent();
@@ -271,7 +285,7 @@ test.describe('Phone: contacts, call preferences, plans, recurrence labels, invi
     await page.locator('#qpAddContact').click(); await page.locator('#qpCName').fill('Michael Tan'); await page.locator('#qpCEmail').fill('michael@example.com'); await page.locator('#qpCGroup').selectOption('external'); await page.locator('#qpSaveContact').click(); await expect(page.locator('.qp-crow')).toHaveCount(2);
     await page.locator('#qpFav').click(); await expect(page.locator('#qpFav')).toHaveAttribute('aria-pressed', 'true'); await page.locator('#cFilter, [data-f=favorites]').first().click(); await expect(page.locator('.qp-crow')).toHaveCount(1); await page.locator('#qpContacts [data-f=all]').click();
     await page.getByLabel('Search contacts').fill('jane'); await expect(page.locator('.qp-crow')).toHaveCount(1); await page.getByLabel('Search contacts').fill('zzz'); await expect(page.locator('#qpNoContacts')).toContainText('No contacts match'); await page.getByLabel('Search contacts').fill('');
-    await page.locator('.qp-crow', { hasText: 'Dr. Jane Smith' }).click(); await page.locator('#qpCallBtn').click(); await expect(page.locator('#qpContactMsg')).toContainText('Carrier calling is not enabled');   // wired to the API; refused honestly
+    await page.locator('.qp-crow', { hasText: 'Dr. Jane Smith' }).click(); await page.locator('#qpCallBtn').click(); await expect(page.locator('#qpContactMsg')).toContainText('feature_disabled');   // wired to the API; refused honestly. Since the PSTN lockdown (61404e7) the gate's own code is what the page shows (the raw code is a wording follow-up for the page, tracked separately)
     await page.locator('#qpEdit').click(); await page.locator('#qpCDept').fill('Research'); await page.locator('#qpSaveContact').click(); await expect(page.locator('#qpContactDetail')).toContainText('Research');
     await page.locator('#qpStartMeet').click(); await expect(page.locator('#startDialog')).toBeVisible({ timeout: 15000 }); await expect(page.locator('#sdEmails')).toHaveValue('jane.smith@example.com', { timeout: 15000 }); await page.locator('#sdClose').click();
     const over = await page.evaluate(() => { const g = document.querySelector('.qp-grid').getBoundingClientRect(); return [g.bottom, innerHeight, document.documentElement.scrollWidth > innerWidth + 1]; }); expect(over[0]).toBeLessThanOrEqual(over[1]); expect(over[2]).toBe(false);
@@ -283,7 +297,7 @@ test.describe('Phone: contacts, call preferences, plans, recurrence labels, invi
     await page.locator('#qpPT-forward').click(); await page.locator('#qpFwdOn').check(); await page.locator('#qpSaveFwd').click(); await expect(page.locator('#qpPlanMsg')).toContainText('Enter the number'); await page.locator('#qpFwdTo').fill('+442071234567'); await page.locator('#qpSaveFwd').click(); await expect(page.locator('#qpPlanMsg')).toContainText('once carrier calling is connected');
     await page.locator('#qpPT-voicemail').click(); await page.locator('#qpVmOn').check(); await page.locator('#qpVmGreeting').fill('Please leave a message'); await page.locator('#qpSaveVm').click(); await expect(page.locator('#qpPlanMsg')).toContainText('once carrier calling is connected');
     await page.reload(); await page.locator('.nav-item[data-view=phone]').click(); await page.locator('#phTab-settings').click(); await page.locator('#qpPT-voicemail').click(); await expect(page.locator('#qpVmOn')).toBeChecked(); await expect(page.locator('#qpVmGreeting')).toHaveValue('Please leave a message');   // it was really saved
-    await page.locator('#qpManage').click(); await expect(page.locator('#qpNumTable')).toBeVisible(); await page.locator('#qpReqNum').click(); await expect(page.locator('#qpReqMsg')).toContainText('administrators');
+    await page.locator('#qpManage').click(); await expect(page.locator('#qpNumTable')).toBeVisible(); await page.locator('#qpReqNum').click(); await expect(page.locator('#qpReqMsg')).toContainText('feature_disabled');   /* the numbers gate refuses first (PSTN lockdown 61404e7); no number can be requested */
     await ctx.close();
   });
 });

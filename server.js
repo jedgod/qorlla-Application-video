@@ -290,9 +290,23 @@ app.post('/api/admin/accounts/:id/suspend', (req, res, next) => auth.requireUser
     res.json({ ok: true, suspended });
 });
 const phoneAdmin = (u) => { const n = String((u && u.username) || '').toLowerCase(); return String(process.env.PHONE_ADMIN_USERS || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean).some((p) => (p.endsWith('*') ? n.startsWith(p.slice(0, -1)) : p === n)); };
-const tel = (u, method, route, o = {}) => meetLaunch.telephony(method, route, { actor: { id: u.id, admin: phoneAdmin(u) }, ...o });
+// Number Authority VIEWER (read-only): policy and its reasons live in number-viewer.js. Every viewer read is audited (log line and an append-only file).
+const numberViewer = require('./number-viewer');
+const phoneViewer = (u) => numberViewer.isViewer(u, phoneAdmin(u));
+function viewerAudit(u, route, req) {
+    const rec = { at: new Date().toISOString(), event: 'number_authority_view', userId: u.id, username: u.username, route, ip: req && req.ip, correlationId: req && req.res && req.res.get && req.res.get('X-Correlation-Id') };
+    const ok = numberViewer.recordRead(path.join(DATA_DIR, 'auth', 'number-authority-viewer-audit.jsonl'), rec);
+    console.log(JSON.stringify(ok ? rec : { ...rec, audit: 'NOT_WRITTEN' }));
+    return ok;
+}
+const tel = (u, method, route, { viewerRead, req, ...o } = {}) => {
+    const actor = numberViewer.actorFor(u, { admin: phoneAdmin(u), method, route, viewerRead });
+    // Fail closed: if the viewer's read cannot be audited it is refused (503) and nothing is sent to Meet.
+    if (actor.viewer && !viewerAudit(u, method + ' ' + route, req)) return Promise.resolve({ ok: false, status: 503, data: { error: 'The audit log is unavailable, so this read was refused.', code: 'AUDIT_UNAVAILABLE' } });
+    return meetLaunch.telephony(method, route, { actor, ...o });
+};
 const telSend = async (req, res, method, route, o = {}) => {
-    const u = phoneUser(req, res); if (!u) return; const r = await tel(u, method, route, typeof o === 'function' ? o(req) : o);
+    const u = phoneUser(req, res); if (!u) return; const r = await tel(u, method, route, { req, ...(typeof o === 'function' ? o(req) : o) });
     res.status(r.status || 503).set('Cache-Control', 'no-store').json(r.ok ? r.data : { error: (r.data && r.data.error) || 'Telephony request failed.', code: (r.data && r.data.code) || 'ERROR' });
 };
 const NOCAPS = (why) => { const r = (status, detail) => ({ status, detail, proof: [] }); return { reachable: false, provider: r('not_connected', why), dialin: r('not_connected', why), carrier: r('off', why), number: r('unassigned', 'No number is assigned to you.'), bridge: r('not_built', 'No media gateway is installed.'), billing: r('not_connected', why), callingEnabled: false, phoneMeetingJoinEnabled: false, carrierName: null, webhookConfigured: false }; };
@@ -327,7 +341,7 @@ app.get('/api/phone/overview', async (req, res) => {
     const cfg = ML.config(process.env), exempt = ML.isExempt(u, process.env), since = Date.now() - 30 * 86400000; let meetings = 0, ms = 0;
     for (const m of meetingsState.values()) { const a = Number(m.actualStartAt) || 0; if (m.hostId === u.id && a >= since) { meetings++; ms += Math.max(0, (Number(m.actualEndAt) || Date.now()) - a); } }
     const caps = await capsFor(u), dj = await dialInFor(u, caps), mine = caps.reachable ? await tel(u, 'GET', '/numbers', { query: { kind: 'personal' } }) : { ok: false };
-    res.set('Cache-Control', 'no-store').json({ provider: caps.reachable && caps.carrierName && caps.carrierName !== 'unconfigured' ? caps.carrierName : (process.env.PHONE_PROVIDER || null), carrierCalling: !!caps.callingEnabled, audioBridge: caps.bridge.status === 'active', admin: phoneAdmin(u), telephony: { reachable: caps.reachable },
+    res.set('Cache-Control', 'no-store').json({ provider: caps.reachable && caps.carrierName && caps.carrierName !== 'unconfigured' ? caps.carrierName : (process.env.PHONE_PROVIDER || null), carrierCalling: !!caps.callingEnabled, audioBridge: caps.bridge.status === 'active', admin: phoneAdmin(u), numberViewer: phoneViewer(u), telephony: { reachable: caps.reachable },
         capabilities: { provider: caps.provider, dialin: caps.dialin, carrier: caps.carrier, number: caps.number, bridge: caps.bridge, billing: caps.billing, phoneMeetingJoinEnabled: !!caps.phoneMeetingJoinEnabled, webhookConfigured: !!caps.webhookConfigured },
         numbers: dj.numbers.map((n) => ({ ...n, status: n.confirmed ? 'active' : 'configured', use: 'Meeting dial-in' })), joinByPhoneEnabled: dj.joinEnabled, assigned: mine.ok ? mine.data : [],
         plan: { name: exempt ? 'Paid (no time limit)' : 'Free', exempt, limitMinutes: Math.round(cfg.limitMs / 60000), graceMinutes: Math.round(cfg.graceMs / 60000), billingConnected: caps.billing.status === 'active' }, usage: { days: 30, hostedMeetings: meetings, hostedMinutes: Math.round(ms / 60000) } });
@@ -344,9 +358,9 @@ app.get('/api/phone/call-intents', (req, res) => telSend(req, res, 'GET', '/call
 app.get('/api/phone/calls/:id([0-9a-f-]{36})', (req, res) => telSend(req, res, 'GET', '/calls/' + encodeURIComponent(req.params.id)));
 app.post('/api/phone/calls/:id([0-9a-f-]{36})/end', (req, res) => telSend(req, res, 'POST', '/calls/' + encodeURIComponent(req.params.id) + '/end'));
 app.post('/api/phone/numbers/provision', (req, res) => telSend(req, res, 'POST', '/numbers/request', (q) => ({ body: { country: (q.body || {}).country, kind: (q.body || {}).kind, assignTo: (q.body || {}).assignTo, idempotencyKey: q.get('idempotency-key') || (q.body || {}).idempotencyKey } })));
-app.get('/api/phone/numbers/requests', (req, res) => telSend(req, res, 'GET', '/numbers/requests'));
+app.get('/api/phone/numbers/requests', (req, res) => telSend(req, res, 'GET', '/numbers/requests', { viewerRead: true }));
 app.get('/api/phone/numbers/available', (req, res) => telSend(req, res, 'GET', '/numbers/available', (q) => ({ query: { country: String(q.query.country || ''), type: String(q.query.type || '') } })));
-app.get('/api/phone/numbers', (req, res) => telSend(req, res, 'GET', '/numbers', (q) => ({ query: q.query.kind ? { kind: String(q.query.kind) } : undefined })));
+app.get('/api/phone/numbers', (req, res) => telSend(req, res, 'GET', '/numbers', (q) => ({ viewerRead: true, query: q.query.kind ? { kind: String(q.query.kind) } : undefined })));
 app.post('/api/phone/numbers/:id/state', (req, res) => telSend(req, res, 'POST', '/numbers/' + encodeURIComponent(req.params.id) + '/state', (q) => ({ body: { state: (q.body || {}).state } })));
 app.post('/api/phone/numbers/:id/reassign', (req, res) => telSend(req, res, 'POST', '/numbers/' + encodeURIComponent(req.params.id) + '/reassign', (q) => ({ body: { to: (q.body || {}).to } })));
 app.post('/api/phone/numbers/:id/caller-id', (req, res) => telSend(req, res, 'POST', '/numbers/' + encodeURIComponent(req.params.id) + '/caller-id', (q) => ({ body: { verified: (q.body || {}).verified === true } })));
@@ -354,7 +368,7 @@ app.post('/api/phone/provider/test-connection', (req, res) => telSend(req, res, 
 app.get('/api/phone/usage', (req, res) => telSend(req, res, 'GET', '/usage'));
 app.post('/api/phone/usage/:id/adjust', (req, res) => telSend(req, res, 'POST', '/usage/' + encodeURIComponent(req.params.id) + '/adjust', (q) => ({ body: { kind: (q.body || {}).kind, amountMicros: (q.body || {}).amountMicros, reason: (q.body || {}).reason } })));
 app.put('/api/phone/limits/:owner', (req, res) => telSend(req, res, 'PUT', '/limits/' + encodeURIComponent(req.params.owner), (q) => ({ body: { monthlyLimitMicros: (q.body || {}).monthlyLimitMicros } })));
-app.get('/api/phone/telephony/diagnostics', (req, res) => telSend(req, res, 'GET', '/diagnostics'));
+app.get('/api/phone/telephony/diagnostics', (req, res) => telSend(req, res, 'GET', '/diagnostics', { viewerRead: true }));
 // Saved call preferences (forwarding, voicemail, do-not-disturb, ...) are passed to Meet as DESIRED state. Meet reports what the carrier actually enforces; until it confirms, the page says "saved, inactive".
 function syncPhoneFeatures(u, s) {
     const body = { forwarding: { enabled: !!(s.forwardEnabled && s.forwardTo), to: s.forwardTo }, voicemail: { enabled: !!s.voicemailEnabled, greeting: s.voicemailGreeting }, doNotDisturb: { enabled: !!s.doNotDisturb }, callWaiting: { enabled: !!s.callWaiting },

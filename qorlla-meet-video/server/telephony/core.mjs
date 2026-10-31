@@ -14,6 +14,8 @@ export function normalizeE164(input) {
   return value;
 }
 export function assertAdmin(actor) { if (!actor || !actor.id || actor.admin !== true) throw err('FORBIDDEN', 'Only administrators can do this.', 403); }
+// Read-only Number Authority access: an administrator OR an account the main app marked `viewer`. It grants READS only; every mutation still calls assertAdmin, which a viewer can never satisfy.
+export function assertViewer(actor) { if (!actor || !actor.id || (actor.admin !== true && actor.viewer !== true)) throw err('FORBIDDEN', 'Only administrators or Number Authority viewers can do this.', 403); }
 export function assertActor(actor) { if (!actor || !actor.id) throw err('UNAUTHENTICATED', 'Sign in first.', 401); }
 
 // Regions Qorlla knows. A region being listed says nothing about numbers: availability always comes from the carrier.

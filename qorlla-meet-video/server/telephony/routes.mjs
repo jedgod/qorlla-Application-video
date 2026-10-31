@@ -4,13 +4,13 @@ import express from 'express';
 import { TelephonyService } from './service.mjs';
 import { createCarrier, UnconfiguredBridge, UnconfiguredAudioGateway } from './provider.mjs';
 import { voiceTwiml } from './ivr.mjs';
-import { normalizeE164, assertAdmin } from './core.mjs';
+import { normalizeE164, assertAdmin, assertViewer } from './core.mjs';
 import { createEngineSink, startNumberSync } from './number-sync.mjs';
 import { transportFromEnv } from './workload-transport.mjs';
 
 export function registerTelephony({ app, db, bridgeAuth, phone, env = process.env, carrier = createCarrier(env), bridge = new UnconfiguredBridge(), audio = new UnconfiguredAudioGateway() }) {
   const svc = new TelephonyService({ db, carrier, bridge, audio, env });
-  const actorOf = (req) => { const id = String(req.get('x-qorlla-actor') || ''); return /^[A-Za-z0-9_-]{1,64}$/.test(id) ? { id, admin: req.get('x-qorlla-admin') === '1' } : null; };
+  const actorOf = (req) => { const id = String(req.get('x-qorlla-actor') || ''); return /^[A-Za-z0-9_-]{1,64}$/.test(id) ? { id, admin: req.get('x-qorlla-admin') === '1', viewer: req.get('x-qorlla-viewer') === '1' } : null; };
   const wrap = (fn, code = 200) => async (req, res) => {
     try { res.status(code).set('Cache-Control', 'no-store').json(await fn(req, actorOf(req))); }
     catch (e) { const status = e.status && e.status >= 400 && e.status < 600 ? e.status : 500; if (status === 500) console.error('[telephony]', e.code || '', e.message); res.status(status).json({ error: status === 500 ? 'Telephony request failed.' : e.message, code: e.code || 'ERROR' }); }
@@ -30,7 +30,7 @@ export function registerTelephony({ app, db, bridgeAuth, phone, env = process.en
   app.post(B + '/numbers/:id/reassign', bridgeAuth, numbersOnly, json, wrap((req, a) => svc.reassignNumber(a, req.params.id, (req.body || {}).to, (req.body || {}).reason)));
   app.put(B + '/accounts/:id', bridgeAuth, json, wrap((req) => svc.syncAccount({ accountId: req.params.id, verified: (req.body || {}).verified, suspended: (req.body || {}).suspended, orgId: (req.body || {}).orgId, billingHold: (req.body || {}).billingHold })));   // the main app reports each account's standing
   app.post(B + '/numbers/reconcile', bridgeAuth, numbersOnly, wrap(async (req, a) => { assertAdmin(a); return svc.reconcileOperations(); }));
-  app.get(B + '/numbers/snapshot', bridgeAuth, numbersOnly, wrap(async (req, a) => { assertAdmin(a); return { numbers: await svc.numberSnapshot() }; }));
+  app.get(B + '/numbers/snapshot', bridgeAuth, numbersOnly, wrap(async (req, a) => { assertViewer(a); return { numbers: await svc.numberSnapshot() }; }));
   // Authority events to the voice engine: only when an engine URL and a workload signing key are configured (otherwise events simply wait in the outbox).
   if (env.VOICE_NUMBERS_ENABLED === 'true' && env.PHONE_ENGINE_SYNC_URL && env.PHONE_ENGINE_SYNC_KEY_PEM && env.PHONE_ENGINE_SYNC_ISSUER) startNumberSync({ svc, sink: createEngineSink({ url: env.PHONE_ENGINE_SYNC_URL, privateKeyPem: env.PHONE_ENGINE_SYNC_KEY_PEM.replace(/\\n/g, '\n'), issuer: env.PHONE_ENGINE_SYNC_ISSUER, kid: env.PHONE_ENGINE_SYNC_KID || 'w1', ...(() => { const t = transportFromEnv(env); return t ? { fetchImpl: t.fetchImpl, cnfThumbprint: t.thumbprint } : {}; })() }) });
   app.post(B + '/numbers/:id/caller-id', bridgeAuth, numbersOnly, json, wrap(async (req, a) => { await svc.setCallerIdVerified(a, req.params.id, (req.body || {}).verified === true); return { ok: true }; }));

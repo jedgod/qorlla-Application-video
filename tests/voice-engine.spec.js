@@ -11,7 +11,7 @@ const { startMain, PASSWORD } = require('./support/meet-stack');
 // What it does NOT prove: calls across different networks (needs TURN), real microphones/speakers, other browsers' WebRTC stacks, Safari/iOS, or load.
 const root = path.resolve(__dirname, '..');
 const secrets = JSON.parse(fs.readFileSync(path.join(root, '.dev-stack', 'secrets.json'), 'utf8'));
-const DB = 'postgres://qorlla:' + secrets.dbPassword + '@127.0.0.1:35432/qorlla_meet';
+const DB = 'postgres://qorlla:' + secrets.dbPassword + '@127.0.0.1:' + (process.env.MEET_DB_PORT || 35432) + '/qorlla_meet';
 const ADMIN = 'v'.repeat(40), MAIN_PORT = 5287, VOICE_PORT = 5288;
 
 test.describe('Qorlla Voice: two browsers, real audio', () => {

@@ -124,7 +124,7 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
         const down = (why) => ({ ok: false, status: 503, data: { error: why, code: 'TELEPHONY_UNAVAILABLE' } });
         if (secret().length < 32) return down('Telephony needs the Meet bridge, which is not configured.');
         let base; try { base = await internalBase(); } catch (e) { base = ''; } if (!base) return down('Qorlla Meet is not reachable, so telephony is unavailable.');
-        try { return await call(base, '/api/integrations/telephony' + route + (query ? '?' + new URLSearchParams(query) : ''), method, body, { ...bridge(), 'x-qorlla-actor': String((actor && actor.id) || ''), 'x-qorlla-admin': actor && actor.admin ? '1' : '0' }); }
+        try { return await call(base, '/api/integrations/telephony' + route + (query ? '?' + new URLSearchParams(query) : ''), method, body, { ...bridge(), 'x-qorlla-actor': String((actor && actor.id) || ''), 'x-qorlla-admin': actor && actor.admin ? '1' : '0', 'x-qorlla-viewer': actor && actor.viewer && !actor.admin ? '1' : '0' }); }
         catch (e) { return down('Qorlla Meet did not answer, so telephony is unavailable.'); }
     }
     const known = (meetingId) => !!links[digitsOf(meetingId)];
