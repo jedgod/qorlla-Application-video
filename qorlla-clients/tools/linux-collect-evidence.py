@@ -98,7 +98,7 @@ def security():
 def oct_stat(path):
     try:
         st = os.stat(path)
-        return {'mode': format(st.st_mode & 0o7777, 'o'), 'ownerUid': st.st_uid}
+        return {'mode': format(st.st_mode & 0o7777, 'o'), 'ownedByRoot': st.st_uid == 0}
     except Exception:
         return None
 
@@ -120,26 +120,28 @@ def processes():
             continue
         status = read('/proc/%s/status' % d) or ''
         cmd = [a for a in (read('/proc/%s/cmdline' % d) or '').split('\0') if a]
-        procs.append({'pid': int(d), 'ppid': int(field(status, 'PPid') or 0), 'uid': (field(status, 'Uid') or '').split()[0] if field(status, 'Uid') else None,
-                      'seccomp': field(status, 'Seccomp'), 'noNewPrivs': field(status, 'NoNewPrivs'), 'apparmor': (read('/proc/%s/attr/current' % d) or '').strip(),
+        procs.append({'pid': int(d), 'ppid': int(field(status, 'PPid') or 0), 'uidNumber': int((field(status, 'Uid') or '-1').split()[0]),
+                      'seccomp': field(status, 'Seccomp'), 'noNewPrivs': field(status, 'NoNewPrivs'), 'apparmor': (read('/proc/%s/attr/current' % d) or '').replace('\0', '').strip(),
                       'sandboxOffSwitch': any(SANDBOX_OFF.match(a) for a in cmd), 'userNs': os.readlink('/proc/%s/ns/user' % d) if os.path.exists('/proc/%s/ns/user' % d) else None})
     pids = {p['pid'] for p in procs}
     procs.sort(key=lambda p: (p['ppid'] in pids, p['pid']))      # the main process (parent not in the set) first
     main_ns = procs[0]['userNs'] if procs else None
+    main_uid = procs[0]['uidNumber'] if procs else None
     for p in procs:
         p['ownUserNamespace'] = p.pop('userNs') != main_ns
+        n = p.pop('uidNumber'); p['runsAsRoot'] = n == 0; p['sameUserAsMain'] = n == main_uid        # the number itself is not recorded: only what the validator needs
         p.pop('pid'); p.pop('ppid')                            # pids are not evidence
     return procs
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--label', required=True, help='short label, e.g. ubuntu-24.04-a (lower case letters, digits, . _ -)')
+    ap.add_argument('--label', required=True, help='ubuntu-<22.04|24.04>-<short letter or number>, e.g. ubuntu-24.04-a (never a name or a place)')
     ap.add_argument('--deb', help='path to the .deb that was installed')
     ap.add_argument('--expect-sha256', help='the SHA-256 of that .deb from the CI run')
     ap.add_argument('--out', required=True)
     a = ap.parse_args()
-    if not re.fullmatch(r'[a-z0-9._-]{3,40}', a.label):
-        sys.exit('the label must be 3-40 characters of a-z 0-9 . _ -')
+    if not re.fullmatch(r'ubuntu-(22\.04|24\.04)-[a-z0-9]{1,6}', a.label):
+        sys.exit('the label must look like ubuntu-24.04-a: the OS version and one short letter or number, never a name or a place')
     existing = {}
     if os.path.exists(a.out):
         try:
