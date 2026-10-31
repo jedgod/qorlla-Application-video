@@ -17,10 +17,13 @@ The reports were produced by the CI pipeline before the report scanner existed. 
 ## Deletion
 | Artifact id | Deleted (UTC) | Method | Confirmed |
 |---|---|---|---|
-| 12324340615 | PENDING | GitHub REST API `DELETE /repos/{owner}/{repo}/actions/artifacts/{id}` | PENDING |
-| 12633695714 | PENDING | GitHub REST API `DELETE /repos/{owner}/{repo}/actions/artifacts/{id}` | PENDING |
+| 12324340615 | 2026-10-31 01:41:48 | GitHub REST API `DELETE /repos/{owner}/{repo}/actions/artifacts/{id}` | Yes: a follow-up request for the artifact returns "Not Found" |
+| 12633695714 | 2026-10-31 01:41:50 | GitHub REST API `DELETE /repos/{owner}/{repo}/actions/artifacts/{id}` | Yes: a follow-up request for the artifact returns "Not Found" |
+
+## Result
+After the two deletions the repository stores **0** workflow artifacts (checked with the list-artifacts API). No other artifact was touched.
 
 ## Related
-- Local working copies that had been downloaded for the review were kept only in a temporary session folder outside the repository and are removed after the deletion.
+- Local working copies that had been downloaded for the review were kept only in a temporary session folder outside the repository and were removed after the deletion (2026-10-31).
 - Anyone who downloaded the artifacts before deletion is outside this repository's control; the information in them is limited to what is already public in git history.
 - PR #5 (`security/playwright-artifact-hardening`) carries the prevention: no commit metadata in reports, failed-test-only upload, a fail-closed scan before upload, seven-day retention.
