@@ -50,8 +50,14 @@ jobs:
           curl --silent --fail http://localhost:5000/api/meetings/validate/858%209833%203712 || exit 1
           curl --silent --fail http://localhost:8080 || exit 1
 
+      # 6b) Self-test the report scanner and the artifact policy BEFORE relying on them: a broken scanner must fail the pipeline, never silently allow an upload
+      - name: Self-test the Playwright report scanner and the artifact upload policy
+        run: |
+          node --test ci/tests/*.test.cjs
+
       # 7) Execute the complete Playwright E2E Integration Suite
       - name: Execute Playwright Automated Integration Test Matrix
+        id: playwright
         run: |
           npx playwright test
         env:
@@ -64,14 +70,27 @@ jobs:
         run: |
           docker compose logs --tail=100
 
-      # 9) Archive structural output summaries for verification visual reviews
-      - name: Archive Integration Test Output Artifact Reports
-        if: always()
+      # 9a) Fail-closed scan of the Playwright report BEFORE anything can be uploaded. This repository is PUBLIC: an artifact can be downloaded by anyone signed in to GitHub.
+      # The scan opens the trace archives (and archives inside them), the base64 archive embedded in index.html, network captures and screenshot metadata, and refuses anything sensitive or not understood.
+      - name: Scan the Playwright report for sensitive content (fail-closed)
+        id: scan
+        if: ${{ !cancelled() && steps.playwright.outcome == 'failure' && hashFiles('playwright-report/**') != '' }}
+        run: |
+          node ci/scan-playwright-report.cjs playwright-report --allowlist ci/artifact-scan-allowlist.json
+        env:
+          # Attestation that this run handled only synthetic data: a throwaway docker-compose cluster, Chromium's fake camera and microphone, generated example.com accounts, no production data and no secrets.
+          # Screenshots are refused without it.
+          QORLLA_CI_SYNTHETIC_DATA: '1'
+
+      # 9b) Upload the report ONLY when the Playwright tests failed (the report is then needed to diagnose) AND the scan above passed. Seven days, not thirty. Nothing is uploaded when the tests pass.
+      - name: Archive the Playwright report (tests failed and the scan passed)
+        if: ${{ !cancelled() && steps.playwright.outcome == 'failure' && steps.scan.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-execution-report
           path: playwright-report/
-          retention-days: 30
+          retention-days: 7
+          if-no-files-found: error
 
       # 10) Teardown transient resource limits cleanly
       - name: Teardown Active Cluster Containers
