@@ -1,9 +1,12 @@
 {
-  "_comment": "Values the pre-upload scan accepts in a Playwright report. Everything else is a finding. Add an entry only for data that is demonstrably synthetic; never add a real address, host or credential. This file is reviewed like code. Names under the reserved RFC 2606 names (.example, .test, .invalid, .localhost, example.com/org/net) are always accepted. The ips listed are simulated client addresses written in tests/lockout.spec.js.",
+  "_comment": "Values the pre-upload scan accepts in a Playwright report. Everything else is a finding. Add an entry only for data that is demonstrably synthetic; never add a real address, host or credential. This file is reviewed like code. Names under the reserved RFC 2606 names (.example, .test, .invalid, .localhost, example.com/org/net) are always accepted. The localized placeholder domains (ejemplo/exemple/exemplo.com) are the sample addresses printed in locales/es.js, fr.js and pt-PT.js, which appear in traces of the phone-layout tests. The ips listed are simulated client addresses written in tests/lockout.spec.js.",
   "emailDomains": [
     "example.com",
     "example.org",
-    "example.net"
+    "example.net",
+    "ejemplo.com",
+    "exemple.com",
+    "exemplo.com"
   ],
   "hosts": [
     "localhost",
