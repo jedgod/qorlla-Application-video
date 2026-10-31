@@ -2,3 +2,5 @@
 apps/desktop/linux/*.sh text eol=lf
 apps/desktop/linux/apparmor/* text eol=lf
 deployment/staging/coturn/*.sh text eol=lf
+qorlla-clients/tools/*.py text eol=lf
+qorlla-clients/tools/*.sh text eol=lf
