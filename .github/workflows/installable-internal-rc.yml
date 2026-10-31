@@ -4,7 +4,8 @@ name: Qorlla internal installable build verification
 # Triggers: a push to the integration branch that touches the clients, or a manual run (a manual run only registers once this file exists on the default branch; supply the full commit SHA).
 on:
   push:
-    branches: [integration/installable-clients]
+    # linux-certification is the separate review branch for the Linux certification pack (PR against the integration branch). On it ONLY the two Linux jobs run; the other platforms stay on the integration branch.
+    branches: [integration/installable-clients, linux-certification]
     paths: ['qorlla-clients/**', '.github/workflows/installable-internal-rc.yml']
   workflow_dispatch:
     inputs:
@@ -19,6 +20,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   windows:
+    if: github.ref_name != 'linux-certification'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -201,6 +203,7 @@ jobs:
           sudo apt-get install -y -qq "$DEB" > /dev/null; sudo apt-get purge -y -qq qorlla > /dev/null; test ! -e /opt/Qorlla/qorlla; ! sudo test -e /etc/apparmor.d/qorlla
           echo "Ubuntu 22.04 install, launch (sandbox in effect), upgrade, remove and purge behaved as required" | tee -a "$GITHUB_STEP_SUMMARY"
   macos:
+    if: github.ref_name != 'linux-certification'
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -224,6 +227,7 @@ jobs:
           test -s mac-packages.txt
           while read -r f; do shasum -a 256 "$f"; codesign -dv "$f" 2>&1 | head -3 || true; done < mac-packages.txt | tee -a "$GITHUB_STEP_SUMMARY"
   android:
+    if: github.ref_name != 'linux-certification'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -272,6 +276,7 @@ jobs:
           test -s android-apks.txt
           while read -r apk; do sha256sum "$apk" | tee -a "$GITHUB_STEP_SUMMARY"; "$APKSIGNER" verify --print-certs --verbose "$apk" 2>&1 | grep -E "Verifies|certificate (DN|SHA-256)|Signer" | tee -a "$GITHUB_STEP_SUMMARY"; done < android-apks.txt
   ios-simulator:
+    if: github.ref_name != 'linux-certification'
     runs-on: macos-latest
     timeout-minutes: 75
     steps:
