@@ -37,6 +37,12 @@ jobs:
         run: |
           for f in server.js appointments.js docs.js post-meeting.js notifications.js workplace.js auth.js store.js mailer.js; do node --check "$f" || exit 1; done
 
+      # 4b) Self-test the report scanner and the artifact upload policy. It needs only Node, so it runs BEFORE the container cluster: a broken scanner or a weakened upload policy fails the pipeline even when the cluster cannot start,
+      # and the upload steps below can never rely on an untested scanner.
+      - name: Self-test the Playwright report scanner and the artifact upload policy
+        run: |
+          node --test ci/tests/*.test.cjs
+
       # 5) Build and orchestrate isolated container runtime engines
       - name: Initialize Docker Compose Multi-Container Cluster
         run: |
@@ -49,11 +55,6 @@ jobs:
         run: |
           curl --silent --fail http://localhost:5000/api/meetings/validate/858%209833%203712 || exit 1
           curl --silent --fail http://localhost:8080 || exit 1
-
-      # 6b) Self-test the report scanner and the artifact policy BEFORE relying on them: a broken scanner must fail the pipeline, never silently allow an upload
-      - name: Self-test the Playwright report scanner and the artifact upload policy
-        run: |
-          node --test ci/tests/*.test.cjs
 
       # 7) Execute the complete Playwright E2E Integration Suite
       - name: Execute Playwright Automated Integration Test Matrix
