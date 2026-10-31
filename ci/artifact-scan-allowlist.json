@@ -1,0 +1,21 @@
+{
+  "_comment": "Values the pre-upload scan accepts in a Playwright report. Everything else is a finding. Add an entry only for data that is demonstrably synthetic; never add a real address, host or credential. This file is reviewed like code.",
+  "emailDomains": [
+    "example.com",
+    "example.org",
+    "example.net"
+  ],
+  "hosts": [
+    "localhost",
+    "127.0.0.1",
+    "www.w3.org",
+    "ns.adobe.com",
+    "tailwindcss.com",
+    "cdn.tailwindcss.com",
+    "github.com"
+  ],
+  "ips": [
+    "127.0.0.1"
+  ],
+  "passwords": []
+}
