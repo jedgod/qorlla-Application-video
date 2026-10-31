@@ -64,7 +64,7 @@ test('REJECTED: credential headers in a network capture (authorization, cookie, 
   expectRule(run({ network: net('', '').replace('"headers":[]', '"authorization":"Bearer abc123def456"') }), 'credential-header', 'object-style header');
 });
 test('REJECTED: tokens and keys anywhere, including inside archives', () => {
-  const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJ' + 'zdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+  const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJ' + 'zdWIiOiIxMjM0NTY3ODkwIn0.ZmFrZXNpZ25hdHVyZS1ub3QtcmVhbA';
   expectRule(run({ trace: CLEAN.trace + '{"log":"got ' + jwt + '"}\n' }), 'jwt-token'); expectRule(run({ html: CLEAN.html + '<!-- ' + jwt + ' -->' }), 'jwt-token', 'in the HTML');
   expectRule(run({ extraFiles: { 'notes.txt': '-----BEGIN RSA ' + 'PRIVATE KEY-----\nMIIE\n-----END RSA ' + 'PRIVATE KEY-----' } }), 'private-key');
   for (const k of ['AKIA' + 'ABCDEFGHIJKLMNOP', 'ghp' + '_abcdefghijklmnopqrstuvwxyz0123456789', 'github' + '_pat_abcdefghijklmnopqrstuvwxyz0123', 'sk' + '_live_abcdefghij1234', 'xox' + 'b-1234567890-abcdefghij']) expectRule(run({ trace: CLEAN.trace + '{"log":"' + k + '"}\n' }), 'service-credential', k.slice(0, 8));
