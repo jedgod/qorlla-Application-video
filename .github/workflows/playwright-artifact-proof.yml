@@ -1,0 +1,198 @@
+name: Playwright artifact pipeline proof
+
+# Proves, on the repaired disposable cluster, that the Playwright report pipeline behaves as required in a PUBLIC repository (artifacts are downloadable by anyone signed in to GitHub):
+#   A  a normal successful run                                  -> nothing is scanned or uploaded
+#   B  an intentionally failing run whose report is clean      -> scanned, accepted, uploaded for 7 days
+#   C  an intentionally failing run whose report really holds a -> the scan REJECTS it and NOTHING is uploaded
+#      planted (random, run-only) credential
+# The scenarios use the same scan and upload wiring as workspace-ci.yml. The last step asks GitHub which artifacts this run produced and applies ci/verify-proof.cjs: the proof passes only if the
+# scenarios ended exactly as required. The intentional failures are expected: those Playwright steps are continue-on-error, and the verdict step is what decides.
+# Synthetic only: a throwaway cluster with generated secrets (ci/cluster.sh), no production data, no deployment, no signing, no release. The one artifact it uploads is the scenario-B report, kept 7 days.
+
+on:
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'ci/**'
+      - '.github/workflows/workspace-ci.yml'
+      - '.github/workflows/playwright-artifact-proof.yml'
+      - 'playwright.config.js'
+      - 'docker-compose.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: playwright-artifact-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: Prove scan-then-upload against the disposable cluster
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Source Code Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Build Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Application and Testing Dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Self-test the Playwright report scanner, the verdict logic and the workflow policies
+        run: |
+          node --test ci/tests/*.test.cjs
+
+      - name: Generate the disposable cluster's ephemeral secrets
+        run: |
+          bash ci/cluster.sh prepare
+
+      - name: Validate the compose configuration (the resolved configuration is not printed)
+        run: |
+          bash ci/cluster.sh check
+
+      - name: Initialize Docker Compose Multi-Container Cluster
+        run: |
+          bash ci/cluster.sh up
+
+      - name: Wait for the cluster to answer
+        run: |
+          for i in $(seq 1 60); do
+            if curl --silent --fail --output /dev/null http://localhost:8080; then echo "the cluster answers after about $((i * 5)) s"; exit 0; fi
+            sleep 5
+          done
+          echo "the cluster did not answer within 300 s"; exit 1
+
+      # ---------------------------------------------------------------- Scenario A: a normal successful run
+      - name: "Scenario A: a normal successful Playwright run"
+        id: pass_run
+        continue-on-error: true
+        env:
+          CI: 'true'
+          PROOF_REPORT_DIR: proof-report-pass
+        run: |
+          npx playwright test --config ci/proof/playwright.proof.config.cjs pass.proof.js
+
+      - name: "Scenario A: scan (must be SKIPPED: the tests passed)"
+        id: pass_scan
+        if: ${{ !cancelled() && steps.pass_run.outcome == 'failure' && hashFiles('proof-report-pass/**') != '' }}
+        run: |
+          node ci/scan-playwright-report.cjs proof-report-pass --allowlist ci/artifact-scan-allowlist.json
+        env:
+          QORLLA_CI_SYNTHETIC_DATA: '1'
+
+      - name: "Scenario A: upload (must be SKIPPED)"
+        id: pass_upload
+        if: ${{ !cancelled() && steps.pass_run.outcome == 'failure' && steps.pass_scan.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-proof-pass-report
+          path: proof-report-pass/
+          retention-days: 7
+          if-no-files-found: error
+
+      # ---------------------------------------------------------------- Scenario B: an intentionally failing run with a clean report
+      - name: "Scenario B: an intentionally failing Playwright run (expected to fail)"
+        id: fail_run
+        continue-on-error: true
+        env:
+          CI: 'true'
+          PROOF_REPORT_DIR: proof-report-fail
+        run: |
+          npx playwright test --config ci/proof/playwright.proof.config.cjs fail.proof.js
+
+      - name: "Scenario B: scan the clean report (must PASS)"
+        id: fail_scan
+        if: ${{ !cancelled() && steps.fail_run.outcome == 'failure' && hashFiles('proof-report-fail/**') != '' }}
+        run: |
+          node ci/scan-playwright-report.cjs proof-report-fail --allowlist ci/artifact-scan-allowlist.json
+        env:
+          QORLLA_CI_SYNTHETIC_DATA: '1'
+
+      - name: "Scenario B: upload the scanned report (7 days)"
+        id: fail_upload
+        if: ${{ !cancelled() && steps.fail_run.outcome == 'failure' && steps.fail_scan.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-proof-failing-report
+          path: proof-report-fail/
+          retention-days: 7
+          if-no-files-found: error
+
+      # ---------------------------------------------------------------- Scenario C: an intentionally failing run whose report contains a planted credential
+      - name: "Scenario C: an intentionally failing run that sends a canary credential (expected to fail)"
+        id: planted_run
+        continue-on-error: true
+        env:
+          CI: 'true'
+          PROOF_REPORT_DIR: proof-report-planted
+        run: |
+          # a random value for this run only: it is not a real credential and is never written to the repository; it is masked in the log
+          PROOF_CANARY="$(openssl rand -hex 24)"
+          echo "::add-mask::$PROOF_CANARY"
+          export PROOF_CANARY
+          npx playwright test --config ci/proof/playwright.proof.config.cjs planted.proof.js
+
+      - name: "Scenario C: scan the report with the planted credential (must be REJECTED)"
+        id: planted_scan
+        continue-on-error: true
+        if: ${{ !cancelled() && steps.planted_run.outcome == 'failure' && hashFiles('proof-report-planted/**') != '' }}
+        run: |
+          node ci/scan-playwright-report.cjs proof-report-planted --allowlist ci/artifact-scan-allowlist.json
+        env:
+          QORLLA_CI_SYNTHETIC_DATA: '1'
+
+      - name: "Scenario C: upload (must be SKIPPED because the scan rejected the report)"
+        id: planted_upload
+        if: ${{ !cancelled() && steps.planted_run.outcome == 'failure' && steps.planted_scan.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-proof-planted-report
+          path: proof-report-planted/
+          retention-days: 7
+          if-no-files-found: error
+
+      # ---------------------------------------------------------------- the verdict, from what really happened
+      - name: Verdict (step outcomes and the artifacts GitHub reports for this run)
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PASS_RUN: ${{ steps.pass_run.outcome }}
+          PASS_SCAN: ${{ steps.pass_scan.outcome }}
+          PASS_UPLOAD: ${{ steps.pass_upload.outcome }}
+          FAIL_RUN: ${{ steps.fail_run.outcome }}
+          FAIL_SCAN: ${{ steps.fail_scan.outcome }}
+          FAIL_UPLOAD: ${{ steps.fail_upload.outcome }}
+          PLANTED_RUN: ${{ steps.planted_run.outcome }}
+          PLANTED_SCAN: ${{ steps.planted_scan.outcome }}
+          PLANTED_UPLOAD: ${{ steps.planted_upload.outcome }}
+        run: |
+          want=0; [ "$FAIL_UPLOAD" = "success" ] && want=1
+          for i in 1 2 3 4 5 6; do
+            gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" > artifacts.json
+            n="$(node -p "JSON.parse(require('fs').readFileSync('artifacts.json','utf8')).total_count")"
+            [ "$n" -ge "$want" ] && break
+            sleep 5
+          done
+          node ci/verify-proof.cjs artifacts.json
+
+      # ---------------------------------------------------------------- hygiene
+      - name: Sanitized diagnostics on failure (service states and redacted error lines only)
+        if: failure()
+        run: |
+          bash ci/cluster.sh diagnostics
+
+      - name: Teardown Active Cluster Containers
+        if: always()
+        run: |
+          bash ci/cluster.sh down

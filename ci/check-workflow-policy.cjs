@@ -66,9 +66,47 @@ function checkWorkflowPolicy(text) {
   if (iDown < 0 || !/always\(\)/.test(all[iDown].cond || '')) bad('teardown ("bash ci/cluster.sh down") must run under always() so containers and volumes are removed even on failure');
   return problems;
 }
-function main(argv) {
-  const file = path.resolve(argv[0] || path.join(__dirname, '..', '.github', 'workflows', 'workspace-ci.yml')), problems = checkWorkflowPolicy(fs.readFileSync(file, 'utf8'));
-  console.log(`checked ${path.basename(file)}`); for (const p of problems) console.log('FAIL ' + p); console.log(problems.length ? 'WORKFLOW POLICY VIOLATED' : 'workflow policy holds: ephemeral secrets, compose only through ci/cluster.sh, sanitized diagnostics, teardown always; self-test, then tests, then a fail-closed scan, then an upload only on failure with a passing scan, kept 7 days'); return problems.length ? 1 : 0;
+/** The proof workflow (.github/workflows/playwright-artifact-proof.yml): three scenarios with the SAME scan-then-upload wiring, a verdict computed from real outcomes, and the same cluster hygiene. */
+function checkProofWorkflow(text) {
+  const problems = [], bad = (m) => problems.push(m), all = steps(text), by = (id) => all.find((s) => s.id === id), idx = (pred) => all.findIndex(pred), code = (s) => s.text.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  const head = text.split(/\njobs:/)[0];
+  if (/pull_request_target|workflow_run|schedule:|issue_comment|repository_dispatch/.test(head)) bad('the proof must not run on pull_request_target, workflow_run, schedule, issue_comment or repository_dispatch');
+  const perms = /\npermissions:\n((?:[ \t]+\S.*\n)+)/.exec(text); if (!perms) bad('the workflow must declare minimal permissions'); else { if (/:\s*write\b/.test(perms[1])) bad('the workflow must not request any write permission'); if (!/actions:\s*read/.test(perms[1])) bad('"actions: read" is needed to list this run\'s artifacts'); }
+  const first = idx((s) => /id:\s*(pass|fail|planted)_run/.test(s.text) && /ci\/proof\/playwright\.proof\.config\.cjs/.test(s.text));
+  for (const k of ['pass', 'fail', 'planted']) {
+    const run = by(k + '_run'), scan = by(k + '_scan'), up = by(k + '_upload'), dir = 'proof-report-' + k;
+    if (!run || !scan || !up) { bad(`scenario "${k}" needs steps with id ${k}_run, ${k}_scan and ${k}_upload`); continue; }
+    if (!/continue-on-error:\s*true/.test(run.text)) bad(`${k}_run must be continue-on-error (the failures are intentional; the verdict step decides)`);
+    if (!new RegExp('playwright\\.proof\\.config\\.cjs\\s+' + k + '\\.proof\\.js').test(code(run))) bad(`${k}_run must run ${k}.proof.js with the proof configuration`); if (!new RegExp('PROOF_REPORT_DIR:\\s*' + dir).test(run.text)) bad(`${k}_run must write its report to ${dir}`);
+    if (!new RegExp('node ci/scan-playwright-report\\.cjs\\s+' + dir + '\\b').test(code(scan)) || !/--allowlist\s+ci\/artifact-scan-allowlist\.json/.test(scan.text) || !/QORLLA_CI_SYNTHETIC_DATA:\s*'?1'?/.test(scan.text)) bad(`${k}_scan must run the real scanner on ${dir} with the reviewed allowlist and the synthetic-data attestation`);
+    if (/continue-on-error:\s*true/.test(scan.text) && k !== 'planted') bad(`${k}_scan must not be continue-on-error (only the planted-credential scan is expected to fail)`);
+    if (!new RegExp(`steps\\.${k}_run\\.outcome\\s*==\\s*'failure'`).test(scan.cond || '')) bad(`${k}_scan must run only when ${k}_run failed`);
+    const c = up.cond || ''; if (!/^actions\/upload-artifact@/.test(up.uses || '')) bad(`${k}_upload must use actions/upload-artifact`);
+    if (!new RegExp(`steps\\.${k}_run\\.outcome\\s*==\\s*'failure'`).test(c) || !new RegExp(`steps\\.${k}_scan\\.outcome\\s*==\\s*'success'`).test(c) || /always\(\)/.test(c) || !c) bad(`${k}_upload must require the run to have failed AND its scan to have succeeded, never always()`);
+    if (!(Number(up.retention) >= 1 && Number(up.retention) <= 7)) bad(`${k}_upload: retention-days must be between 1 and 7`); if (up.noFiles !== 'error') bad(`${k}_upload: if-no-files-found must be "error"`); if (up.paths.length !== 1 || up.paths[0] !== dir + '/') bad(`${k}_upload: the only path may be ${dir}/ (found ${JSON.stringify(up.paths)})`);
+    if (/continue-on-error:\s*true/.test(up.text)) bad(`${k}_upload must not be continue-on-error`);
+    if (first >= 0 && idx((s) => s.id === k + '_scan') < idx((s) => s.id === k + '_run')) bad(`${k}: the scan must come after the run`); if (idx((s) => s.id === k + '_upload') < idx((s) => s.id === k + '_scan')) bad(`${k}: the upload must come after the scan`);
+  }
+  const planted = by('planted_run'); if (planted && !(/openssl rand/.test(planted.text) && /::add-mask::/.test(planted.text) && /PROOF_CANARY/.test(planted.text))) bad('the planted canary must be generated at run time (openssl rand), masked (::add-mask::) and passed as PROOF_CANARY: never a literal');
+  const verdict = idx((s) => /node ci\/verify-proof\.cjs/.test(code(s))); if (verdict < 0) bad('there must be a verdict step running ci/verify-proof.cjs'); else {
+    const v = all[verdict], envNeeded = ['PASS', 'FAIL', 'PLANTED'].flatMap((k) => ['RUN', 'SCAN', 'UPLOAD'].map((s) => `${k}_${s}`)); for (const n of envNeeded) if (!new RegExp(`${n}:\\s*\\$\\{\\{\\s*steps\\.${n.toLowerCase()}\\.outcome\\s*\\}\\}`).test(v.text)) bad(`the verdict step must read ${n} from steps.${n.toLowerCase()}.outcome`);
+    if (!/actions\/runs\/\$\{\{ github\.run_id \}\}\/artifacts/.test(v.text)) bad('the verdict step must read the artifact list of THIS run from the GitHub API'); if (/continue-on-error:\s*true/.test(v.text)) bad('the verdict step must not be continue-on-error');
+    if (idx((s) => s.id === 'planted_upload') > verdict || idx((s) => s.id === 'fail_upload') > verdict) bad('the verdict must come after every upload step');
+  }
+  for (const s of all) { const c = code(s), where = `step at line ${s.line}`;
+    if (/docker[- ]compose\s+(?:--env-file\s+\S+\s+)?logs\b/.test(c)) bad(`${where}: raw "docker compose logs" is forbidden; use "bash ci/cluster.sh diagnostics"`);
+    if (/docker[- ]compose\b[^\n]*\b(up|down|config|exec|run)\b/.test(c)) bad(`${where}: call compose only through ci/cluster.sh`);
+    if (/(^|[\s;&|])(printenv|env)(\s*$|\s*\||\s*>|\s+-0)/m.test(c) || /\bset\s+-[a-z]*x/.test(c) || /\bcat\s+\S*\.env\b/.test(c)) bad(`${where}: it could print the environment or a secret`); }
+  const via = (cmd) => idx((s) => new RegExp('bash ci/cluster\\.sh ' + cmd + '\\b').test(code(s))), iPrep = via('prepare'), iCheck = via('check'), iUp = via('up'), iDiag = via('diagnostics'), iDown = via('down');
+  if (!(iPrep >= 0 && iPrep < iCheck && iCheck < iUp)) bad('cluster order must be prepare, then check, then up'); if (first >= 0 && iUp > first) bad('the cluster must be up before the first scenario');
+  if (idx((s) => /node --test ci\/tests\/\*\.test\.cjs/.test(s.text)) < 0 || idx((s) => /node --test ci\/tests\/\*\.test\.cjs/.test(s.text)) > iUp) bad('the self-tests must run before the cluster starts');
+  if (iDiag < 0 || !/failure\(\)/.test(all[iDiag].cond || '')) bad('sanitized diagnostics must run on failure()'); if (iDown < 0 || !/always\(\)/.test(all[iDown].cond || '')) bad('teardown must run under always()');
+  return problems;
 }
-module.exports = { checkWorkflowPolicy, steps };
+function main(argv) {
+  const wf = path.join(__dirname, '..', '.github', 'workflows'), targets = argv[0] ? [path.resolve(argv[0])] : [path.join(wf, 'workspace-ci.yml'), path.join(wf, 'playwright-artifact-proof.yml')]; let bad = 0;
+  for (const file of targets) { const problems = (/proof/.test(path.basename(file)) ? checkProofWorkflow : checkWorkflowPolicy)(fs.readFileSync(file, 'utf8')); console.log(`checked ${path.basename(file)}`); for (const p of problems) console.log('FAIL ' + p); bad += problems.length; }
+  console.log(bad ? 'WORKFLOW POLICY VIOLATED' : 'workflow policy holds: ephemeral secrets, compose only through ci/cluster.sh, sanitized diagnostics, teardown always; self-test, then tests, then a fail-closed scan, then an upload only on failure with a passing scan, kept 7 days; the proof ends in a verdict computed from the real outcomes'); return bad ? 1 : 0;
+}
+module.exports = { checkWorkflowPolicy, checkProofWorkflow, steps };
 if (require.main === module) process.exit(main(process.argv.slice(2)));

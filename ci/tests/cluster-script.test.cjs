@@ -12,6 +12,8 @@ const hasBash = spawnSync('bash', ['-c', 'echo ok'], { encoding: 'utf8' }).stdou
 /** A fake `docker` that records every call and prints canned output. Where real compose would print resolved configuration or logs it deliberately prints a secret, so a leak is visible. */
 function sandbox() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clu-')), bin = path.join(dir, 'bin'), log = path.join(dir, 'calls.log'), runner = path.join(dir, 'runner'); fs.mkdirSync(bin); fs.mkdirSync(runner);
+  // `node` as the script sees it is exactly the Node running THIS test, however Node was installed or launched (an npx-installed Node on Windows leaves an extensionless placeholder that bash would pick first)
+  fs.writeFileSync(path.join(bin, 'node'), `#!/usr/bin/env bash\nexec "${process.execPath.replace(/\\/g, '/')}" "$@"\n`, { mode: 0o755 });
   fs.writeFileSync(path.join(bin, 'docker'), `#!/usr/bin/env bash
 echo "docker $*" >> "${log.replace(/\\/g, '/')}"
 envf=""; prev=""; for a in "$@"; do [ "$prev" = "--env-file" ] && envf="$a"; prev="$a"; done
@@ -26,7 +28,8 @@ case " $* " in
 esac
 exit 0
 `, { mode: 0o755 });
-  const env = (extra = {}) => ({ ...process.env, PATH: bin + path.delimiter + process.env.PATH, RUNNER_TEMP: runner, GITHUB_ENV: path.join(dir, 'github_env'), ...extra });
+  // PATH: the stub docker first, then THE node running this test (the script calls `node`, however Node was launched)
+  const env = (extra = {}) => ({ ...process.env, PATH: bin + path.delimiter + path.dirname(process.execPath) + path.delimiter + process.env.PATH, RUNNER_TEMP: runner, GITHUB_ENV: path.join(dir, 'github_env'), ...extra });
   const sh = (args, extra = {}) => spawnSync('bash', [SCRIPT.replace(/\\/g, '/'), ...args], { encoding: 'utf8', env: env(extra) });
   return { dir, runner, log, sh, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : []), envFile: path.join(runner, 'qorlla-ci.env'), done: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }

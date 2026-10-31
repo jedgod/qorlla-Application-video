@@ -101,8 +101,10 @@ function scan(root, { allow = DEFAULT_ALLOW, attested = false } = {}) {
       let entries; try { entries = readZip(buf); } catch (e) { return fail('archive-unreadable', file, e.message); }
       for (const e of entries) handle(file + '!/' + e.name, e.name, e.data, depth + 1); return undefined;
     }
-    if (IMAGE_EXT.has(ext)) {
-      const sig = ext === '.png' ? MAGIC.png : MAGIC.jpeg; if (!startsWith(buf, sig)) return fail('image-type-mismatch', file, 'content does not match its extension');
+    // Playwright stores failure screenshots as extensionless "attachments/<hash>" files: with no extension the content decides (a PNG or JPEG signature); anything else without an extension must still be readable text.
+    const sniffed = ext === '' ? (startsWith(buf, MAGIC.png) ? MAGIC.png : startsWith(buf, MAGIC.jpeg) ? MAGIC.jpeg : null) : null;
+    if (IMAGE_EXT.has(ext) || sniffed) {
+      const sig = sniffed || (ext === '.png' ? MAGIC.png : MAGIC.jpeg); if (!startsWith(buf, sig)) return fail('image-type-mismatch', file, 'content does not match its extension');
       stats.images++; if (stats.images > LIMITS.images || buf.length > LIMITS.imageBytes) return fail('image-limit', file, 'too many or too large screenshots');
       if (!attested) fail('screenshot-not-attested', file, 'screenshots may only be uploaded when the run is attested synthetic-only (QORLLA_CI_SYNTHETIC_DATA=1)');
       scanText(file + ' (image metadata)', '.txt', strings(buf), a, add); return undefined;

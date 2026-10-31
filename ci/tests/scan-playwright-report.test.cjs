@@ -151,12 +151,19 @@ test('the command line: exit 0 clean, 1 findings, 2 problems; findings are liste
 test('the shipped allowlist is valid JSON, narrow, and holds no password', () => {
   const al = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'artifact-scan-allowlist.json'), 'utf8'));
   assert.deepEqual(al.passwords, []); assert.ok(al.emailDomains.every((d) => /^example\.(com|org|net)$/.test(d)), 'only reserved example domains'); assert.ok(al.ips.every((i) => i === '127.0.0.1')); assert.ok(al.hosts.includes('localhost'));
-  // The host list is pinned EXACTLY, so adding a host is a deliberate, reviewed change to this test too: localhost and loopback; XMP/SVG namespace URLs that appear inside screenshot metadata (never requested);
+  // The host list is pinned EXACTLY, so adding a host is a deliberate, reviewed change to this test too: localhost and loopback; XMP/IPTC/SVG namespace URLs that appear inside screenshot metadata (identifiers, never requested);
   // the Tailwind CDN the pages load; and github.com, which Playwright's `ci` metadata links to (a public repository). No Qorlla, cloud, mail or analytics host.
-  assert.deepEqual([...al.hosts].sort(), ['127.0.0.1', 'cdn.tailwindcss.com', 'github.com', 'localhost', 'ns.adobe.com', 'tailwindcss.com', 'www.w3.org']);
+  assert.deepEqual([...al.hosts].sort(), ['127.0.0.1', 'cdn.tailwindcss.com', 'cv.iptc.org', 'github.com', 'localhost', 'ns.adobe.com', 'tailwindcss.com', 'www.w3.org']);
 });
 test('the real report is checked against the committed Playwright configuration: git capture is off', () => {
   const cfg = fs.readFileSync(path.join(__dirname, '..', '..', 'playwright.config.js'), 'utf8');
   assert.match(cfg, /captureGitInfo:\s*\{\s*commit:\s*false,\s*diff:\s*false\s*\}/, 'the report would embed the commit author, committer and message body');
   assert.ok(!/captureGitInfo:\s*\{[^}]*true/.test(cfg));
+});
+
+test('EXTENSIONLESS attachments: a PNG or JPEG without an extension (how Playwright stores a failure screenshot) is treated as a screenshot; other binaries without an extension are still refused', () => {
+  expectRule(run({ extraFiles: { 'data/attach.zip': zip([{ name: 'attachments/' + SHA1, data: PNG }]) } }, { attested: false }), 'screenshot-not-attested', 'an extensionless PNG is subject to the attestation rule');
+  assert.deepEqual(run({ extraFiles: { 'data/attach.zip': zip([{ name: 'attachments/' + SHA1, data: PNG }]) } }).findings, [], 'attested, an extensionless PNG passes');
+  expectRule(run({ extraFiles: { 'data/attach.zip': zip([{ name: 'attachments/' + SHA1, data: Buffer.concat([PNG, Buffer.from('taken by dana.smith@acme-corp.com')]) }]) } }), 'real-or-unknown-email', 'its metadata is scanned');
+  expectRule(run({ extraFiles: { 'data/attach.zip': zip([{ name: 'attachments/' + SHA1, data: Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0, 1, 2]) }]) } }), 'unknown-binary', 'an executable without an extension is still refused');
 });
