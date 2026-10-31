@@ -114,8 +114,17 @@ test.describe('dial-in against the real Meet server', () => {
     const r1 = await dial(m, FROM1, { callId: ('w-1' + RUN) }), r2 = await dial(m, FROM2, { callId: ('w-2' + RUN) }); expect(r1.body.result).toBe('waiting'); expect(r1.body.say).toContain('hold'); expect(r2.body.result).toBe('waiting');
     const wl = (await m.host('/waiting')).body.waiting; expect(wl.map((x) => x.name).sort()).toEqual(['Phone ••••4321', 'Phone ••••4567']); expect((await m.host('/')).body.online.length).toBe(0);      // not in the room yet
     const first = wl.find((x) => x.name.endsWith('4567')), second = wl.find((x) => x.name.endsWith('4321'));
-    expect((await m.host('/admit', 'POST', { participantId: first.participantId, allow: true })).status).toBe(200); expect((await m.host('/admit', 'POST', { participantId: second.participantId, allow: false })).status).toBe(200);
-    const calls = await attendance(m); expect(calls.find((c) => c.name.endsWith('4567')).status).toBe('connected'); expect(calls.find((c) => c.name.endsWith('4321')).status).toBe('denied'); expect((await m.host('/')).body.online.length).toBe(1);
+    const a1 = await m.host('/admit', 'POST', { participantId: first.participantId, allow: true }), a2 = await m.host('/admit', 'POST', { participantId: second.participantId, allow: false });
+    expect(a1.status).toBe(200); expect(a1.body.changed).toBe(1); expect(a2.status).toBe(200); expect(a2.body.changed).toBe(1);   // each call changed exactly the one participant it named
+    // DURABLE before the response: the admission decisions are an awaited UPDATE of the participants rows, so nobody is left waiting. No polling for this.
+    expect((await m.host('/waiting')).body.waiting).toEqual([]);
+    // ASYNCHRONOUS by design: the call itself (connected, or denied and hung up) is applied AFTER the response by phone.onAdmission, which /admit does not await, and the in-memory presence list is updated
+    // after the database writes. So each of these is a bounded poll (5 s) for the EXACT final state, read from this meeting's persisted phone_calls rows: 'waiting' is never accepted as an answer.
+    const final = { timeout: 5000, intervals: [100, 200, 400] };
+    const statusOf = async (suffix) => { const cs = (await attendance(m)).filter((c) => c.name.endsWith(suffix)); return cs.length === 1 ? cs[0].status : 'ambiguous:' + cs.length; };   // exactly one record per caller in THIS meeting
+    await expect.poll(() => statusOf('4567'), final).toBe('connected');
+    await expect.poll(() => statusOf('4321'), final).toBe('denied');
+    await expect.poll(async () => (await m.host('/')).body.online.length, final).toBe(1);
     await m.ctx.close();
     const h = await meeting(browser, { joinBeforeHost: false, title: 'Host absent' }); const w = await dial(h, FROM3, { callId: ('ha-1' + RUN) }); expect(w.body.result).toBe('waiting');
     const hp = await h.ctx.newPage(); await hp.goto(h.startUrl); await expect(hp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });   // the host connects: callers that waited for the host are let in
