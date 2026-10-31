@@ -8,7 +8,8 @@
     "test": "playwright test",
     "build:css": "tailwindcss -i assets/tailwind.input.css -o assets/meeting.css --minify",
     "meet-worker": "node meet-sync/src/worker.mjs",
-    "test:meet-sync": "node --test meet-sync/tests/smoke.test.mjs"
+    "test:meet-sync": "node --test meet-sync/tests/smoke.test.mjs",
+    "test:ci-artifacts": "node --test ci/tests/*.test.cjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
