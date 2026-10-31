@@ -84,7 +84,7 @@ test.describe('Twilio adapter, workflows, ledger and webhooks (local Twilio stan
   test.beforeAll(async () => {
     mock = await mockTwilio(); schema = 'qt_' + Math.random().toString(36).slice(2, 10);
     const admin = new Pool({ connectionString: URL_DB }); await admin.query('CREATE SCHEMA ' + schema); await admin.end();
-    pool = new Pool({ connectionString: URL_DB, options: '-c search_path=' + schema }); for (const f of ['v4_14_telephony.sql', 'v4_15_telephony_features.sql']) await pool.query(fs.readFileSync(path.resolve(__dirname, '..', 'qorlla-meet-video', 'sql', f), 'utf8'));
+    pool = new Pool({ connectionString: URL_DB, options: '-c search_path=' + schema }); for (const f of ['v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_18_billing_hold.sql']) await pool.query(fs.readFileSync(path.resolve(__dirname, '..', 'qorlla-meet-video', 'sql', f), 'utf8'));
     P = await M('provider.mjs'); S = await M('service.mjs'); C = await M('core.mjs'); ivr = await M('ivr.mjs'); R = await M('routes.mjs');
   });
   test.afterAll(async () => { if (pool) { await pool.end(); } const a = new Pool({ connectionString: URL_DB }); await a.query('DROP SCHEMA IF EXISTS ' + schema + ' CASCADE').catch(() => {}); await a.end(); if (mock) await mock.close(); });
@@ -107,7 +107,8 @@ test.describe('Twilio adapter, workflows, ledger and webhooks (local Twilio stan
     expect(caps).toMatchObject({ provider: { status: 'not_connected' }, dialin: { status: 'not_connected' }, carrier: { status: 'off' }, number: { status: 'unassigned' }, bridge: { status: 'not_built' }, billing: { status: 'not_connected' }, callingEnabled: false, phoneMeetingJoinEnabled: false });
     expect((await svc.testConnection(ADMIN)).ok).toBe(false); expect((await svc.testConnection(USER).catch((e) => e)).code).toBe('FORBIDDEN');
     expect((await svc.requestNumber(ADMIN, { country: 'US', idempotencyKey: 'key-aaaaaaaa' }).catch((e) => e)).code).toBe('PROVIDER_NOT_CONNECTED'); expect((await svc.availableNumbers(ADMIN, 'US')).numbers).toEqual([]);
-    expect((await svc.startCall(USER, { to: '+12025550100', idempotencyKey: 'call-aaaaaaaa' }).catch((e) => e)).code).toBe('CARRIER_NOT_ENABLED');
+    // Since the provider contract (e40416e) the capability check comes first: a provider that cannot place PSTN calls (here: none configured) is refused as PSTN_NOT_SUPPORTED, 503, before the carrier-enabled check.
+    const sc = await svc.startCall(USER, { to: '+12025550100', idempotencyKey: 'call-aaaaaaaa' }).catch((e) => e); expect(sc.code).toBe('PSTN_NOT_SUPPORTED'); expect(sc.status).toBe(503);
   });
 
   test('T01 connection: health check + a signed webhook are both required; the status is evidence, not configuration', async () => {
@@ -119,6 +120,8 @@ test.describe('Twilio adapter, workflows, ledger and webhooks (local Twilio stan
 
   test('T02 provisioning: admin only, eligibility, idempotent, asynchronous; the carrier-confirmed number is recorded and assigned; personal and shared numbers stay separate', async () => {
     const svc = await mk();
+    // A number can only go to an account the main app reported as verified and active (number authority): the fixture reports its two accounts first.
+    for (const acct of [USER, OTHER]) await svc.syncAccount({ accountId: acct.id, verified: true, suspended: false });
     expect((await svc.requestNumber(USER, { country: 'US', idempotencyKey: 'key-user-0001' }).catch((e) => e)).code).toBe('FORBIDDEN');
     expect((await svc.requestNumber(ADMIN, { country: 'GH', idempotencyKey: 'key-gh-00001' }).catch((e) => e)).code).toBe('COUNTRY_NOT_ALLOWED'); expect((await svc.requestNumber(ADMIN, { country: 'US', idempotencyKey: 'x' }).catch((e) => e)).code).toBe('IDEMPOTENCY_REQUIRED');
     expect((await svc.requestNumber(ADMIN, { country: 'US', kind: 'weird', idempotencyKey: 'key-kind-001' }).catch((e) => e)).code).toBe('INVALID_KIND'); expect((await svc.availableNumbers(USER, 'US').catch((e) => e)).code).toBe('FORBIDDEN');
@@ -136,7 +139,7 @@ test.describe('Twilio adapter, workflows, ledger and webhooks (local Twilio stan
     mock.state.available = [{ phone_number: '+16465550123', capabilities: { voice: true } }]; await svc.requestNumber(ADMIN, { country: 'US', kind: 'dialin', idempotencyKey: 'key-dialin-02' }); await svc.runProvisioning();
     expect((await svc.dialInDirectory()).map((x) => x.number)).toEqual(['+16465550123']); expect((await svc.listNumbers(OTHER)).map((x) => x.number)).toEqual(['+16465550123']);   // a shared dial-in number is visible to everyone, a personal one only to its owner
     expect((await svc.setNumberState(USER, n.id, 'suspended').catch((e) => e)).code).toBe('FORBIDDEN'); await svc.setNumberState(ADMIN, n.id, 'suspended'); expect((await svc.capabilities(USER.id)).number.status).toBe('unassigned'); await svc.setNumberState(ADMIN, n.id, 'active');
-    expect((await svc.reassignNumber(ADMIN, n.id, OTHER.id)).assignedTo).toBe(OTHER.id); await svc.reassignNumber(ADMIN, n.id, USER.id);
+    expect((await svc.reassignNumber(ADMIN, n.id, OTHER.id, 'test: move to the other account')).assignedTo).toBe(OTHER.id); await svc.reassignNumber(ADMIN, n.id, USER.id, 'test: move it back');
   });
 
   test('T03/T06 calling: gates, fraud screen, spending limit, idempotency, one carrier call per intent, out-of-order and duplicate events, usage ledger and reconciliation', async () => {
@@ -267,7 +270,7 @@ test.describe('end to end: Numbers & Plans administration (main app + Meet + Twi
   test.beforeAll(async () => {
     mock = await mockTwilio(); schema = 'qe_' + Math.random().toString(36).slice(2, 10);
     const a = new Pool({ connectionString: URL_DB }); await a.query('CREATE SCHEMA ' + schema); await a.end();
-    sp = new Pool({ connectionString: URL_DB, options: '-c search_path=' + schema + ',public' }); for (const f of ['v4_14_telephony.sql', 'v4_15_telephony_features.sql']) await sp.query(fs.readFileSync(path.resolve(__dirname, '..', 'qorlla-meet-video', 'sql', f), 'utf8'));
+    sp = new Pool({ connectionString: URL_DB, options: '-c search_path=' + schema + ',public' }); for (const f of ['v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_18_billing_hold.sql']) await sp.query(fs.readFileSync(path.resolve(__dirname, '..', 'qorlla-meet-video', 'sql', f), 'utf8'));
     const env = { ...process.env, PORT: String(MEETP), DATABASE_URL: URL_DB + '?options=' + encodeURIComponent('-c search_path=' + schema + ',public'), JWT_SECRET: secrets.jwt, QORLLA_BRIDGE_SECRET: secrets.bridge, RECOVERY_ESCROW_KEY: secrets.escrow, NODE_ENV: 'development',
       RECORDING_MASTER_KEYS: JSON.stringify({ dev1: secrets.recordingKey }), RECORDING_ACTIVE_KEY_ID: 'dev1', RECORDING_STORE_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'qrec-')), RECORDING_ADMIN_SECRET: 'test-admin-secret',
       PHONE_CARRIER: 'twilio', TWILIO_ACCOUNT_SID: SID, TWILIO_AUTH_TOKEN: TOKEN, TWILIO_API_BASE: mock.url, PHONE_PUBLIC_BASE: 'http://127.0.0.1:' + MEETP, PHONE_ALLOWED_COUNTRIES: 'US,GB', PHONE_WORKER_MS: '400', PHONE_RECONCILE_DELAY_S: '0', PHONE_FEATURES: 'dialin,carrier,bridge,billing,settings' };
