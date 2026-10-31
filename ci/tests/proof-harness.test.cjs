@@ -52,7 +52,7 @@ test('BROKEN: cluster hygiene: raw logs, direct compose, printing the environmen
 
 // ---- the specs and configuration
 test('the proof configuration builds on the committed one (git capture stays off) and uses the cluster instead of its own server', () => {
-  const cfg = read('ci', 'proof', 'playwright.proof.config.cjs'); assert.match(cfg, /require\('\.\.\/\.\.\/playwright\.config\.js'\)/); assert.match(cfg, /\.\.\.base,/); assert.match(cfg, /webServer:\s*undefined/); assert.match(cfg, /retries:\s*1/); assert.match(cfg, /trace:\s*'on-first-retry'/); assert.match(cfg, /\.proof\\\.js\$/);
+  const cfg = read('ci', 'proof', 'playwright.proof.config.cjs'); assert.match(cfg, /require\('\.\.\/\.\.\/playwright\.config\.js'\)/); assert.match(cfg, /\.\.\.base,/); assert.match(cfg, /webServer:\s*undefined/); assert.match(cfg, /retries:\s*1/); assert.match(cfg, /outputFolder:\s*path\.resolve\(process\.cwd\(\),/, 'a relative outputFolder would land in ci/proof/, where the scan and upload steps do not look'); assert.match(cfg, /trace:\s*'on-first-retry'/); assert.match(cfg, /\.proof\\\.js\$/);
   assert.match(read('playwright.config.js'), /captureGitInfo:\s*\{\s*commit:\s*false,\s*diff:\s*false\s*\}/, 'the base keeps git capture off, which the proof config spreads');
 });
 test('the specs: A passes, B fails on purpose with a clean request, C fails on purpose after sending a canary three ways, never a literal credential', () => {

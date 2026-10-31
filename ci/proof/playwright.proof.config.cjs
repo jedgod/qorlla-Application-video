@@ -13,6 +13,7 @@ module.exports = {
   fullyParallel: false,
   workers: 1,
   retries: 1,                                             // the trace is recorded on the retry
-  reporter: [['html', { outputFolder: process.env.PROOF_REPORT_DIR || 'playwright-report', open: 'never' }]],
+  // Playwright resolves a RELATIVE outputFolder against the directory of the config file (ci/proof/), not the working directory; the workflow scans and uploads from the repository root, so the folder is made absolute here.
+  reporter: [['html', { outputFolder: path.resolve(process.cwd(), process.env.PROOF_REPORT_DIR || 'playwright-report'), open: 'never' }]],
   use: { ...base.use, baseURL: process.env.PROOF_BASE_URL || 'http://localhost:8080', trace: 'on-first-retry', screenshot: 'only-on-failure' },
 };
