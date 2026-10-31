@@ -4,7 +4,8 @@ name: Qorlla internal installable build verification
 # Triggers: a push to the integration branch that touches the clients, or a manual run (a manual run only registers once this file exists on the default branch; supply the full commit SHA).
 on:
   push:
-    branches: [integration/installable-clients]
+    # linux-certification is the separate review branch for the Linux certification pack (PR against the integration branch). On it ONLY the two Linux jobs run; the other platforms stay on the integration branch.
+    branches: [integration/installable-clients, linux-certification]
     paths: ['qorlla-clients/**', '.github/workflows/installable-internal-rc.yml']
   workflow_dispatch:
     inputs:
@@ -19,6 +20,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   windows:
+    if: github.ref_name != 'linux-certification'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -153,7 +155,55 @@ jobs:
             grep -v -E "^/tmp/appimage_extracted|^\+\+ " "appimage-$$.log" | head -25 | cut -c1-260; echo "..."; grep -E "^\+ |FATAL|sandbox|No such file|not found|Permission denied" "appimage-$$.log" | tail -12 | cut -c1-260
           done 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
           exit 0
+  linux-ubuntu-22-04:
+    # Ubuntu 22.04 is NOT assumed to behave like 24.04: its AppArmor is version 3 and it does not restrict unprivileged user namespaces. This job records what it actually does and runs the same launch checks without requiring a profile.
+    # CI evidence on a GitHub-hosted runner only; it builds its own deb (the repository is public, so no package is passed between jobs). Physical-machine certification is separate (qorlla-clients/docs/LINUX_CERTIFICATION.md).
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce immutable commit
+        if: github.event_name == 'workflow_dispatch'
+        run: test "${{ github.sha }}" = "${{ inputs.expected_sha }}"
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: qorlla-clients/apps/desktop/package-lock.json }
+      - name: Test and package the unsigned Debian package
+        working-directory: qorlla-clients/apps/desktop
+        run: |
+          npm ci
+          npm test
+          npm run dist -- --linux deb --x64
+      - name: "Sandbox regression check (MANDATORY) and package hash"
+        run: |
+          set -euo pipefail
+          DEB=$(ls qorlla-clients/apps/desktop/dist/qorlla-*-amd64.deb); sha256sum "$DEB" | tee -a "$GITHUB_STEP_SUMMARY"
+          node --test qorlla-clients/e2e/linux-sandbox-check.test.cjs qorlla-clients/e2e/linux-launch-smoke.test.cjs qorlla-clients/e2e/linux-evidence-check.test.cjs qorlla-clients/e2e/release-safety.test.cjs
+          echo "--- release safety (no workflow publishes an installer; the AppImage stays marked NOT-DISTRIBUTABLE)"; node qorlla-clients/e2e/release-safety.cjs | tee -a "$GITHUB_STEP_SUMMARY"
+          rm -rf sbx && mkdir sbx && dpkg-deb -x "$DEB" sbx
+          node qorlla-clients/e2e/linux-sandbox-check.cjs sbx | tee -a "$GITHUB_STEP_SUMMARY"
+          dpkg-deb -e "$DEB" ctl; ! grep -qE "4755|chmod u\+s" ctl/postinst ctl/postrm
+      - name: "Debian install and real launch on Ubuntu 22.04 (MANDATORY): what the host really does, launch, upgrade, remove, purge"
+        run: |
+          set -euo pipefail
+          DEB=$(ls "$PWD"/qorlla-clients/apps/desktop/dist/qorlla-*-amd64.deb); SMOKE="node qorlla-clients/e2e/linux-launch-smoke.cjs /opt/Qorlla/qorlla"
+          sudo apt-get update -qq; sudo apt-get install -y -qq xvfb > /dev/null
+          RESTRICT=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent); PARSER=$(apparmor_parser --version 2>/dev/null | head -1 || echo none); ABI4=no; test -e /etc/apparmor.d/abi/4.0 && ABI4=yes
+          UNSHARE=no; unshare -U true 2>/dev/null && UNSHARE=yes
+          { echo '### Ubuntu 22.04 install and launch (mandatory gate)'; echo "$(. /etc/os-release; echo "$PRETTY_NAME"), kernel $(uname -r), running as $(id -un) (uid $(id -u))"; echo "kernel.apparmor_restrict_unprivileged_userns=$RESTRICT; AppArmor parser: $PARSER; abi/4.0 present: $ABI4; a normal user can create a user namespace: $UNSHARE"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$(id -u)" != 0 || { echo "::error::must run as a normal user"; exit 1; }
+          test "$RESTRICT" != 1 || { echo "::error::this runner restricts user namespaces like 24.04; use the 24.04 gate"; exit 1; }
+          test "$UNSHARE" = yes || { echo "::error::a normal user cannot create a user namespace on this runner, so the sandbox cannot work here without extra configuration"; exit 1; }
+          echo "== 1. install"; sudo apt-get install -y -qq "$DEB"
+          echo "chrome-sandbox: $(stat -c 'mode=%a owner=%U' /opt/Qorlla/chrome-sandbox) (must not be setuid)"; test "$(stat -c %a /opt/Qorlla/chrome-sandbox)" = 755
+          echo "AppArmor profile installed by the package: $(sudo test -e /etc/apparmor.d/qorlla && echo yes || echo no) (expected: no without AppArmor 4)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$ABI4" = no ]; then ! sudo test -e /etc/apparmor.d/qorlla; fi
+          echo "== 2. launch as a normal user: window, sandbox in effect, media (no profile required on this host)"; xvfb-run -a $SMOKE | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "== 3. upgrade (same version reinstalled over itself): still launches"; sudo dpkg -i "$DEB" > /dev/null; xvfb-run -a $SMOKE | tail -3 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "== 4. remove, then reinstall and purge: nothing left behind"; sudo apt-get remove -y -qq qorlla > /dev/null; test ! -e /opt/Qorlla/qorlla; ! sudo test -e /etc/apparmor.d/qorlla
+          sudo apt-get install -y -qq "$DEB" > /dev/null; sudo apt-get purge -y -qq qorlla > /dev/null; test ! -e /opt/Qorlla/qorlla; ! sudo test -e /etc/apparmor.d/qorlla
+          echo "Ubuntu 22.04 install, launch (sandbox in effect), upgrade, remove and purge behaved as required" | tee -a "$GITHUB_STEP_SUMMARY"
   macos:
+    if: github.ref_name != 'linux-certification'
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -177,6 +227,7 @@ jobs:
           test -s mac-packages.txt
           while read -r f; do shasum -a 256 "$f"; codesign -dv "$f" 2>&1 | head -3 || true; done < mac-packages.txt | tee -a "$GITHUB_STEP_SUMMARY"
   android:
+    if: github.ref_name != 'linux-certification'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -225,6 +276,7 @@ jobs:
           test -s android-apks.txt
           while read -r apk; do sha256sum "$apk" | tee -a "$GITHUB_STEP_SUMMARY"; "$APKSIGNER" verify --print-certs --verbose "$apk" 2>&1 | grep -E "Verifies|certificate (DN|SHA-256)|Signer" | tee -a "$GITHUB_STEP_SUMMARY"; done < android-apks.txt
   ios-simulator:
+    if: github.ref_name != 'linux-certification'
     runs-on: macos-latest
     timeout-minutes: 75
     steps:
