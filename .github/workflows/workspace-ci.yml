@@ -43,10 +43,20 @@ jobs:
         run: |
           node --test ci/tests/*.test.cjs
 
-      # 5) Build and orchestrate isolated container runtime engines
+      # 5a) Repair of the pre-existing CI failure (docker-compose.yml requires database passwords and secrets that CI never provided): generate EPHEMERAL, distinct, random values for the disposable cluster only.
+      # They are written to $RUNNER_TEMP (never the repository), masked in logs, never printed, never exported as values, and deleted at teardown. Authentication stays required: nothing is defaulted or left empty.
+      - name: Generate the disposable cluster's ephemeral secrets
+        run: |
+          bash ci/cluster.sh prepare
+
+      - name: Validate the compose configuration (the resolved configuration is not printed)
+        run: |
+          bash ci/cluster.sh check
+
+      # 5b) Build and orchestrate isolated container runtime engines
       - name: Initialize Docker Compose Multi-Container Cluster
         run: |
-          docker compose up --build -d
+          bash ci/cluster.sh up
           echo "Awaiting virtual service cluster boot sequences..."
           sleep 5
 
@@ -65,11 +75,12 @@ jobs:
           CI: true
           NODE_ENV: test
 
-      # 8) Aggregate system runtime outputs on error triggers
-      - name: Capture Internal Container Log Traces on Failure
+      # 8) Diagnostics on failure. This is a PUBLIC log: raw `docker compose logs` can carry database credentials, connection strings and authentication headers, so it is never printed.
+      # The summary shows service states and only error, warning and lifecycle lines, with secrets, addresses and tokens redacted (ci/sanitize-diagnostics.cjs).
+      - name: Sanitized diagnostics on failure (service states and redacted error lines only)
         if: failure()
         run: |
-          docker compose logs --tail=100
+          bash ci/cluster.sh diagnostics
 
       # 9a) Fail-closed scan of the Playwright report BEFORE anything can be uploaded. This repository is PUBLIC: an artifact can be downloaded by anyone signed in to GitHub.
       # The scan opens the trace archives (and archives inside them), the base64 archive embedded in index.html, network captures and screenshot metadata, and refuses anything sensitive or not understood.
@@ -97,4 +108,4 @@ jobs:
       - name: Teardown Active Cluster Containers
         if: always()
         run: |
-          docker compose down --volumes
+          bash ci/cluster.sh down

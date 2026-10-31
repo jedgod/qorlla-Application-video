@@ -50,11 +50,25 @@ function checkWorkflowPolicy(text) {
     if (s.paths.length !== 1 || s.paths[0] !== 'playwright-report/') bad(`${where}: the only path that may be uploaded is exactly one: "playwright-report/" (found ${JSON.stringify(s.paths)})`);
   });
   if (iUp >= 0 && iScan >= 0 && iUp < iScan) bad('the upload must come AFTER the scan');
+  // ---- the disposable cluster: secrets and public-log hygiene. Everything goes through ci/cluster.sh, which carries the ephemeral environment, prints nothing sensitive and always tears down.
+  const code = (s) => s.text.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'), via = (cmd) => idx((s) => new RegExp('bash ci/cluster\\.sh ' + cmd + '\\b').test(code(s)));
+  for (const s of all) {
+    const c = code(s), where = `step at line ${s.line}`;
+    if (/docker[- ]compose\s+(?:--env-file\s+\S+\s+)?logs\b/.test(c)) bad(`${where}: raw "docker compose logs" is forbidden in this public pipeline; use "bash ci/cluster.sh diagnostics" (sanitized)`);
+    if (/docker[- ]compose\b[^\n]*\b(up|down|config|exec|run)\b/.test(c)) bad(`${where}: call compose only through ci/cluster.sh (it passes the ephemeral environment, never prints the resolved configuration and always tears down)`);
+    if (/(^|[\s;&|])(printenv|env)(\s*$|\s*\||\s*>|\s+-0)/m.test(c) || /\bset\s+-[a-z]*x/.test(c) || /\bcat\s+\S*\.env\b/.test(c) || /\bcat\s+"?\$\{?(QORLLA_CI_ENV_FILE|RUNNER_TEMP)/.test(c)) bad(`${where}: it could print the environment or a secret (printenv, env, set -x, cat of an env file)`);
+    if (/\.env\b/.test(c) && /\b(cp|copy|echo|tee)\b[^\n]*\.env\b/.test(c)) bad(`${where}: do not write a .env file into the workspace; the ephemeral environment lives in $RUNNER_TEMP`);
+  }
+  const iPrep = via('prepare'), iCheck = via('check'), iUpC = via('up'), iDiag = via('diagnostics'), iDown = via('down');
+  if (iPrep < 0 || iCheck < 0 || iUpC < 0) bad('the cluster must be started with "bash ci/cluster.sh prepare", then "check", then "up"'); else if (!(iPrep < iCheck && iCheck < iUpC)) bad('cluster order must be prepare, then check, then up');
+  if (iPw >= 0 && iUpC >= 0 && iUpC > iPw) bad('the cluster must be up before the Playwright step');
+  if (iDiag < 0 || !/failure\(\)/.test(all[iDiag].cond || '')) bad('sanitized diagnostics ("bash ci/cluster.sh diagnostics") must run on failure()');
+  if (iDown < 0 || !/always\(\)/.test(all[iDown].cond || '')) bad('teardown ("bash ci/cluster.sh down") must run under always() so containers and volumes are removed even on failure');
   return problems;
 }
 function main(argv) {
   const file = path.resolve(argv[0] || path.join(__dirname, '..', '.github', 'workflows', 'workspace-ci.yml')), problems = checkWorkflowPolicy(fs.readFileSync(file, 'utf8'));
-  console.log(`checked ${path.basename(file)}`); for (const p of problems) console.log('FAIL ' + p); console.log(problems.length ? 'ARTIFACT UPLOAD POLICY VIOLATED' : 'artifact upload policy holds: self-test, then tests, then a fail-closed scan, then an upload only on failure with a passing scan, kept 7 days'); return problems.length ? 1 : 0;
+  console.log(`checked ${path.basename(file)}`); for (const p of problems) console.log('FAIL ' + p); console.log(problems.length ? 'WORKFLOW POLICY VIOLATED' : 'workflow policy holds: ephemeral secrets, compose only through ci/cluster.sh, sanitized diagnostics, teardown always; self-test, then tests, then a fail-closed scan, then an upload only on failure with a passing scan, kept 7 days'); return problems.length ? 1 : 0;
 }
 module.exports = { checkWorkflowPolicy, steps };
 if (require.main === module) process.exit(main(process.argv.slice(2)));
