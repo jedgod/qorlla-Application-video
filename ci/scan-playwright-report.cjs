@@ -12,7 +12,7 @@ const zlib = require('node:zlib');
 const LIMITS = { files: 5000, totalBytes: 250 * 1024 * 1024, entryBytes: 100 * 1024 * 1024, depth: 4, ratio: 250, imageBytes: 8 * 1024 * 1024, images: 300, embeddedBase64: 80 * 1024 * 1024 };
 const TEXT_EXT = new Set(['.html', '.htm', '.js', '.mjs', '.css', '.json', '.md', '.txt', '.svg', '.webmanifest', '.map', '.network', '.trace', '.stacks', '.yml', '.yaml', '.xml']);
 const STRUCTURED_EXT = new Set(['.network', '.trace', '.json', '.stacks', '.txt']);   // request/response captures and data: where a "password" key means a value, not JavaScript source
-const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg']);
+const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 const FONT_EXT = new Set(['.ttf', '.woff', '.woff2', '.ico']);
 const VIDEO_EXT = new Set(['.webm', '.mp4', '.mov', '.mkv', '.avi', '.gif', '.wav', '.mp3', '.ogg']);
 const MAGIC = { png: [0x89, 0x50, 0x4e, 0x47], jpeg: [0xff, 0xd8, 0xff], ttf: [0x00, 0x01, 0x00, 0x00], woff: [0x77, 0x4f, 0x46, 0x46], woff2: [0x77, 0x4f, 0x46, 0x32], ico: [0x00, 0x00, 0x01, 0x00], zip: [0x50, 0x4b, 0x03, 0x04] };
@@ -67,7 +67,12 @@ const RE = {
 };
 /** A value that was explicitly redacted (the report is sanitized): a marker, not a secret. */
 const isRedacted = (v) => /^[\[<(]?(redacted|removed|masked|filtered)[\]>)]?$/i.test(String(v).trim()) || /^\*{3,}$/.test(String(v).trim());
-const hostAllowed = (h, allow) => allow.hosts.some((a) => (a.startsWith('*.') ? h === a.slice(2) || h.endsWith(a.slice(1)) : h === a));
+/** A coarse class for an address, so a finding can be explained without printing the address. */
+const ipClass = (ip) => { const [a, b] = ip.split('.').map(Number); return a === 127 ? 'loopback' : a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ? 'private' : a === 0 ? 'unspecified' : a >= 224 ? 'multicast/reserved' : a === 169 && b === 254 ? 'link-local' : 'public'; };
+/** Names that can never resolve to a real host: the RFC 2606 / 6761 reserved top-level names and the example domains. Test data may use them freely. */
+const isReservedName = (h) => /(^|\.)(example|test|invalid|localhost)$/i.test(h) || /(^|\.)example\.(com|org|net)$/i.test(h);
+const isWebp = (b) => b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP';
+const hostAllowed = (h, allow) => isReservedName(h) || allow.hosts.some((a) => (a.startsWith('*.') ? h === a.slice(2) || h.endsWith(a.slice(1)) : h === a));
 function scanText(file, ext, text, allow, add) {
   const structured = STRUCTURED_EXT.has(ext), isNetwork = ext === '.network';
   for (const [re, rule] of [[RE.privateKey, 'private-key'], [RE.jwt, 'jwt-token'], [RE.serviceKey, 'service-credential']]) for (const m of findAll(re, text)) add(rule, file, LINE(text, m.index));
@@ -76,12 +81,12 @@ function scanText(file, ext, text, allow, add) {
     for (const m of findAll(RE.credHeaderKey, text)) if (!isRedacted(m[2])) add('credential-header', file, LINE(text, m.index));
     for (const m of findAll(RE.passwordJson, text)) if (!allow.passwords.includes(m[2]) && !isRedacted(m[2])) add('password-value', file, LINE(text, m.index));
     for (const m of findAll(RE.passwordForm, text)) if (!allow.passwords.includes(m[2]) && !isRedacted(m[2])) add('password-value', file, LINE(text, m.index));
-    for (const m of findAll(RE.host, text)) if (!hostAllowed(m[1].toLowerCase(), allow)) add('unexpected-host', file, LINE(text, m.index));
+    for (const m of findAll(RE.host, text)) if (!hostAllowed(m[1].toLowerCase(), allow)) add('unexpected-host', file, LINE(text, m.index), m[1].toLowerCase());
   }
   for (const m of findAll(RE.urlCredential, text)) if (!isRedacted(m[2]) && (structured || /https?:\/\//.test(text.slice(Math.max(0, m.index - 200), m.index)))) add('url-credential', file, LINE(text, m.index));
   for (const m of findAll(RE.basicAuthUrl, text)) add('url-credential', file, LINE(text, m.index));
-  for (const m of findAll(RE.email, text)) { const d = m[1].toLowerCase(), tld = d.split('.').pop(); if (IMG_TLD.has(tld)) continue; if (!allow.emailDomains.includes(d)) add('real-or-unknown-email', file, LINE(text, m.index)); }
-  for (const m of findAll(RE.ipv4, text)) if (!allow.ips.includes(m[1])) add('ip-address', file, LINE(text, m.index));
+  for (const m of findAll(RE.email, text)) { const d = m[1].toLowerCase(), tld = d.split('.').pop(); if (IMG_TLD.has(tld)) continue; if (!isReservedName(d) && !allow.emailDomains.includes(d)) add('real-or-unknown-email', file, LINE(text, m.index), d); }
+  for (const m of findAll(RE.ipv4, text)) if (!allow.ips.includes(m[1])) add('ip-address', file, LINE(text, m.index), ipClass(m[1]));
   if (isNetwork) { const cleaned = text.replace(/\\?"_?sha1\\?"\s*:\s*\\?"[0-9a-f]{40}\\?"/gi, '').replace(/\\?"(etag|integrity)\\?"\s*:\s*\\?"[^"\\]*\\?"/gi, ''); for (const m of findAll(RE.opaque, cleaned)) if (/\d/.test(m[1]) && /[A-Za-z]/.test(m[1])) add('opaque-secret-like-value', file, LINE(cleaned, m.index)); }
 }
 /** Printable ASCII runs (>= 8 characters) of a binary file: where a screenshot's metadata could carry an address, a path or a token. */
@@ -90,7 +95,7 @@ const strings = (buf) => (buf.toString('latin1').match(/[\x20-\x7e]{8,}/g) || []
 // ---------------------------------------------------------------- walking
 function scan(root, { allow = DEFAULT_ALLOW, attested = false } = {}) {
   const findings = [], stats = { files: 0, bytes: 0, archives: 0, images: 0, maxDepth: 0 }, a = { ...DEFAULT_ALLOW, ...allow };
-  const add = (rule, file, line) => findings.push({ rule, file, line: line || null }), fail = (rule, file, why) => findings.push({ rule, file, line: null, why });
+  const add = (rule, file, line, detail) => findings.push({ rule, file, line: line || null, detail }), fail = (rule, file, why, detail) => findings.push({ rule, file, line: null, why, detail });
   const account = (file, size) => { stats.files++; stats.bytes += size; if (stats.files > LIMITS.files) throw Object.assign(new Error('too many files'), { limit: true }); if (stats.bytes > LIMITS.totalBytes) throw Object.assign(new Error('total size over the limit'), { limit: true }); };
   function handle(file, name, buf, depth) {
     stats.maxDepth = Math.max(stats.maxDepth, depth); const ext = path.extname(name).toLowerCase(); account(file, buf.length);
@@ -102,9 +107,9 @@ function scan(root, { allow = DEFAULT_ALLOW, attested = false } = {}) {
       for (const e of entries) handle(file + '!/' + e.name, e.name, e.data, depth + 1); return undefined;
     }
     // Playwright stores failure screenshots as extensionless "attachments/<hash>" files: with no extension the content decides (a PNG or JPEG signature); anything else without an extension must still be readable text.
-    const sniffed = ext === '' ? (startsWith(buf, MAGIC.png) ? MAGIC.png : startsWith(buf, MAGIC.jpeg) ? MAGIC.jpeg : null) : null;
+    const sniffed = ext === '' ? (startsWith(buf, MAGIC.png) ? MAGIC.png : startsWith(buf, MAGIC.jpeg) ? MAGIC.jpeg : isWebp(buf) ? 'webp' : null) : null;
     if (IMAGE_EXT.has(ext) || sniffed) {
-      const sig = sniffed || (ext === '.png' ? MAGIC.png : MAGIC.jpeg); if (!startsWith(buf, sig)) return fail('image-type-mismatch', file, 'content does not match its extension');
+      const sig = sniffed || (ext === '.png' ? MAGIC.png : ext === '.webp' ? 'webp' : MAGIC.jpeg); if (sig === 'webp' ? !isWebp(buf) : !startsWith(buf, sig)) return fail('image-type-mismatch', file, 'content does not match its extension');
       stats.images++; if (stats.images > LIMITS.images || buf.length > LIMITS.imageBytes) return fail('image-limit', file, 'too many or too large screenshots');
       if (!attested) fail('screenshot-not-attested', file, 'screenshots may only be uploaded when the run is attested synthetic-only (QORLLA_CI_SYNTHETIC_DATA=1)');
       scanText(file + ' (image metadata)', '.txt', strings(buf), a, add); return undefined;
@@ -112,7 +117,7 @@ function scan(root, { allow = DEFAULT_ALLOW, attested = false } = {}) {
     if (FONT_EXT.has(ext)) { const ok = Object.values(MAGIC).some((s) => startsWith(buf, s)) || ext === '.ttf'; return ok ? undefined : fail('font-type-mismatch', file, 'content does not match its extension'); }
     let text = null;
     if (TEXT_EXT.has(ext) || ext === '') { if (!buf.includes(0)) { try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { text = null; } } }
-    if (text === null) return fail('unknown-binary', file, 'a file type the scanner does not understand (refused, not skipped)');
+    if (text === null) return fail('unknown-binary', file, 'a file type the scanner does not understand (refused, not skipped)', ext || '(no extension)');
     scanText(file, TEXT_EXT.has(ext) ? ext : '.txt', text, a, add);
     for (const m of findAll(RE.dataUrl, text)) {                            // an archive or image embedded in the HTML report as base64
       const mime = m[1].toLowerCase(), payload = m[2]; if (payload.length > LIMITS.embeddedBase64) { fail('embedded-payload-too-large', file, 'embedded base64 payload over the limit'); continue; }
@@ -148,6 +153,9 @@ function main(argv) {
   const by = {}; for (const f of r.findings) by[f.rule] = (by[f.rule] || 0) + 1;
   console.log('PLAYWRIGHT REPORT SCAN FAILED: ' + r.findings.length + ' finding(s). Matched values are never printed.'); for (const [k, n] of Object.entries(by)) console.log(`  ${String(n).padStart(4)} x ${k}`);
   for (const f of r.findings.slice(0, 40)) console.log(`  - ${f.rule}: ${f.file}${f.line ? ':' + f.line : ''}${f.why ? ' (' + f.why + ')' : ''}`); if (r.findings.length > 40) console.log(`  ... and ${r.findings.length - 40} more`);
+  if (argv.includes('--explain')) { // opt-in, for calibrating the allowlist on a LOCAL run: only aggregates (domains, host names, address classes, file types), never a value, address or local part
+    const agg = {}; for (const x of r.findings) if (x.detail) { (agg[x.rule] = agg[x.rule] || {})[x.detail] = (agg[x.rule][x.detail] || 0) + 1; }
+    for (const [rule, d] of Object.entries(agg)) console.log(`  explain ${rule}: ` + Object.entries(d).sort((p, q) => q[1] - p[1]).map(([k, n]) => `${k} x${n}`).join(', ')); }
   console.log('Nothing will be uploaded.'); return 1;
 }
 module.exports = { scan, readZip, LIMITS, DEFAULT_ALLOW };

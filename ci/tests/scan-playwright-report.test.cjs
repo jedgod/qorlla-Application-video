@@ -150,7 +150,7 @@ test('the command line: exit 0 clean, 1 findings, 2 problems; findings are liste
 });
 test('the shipped allowlist is valid JSON, narrow, and holds no password', () => {
   const al = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'artifact-scan-allowlist.json'), 'utf8'));
-  assert.deepEqual(al.passwords, []); assert.ok(al.emailDomains.every((d) => /^example\.(com|org|net)$/.test(d)), 'only reserved example domains'); assert.ok(al.ips.every((i) => i === '127.0.0.1')); assert.ok(al.hosts.includes('localhost'));
+  assert.deepEqual(al.passwords, []); assert.ok(al.emailDomains.every((d) => /^example\.(com|org|net)$/.test(d)), 'only reserved example domains'); assert.deepEqual(al.ips, ['127.0.0.1', '7.7.7.7', '8.8.8.8', '9.9.9.9', '10.0.0.9'], 'the exact simulated client addresses that tests/lockout.spec.js writes; widening this list must be a deliberate change here too'); assert.ok(al.hosts.includes('localhost'));
   // The host list is pinned EXACTLY, so adding a host is a deliberate, reviewed change to this test too: localhost and loopback; XMP/IPTC/SVG namespace URLs that appear inside screenshot metadata (identifiers, never requested);
   // the Tailwind CDN the pages load; and github.com, which Playwright's `ci` metadata links to (a public repository). No Qorlla, cloud, mail or analytics host.
   assert.deepEqual([...al.hosts].sort(), ['127.0.0.1', 'cdn.tailwindcss.com', 'cv.iptc.org', 'github.com', 'localhost', 'ns.adobe.com', 'tailwindcss.com', 'www.w3.org']);
@@ -166,4 +166,19 @@ test('EXTENSIONLESS attachments: a PNG or JPEG without an extension (how Playwri
   assert.deepEqual(run({ extraFiles: { 'data/attach.zip': zip([{ name: 'attachments/' + SHA1, data: PNG }]) } }).findings, [], 'attested, an extensionless PNG passes');
   expectRule(run({ extraFiles: { 'data/attach.zip': zip([{ name: 'attachments/' + SHA1, data: Buffer.concat([PNG, Buffer.from('taken by dana.smith@acme-corp.com')]) }]) } }), 'real-or-unknown-email', 'its metadata is scanned');
   expectRule(run({ extraFiles: { 'data/attach.zip': zip([{ name: 'attachments/' + SHA1, data: Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0, 1, 2]) }]) } }), 'unknown-binary', 'an executable without an extension is still refused');
+});
+
+test('RESERVED NAMES (RFC 2606 / 6761) are synthetic by definition and pass; look-alikes are still flagged', () => {
+  const t = (host, mail) => run({ trace: CLEAN.trace + '{"log":"GET https://' + host + '/x by ' + mail + '"}\n' });
+  for (const [h, m] of [['evil.example', 'qa@example.test'], ['app.example.test', 'a.b@mail.example.org'], ['x.invalid', 'q@sub.example.net'], ['svc.localhost', 'qa@example.com']]) assert.deepEqual(t(h, m).findings, [], h + ' / ' + m);
+  expectRule(t('notexample.com', 'qa@example.com'), 'unexpected-host', 'notexample.com is a different domain'); expectRule(t('example.com.evil.io', 'qa@example.com'), 'unexpected-host', 'example.com.evil.io is not under example.com');
+  expectRule(t('evil.example', 'qa@notexample.org'), 'real-or-unknown-email', 'notexample.org is a different domain'); expectRule(t('evil.example', 'qa@example.org.evil.io'), 'real-or-unknown-email');
+  expectRule(t('evil.example', 'qa@test.com'), 'real-or-unknown-email', 'test.com is a real domain, only the .test TLD is reserved');
+});
+test('WEBP screenshots (Playwright writes them for page snapshots) are recognised by their signature, with or without an extension', () => {
+  const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.from([4, 0, 0, 0]), Buffer.from('WEBPVP8 '), Buffer.alloc(8)]);
+  assert.deepEqual(run({ extraFiles: { 'data/w.zip': zip([{ name: 'resources/' + SHA1 + '.webp', data: WEBP }, { name: 'attachments/' + SHA1, data: WEBP }]) } }).findings, [], 'attested');
+  expectRule(run({ extraFiles: { 'data/w.zip': zip([{ name: 'resources/x.webp', data: WEBP }]) } }, { attested: false }), 'screenshot-not-attested');
+  expectRule(run({ extraFiles: { 'data/w.zip': zip([{ name: 'resources/x.webp', data: PNG }]) } }), 'image-type-mismatch', 'a PNG named .webp'); expectRule(run({ extraFiles: { 'data/w.zip': zip([{ name: 'resources/x.webp', data: Buffer.from('RIFFxxxxWAVEfmt ') }]) } }), 'image-type-mismatch', 'RIFF but not WEBP');
+  expectRule(run({ extraFiles: { 'data/w.zip': zip([{ name: 'resources/x.webp', data: Buffer.concat([WEBP, Buffer.from('taken by dana.smith@acme-corp.com')]) }]) } }), 'real-or-unknown-email', 'metadata is scanned');
 });
