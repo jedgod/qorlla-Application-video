@@ -1,0 +1,38 @@
+{
+  "schema": "qorlla-test-package-record/1",
+  "status": "built and verified; NOT yet approved for handoff",
+  "approvedBy": null,
+  "sourceCommit": "2ce6b29af2e300f7daa0e5a3025d714f9c84611e",
+  "builtOn": "2026-10-31",
+  "builder": {
+    "image": "node:22-bookworm",
+    "imageDigest": "sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef904bd",
+    "os": "Debian GNU/Linux 12 (bookworm)",
+    "node": "v22.23.4",
+    "npm": "10.9.9",
+    "electron": "33.4.11",
+    "electronBuilder": "25.1.8",
+    "lockfileSha256": "619f81539080b67211bdc64567a1bf9e64b1e23e2d5111031a4d0ed78046db80"
+  },
+  "package": {
+    "file": "qorlla-0.2.0-amd64.deb",
+    "sizeBytes": 75437480,
+    "sha256": "0013c0bd69742813f9dd640a2171dc6e00d22597a58f6ccf7c4d5c52e0fed5fd",
+    "dpkgVersion": "0.2.0",
+    "dpkgDepends": "libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0"
+  },
+  "verification": {
+    "desktopTests": "passed",
+    "sandboxRegressionCheck": "passed",
+    "releaseSafetyCheck": "passed",
+    "chromeSandboxMode": "755",
+    "chromeSandboxOwner": "root",
+    "appArmorProfileMode": "644",
+    "setuidFree": true,
+    "appArmorProfileSha256": "8685bede6c8c1707a5240a3cc635bf5cd8e740a64ca7a580b1bf37a3ed89e516",
+    "postinstSha256": "17b0852c8f1a0a6d262ff720a69e86939e233c56468b751808263ca0db6b2dc3",
+    "postrmSha256": "b7dd16c7c52c2e18df95d174b60352b376a1b6c7c03fb2280567c376b44ba276",
+    "desktopEntryExec": "/opt/Qorlla/qorlla %U"
+  },
+  "handoff": "Private only. The file is never committed or uploaded; it is given to each tester through a controlled channel and every tester records its SHA-256, which must equal package.sha256."
+}
