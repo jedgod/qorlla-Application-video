@@ -175,7 +175,8 @@ jobs:
         run: |
           set -euo pipefail
           DEB=$(ls qorlla-clients/apps/desktop/dist/qorlla-*-amd64.deb); sha256sum "$DEB" | tee -a "$GITHUB_STEP_SUMMARY"
-          node --test qorlla-clients/e2e/linux-sandbox-check.test.cjs qorlla-clients/e2e/linux-launch-smoke.test.cjs
+          node --test qorlla-clients/e2e/linux-sandbox-check.test.cjs qorlla-clients/e2e/linux-launch-smoke.test.cjs qorlla-clients/e2e/linux-evidence-check.test.cjs qorlla-clients/e2e/release-safety.test.cjs
+          echo "--- release safety (no workflow publishes an installer; the AppImage stays marked NOT-DISTRIBUTABLE)"; node qorlla-clients/e2e/release-safety.cjs | tee -a "$GITHUB_STEP_SUMMARY"
           rm -rf sbx && mkdir sbx && dpkg-deb -x "$DEB" sbx
           node qorlla-clients/e2e/linux-sandbox-check.cjs sbx | tee -a "$GITHUB_STEP_SUMMARY"
           dpkg-deb -e "$DEB" ctl; ! grep -qE "4755|chmod u\+s" ctl/postinst ctl/postrm
