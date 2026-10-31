@@ -15,6 +15,14 @@ const M = (f) => import(pathToFileURL(path.resolve(__dirname, '..', 'qorlla-meet
 const secrets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', '.dev-stack', 'secrets.json'), 'utf8'));
 const URL_DB = 'postgres://qorlla:' + secrets.dbPassword + '@127.0.0.1:' + (process.env.MEET_DB_PORT || 35432) + '/qorlla_meet';
 const SID = 'ACtest0123456789abcdef', TOKEN = 'tok-' + 'x'.repeat(24);
+// TEST-ONLY GUARD. Two tests below switch the PSTN / numbers feature flags ON inside their OWN disposable servers (never globally, never in a shared fixture). Before they do, the carrier they
+// talk to must be a loopback stand-in with synthetic credentials, the database must be local with a throwaway schema, and the runner's own environment must not already have the flags on.
+function assertSyntheticCarrier({ base, sid, token, schema }) {
+  const host = new URL(base).hostname; if (!['127.0.0.1', 'localhost', '[::1]'].includes(host)) throw new Error('refusing: the carrier endpoint is not loopback (' + host + ')');
+  if (!/^ACtest[0-9a-f]{10,}$/.test(sid) || !/^tok-x+$/.test(token)) throw new Error('refusing: carrier credentials are not the synthetic test ones');
+  if (new URL(URL_DB).hostname !== '127.0.0.1' || !/^q[te]_[a-z0-9]{8}$/.test(String(schema))) throw new Error('refusing: the database must be local and the schema a throwaway one');
+  if (process.env.NODE_ENV === 'production' || process.env.VOICE_PSTN_ENABLED === 'true' || process.env.VOICE_NUMBERS_ENABLED === 'true') throw new Error('refusing: the runner environment already has production-like or PSTN/numbers settings');
+}
 
 async function mockTwilio() {
   const log = [], state = { accountStatus: 'active', callPrice: '-0.0130', callDuration: '62', callStatus: 'completed', available: [{ phone_number: '+12025550111', locality: 'Washington', region: 'DC', capabilities: { voice: true } }], nextCall: 1, nextNum: 1 };
@@ -70,6 +78,15 @@ test.describe('rules (no server, no database)', () => {
     expect(d({ ...base, dialInCount: 1, bridgeReady: true, gates: { dialin: 'T', bridge: 'T' } }).phoneMeetingJoinEnabled).toBe(true); expect(d({ ...base, dialInCount: 1, bridgeReady: true, gates: { dialin: 'T' } }).phoneMeetingJoinEnabled).toBe(false);
     expect(d({ ...base, gates: { carrier: 'T', billing: 'T' }, reconciledUsage: 1 }).callingEnabled).toBe(true); expect(d({ ...base, gates: { carrier: 'T' } }).callingEnabled).toBe(false);
     expect(d({ ...base, personalNumbers: 1 }).number.status).toBe('active'); expect(d(base).number.status).toBe('unassigned');
+  });
+});
+
+test.describe('harness isolation', () => {
+  test('a test server refuses an occupied port and never attaches to what is already there', async () => {
+    const { startMain, freePort } = require('./support/meet-stack'); const net = require('node:net');
+    const port = await freePort(); const decoy = net.createServer(() => {}); await new Promise((r) => decoy.listen(port, '127.0.0.1', r));
+    try { await expect(startMain(port, {}, { exclusive: true })).rejects.toThrow(/already in use by another process/); }
+    finally { await new Promise((r) => decoy.close(r)); }
   });
 });
 
@@ -221,13 +238,31 @@ test.describe('Twilio adapter, workflows, ledger and webhooks (local Twilio stan
     expect((await svc.featureStatus({ id: 'u_nobody', admin: false })).features.forwarding.state).toBe('off'); expect((await q("SELECT count(*)::int AS n FROM qphone_audit WHERE action LIKE 'feature.%'"))[0].n).toBeGreaterThan(3);   // transitions are audited
   });
 
+  test('gate CLOSED (the production default): a correctly SIGNED carrier webhook is refused with exactly 403 feature_disabled and nothing is recorded', async () => {
+    const { twilioSignature, TwilioProvider } = await M('twilio.mjs');
+    const app = express(); const srv = http.createServer(app); await new Promise((r) => srv.listen(0, '127.0.0.1', r)); const pub = 'http://127.0.0.1:' + srv.address().port;
+    const e = env({ PHONE_PUBLIC_BASE: pub }); expect(e.VOICE_PSTN_ENABLED).toBeUndefined(); expect(e.VOICE_NUMBERS_ENABLED).toBeUndefined();   // the flags are NOT set: this is the default configuration
+    const carrier = new TwilioProvider({ sid: SID, token: TOKEN, base: mock.url, webhookBase: pub, fetchImpl: fetch });
+    const t = R.registerTelephony({ app, db: pool, bridgeAuth: (_q, _s, n) => n(), phone: { verifyCall: async () => ({ result: 'denied', say: 'x' }), statusOf: async () => 'waiting', endedCall: async () => ({}) }, env: e, carrier, bridge: { ready: false, join: async () => '' }, audio: new P.UnconfiguredAudioGateway() });
+    const events = async () => (await q('SELECT count(*)::int AS n FROM qphone_provider_events'))[0].n; const before = await events(), statusBefore = await t.svc.providerStatus();
+    try {
+      for (const [p, params] of [['/api/telephony/webhooks/twilio/status', { CallSid: 'CAg1', CallStatus: 'ringing', SequenceNumber: '1' }], ['/api/telephony/webhooks/twilio/voice', { CallSid: 'CAg2', From: '+12025550188', To: '+16465550199' }]]) {
+        const url = pub + p, sig = twilioSignature({ token: TOKEN, url, params });   // a VALID signature: the gate refuses it anyway
+        const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': sig, 'i-twilio-idempotency-token': 'tok-gate-closed-1' }, body: new URLSearchParams(params).toString() });
+        expect(r.status, p).toBe(403); const body = await r.json(); expect(body.error, p).toBe('feature_disabled'); expect(body.feature, p).toBe('pstn');
+      }
+      expect(await events()).toBe(before); expect(await t.svc.providerStatus()).toEqual(statusBefore);   // nothing recorded; the webhook was not marked verified
+    } finally { t.stop(); await new Promise((r) => srv.close(r)); }
+  });
+
   test('webhooks: signed by the carrier, de-duplicated, safe against replay; dial-in IVR fails closed without a certified bridge; with one, the existing PIN rules decide and the PIN is never stored', async () => {
     const { twilioSignature } = await M('twilio.mjs'), { TwilioProvider } = await M('twilio.mjs');
+    assertSyntheticCarrier({ base: mock.url, sid: SID, token: TOKEN, schema });
     const calls = { verify: [], joined: [], ended: [] }; let verdict = { result: 'denied', say: 'x' }, status = 'waiting';
     const phone = { verifyCall: async (j, pn) => { calls.verify.push({ pn, meetingId: j.meetingId, from: j.from, pin: j.pin }); return verdict; }, statusOf: async () => status, endedCall: async (j, pn) => { calls.ended.push({ ...j, pn }); return {}; } };
     let bridgeReady = false; const bridge = { get ready() { return bridgeReady; }, join: async (x) => { calls.joined.push(x); return '<Dial><Sip>sip:bridge.example</Sip></Dial>'; } };
     const app = express(); const srv = http.createServer(app); await new Promise((r) => srv.listen(0, '127.0.0.1', r)); const pub = 'http://127.0.0.1:' + srv.address().port;
-    const e = env({ PHONE_PUBLIC_BASE: pub }), carrier = new TwilioProvider({ sid: SID, token: TOKEN, base: mock.url, webhookBase: pub, fetchImpl: fetch });
+    const e = env({ PHONE_PUBLIC_BASE: pub, VOICE_PSTN_ENABLED: 'true' }), carrier = new TwilioProvider({ sid: SID, token: TOKEN, base: mock.url, webhookBase: pub, fetchImpl: fetch });
     const t = R.registerTelephony({ app, db: pool, bridgeAuth: (_q, _s, n) => n(), phone, env: e, carrier, bridge, audio: new P.UnconfiguredAudioGateway() });
     const post = async (p, params, o = {}) => { const url = pub + p, sig = o.sig === undefined ? twilioSignature({ token: TOKEN, url, params }) : o.sig; const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': sig, ...(o.headers || {}) }, body: new URLSearchParams(params).toString() }); return { status: r.status, text: await r.text() }; };
     try {
@@ -264,25 +299,33 @@ test.describe('Twilio adapter, workflows, ledger and webhooks (local Twilio stan
 // END TO END: the real main app and a real second Meet (:3311) in an ISOLATED database schema, with Meet talking to the local Twilio stand-in. This is the closest proof available without a real carrier.
 test.describe('end to end: Numbers & Plans administration (main app + Meet + Twilio stand-in)', () => {
   test.describe.configure({ mode: 'serial' });
-  const { startMain, organiser, PASSWORD } = require('./support/meet-stack');
+  const { startMain, organiser, PASSWORD, freePort } = require('./support/meet-stack');
   const { spawn } = require('node:child_process'); const os = require('node:os');
-  let mock, meet, schema, sp, main; const MEETP = 3311;
+  let mock, meet, schema, sp, main, MEETP;   // MEETP: a free port chosen at run time, never a fixed one that another environment could already hold
   test.beforeAll(async () => {
-    mock = await mockTwilio(); schema = 'qe_' + Math.random().toString(36).slice(2, 10);
+    mock = await mockTwilio(); schema = 'qe_' + Math.random().toString(36).slice(2, 10); MEETP = await freePort(); assertSyntheticCarrier({ base: mock.url, sid: SID, token: TOKEN, schema });
     const a = new Pool({ connectionString: URL_DB }); await a.query('CREATE SCHEMA ' + schema); await a.end();
     sp = new Pool({ connectionString: URL_DB, options: '-c search_path=' + schema + ',public' }); for (const f of ['v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_18_billing_hold.sql']) await sp.query(fs.readFileSync(path.resolve(__dirname, '..', 'qorlla-meet-video', 'sql', f), 'utf8'));
     const env = { ...process.env, PORT: String(MEETP), DATABASE_URL: URL_DB + '?options=' + encodeURIComponent('-c search_path=' + schema + ',public'), JWT_SECRET: secrets.jwt, QORLLA_BRIDGE_SECRET: secrets.bridge, RECOVERY_ESCROW_KEY: secrets.escrow, NODE_ENV: 'development',
       RECORDING_MASTER_KEYS: JSON.stringify({ dev1: secrets.recordingKey }), RECORDING_ACTIVE_KEY_ID: 'dev1', RECORDING_STORE_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'qrec-')), RECORDING_ADMIN_SECRET: 'test-admin-secret',
-      PHONE_CARRIER: 'twilio', TWILIO_ACCOUNT_SID: SID, TWILIO_AUTH_TOKEN: TOKEN, TWILIO_API_BASE: mock.url, PHONE_PUBLIC_BASE: 'http://127.0.0.1:' + MEETP, PHONE_ALLOWED_COUNTRIES: 'US,GB', PHONE_WORKER_MS: '400', PHONE_RECONCILE_DELAY_S: '0', PHONE_FEATURES: 'dialin,carrier,bridge,billing,settings' };
+      VOICE_PSTN_ENABLED: 'true', VOICE_NUMBERS_ENABLED: 'true', PHONE_CARRIER: 'twilio', TWILIO_ACCOUNT_SID: SID, TWILIO_AUTH_TOKEN: TOKEN, TWILIO_API_BASE: mock.url, PHONE_PUBLIC_BASE: 'http://127.0.0.1:' + MEETP, PHONE_ALLOWED_COUNTRIES: 'US,GB', PHONE_WORKER_MS: '400', PHONE_RECONCILE_DELAY_S: '0', PHONE_FEATURES: 'dialin,carrier,bridge,billing,settings' };
     meet = spawn(process.execPath, ['server/index.js'], { cwd: path.resolve(__dirname, '..', 'qorlla-meet-video'), env, stdio: 'ignore' });
     for (let i = 0; i < 60; i++) { if (await fetch('http://127.0.0.1:' + MEETP + '/api/config').then((r) => r.ok).catch(() => false)) break; await new Promise((r) => setTimeout(r, 500)); }
-    main = await startMain(5293, { MEET_PROBE_URL: 'http://127.0.0.1:' + MEETP, PHONE_ADMIN_USERS: 'org*' });
+    // the Meet answering must be OUR child process, alive, and must accept this worktree's bridge secret (never an unrelated Meet)
+    const own = await fetch('http://127.0.0.1:' + MEETP + '/api/integrations/telephony/capabilities', { headers: { 'x-qorlla-bridge-secret': secrets.bridge, 'x-qorlla-actor': 'u_harness_probe', 'x-qorlla-admin': '0' } }).then((r) => r.status).catch(() => 0);
+    if (meet.exitCode !== null || own !== 200) throw new Error('the disposable Meet did not start cleanly on :' + MEETP + ' (exit ' + meet.exitCode + ', bridge probe ' + own + ')');
+    main = await startMain(await freePort(), { MEET_PROBE_URL: 'http://127.0.0.1:' + MEETP, PHONE_ADMIN_USERS: 'org*' }, { exclusive: true });
   });
   test.afterAll(async () => { if (main) main.stop(); if (meet) meet.kill(); if (sp) await sp.end(); const a = new Pool({ connectionString: URL_DB }); await a.query('DROP SCHEMA IF EXISTS ' + schema + ' CASCADE').catch(() => {}); await a.end(); if (mock) await mock.close(); });
 
   test('a connected-but-uncertified carrier stays fail-closed; the admin tools work through Meet; a non-admin has none of them', async ({ browser }) => {
     test.setTimeout(150000); const { twilioSignature } = await M('twilio.mjs');
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } }); await organiser(ctx, main.base); const page = await ctx.newPage(); const caps = async () => (await (await ctx.request.get(main.base + '/api/phone/overview')).json());
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } }); await organiser(ctx, main.base);
+    // Number authority: a number only goes to an account reported verified and active. The main app reports that to Meet over the bridge once the email is verified (mail is not configured in this fixture),
+    // so the fixture reports its own organiser the same way, to its own disposable Meet.
+    const me = (await (await ctx.request.get(main.base + '/api/auth/me')).json()).user;
+    const rep = await fetch('http://127.0.0.1:' + MEETP + '/api/integrations/telephony/accounts/' + encodeURIComponent(me.id), { method: 'PUT', headers: { 'content-type': 'application/json', 'x-qorlla-bridge-secret': secrets.bridge }, body: JSON.stringify({ verified: true, suspended: false }) }); expect(rep.status).toBe(200);
+    const page = await ctx.newPage(); const caps = async () => (await (await ctx.request.get(main.base + '/api/phone/overview')).json());
     await page.goto(main.base + '/qorlla.html#home'); await page.locator('.nav-item[data-view=phone]').click(); await page.locator('#phTab-settings').click(); await page.locator('#qpPT-plans').click();
     await expect(page.locator('#phStatus')).toContainText('Telephony provider: Not connected'); await expect(page.locator('#phStatus')).toContainText('health check'); await expect(page.locator('#phStatus')).toContainText('Audio bridge for phone callers: Not built'); await expect(page.locator('#phStatus')).toContainText('Telephony billing: Not connected');
     // admin tools exist, only for an administrator, only because Meet answers
