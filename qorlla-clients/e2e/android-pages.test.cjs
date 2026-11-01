@@ -39,9 +39,14 @@ async function inWebview(expression) {
   try {
     let list = null; for (let i = 0; i < 15 && !list; i += 1) { try { list = await (await fetch('http://127.0.0.1:19222/json', { signal: AbortSignal.timeout(3000) })).json(); } catch { await sleep(2000); } }
     const info = (list || []).find((p) => p.type === 'page'); assert.ok(info, 'a WebView page is open');
-    const ws = new WebSocket(info.webSocketDebuggerUrl); await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
-    const answer = new Promise((r, j) => { const t = setTimeout(() => j(new Error('no answer from the WebView')), 15000); ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id === 1) { clearTimeout(t); r(d); } }; });
-    ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, returnByValue: true, awaitPromise: true } })); const out = await answer; ws.close();
+    const ws = new WebSocket(info.webSocketDebuggerUrl); let out;
+    try {
+      await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
+      const answer = new Promise((r, j) => { const t = setTimeout(() => j(new Error('no answer from the WebView')), 15000); ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id === 1) { clearTimeout(t); r(d); } }; });
+      // userGesture: pages opened by these clicks count as opened by a tap (a WebView skips history entries made without one when Back is pressed)
+      ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, returnByValue: true, awaitPromise: true, userGesture: true } }));
+      out = await answer;
+    } finally { try { ws.close(); } catch { /* already closed */ } }   // never leave a connection open: a stuck one blocks the next call and keeps the test process alive
     if (out.result && out.result.exceptionDetails) { const x = out.result.exceptionDetails; throw new Error('page script failed: ' + ((x.exception && x.exception.description) || x.text)); }
     return { url: info.url, value: out.result && out.result.result ? out.result.result.value : undefined };
   } finally { adb('forward', '--remove', 'tcp:19222'); }
@@ -103,3 +108,43 @@ test('signed in on the phone app: starting a meeting says video is unavailable i
   shot('p10-start-unavailable');
   assert.match(r.toast || '', /Video meetings are not available right now/, 'state: ' + JSON.stringify(r)); assert.ok(!/index\.html/.test(r.url), 'never the old room: ' + r.url);
 });
+
+// ---- the four tab destinations on the phone: Chat, Phone, Docs, Clips (reached from the workspace tab bar of a signed-in person)
+async function signedInHome() {
+  await launch(); await tapId('guest'); await until(/\/guest\/welcome$/);
+  const login = await inWebview(`fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: ${JSON.stringify(account.username)}, password: ${JSON.stringify(account.password)} }) }).then((r) => r.status)`); assert.equal(login.value, 200);
+  await inWebview(`location.href = '/qorlla.html#home'; true`).catch(() => {}); await until(/\/qorlla\.html#home$/); await sleep(2500);
+}
+const fits = `(() => ({ pageScroll: document.documentElement.scrollWidth > innerWidth, w: innerWidth }))()`;
+const tapTab = (sel) => inWebview(`document.querySelector(${JSON.stringify(sel)}).click(); true`).catch(() => {});
+const back = () => { adb('shell', 'input keyevent KEYCODE_BACK'); };
+// the app draws a close bar above pages that are separate documents (Chat, Docs, Clips); tap it like a person would
+async function closeNative() { for (let i = 0; i < 10; i += 1) { const n = byId(dump(), 'page-close'); if (n) { tapNode(n); return; } await sleep(1000); } assert.fail('the native close button is not on screen'); }
+const noCloseBar = () => assert.equal(!!byId(dump(), 'page-close'), false, 'no native close bar on a workspace view');
+async function backToWorkspace(how) { if (how === 'close') await closeNative(); else back(); await sleep(1500); const u = await until(/\/qorlla\.html/, 40000); assert.match(u, /\/qorlla\.html/, how + ' returns to the workspace'); }
+
+test('Chat tab: opens the chat page, nothing overflows, the one-tab guard hands over cleanly, and Back returns to the workspace', { skip }, async () => {
+  await signedInHome(); await tapTab('.nav-item[data-act=chat]'); await until(/\/chat\.html$/); await sleep(4000);
+  const c = await json(await inWebview(`JSON.stringify({ app: !!document.getElementById('app'), who: (document.getElementById('whoami') || {}).textContent, single: document.documentElement.getAttribute('data-single-tab'), blocked: !!document.getElementById('singleTabNotice'), scrolls: document.documentElement.scrollWidth > innerWidth, title: document.title })`));
+  assert.equal(c.app, true, 'the chat page'); assert.match(c.who || '', /Pages Test/, 'the signed-in person is shown'); assert.equal(c.blocked, false, 'the guard did not block the same tab moving workspace -> chat'); assert.equal(c.single, 'holder'); assert.equal(c.scrolls, false, 'no horizontal scrolling'); shot('p11-chat');
+  assert.ok(byId(dump(), 'page-close'), 'the app draws a close button above the chat page');
+  await backToWorkspace('close');
+  await tapTab('.nav-item[data-act=chat]'); await until(/\/chat\.html$/); await sleep(2500); await backToWorkspace('back');
+});
+test('Phone tab: the Phone page opens as its own page with a close button, a dial pad that fits, and honest provider wording', { skip }, async () => {
+  await signedInHome(); await tapTab('.nav-item[data-view=phone]'); await sleep(3500);
+  const ph = await json(await inWebview(`JSON.stringify({ hash: location.hash, close: getComputedStyle(document.getElementById('viewClose')).display !== 'none', keys: document.querySelectorAll('.qp-key').length, tabs: [...document.querySelectorAll('.qp-tabs button')].map((b) => b.textContent.trim()), scrolls: document.documentElement.scrollWidth > innerWidth, text: document.getElementById('view').innerText.slice(0, 600) })`));
+  assert.equal(ph.hash, '#phone'); assert.equal(ph.close, true); assert.equal(ph.keys >= 12, true, 'dial pad keys: ' + ph.keys); assert.ok(ph.tabs.length >= 4, 'tabs: ' + ph.tabs.join(',')); assert.equal(ph.scrolls, false); shot('p12-phone');
+  noCloseBar();
+  await inWebview(`document.querySelector('.qp-key').click(); true`); const typed = await inWebview(`(document.querySelector('#view input[type=tel], #view input.qp-num, #view input') || {}).value`); assert.ok(typed.value !== undefined);
+  await inWebview(`document.getElementById('viewClose').click(); true`); await sleep(1500); assert.equal((await inWebview('location.hash')).value, '#home', 'the close button returns to Home');
+});
+for (const [name, sel, route, shotName] of [['Docs', ".nav-item[data-href='/app/suite']", /\/app\/suite$/, 'p13-docs'], ['Clips', ".nav-item[data-href='/app/meet']", /\/app\/meet$/, 'p14-clips']]) {
+  test(`${name} tab: opens ${name === 'Docs' ? '/app/suite' : '/app/meet'} (served by the portal behind the reverse proxy) and shows what this server really has`, { skip }, async () => {
+    await signedInHome(); await tapTab(sel); await until(route); await sleep(2500);
+    const d = await json(await inWebview(`JSON.stringify({ title: document.title, h1: (document.querySelector('h1') || {}).textContent, scrolls: document.documentElement.scrollWidth > innerWidth, text: document.body.innerText.slice(0, 300), links: [...document.querySelectorAll('a')].map((a) => a.getAttribute('href')) })`));
+    assert.equal(d.scrolls, false, 'no horizontal scrolling'); shot(shotName); console.log('# ' + name + ' page: ' + JSON.stringify({ title: d.title, h1: d.h1, links: d.links }));
+    assert.ok(byId(dump(), 'page-close'), 'the app draws a close button above the ' + name + ' page'); await backToWorkspace('close');
+    await tapTab(sel); await until(route); await sleep(2000); await backToWorkspace('back');
+  });
+}

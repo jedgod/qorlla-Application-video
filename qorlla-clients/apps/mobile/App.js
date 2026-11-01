@@ -14,6 +14,8 @@ import { localeScript } from './src/welcome';
 const TEST = testHooksEnabled({ dev: typeof __DEV__ !== 'undefined' && __DEV__, testBuild: process.env.EXPO_PUBLIC_QORLLA_TEST_BUILD });
 // Event log for the certification runs only (test builds): event names and results, never meeting ids, URLs or user data.
 const log = TEST ? (...a) => console.log('[qorlla-app]', ...a) : () => {};
+// Pages that are separate documents (not views inside the workspace) get a close bar drawn by the app, so every page opened from the tab bar has one way back whoever serves it.
+const SEPARATE_PAGE = /^\/(chat\.html|app(\/|$))/;
 let policy = null, configError = null;
 try { policy = createPolicy({ appUrl: process.env.EXPO_PUBLIC_QORLLA_URL, meetUrls: process.env.EXPO_PUBLIC_QORLLA_MEET_URLS, allowLocalhostHttp: TEST }); } catch (e) { configError = e.message; }
 
@@ -28,7 +30,7 @@ async function ensureMeetingPermissions() {
 }
 
 export default function App() {
-  const [url, setUrl] = useState(null), [meeting, setMeeting] = useState(''), [joining, setJoining] = useState(false), [language, setLanguage] = useState('en'), [error, setError] = useState(''), web = useRef(null), canGoBack = useRef(false), joiningRef = useRef(false);
+  const [url, setUrl] = useState(null), [meeting, setMeeting] = useState(''), [joining, setJoining] = useState(false), [language, setLanguage] = useState('en'), [error, setError] = useState(''), web = useRef(null), canGoBack = useRef(false), [closeable, setCloseable] = useState(false), joiningRef = useRef(false);
 
   const openUrl = useCallback((u, why) => { log('openUrl', why || 'direct'); setError(''); setUrl(u); }, []);
   const joinMeeting = useCallback(async (meetingId) => {
@@ -66,9 +68,10 @@ export default function App() {
     return (
       <SafeAreaView style={s.web}>
         <StatusBar style="light" />
+        {closeable ? <View style={s.pageBar}><Pressable testID="page-close" accessibilityRole="button" accessibilityLabel="Close and go back" onPress={() => { if (web.current) web.current.injectJavaScript("(history.length>1?history.back():location.replace('/qorlla.html'));true;"); }} style={s.pageClose} hitSlop={4}><Text style={s.pageCloseText}>×</Text></Pressable></View> : null}
         <WebView ref={web} testID="qorlla-webview" applicationNameForUserAgent="QorllaMobile/1" source={{ uri: url }} originWhitelist={['*']}
           onShouldStartLoadWithRequest={(r) => { const d = navigationDecision(policy, r.url); if (d === 'external') Linking.openURL(r.url).catch(() => {}); return d === 'allow'; }}
-          onNavigationStateChange={(n) => { canGoBack.current = n.canGoBack; }}
+          onNavigationStateChange={(n) => { canGoBack.current = n.canGoBack; try { const u = new URL(n.url); setCloseable(u.origin === new URL(policy.pathUrl('/')).origin && SEPARATE_PAGE.test(u.pathname)); } catch { setCloseable(false); } }}
           injectedJavaScriptBeforeContentLoaded={localeScript(language)} javaScriptEnabled domStorageEnabled mediaPlaybackRequiresUserAction={false} allowsInlineMediaPlayback mediaCapturePermissionGrantType="prompt"
           setSupportMultipleWindows={false} mixedContentMode="never" allowFileAccess={false} allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false} allowsLinkPreview={false}
           thirdPartyCookiesEnabled={false} javaScriptCanOpenWindowsAutomatically={false} webviewDebuggingEnabled={TEST}
@@ -85,7 +88,7 @@ export default function App() {
     </View>
   );
 }
-const s = StyleSheet.create({ homeRoot: { flex: 1, backgroundColor: '#030B16' }, root: { flex: 1, backgroundColor: '#0c1527', padding: 24, paddingTop: 24 + TOP }, web: { flex: 1, backgroundColor: '#0c1527', paddingTop: TOP }, header: { paddingTop: 44, paddingBottom: 32 }, brand: { fontSize: 38, color: '#fff', fontWeight: '800' }, subtitle: { color: '#93b2da', marginTop: 8 },
+const s = StyleSheet.create({ pageBar: { height: 52, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', paddingHorizontal: 10, backgroundColor: '#0c1527' }, pageClose: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }, pageCloseText: { fontSize: 30, lineHeight: 32, color: '#131a2a' }, homeRoot: { flex: 1, backgroundColor: '#030B16' }, root: { flex: 1, backgroundColor: '#0c1527', padding: 24, paddingTop: 24 + TOP }, web: { flex: 1, backgroundColor: '#0c1527', paddingTop: TOP }, header: { paddingTop: 44, paddingBottom: 32 }, brand: { fontSize: 38, color: '#fff', fontWeight: '800' }, subtitle: { color: '#93b2da', marginTop: 8 },
   title: { fontSize: 25, color: '#fff', fontWeight: '700', marginBottom: 12 }, body: { color: '#b7c8df', lineHeight: 23 }, input: { backgroundColor: '#14233f', color: '#fff', borderRadius: 12, padding: 16, fontSize: 18, marginBottom: 12 },
   button: { backgroundColor: '#2766dc', padding: 17, borderRadius: 12, marginBottom: 12 }, secondary: { backgroundColor: '#1b3566' }, buttonText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
   err: { color: '#ff8a80', margin: 8 }, note: { color: '#91a5c4', fontSize: 12, marginTop: 24, lineHeight: 19 } });

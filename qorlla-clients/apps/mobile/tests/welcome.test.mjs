@@ -87,3 +87,11 @@ test('translations: every visible string of the Welcome screen exists in French,
   assert.match(digitsHint('fr', 3), /3 sur 11 chiffres/); assert.match(digitsHint('es', 3), /3 de 11 dígitos/); assert.equal(digitsHint('en', 3), '3 of 11 digits'); assert.match(tooLongHint('pt-PT', 13), /13 dígitos/); assert.match(tooLongHint('en', 13), /13 digits.*nothing was cut off/);
 });
 test('the screen sends every visible string through the translator', () => { for (const m of ['t(f.title)', "t('Join Meeting')", "t('Sign In')", 't(FOOTER)', "t('Meet · Connect · Collaborate')"]) assert.ok(SCREEN.includes(m), m); });
+
+test('pages that are separate documents (chat, portal /app/*) get a native close bar; hardware Back follows the own back state of the WebView', () => {
+  assert.ok(APP.includes(String.raw`const SEPARATE_PAGE = /^\/(chat\.html|app(\/|$))/;`), 'the pattern for separate pages'); assert.ok(APP.includes('testID="page-close"')); assert.ok(APP.includes('accessibilityLabel="Close and go back"'));
+  assert.ok(APP.includes("history.length>1?history.back():location.replace('/qorlla.html')"), 'closing goes back one page, or to the workspace when there is nothing behind');
+  assert.ok(APP.includes('if (canGoBack.current && web.current) { web.current.goBack(); return true; } setUrl(null); return true;'), 'hardware Back follows the own back state of the WebView (a page with nothing behind it leaves to the Welcome screen); it never traps the person'); assert.ok(!APP.includes('HISTORY_PROBE'));
+  const SEP = /^\/(chat\.html|app(\/|$))/; for (const ok of ['/chat.html', '/app', '/app/', '/app/suite', '/app/meet']) assert.ok(SEP.test(ok), ok);
+  for (const no of ['/qorlla.html', '/guest/welcome', '/meet/room', '/application', '/guest/chat.html']) assert.ok(!SEP.test(no), no);
+});
