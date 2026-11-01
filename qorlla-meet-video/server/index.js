@@ -30,6 +30,7 @@ const PORT = Number(process.env.PORT || 3000);
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET || SECRET.length < 32) throw Error('Set JWT_SECRET (32+ chars)');
 const db = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+db.on('error', (e) => console.error('db: an idle database connection was lost (the pool replaces it on the next query):', e.code || e.message));   // a restarted PostgreSQL must never crash the process
 const app = express();
 app.disable('x-powered-by');
 // Behind nginx the client address comes from X-Forwarded-For: set TRUST_PROXY_HOPS=1 (number of trusted proxies).
