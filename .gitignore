@@ -19,3 +19,5 @@ Thumbs.db
 *.pfx
 .dev-stack/
 .dev-stack-iso/
+.dev-stack-tls/
+.dev-stack-clk/
