@@ -28,7 +28,7 @@ test('guest tiles lead to their own routes; account links go to the auth entry p
   await page.goto('/auth/login?next=%2Fguest%2Fmeeting%2F123%2Fprejoin'); await expect(page).toHaveURL(/qorlla\.html\?next=/);
 });
 
-test('Join Meeting validates the ID, then the pre-join screen shows the meeting and only then opens the video page', async ({ page, request }) => {
+test('Join Meeting validates the ID, then the pre-join screen shows the meeting; Join never opens the old built-in room (no Meet here, so it says video is unavailable)', async ({ page, request }) => {
   const m = await newMeeting(request, 'Guest flow check');
   await page.goto('/guest/join-meeting');
   await page.fill('#mid', 'abc'); await page.getByRole('button', { name: 'Continue' }).click();
@@ -39,7 +39,7 @@ test('Join Meeting validates the ID, then the pre-join screen shows the meeting 
   await expect(page.locator('#pjGo')).toBeEnabled();
   await page.getByRole('button', { name: 'Join meeting' }).click(); await expect(page.locator('#pjMsg')).toContainText('display name');
   await page.fill('#pjName', 'Visiting Vera'); await page.getByRole('button', { name: 'Join meeting' }).click();
-  await expect(page).toHaveURL(/\/index\.html\?meeting=/); await expect(page.locator('#meetingIdInput')).toHaveValue(m.meetingId);
+  await expect(page.locator('#pjMsg')).toContainText('Video meetings are not available right now'); await expect(page.locator('#pjGo')).toBeEnabled(); expect(page.url()).toMatch(/\/prejoin$/); expect(page.url()).not.toContain('index.html');
 });
 
 test('a direct invitation link opens the pre-join screen; an invalid one is refused', async ({ page, request }) => {

@@ -66,7 +66,7 @@ export default function App() {
     return (
       <SafeAreaView style={s.web}>
         <StatusBar style="light" />
-        <WebView ref={web} testID="qorlla-webview" source={{ uri: url }} originWhitelist={['*']}
+        <WebView ref={web} testID="qorlla-webview" applicationNameForUserAgent="QorllaMobile/1" source={{ uri: url }} originWhitelist={['*']}
           onShouldStartLoadWithRequest={(r) => { const d = navigationDecision(policy, r.url); if (d === 'external') Linking.openURL(r.url).catch(() => {}); return d === 'allow'; }}
           onNavigationStateChange={(n) => { canGoBack.current = n.canGoBack; }}
           injectedJavaScriptBeforeContentLoaded={localeScript(language)} javaScriptEnabled domStorageEnabled mediaPlaybackRequiresUserAction={false} allowsInlineMediaPlayback mediaCapturePermissionGrantType="prompt"

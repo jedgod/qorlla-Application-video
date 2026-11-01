@@ -340,13 +340,8 @@
   @media (max-width: 1100px) { .ai-panel { display: none; } }
   @media (max-width: 700px) {
     .center { padding: 24px 18px; } .time { font-size: 46px; } .actions { gap: 18px; }
-    .app { padding: 8px 8px 76px; } .top-actions { display: none; }
-    /* the sidebar becomes a scrollable bottom tab bar so every page stays reachable */
-    .sidebar { position: fixed; left: 8px; right: 8px; bottom: 8px; width: auto; height: 64px; flex-direction: row; align-items: stretch; padding: 4px; gap: 2px; overflow-x: auto; z-index: 30; border-radius: 18px; box-shadow: 0 8px 30px rgba(19,26,42,.18); }
-    .sidebar .logo, .sidebar .spacer { display: none; }
-    .sidebar .nav-item { flex: 0 0 66px; width: 66px; padding: 6px 0; font-size: 10.5px; }
-    .nav-item .count { right: 14px; }
-    #toast { bottom: 90px; }
+    .app { padding: 8px 8px 66px; } .top-actions { display: none; }
+    #toast { bottom: 70px; }
   }
 
   /* ---------- Workplace views ---------- */
@@ -587,6 +582,16 @@
   body.signed-out .nav-item[data-view=home] { order: 1; } body.signed-out .nav-item[data-act=chat] { order: 2; } body.signed-out .nav-item[data-view=phone] { order: 3; } body.signed-out .nav-item[data-href='/app/suite'] { order: 4; } body.signed-out .nav-item[data-view=whiteboard] { order: 5; } body.signed-out .nav-item[data-href='/app/meet'] { order: 6; }
   body.signed-out .spacer { order: 7; flex: 1; } body.signed-out .nav-item[data-view=more] { order: 8; } body.signed-out .nav-item[data-view=settings] { order: 9; }
   .login-embed { width:100%; height:calc(100vh - 170px); min-height:560px; border:0; border-radius:16px; background:#fff; display:block; }
+
+  /* phones: the bottom tab bar is in assets/product.css. Every page opened from it is its own page with a close button that goes back to the page before. */
+  @media (max-width: 700px) {
+    /* every page opened from a tab is its own page with a close button that goes back to the page before */
+    .view-close { display: none; }
+    body.page-open .view-close { display: flex; position: fixed; top: 8px; right: 10px; z-index: 40; width: 48px; height: 48px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--ink, #131a2a); font-size: 24px; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(19,26,42,.18); }
+    body.page-open #view { padding-top: 56px; }
+    body[data-page=workspace].page-open .topbar { display: none; }
+  }
+  @media (min-width: 701px) { .view-close { display: none; } }
 </style>
   <script src="locales/es.js"></script>
   <script src="locales/fr.js"></script>
@@ -597,6 +602,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="stylesheet" href="assets/product.css">
   <script src="assets/product.js" defer></script>
+  <script src="assets/single-tab.js"></script>
 </head>
 <body data-page="workspace">
 <a class="skip-link" href="#view"><span data-i18n="Skip to content">Skip to content</span></a>
@@ -683,6 +689,7 @@
     </header>
 
     <div class="content" id="content">
+      <button class="view-close" id="viewClose" type="button" aria-label="Close and go back"><span aria-hidden="true">&times;</span></button>
       <main class="center" id="view" tabindex="-1"></main>
 
       <aside class="ai-panel" id="aiPanel">
@@ -986,7 +993,11 @@
   }
 
   // ---------- video page hand-off ----------
+  // inside the Qorlla mobile app the old built-in room is never used: say that video is unavailable instead
+  var IN_MOBILE_APP = /QorllaMobile\//.test(navigator.userAgent);
+  function videoUnavailable() { toast(I18n.t('Video meetings are not available right now. Please try again in a few minutes or ask the host.'), 'err'); }
   function goBuiltin(params) {
+    if (IN_MOBILE_APP) { videoUnavailable(); return; }
     try { sessionStorage.setItem('zw_meet_notice', '1'); } catch (e) { /* ignore */ }
     var b = new URLSearchParams({ start: params.start, mic: params.mic === 'false' ? '0' : '1', cam: params.camera === 'false' ? '0' : '1' });
     if (params.name) b.set('name', params.name);
@@ -995,6 +1006,7 @@
   }
   function go(params) {
     if (!VIDEO_PAGE) {                                   // Meet is not running: say so, then use this server's basic built-in meeting room
+      if (IN_MOBILE_APP) { videoUnavailable(); return; }
       try { sessionStorage.setItem('zw_meet_notice', '1'); } catch (e) { /* ignore */ }
       var b = new URLSearchParams({ start: params.start, mic: params.mic === 'false' ? '0' : '1', cam: params.camera === 'false' ? '0' : '1' });
       if (params.name) b.set('name', params.name);
@@ -1278,7 +1290,7 @@
   }
 
   // ---------- state ----------
-  var state = { view: 'home', cache: {} };
+  var state = { view: 'home', cache: {}, stack: [], closing: false };
   var viewEl = $('view');
   var cleanup = null; // per-view teardown (timers, listeners)
 
@@ -1286,7 +1298,12 @@
   function show(view, arg) {
     if (cleanup) { try { cleanup(); } catch (e) {} cleanup = null; }
     if (!VIEWS[view]) view = 'home';
+    if (!state.closing && state.view !== view) {
+      var seen = state.stack.indexOf(view);   // opening a page that is already behind us goes back to it instead of stacking up
+      if (seen >= 0) state.stack.length = seen; else { state.stack.push(state.view); if (state.stack.length > 20) state.stack.shift(); }
+    }
     state.view = view;
+    document.body.classList.toggle('page-open', view !== 'home');
     document.querySelectorAll('.nav-item[data-view]').forEach(function (n) {
       n.classList.toggle('active', n.dataset.view === view);
       if (n.dataset.view === view) n.setAttribute('aria-current', 'page');
@@ -3174,7 +3191,8 @@
         tile('meet', 'orange', 'Meet', 'Start a new video room', function () { openDialog('new'); }),
         tile('join', 'blue', I18n.t('Join'), 'Enter a meeting ID', function () { openDialog('join'); }),
         tile('schedule', 'blue', I18n.t('Schedule'), 'Plan meetings that get a real ID', function () { show('schedule', { open: true }); }),
-        tile('calendar', 'blue', I18n.t('Calendar'), 'Month view of events and meetings', function () { show('calendar'); })
+        tile('calendar', 'blue', I18n.t('Calendar'), 'Month view of events and meetings', function () { show('calendar'); }),
+        tile('history', 'blue', I18n.t('History'), 'Past meetings and calls', function () { show('history'); })
       ]],
       ['Collaborate', [
         tile('chat', 'violet', I18n.t('Chat'), 'Direct messages, channels and spaces', function () { window.location.href = 'chat.html'; }),
@@ -3499,6 +3517,9 @@
     else if (name === 'schedule') show(name, { open: true });
     else show(name);
   }
+  function closePage() { state.closing = true; try { show(state.stack.pop() || 'home'); } finally { state.closing = false; } }
+  $('viewClose').addEventListener('click', closePage);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && state.view !== 'home' && !document.querySelector('dialog[open]')) closePage(); });
   $('searchForm').addEventListener('submit', function (e) { e.preventDefault(); show('search', { q: $('searchInput').value.trim() }); });
   $('bellBtn').addEventListener('click', function () {
     if (state.unread) { toast('You have ' + state.unread + ' unread email' + (state.unread === 1 ? '' : 's')); show('mail'); }
@@ -3645,6 +3666,7 @@
     $('avatarBtn').textContent = user.displayName.charAt(0).toUpperCase();
     $('avatarBtn').title = user.displayName + ' (@' + user.username + ')';
     if (state.view === 'home') paintClock();
+    if (window.QorllaSingleTab) QorllaSingleTab.start(user.id, { root: '.app' });   // one tab per account in this browser
     voiceInit();                                          // internet calling: connects only when the server owner has configured Qorlla Voice
   }
   state.userReady = Promise.all([

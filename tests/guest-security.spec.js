@@ -286,7 +286,8 @@ test.describe('guest journey in the browser', () => {
     await expect(guestPage).toHaveURL(/\/prejoin$/); await expect(guestPage.locator('#pjTopic')).toContainText('You are joining');
     await guestPage.fill('#pjName', 'Guest Gil'); await guestPage.click('#pjTest'); await expect(guestPage.locator('#pjMsg')).toContainText('working');
     await guestPage.click('#pjGo');
-    await expect(guestPage).toHaveURL(/\/index\.html\?meeting=/);
+    await expect(guestPage.locator('#pjMsg')).toContainText('Video meetings are not available right now'); expect(guestPage.url()).toMatch(/\/prejoin$/);   // the guest is never sent to the old built-in room
+    await guestPage.goto('/index.html?meeting=' + encodeURIComponent(meetingId));                              // the room is entered directly here only to test the session cookie and removal on the server
     await guestPage.click('#joinMeetingBtn'); await expect(guestPage.locator('#meetingBar')).toBeVisible();
     expect(await guestPage.evaluate(() => document.cookie)).not.toContain('qorlla_guest');
     expect((await guestCtx.cookies()).find((c) => c.name === 'qorlla_guest')).toMatchObject({ httpOnly: true, sameSite: 'Strict' });

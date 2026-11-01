@@ -259,6 +259,14 @@ async function meetHandoff(meeting, who, req) {
         return settingsOf(meeting).waitingRoom ? { blocked: true } : null;     // the built-in room has no waiting room: never use it where the host asked for one
     }
 }
+// Where the Qorlla apps can be downloaded, only when the operator has published them (https links in the environment). Nothing is advertised that is not configured.
+app.get('/api/app-links', (req, res) => {
+    res.set('Cache-Control', 'no-store'); const out = {};
+    for (const [k, env] of Object.entries({ android: 'QORLLA_DOWNLOAD_ANDROID_URL', windows: 'QORLLA_DOWNLOAD_WINDOWS_URL', macos: 'QORLLA_DOWNLOAD_MACOS_URL', linux: 'QORLLA_DOWNLOAD_LINUX_URL' })) {
+        try { const u = new URL(process.env[env] || ''); if (u.protocol === 'https:' && !u.username && !u.password) out[k] = u.href; } catch (e) { /* not configured */ }
+    }
+    res.json(out);
+});
 app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getMeeting: meetingById, getAccount: (req) => auth.getUser(req), verifyHostKey, checkPasscode, admitAccount, handoff: meetHandoff }));
 // ---- Qorlla Voice (self-hosted internet calling between Qorlla accounts; no carrier). The engine is a separate service: qorlla-voice-engine/. This app signs its identity tokens and provisions extensions.
 const qvoice = require('./voice')({ dataDir: DATA_ROOT });

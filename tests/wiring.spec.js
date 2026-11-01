@@ -75,7 +75,8 @@ test.describe('invitations', () => {
     await host.fill('#inviteEmails', 'friend@example.com'); await host.click('#inviteSend'); await expect(host.locator('#inviteStatus')).toContainText('Email is not set up');
     await guest.goto('/guest/meeting/' + encodeURIComponent(id) + '/prejoin'); await expect(guest.locator('#pjPassWrap')).toBeVisible();
     await guest.fill('#pjName', 'Guest Gus'); await guest.fill('#pjPass', 'wrong'); await guest.click('#pjGo'); await expect(guest.locator('#pjMsg')).toContainText('Incorrect passcode');
-    await guest.fill('#pjPass', 'door-code'); await guest.click('#pjGo'); await expect(guest).toHaveURL(/index\.html/);
+    await guest.fill('#pjPass', 'door-code'); await guest.click('#pjGo'); await expect(guest.locator('#pjMsg')).toContainText('Video meetings are not available right now'); expect(guest.url()).toMatch(/\/prejoin$/);   // the right passcode got a session; the guest is never sent to the old built-in room
+    await guest.goto('/index.html?meeting=' + encodeURIComponent(id));                                                                          // entered directly here only to test the passcode and the room
     await guest.fill('#passcodeInput', 'door-code'); await guest.click('#joinMeetingBtn'); await expect(guest.locator('#meetingBar')).toBeVisible();
     await expect(host.locator('#videoGrid .tile')).toHaveCount(2);
     await hctx.close(); await gctx.close();

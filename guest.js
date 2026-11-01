@@ -46,6 +46,9 @@
   }
 
   if (view === 'prejoin') {
+    // an invited guest sees only the invitation: the guest navigation shows again once the person is signed in (a registered account)
+    document.body.classList.add('invite');
+    fetch('/api/auth/me').then(function (r) { return r.ok ? r.json() : null; }).then(function (d) { if (d && d.user) document.body.classList.remove('invite'); }).catch(function () { /* stays a guest */ });
     var id = fmt(digits(decodeURIComponent(pre[1]))); var stream = null, raf = 0;
     try { $('pjName').value = localStorage.getItem('zw_name') || ''; } catch (e) { /* storage unavailable */ }
     $('pjSignIn').href = '/auth/login?next=' + encodeURIComponent('/guest/meeting/' + id + '/prejoin');
@@ -54,6 +57,21 @@
       $('pjTopic').textContent = T('You are joining: ') + ((r.d.meeting && r.d.meeting.topic) || 'Meeting') + ' (' + id + ')'; $('pjGo').disabled = false;
       if (r.d.passcodeRequired) $('pjPassWrap').classList.remove('hidden');
     }).catch(function () { $('pjTopic').textContent = T('Cannot reach the server. Check your connection and reload.'); });
+    // Another way in, chosen for this device: the Qorlla app where one exists, otherwise an account. Joining here as a guest always stays available.
+    (function offerApps() {
+      var choice = window.QorllaAppChoice; if (!choice) return;
+      fetch('/api/app-links').then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; }).then(function (links) {
+        var p = choice.plan(choice.detect(navigator.userAgent, navigator.platform, navigator.maxTouchPoints), links, digits(id)); if (!p.show) return;
+        var box = $('pjAppBtns'), items = [];
+        if (p.app) items.push({ key: 'app', href: p.app.href, text: T('Open in the Qorlla ' + p.app.flavour + ' app') });
+        if (p.download) items.push({ key: 'download', href: p.download.href, text: T('Download the Qorlla ' + p.download.flavour + ' app') });
+        items.push({ key: 'account', href: '/auth/register?next=' + encodeURIComponent('/guest/meeting/' + id + '/prejoin'), text: T('Create a free account') });
+        items.sort(function (a, b) { return (a.key === p.recommended ? 0 : 1) - (b.key === p.recommended ? 0 : 1); });
+        items.forEach(function (it, i) { var a = document.createElement('a'); a.className = i === 0 ? 'btn' : 'btn ghost'; a.href = it.href; a.textContent = it.text; if (it.key === 'download') { a.rel = 'noopener'; a.target = '_blank'; } box.appendChild(a); });
+        $('pjAppWhy').textContent = T(p.recommended === 'app' ? 'Recommended for your device: the Qorlla app. You can still join this meeting here in your browser.' : 'Recommended for your device: a free account, to use Chat, Phone, Docs and more. You can still join this meeting here as a guest.');
+        $('pjApp').classList.remove('hidden');
+      });
+    })();
     $('pjTest').addEventListener('click', function () {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { $('pjMsg').textContent = T('This browser cannot access the camera or microphone.'); $('pjMsg').className = 'msg err'; return; }
       navigator.mediaDevices.getUserMedia({ audio: true, video: true }).then(function (s) {
@@ -74,7 +92,10 @@
       $('pjGo').disabled = true;
       fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: id, displayName: name, passcode: $('pjPass').value || undefined }) })
         .then(function (r) { if (!r.ok) { return r.json().catch(function () { return {}; }).then(function (d) { var e = new Error('refused'); e.status = r.status; e.server = d && d.error; throw e; }); } return r.json(); })
-        .then(function (d) { location.href = (d && d.meet && d.meet.url) || '/index.html?meeting=' + encodeURIComponent(id); })   // straight into the current Meet video page when Meet is available
+        .then(function (d) {                                                                                                // straight into the Qorlla Meet video page; the old built-in room is never used for an invited guest
+          if (!(d && d.meet && d.meet.url)) { var u = new Error('video_unavailable'); u.status = 503; u.server = 'Video meetings are not available right now. Please try again in a few minutes or ask the host.'; throw u; }
+          location.href = d.meet.url;
+        })
         .catch(function (e) { $('pjGo').disabled = false; if (e && (e.status === 503 || e.status === 423) && e.server) { $('pjMsg').textContent = T(e.server); $('pjMsg').className = 'msg err'; return; } $('pjMsg').textContent = (e && (e.status === 403 || e.status === 429)) ? T(e.status === 429 ? 'Too many wrong passcodes. Try again in a few minutes.' : 'Incorrect passcode.') : T('This meeting ID is not valid or the meeting has ended.'); $('pjMsg').className = 'msg err'; });
     });
   }

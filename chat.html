@@ -152,6 +152,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="stylesheet" href="assets/product.css">
   <script src="assets/product.js" defer></script>
+  <script src="assets/single-tab.js"></script>
 </head>
 <body data-page="chat">
 <div class="app" id="app">
@@ -522,6 +523,7 @@
   function refresh(initial) {
     return call(API + '/chat').then(function (d) {
       state.me = d.me; state.chats = d.chats; state.folders = d.folders; state.apps = d.apps;
+      if (window.QorllaSingleTab) QorllaSingleTab.start(d.me.id, { root: '#app' });   // one tab per account in this browser (shared with the workspace)
       $('whoami').textContent = d.me.displayName + ' (@' + d.me.username + ')';
       try { localStorage.setItem('zw_name', d.me.displayName); } catch (e) {}
       sessionStorage.setItem('zw_uid', d.me.id);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { FOOTER, LANGUAGES, ROUTES, FEATURES, groupMeetingId, isSupportedLanguage, localeScript, parseMeetingId, columns, layoutScale } from '../src/welcome.js';
+import { FOOTER, LANGUAGES, ROUTES, FEATURES, groupMeetingId, isSupportedLanguage, localeScript, parseMeetingId, columns, fitScale } from '../src/welcome.js';
 import { createPolicy } from '../src/policy.js';
 import { CATALOG, digitsHint, tooLongHint, translate } from '../src/i18n.js';
 
@@ -45,12 +45,13 @@ test('languages are the four the web app ships, the locale script writes the web
   assert.deepEqual(LANGUAGES.map((l) => l.code), ['en', 'es', 'fr', 'pt-PT']); assert.ok(isSupportedLanguage('pt-PT')); assert.ok(!isSupportedLanguage("x');alert(1);//"));
   assert.match(localeScript('fr'), /qorlla\.locale','fr'|qorlla\.locale',"fr"/); assert.equal(localeScript("x');alert(1);//"), 'true;'); assert.doesNotMatch(localeScript('fr'), /alert/);
 });
-test('layout scale follows the window width within 0.8-1.12 and the columns collapse before text gets cramped', () => {
-  assert.equal(layoutScale(390), 1); assert.equal(layoutScale(320), 320 / 390 > 0.8 ? 320 / 390 : 0.8); assert.equal(layoutScale(200), 0.8); assert.equal(layoutScale(900), 1.12);
-  assert.deepEqual(columns({ width: 412, fontScale: 1 }), { features: 2, accounts: 2, utility: 3 }); assert.deepEqual(columns({ width: 390, fontScale: 1 }), { features: 2, accounts: 2, utility: 3 });
-  assert.equal(columns({ width: 411, fontScale: 1.1 }).features, 2, 'the Galaxy A03s (411dp) at system text 110% keeps the two-column design');
-  assert.deepEqual(columns({ width: 360, fontScale: 1 }), { features: 1, accounts: 1, utility: 1 }); assert.equal(columns({ width: 320, fontScale: 1 }).features, 1); assert.equal(columns({ width: 320, fontScale: 1 }).utility, 1);
-  assert.equal(columns({ width: 412, fontScale: 1.3 }).features, 2, 'text inside the cards is capped at 108%, so large system text does not push them out of two columns'); assert.equal(columns({ width: 340, fontScale: 1.3 }).features, 1);
+test('one scale from the window width and height keeps the whole page on one screen; columns stay two/three across from 300dp', () => {
+  assert.equal(fitScale(390, 900), 1); assert.equal(fitScale(1000, 5000), 1.06); assert.equal(fitScale(100, 5000), 0.66);
+  assert.equal(fitScale(411, 385), 0.66, 'a very short window is limited by the floor, never zero');
+  assert.ok(fitScale(412, 900 * 0.8) < fitScale(412, 900), 'a shorter window shrinks everything');
+  assert.ok(fitScale(320, 2000) < fitScale(412, 2000), 'a narrower window shrinks everything');
+  for (const w of [320, 360, 390, 412]) assert.deepEqual(columns({ width: w, fontScale: 1.3 }), { features: 2, accounts: 2, utility: 3 }, String(w));
+  assert.deepEqual(columns({ width: 280 }), { features: 1, accounts: 1, utility: 1 });
 });
 test('design tokens match the specification', () => {
   for (const [k, v] of Object.entries({ bg: '#030B16', hero: '#071D38', card: '#071D34', elevated: '#102642', border: '#173C61', blue: '#087BFA', cyan: '#00D7E8', purple: '#9258F5', green: '#00D9AD', orange: '#FFAB19', text: '#F6F9FF', text2: '#A7C2E5' })) assert.ok(SCREEN.includes(k + ": '" + v + "'"), k);
@@ -62,12 +63,12 @@ test('the screen has the copy of the design and the ids the device test uses', (
 });
 test('titles: one-word titles shrink on one line, longer titles wrap at spaces', () => { assert.match(SCREEN, /const titleLines = \(text\) =>/); assert.match(SCREEN, /lines=\{titleLines\(t\(f\.title\)\)\}/); assert.match(SCREEN, /lines=\{titleLines\(t\(u\.title\)\)\}/); });
 test('autosizing: sizes are scaled from the window width, one-line labels shrink to fit, nothing uses a fixed pixel width for text', () => {
-  assert.match(SCREEN, /layoutScale\(width\)/); assert.match(SCREEN, /adjustsFontSizeToFit/); assert.match(SCREEN, /minimumFontScale/); assert.match(SCREEN, /function makeStyles\(k, heroW, artW\)/); assert.match(SCREEN, /useWindowDimensions/);
+  assert.match(SCREEN, /fitScale\(width, availH/); assert.match(SCREEN, /adjustsFontSizeToFit/); assert.match(SCREEN, /minimumFontScale/); assert.match(SCREEN, /function makeStyles\(k, heroW, artW\)/); assert.match(SCREEN, /useWindowDimensions/);
 });
 test('screen rules: numeric keyboard, no maxLength truncation, disabled until valid, globe never takes touches and is hidden from TalkBack, font scaling is capped not disabled', () => {
   assert.match(SCREEN, /keyboardType="number-pad"/); assert.doesNotMatch(SCREEN, /maxLength/); assert.match(SCREEN, /disabled=\{!canJoin\}/); assert.match(SCREEN, /pointerEvents="none"/); assert.match(ICONS, /no-hide-descendants/);
   assert.match(SCREEN, /maxFontSizeMultiplier/); assert.doesNotMatch(SCREEN.replace(/allowFontScaling=\{false\}/, ''), /allowFontScaling=\{false\}/, 'only the decorative wordmark opts out');
-  assert.match(SCREEN, /keyboardShouldPersistTaps="handled"/); assert.match(SCREEN, /<ScrollView/);
+  assert.match(SCREEN, /keyboardShouldPersistTaps="handled"/); assert.match(SCREEN, /<ScrollView/); assert.doesNotMatch(SCREEN, /scrollEnabled=\{true\}/);
 });
 test('no remote assets or tracking on the welcome screen', () => { for (const src of [SCREEN, ICONS]) assert.doesNotMatch(src, /https?:\/\/|uri:|require\(['"]http/); });
 test('touch targets: every interactive style has a 48dp minimum height', () => {

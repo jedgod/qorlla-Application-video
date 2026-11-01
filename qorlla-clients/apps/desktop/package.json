@@ -5,6 +5,7 @@
   "main": "main.cjs",
   "scripts": {
     "dev": "electron .",
+    "dev:local": "node dev-local.cjs",
     "dist": "electron-builder --publish never",
     "test": "node --test tests/*.test.cjs"
   },

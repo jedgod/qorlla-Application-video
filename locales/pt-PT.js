@@ -377,5 +377,21 @@ window.QorllaLocales["pt-PT"] = {
   "Edits do not re-send invitations.": "As edições não reenviam os convites.",
   "Delete this meeting? Its meeting ID stops working.": "Eliminar esta reunião? O seu ID deixa de funcionar.",
   "Waiting for Meet sync": "A aguardar a sincronização com o Meet",
-  "Could not open the chat": "Não foi possível abrir a conversa"
+  "Could not open the chat": "Não foi possível abrir a conversa",
+  "Qorlla is already open in another tab": "O Qorlla já está aberto noutro separador",
+  "Your account is open in another tab of this browser. Use it there, or switch to this tab.": "A sua conta está aberta noutro separador deste navegador. Utilize-o aí ou mude para este separador.",
+  "Use Qorlla here": "Usar o Qorlla aqui",
+  "Close this tab": "Fechar este separador",
+  "Qorlla is now open in another tab": "O Qorlla está agora aberto noutro separador",
+  "This tab is paused so your account is only open in one tab of this browser.": "Este separador está em pausa para que a sua conta esteja aberta apenas num separador deste navegador.",
+  "Waiting for the other tab…": "A aguardar o outro separador…",
+  "Get more from Qorlla": "Tire mais partido do Qorlla",
+  "Open in the Qorlla Android app": "Abrir na aplicação Qorlla para Android",
+  "Open in the Qorlla desktop app": "Abrir na aplicação de ambiente de trabalho do Qorlla",
+  "Download the Qorlla Android app": "Transferir a aplicação Qorlla para Android",
+  "Download the Qorlla desktop app": "Transferir a aplicação de ambiente de trabalho do Qorlla",
+  "Create a free account": "Criar uma conta gratuita",
+  "Recommended for your device: the Qorlla app. You can still join this meeting here in your browser.": "Recomendado para o seu dispositivo: a aplicação Qorlla. Pode na mesma entrar nesta reunião aqui, no navegador.",
+  "Recommended for your device: a free account, to use Chat, Phone, Docs and more. You can still join this meeting here as a guest.": "Recomendado para o seu dispositivo: uma conta gratuita, para usar Chat, Telefone, Docs e mais. Pode na mesma entrar nesta reunião aqui como convidado.",
+  "Video meetings are not available right now. Please try again in a few minutes or ask the host.": "As videorreuniões não estão disponíveis neste momento. Tente novamente dentro de alguns minutos ou pergunte ao anfitrião."
 };

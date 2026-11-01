@@ -84,6 +84,8 @@
   /* tablet */
   @media (max-width:1100px) { .sidebar { width:92px; } .nav { font-size:12px; min-height:68px; } .hero { padding:30px 34px 26px; } .benefits { grid-template-columns:repeat(2,minmax(0,max-content)); } .tile-icon { width:68px; height:68px; font-size:36px; } }
   @media (max-width:860px) { .tiles { grid-template-columns:1fr; } .hero::after { width:70%; opacity:.55; } }
+  /* an invitation page for a guest has no navigation until the person signs in */
+  body.invite .sidebar { display:none; } body.invite .content { padding-bottom:14px; }
   /* phone: the rail becomes a bottom bar */
   @media (max-width:700px) {
     header.topbar { height:60px; padding:0 16px; } header.topbar img { height:32px; }
@@ -209,6 +211,11 @@
         <div class="row"><button class="btn" type="submit" id="pjGo" disabled>Join meeting</button><a class="btn ghost" href="/guest/join-meeting">Use another meeting</a></div>
         <p class="note">Want your own workspace? <a href="/auth/login" id="pjSignIn" style="text-decoration:underline">Sign in</a> and you will come back here.</p>
       </form>
+      <section class="panel hidden" id="pjApp" aria-labelledby="pjAppH">
+        <h2 id="pjAppH">Get more from Qorlla</h2>
+        <p class="note" id="pjAppWhy"></p>
+        <div class="row" id="pjAppBtns"></div>
+      </section>
     </section>
 
     <section id="v-explore" class="view page hidden">
@@ -238,6 +245,7 @@
 <script src="/locales/fr.js"></script>
 <script src="/locales/pt-PT.js"></script>
 <script src="/i18n.js"></script>
+<script src="/assets/app-choice.js"></script>
 <script src="/guest.js"></script>
 </body>
 </html>

@@ -377,5 +377,21 @@ window.QorllaLocales["fr"] = {
   "Edits do not re-send invitations.": "Les modifications ne renvoient pas les invitations.",
   "Delete this meeting? Its meeting ID stops working.": "Supprimer cette réunion ? Son identifiant cessera de fonctionner.",
   "Waiting for Meet sync": "En attente de la synchronisation Meet",
-  "Could not open the chat": "Impossible d’ouvrir la discussion"
+  "Could not open the chat": "Impossible d’ouvrir la discussion",
+  "Qorlla is already open in another tab": "Qorlla est déjà ouvert dans un autre onglet",
+  "Your account is open in another tab of this browser. Use it there, or switch to this tab.": "Votre compte est ouvert dans un autre onglet de ce navigateur. Utilisez-le là-bas ou passez à cet onglet.",
+  "Use Qorlla here": "Utiliser Qorlla ici",
+  "Close this tab": "Fermer cet onglet",
+  "Qorlla is now open in another tab": "Qorlla est maintenant ouvert dans un autre onglet",
+  "This tab is paused so your account is only open in one tab of this browser.": "Cet onglet est en pause afin que votre compte ne soit ouvert que dans un seul onglet de ce navigateur.",
+  "Waiting for the other tab…": "En attente de l’autre onglet…",
+  "Get more from Qorlla": "Tirez le meilleur de Qorlla",
+  "Open in the Qorlla Android app": "Ouvrir dans l’appli Qorlla pour Android",
+  "Open in the Qorlla desktop app": "Ouvrir dans l’appli de bureau Qorlla",
+  "Download the Qorlla Android app": "Télécharger l’appli Qorlla pour Android",
+  "Download the Qorlla desktop app": "Télécharger l’appli de bureau Qorlla",
+  "Create a free account": "Créer un compte gratuit",
+  "Recommended for your device: the Qorlla app. You can still join this meeting here in your browser.": "Recommandé pour votre appareil : l’appli Qorlla. Vous pouvez quand même rejoindre cette réunion ici, dans votre navigateur.",
+  "Recommended for your device: a free account, to use Chat, Phone, Docs and more. You can still join this meeting here as a guest.": "Recommandé pour votre appareil : un compte gratuit, pour utiliser Chat, Téléphone, Docs et plus. Vous pouvez quand même rejoindre cette réunion ici en tant qu’invité.",
+  "Video meetings are not available right now. Please try again in a few minutes or ask the host.": "Les réunions vidéo ne sont pas disponibles pour le moment. Réessayez dans quelques minutes ou demandez à l’organisateur."
 };

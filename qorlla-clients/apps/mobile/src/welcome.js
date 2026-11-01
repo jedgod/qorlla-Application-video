@@ -43,8 +43,10 @@ export const localeScript = (code) => (isSupportedLanguage(code) ? "try{localSto
 /** Design width the layout was drawn at (dp), and the range the whole layout is scaled over so it fits any phone. */
 export const BASE_WIDTH = 390;
 export const layoutScale = (width) => Math.min(1.12, Math.max(0.8, width / BASE_WIDTH));
-/** Columns for each block. The feature cards sit two across only while their text column stays wide enough for the longest word ("Collaboration") at the current text size; the account buttons two across, the utility cards three across, on the same terms. Otherwise one column. */
-export const columns = ({ width, fontScale }) => {
-  const f = Math.min(fontScale, 1.08), inner = width - 40, featText = (inner - 10) / 2 - 76, acctText = (inner - 10) / 2 - 78, utilText = (inner - 20) / 3 - 20;
-  return { features: featText >= 88 * f ? 2 : 1, accounts: acctText >= 80 * f ? 2 : 1, utility: utilText >= 84 * f ? 3 : 1 };
-};
+/** Height of the content at the design size (dp, without the status and navigation bars). The whole screen is scaled down from it on short windows so it fits without scrolling. */
+export const DESIGN_HEIGHT = 900;
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+/** One scale for every size on the screen: limited by the window width and by the window height, so the page fits on one screen on any phone. */
+export const fitScale = (width, availHeight) => clamp(Math.min(width / BASE_WIDTH, availHeight > 0 ? availHeight / DESIGN_HEIGHT : 9), 0.66, 1.06);
+/** Columns for each block: the compact design keeps the two-column / three-column layout on every phone from 300dp up (text shrinks to fit); only a narrower window stacks them. */
+export const columns = ({ width }) => (width >= 300 ? { features: 2, accounts: 2, utility: 3 } : { features: 1, accounts: 1, utility: 1 });

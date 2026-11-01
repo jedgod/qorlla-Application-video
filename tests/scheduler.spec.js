@@ -9,7 +9,8 @@ async function signedIn(context, label = 'sch') {
   return username;
 }
 const quick = (page) => page.locator('dialog.sq[open]'); const full = (page) => page.locator('dialog.sf[open]');
-const open = async (page) => { await page.goto('/qorlla.html'); await page.click('.nav-item[data-view="schedule"]'); await expect(quick(page)).toBeVisible(); };
+// on a phone the tab bar has six tabs; Schedule is a tile on More (the same explicit action that opens the quick-create card)
+const open = async (page) => { await page.goto('/qorlla.html'); if ((page.viewportSize() || {}).width <= 700) { await page.click('.nav-item[data-view="more"]'); await page.click('.tile[data-key="schedule"]'); } else await page.click('.nav-item[data-view="schedule"]'); await expect(quick(page)).toBeVisible(); };
 const list = async (context) => (await context.request.get('/api/workplace/schedule')).json();
 
 test.describe('quick card first, full dialog on More Options', () => {
