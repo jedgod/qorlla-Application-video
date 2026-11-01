@@ -74,6 +74,7 @@ async function waitHealthy(names, ms = 180000) { const t0 = Date.now(); for (;;)
 const APPS = [PROJECT + '_proxy', PROJECT + '-qorlla-portal-1', PROJECT + '-meet-1', PROJECT + '_main', PROJECT + '-meet-sync-worker-1'];
 const DBS = [PROJECT + '-main-db-1', PROJECT + '-meet-db-1'];
 const evidence = { restarts: [] };
+const SCHED_TITLE = 'Persist scheduled ' + Date.now();   // unique per run: earlier runs leave their meetings in the persistent database
 
 test.describe('persistence across controlled restarts', () => {
   test('documents, sheets, slides, sharing, sessions, meetings and a consented recording survive an application restart and then a database restart', async ({ browser }) => {
@@ -93,8 +94,8 @@ test.describe('persistence across controlled restarts', () => {
     expect(before.doc.status).toBe(200); expect(before.readerDoc.status).toBe(200); expect(before.readerDoc.body.my_role || before.readerDoc.body.role).toMatch(/viewer/); expect(before.readerSheet.status).not.toBe(200);
     // Meet: a native meeting, and a scheduled one registered by the sync worker
     const hostM = await open(browser, 'Persist Host'); const guestM = await open(browser, 'Persist Guest', hostM.code);
-    const meetingId = hostM.session.meetingId; const sched = await (await ctx.request.post('/api/workplace/schedule', { data: { title: 'Persist scheduled', date: new Date().toISOString().slice(0, 10), time: '23:40', duration: 30 }, headers: { origin: BASE } })).json();
-    for (let i = 0; i < 20 && meetDb(`select count(*) from meetings where title='Persist scheduled'`) === '0'; i += 1) await sleepMs(2000);
+    const meetingId = hostM.session.meetingId; const sched = await (await ctx.request.post('/api/workplace/schedule', { data: { title: SCHED_TITLE, date: new Date().toISOString().slice(0, 10), time: '23:40', duration: 30 }, headers: { origin: BASE } })).json();
+    for (let i = 0; i < 20 && meetDb(`select count(*) from meetings where title='${SCHED_TITLE}'`) === '0'; i += 1) await sleepMs(2000);
     // a consented recording with known bytes
     await request(hostM); await agree(guestM); await expect(async () => { expect((await call(hostM, '/recording')).body.status).toBe('ready'); }).toPass();
     const st = await call(hostM, '/recording/start', 'POST'); expect(st.status).toBe(200); const rid = st.body.recordingId;
@@ -111,7 +112,7 @@ test.describe('persistence across controlled restarts', () => {
       const sl = await readDoc(ctx, slidesId, owner.workspaceId); expect(JSON.stringify(sl.body)).toContain('Why now'); expect(JSON.stringify(sl.body)).toContain('Timing');
       const rd = await readDoc(ctx2, docId, owner.workspaceId); out.readerRole = rd.body.my_role || rd.body.role; expect(rd.status).toBe(200); expect(out.readerRole).toMatch(/viewer/); const rs = await readDoc(ctx2, sheetId, owner.workspaceId); expect(rs.status).not.toBe(200);
       const vs = await ctx.request.get('/api/v1/documents/' + docId + '/versions', { headers: { 'x-workspace-id': owner.workspaceId, origin: BASE } }); expect(vs.status()).toBe(200); out.versions = (await vs.json()).length === undefined ? JSON.stringify(await vs.json()).length : (await (await ctx.request.get('/api/v1/documents/' + docId + '/versions', { headers: { 'x-workspace-id': owner.workspaceId, origin: BASE } })).json()).length;
-      expect(meetDb(`select count(*) from meetings where id='${meetingId}'`)).toBe('1'); expect(meetDb(`select count(*) from meetings where title='Persist scheduled'`)).toBe('1'); out.meetMeetings = meetDb('select count(*) from meetings');
+      expect(meetDb(`select count(*) from meetings where id='${meetingId}'`)).toBe('1'); expect(meetDb(`select count(*) from meetings where title='${SCHED_TITLE}'`)).toBe('1'); out.meetMeetings = meetDb('select count(*) from meetings');
       expect(meetDb(`select status from recordings where id='${rid}'`)).toBe('available'); expect(fs.readdirSync(objectDir(rid)).sort()).toEqual(diskBefore);
       const dl = await download(hostM, rid); out.recordingDownload = dl.status; expect(dl.status, label + ': the host can still download the recording').toBe(200); expect(Buffer.compare(dl.bytes, expectedBytes), label + ': the downloaded bytes are identical').toBe(0);
       expect((await call(guestM, '/api/v1/recordings/' + rid + '/access')).status, label + ': a guest still cannot get a link').toBe(403);
@@ -123,10 +124,12 @@ test.describe('persistence across controlled restarts', () => {
     for (const n of [PROJECT + '-meet-sync-worker-1', PROJECT + '_proxy', PROJECT + '-qorlla-portal-1', PROJECT + '-meet-1', PROJECT + '_main']) { dc('restart', n); await waitHealthy([n, ...DBS]); }
     await waitHealthy([...APPS, ...DBS]); await sleepMs(5000); await verify('after application restart');
     // ---------------------------------------------------------------- stage B: the databases (their volumes), WITHOUT restarting the applications: they must reconnect on their own
+    const restartsOf = () => Object.fromEntries(APPS.map((n) => [n, Number(dc('inspect', '--format', '{{.RestartCount}}', n))])); const rcBefore = restartsOf();
     for (const n of DBS) { dc('restart', n); await waitHealthy([n]); }
     await waitHealthy([...APPS, ...DBS]); await sleepMs(8000);
+    evidence.restartCounts = { before: rcBefore, after: restartsOf() }; expect(evidence.restartCounts.after, 'no application crashed and was rescued by Docker when its database restarted').toEqual(rcBefore);
     evidence.appsHealthyAfterDbRestart = Object.fromEntries(APPS.map((n) => [n, healthy(n)]));
-    for (let i = 0; i < 10; i += 1) { const h = await fetch(BASE + '/api/health').then((r) => r.status).catch(() => 0); const p = await fetch(BASE + '/api/v1/health').then((r) => r.status).catch(() => 0); if (h === 200 && p === 200) break; await sleepMs(3000); }
+    for (let i = 0; i < 20; i += 1) { const h = await fetch(BASE + '/api/health').then((r) => r.status).catch(() => 0); const p = await fetch(BASE + '/api/v1/health').then((r) => r.status).catch(() => 0); if (h === 200 && p === 200) break; await sleepMs(3000); }
     await verify('after database restart');
     // the data lives in named volumes of this project only
     evidence.volumes = dc('volume', 'ls', '--filter', 'name=' + PROJECT + '_', '--format', '{{.Name}}').split('\n').sort();
