@@ -69,4 +69,4 @@ function summarize(r) {
     medianPerInterval: { clientVideoOut: median(r.samples.map((s) => s.client.videoOut)), clientVideoIn: median(r.samples.map((s) => s.client.videoIn)), clientFramesEncoded: median(r.samples.map((s) => s.client.framesEncoded)), clientFramesDecoded: median(r.samples.map((s) => s.client.framesDecoded)) },
     lowestVideoOutInAnInterval: r.samples.length ? Math.min(...r.samples.map((s) => s.client.videoOut)) : null };
 }
-module.exports = { ctxPermissions, MEET, MEET_RE, startMain, startHost, joinAsGuest, flowing, sample, sleep, stability, summarize, RTC_HOOK, FAKE_MEDIA, chromium };
+module.exports = { COLLECT, ctxPermissions, MEET, MEET_RE, startMain, startHost, joinAsGuest, flowing, sample, sleep, stability, summarize, RTC_HOOK, FAKE_MEDIA, chromium };

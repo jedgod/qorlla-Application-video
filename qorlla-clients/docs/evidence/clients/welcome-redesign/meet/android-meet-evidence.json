@@ -1,0 +1,143 @@
+{
+  "waitingRoomOn": true,
+  "phoneOrigin": "http://localhost:3600",
+  "phoneWaitingRoom": true,
+  "phoneAdmitted": true,
+  "phoneMedia": {
+    "audioIn": 12778,
+    "videoIn": 156675,
+    "audioOut": 7909,
+    "videoOut": 151329,
+    "framesDecoded": 82,
+    "framesEncoded": 123
+  },
+  "hostSeesPhone": {
+    "audioIn": 8374,
+    "videoIn": 101196,
+    "audioOut": 12484,
+    "videoOut": 153415,
+    "framesDecoded": 104,
+    "framesEncoded": 81
+  },
+  "phonePeerConnections": 1,
+  "phoneControls": {
+    "innerWidth": 411,
+    "scrolls": false,
+    "controls": {
+      "micBtn": {
+        "visible": true,
+        "inside": true,
+        "w": 34,
+        "h": 48
+      },
+      "camBtn": {
+        "visible": true,
+        "inside": true,
+        "w": 34,
+        "h": 48
+      },
+      "shareBtn": {
+        "visible": false,
+        "inside": true,
+        "w": 0,
+        "h": 0
+      },
+      "handBtn": {
+        "visible": false,
+        "inside": true,
+        "w": 0,
+        "h": 0
+      },
+      "peopleBtn": {
+        "visible": true,
+        "inside": true,
+        "w": 34,
+        "h": 48
+      },
+      "chatBtn": {
+        "visible": true,
+        "inside": true,
+        "w": 34,
+        "h": 48
+      },
+      "moreCtl": {
+        "visible": true,
+        "inside": true,
+        "w": 34,
+        "h": 48
+      },
+      "leaveBtn": {
+        "visible": true,
+        "inside": true,
+        "w": 34,
+        "h": 48
+      }
+    }
+  },
+  "controlsOutsideScreen": [],
+  "toggles": {
+    "mic": [
+      "false",
+      "true"
+    ],
+    "camera": [
+      "false",
+      "true"
+    ]
+  },
+  "phoneParticipants": [
+    "Host Hana",
+    "Phone Guest (You)"
+  ],
+  "cameraStateWhenPhotographed": "true",
+  "phoneSeesAdmitted": [
+    "Host Hana",
+    "Phone Guest (You)",
+    "Guest Dana"
+  ],
+  "phoneSeesLeft": [
+    "Host Hana",
+    "Phone Guest (You)"
+  ],
+  "phoneAfterDeny": "Host Hana|Phone Guest (You)",
+  "deniedGuestPageShows": "Q Qorlla Meet Meet. Collaborate. Create. Secure meeting spaces with video, chat, notes and polls. Your display name Start a meeting Meeting title Optional passc",
+  "phoneConsentDialog": {
+    "fits": true,
+    "agreeInside": true,
+    "agreeH": 32,
+    "boxes": [
+      true,
+      true,
+      true
+    ],
+    "textNote": "The dialog text captured in this run was corrupted by a test bug (an unescaped \\s in the injected script removed the letter s); it is omitted. The real dialog text was read separately from a desktop browser: \"Recording consent Host Hana wants to record this meeting. Nothing is recorded unless everyone agrees...\""
+  },
+  "recordingStatusAfterPhoneAgreed": "ready",
+  "phoneReconnect": {
+    "ok": true,
+    "delta": {
+      "audioIn": 9743,
+      "videoIn": 274606,
+      "audioOut": 6812,
+      "videoOut": 26855,
+      "framesDecoded": 65,
+      "framesEncoded": 53
+    }
+  },
+  "phoneConnectionLog": [
+    "ice#1:checking",
+    "ice#1:connected",
+    "connection#1:connecting",
+    "connection#1:connected",
+    "ice#2:checking",
+    "connection#2:connecting",
+    "ice#2:connected",
+    "connection#2:connected"
+  ],
+  "androidAskedForCamera": false,
+  "phoneCameraRevoked": {
+    "toast": "Media unavailable: Permission denied",
+    "status": "Connected \u00b7 camera and microphone are not available"
+  },
+  "phoneRemovedWhenEnded": true
+}
