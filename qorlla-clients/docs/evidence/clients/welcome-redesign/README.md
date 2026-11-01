@@ -9,6 +9,11 @@ Status: **validated on one device and one isolated test server only. The full we
 - Device: Samsung Galaxy A03s (SM-A037U), 720x1600 at 280 dpi (411 dp wide), system text 110%, installed over the existing app with `adb install -r` (data not cleared). Window size and settings were restored after every run.
 - Server: a throwaway local server (`node server.js`, temporary data directory) reached through `adb reverse tcp:18081`; no live Qorlla service (v46: 3200/3300/4600, DB 35432) was used or changed.
 
+## Local-stack build (same stack as the desktop shell)
+- `npm run local-stack:build` in `apps/mobile` builds a test app baked to the app on `http://localhost:3200/` and Qorlla Meet on `http://localhost:3300/`, the pair `npm run dev:local` uses for the desktop shell; `npm run local-stack:reverse` adds `adb reverse` for 3200, 3300 and 4600 (it only adds, never removes).
+- That build: SHA-256 `05976e4f431d7a348be28aab99acd2a6b9aa32bbefce69fd6b48309e24bec973`, built 2026-11-01 02:10, exit 0 in 9 minutes. The bundle contains `localhost:3200` and `localhost:3300` and no `localhost:18081`. Installed on the Galaxy A03s over the previous build; it starts on the Welcome screen.
+- NOT verified: reaching the Qorlla Meet video page. The v46 stack (3200/3300/4600) was not running and was not started by this work, and the 19-test device suite above ran on the 18081 build (SHA-256 `a8db8862...`), not on this one. Policy unit tests prove only that the 3200 and 3300 origins are trusted and others are not.
+
 ## Results (final code)
 | Suite | Result |
 | --- | --- |

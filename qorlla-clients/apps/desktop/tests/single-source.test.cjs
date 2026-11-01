@@ -27,8 +27,12 @@ test('every page the shell opens comes from the one configured server', () => {
   assert.ok(sec.navigationAllowed('http://localhost:3200/qorlla.html', origins, { allowLocalhostHttp: true }));
   for (const other of ['http://localhost:3225/', 'http://localhost:3201/', 'http://127.0.0.1:3200/', 'file:///C:/x.html']) assert.ok(!sec.navigationAllowed(other, origins, { allowLocalhostHttp: true }), other + ' is not the Qorlla server');
 });
+test('app 3200 plus Meet 3300 are both trusted, nothing else is', () => {
+  const origins = sec.trustedOrigins('http://localhost:3200', 'http://localhost:3300', { allowLocalhostHttp: true }); assert.deepEqual(origins, ['http://localhost:3200', 'http://localhost:3300']);
+  assert.ok(sec.navigationAllowed('http://localhost:3300/room/abc', origins, { allowLocalhostHttp: true })); assert.ok(!sec.navigationAllowed('http://localhost:3225/', origins, { allowLocalhostHttp: true }));
+});
 test('the local launcher points at localhost:3200 by default, and a packaged build refuses plain http', () => {
-  const launcher = read('dev-local.cjs'); assert.match(launcher, /QORLLA_APP_URL \|\| 'http:\/\/localhost:3200'/); assert.match(launcher, /QORLLA_DEV_ALLOW_LOCALHOST_HTTP: '1'/);
+  const launcher = read('dev-local.cjs'); assert.match(launcher, /QORLLA_APP_URL \|\| 'http:\/\/localhost:3200'/); assert.match(launcher, /QORLLA_MEET_URLS \|\| 'http:\/\/localhost:3300'/, 'the Meet video page origin is trusted too'); assert.match(launcher, /QORLLA_DEV_ALLOW_LOCALHOST_HTTP: '1'/);
   assert.equal(pkg.scripts['dev:local'], 'node dev-local.cjs');
   assert.equal(sec.localhostHttpAllowed({ QORLLA_DEV_ALLOW_LOCALHOST_HTTP: '1' }, false), true); assert.equal(sec.localhostHttpAllowed({ QORLLA_DEV_ALLOW_LOCALHOST_HTTP: '1' }, true), false);
 });

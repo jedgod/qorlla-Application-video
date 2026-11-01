@@ -32,3 +32,16 @@ test('push payloads are filtered to type + short reference; Android asks for cam
   assert.deepEqual(safeNotificationPayload({ type: 'meeting_invite', reference: 'x'.repeat(200), body: 'secret', title: 'secret' }), { type: 'meeting_invite', reference: 'x'.repeat(80) }); assert.equal(safeNotificationPayload({ type: 'other' }), null); assert.equal(safeNotificationPayload(null), null);
   assert.deepEqual([...ANDROID_MEETING_PERMISSIONS], ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO']);
 });
+
+test('local stack (same pair the desktop shell uses): the app on 3200 and the Meet video page on 3300 are trusted, nothing else', () => {
+  const p = createPolicy({ appUrl: 'http://localhost:3200/', meetUrls: 'http://localhost:3300/', allowLocalhostHttp: true });
+  assert.equal(p.prejoinUrl('85898333712'), 'http://localhost:3200/guest/meeting/85898333712/prejoin');
+  assert.equal(navigationDecision(p, 'http://localhost:3200/guest/meeting/85898333712/prejoin'), 'allow'); assert.equal(navigationDecision(p, 'http://localhost:3300/room/abc?t=1'), 'allow');
+  for (const other of ['http://localhost:3225/', 'http://localhost:3201/', 'http://127.0.0.1:3300/', 'http://localhost:18081/']) assert.notEqual(navigationDecision(p, other), 'allow', other);
+  assert.throws(() => createPolicy({ appUrl: 'http://localhost:3200/', meetUrls: 'http://localhost:3300/', allowLocalhostHttp: false }), /https|localhost|origin/i, 'a store build never accepts plain http');
+});
+test('the local-stack script only adds adb reverse mappings (never removes) and bakes in the same two origins as the desktop launcher', () => {
+  const src = readFileSync(new URL('../scripts/local-stack.cjs', import.meta.url), 'utf8'), desk = readFileSync(new URL('../../desktop/dev-local.cjs', import.meta.url), 'utf8');
+  assert.match(src, /'http:\/\/localhost:3200\/'/); assert.match(src, /'http:\/\/localhost:3300\/'/); assert.match(desk, /localhost:3200/); assert.match(desk, /localhost:3300/);
+  assert.doesNotMatch(src, /--remove|reverse', '--remove-all|kill-server/); assert.match(src, /QORLLA_TEST_BUILD: '1'/);
+});
