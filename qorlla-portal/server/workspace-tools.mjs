@@ -5,6 +5,7 @@
 //  * QorllaMate never acts on its own. The model can only PROPOSE tasks; a human approves each one. Retrieved workspace text is passed to the
 //    model as untrusted data. Anything that would leave the system (email) is blocked: no mail provider exists, and nothing is simulated.
 //  * AI output is validated against strict schemas; usage is metered with idempotency keys; missing provider => explicit 503.
+import crypto from 'node:crypto';
 import { z } from 'zod';
 import { UUID_RE } from './auth.mjs';
 import { PlanLimitError, quotaFor, withWorkspaceLock } from './entitlements.mjs';
@@ -215,18 +216,31 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     clips_summary:  { kind: null,     how: 'Summarise the clip from its transcript or description in two or three sentences.' },
     clips_media_description: { kind: null, how: 'Write an accessible description of the media from its transcript or description.' }
   };
+  // How an accepted suggestion may change a document. Everything not listed here is advice only (copy it, nothing is applied).
+  const APPLY = { docs_rewrite: 'replace', docs_proofread: 'replace', docs_translate: 'replace', docs_improve: 'replace', docs_summarize: 'append', docs_draft: 'new_document', slides_outline: 'append_slides' };
+  // A suggestion can be applied only with a token minted by the endpoint that produced it: it binds the person, workspace, task, document, the document VERSION it was made from and the exact text.
+  // No row is written when a suggestion is generated; the token just proves where the text came from and expires after an hour.
+  const applyKey = crypto.createHash('sha256').update('qorlla-ai-apply|' + (cfg.introspectionSecret || crypto.randomBytes(32).toString('hex'))).digest();
+  const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
+  const mac = (parts) => crypto.createHmac('sha256', applyKey).update(JSON.stringify(parts)).digest('hex');
+  const signApply = ({ actor, ws, task, doc, base, text }) => { const exp = Date.now() + 3600_000; return exp + '.' + mac([actor, ws, task, doc || '', base || 0, sha(text), exp]); };
+  const checkApply = (token, { actor, ws, task, doc, base, text }) => {
+    const [exp, tag] = String(token || '').split('.'); if (!tag || !(Number(exp) > Date.now())) return false;
+    const want = Buffer.from(mac([actor, ws, task, doc || '', base || 0, sha(text), Number(exp)])), got = Buffer.from(tag);
+    return want.length === got.length && crypto.timingSafeEqual(want, got);
+  };
   const RunSchema = z.object({ suggestion: z.string().max(40000), notes: z.array(z.string().max(500)).max(20).default([]) });
   const aiRun = [member, aiOn, lim('ai'), h(async (req, res) => {
     const p = z.object({ task: z.enum(Object.keys(AI_TASKS)), document_id: z.string().regex(UUID_RE).optional(), text: z.string().max(30000).optional(), instruction: z.string().trim().max(1000).optional(), target_language: z.string().trim().min(2).max(40).optional(), model: z.enum(['qorlla-ai', 'qorlla-ai-private']).optional(), idempotency_key: z.string().min(8).max(100) }).strict().parse(req.body);
     const t = AI_TASKS[p.task];
     if (!p.document_id && !p.text) return res.status(400).json({ error: 'Provide document_id or text', code: 'input_required' });
     if (t.needsLanguage && !p.target_language) return res.status(400).json({ error: 'target_language is required for translation', code: 'input_required' });
-    let input = p.text || '';
+    let input = p.text || '', baseVersion = null;
     if (p.document_id) {                                  // document-level authorisation: the caller must already be allowed to READ this document (a missing right is a 404, so existence is not revealed)
       const d = await loadDoc(pool, req, p.document_id); if (!d) return res.status(404).json({ error: 'Document not found' });
       if (t.kind && d.kind !== t.kind) return res.status(400).json({ error: 'This task does not apply to a ' + d.kind, code: 'wrong_document_kind' });
       const v = (await pool.query('SELECT content FROM portal.document_versions WHERE document_id=$1 AND version_no=$2', [d.id, d.current_version])).rows[0];
-      input = plainText(d.kind, v.content);
+      input = plainText(d.kind, v.content); baseVersion = d.current_version;
     }
     input = input.slice(0, 30000);
     if (!input.trim()) return res.status(400).json({ error: 'There is nothing to work on', code: 'input_required' });
@@ -236,8 +250,40 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     const user = `${p.instruction ? 'User instruction (data): ' + JSON.stringify(p.instruction) + '\n' : ''}<input>\n${input}\n</input>`;
     let r; try { r = await llm.generateJson({ system, user, schema: RunSchema, maxTokens: 3000, ctx: aiCtx(req, p.task, p.model) }); } catch (e) { return llmFailure(res, e); }
     await meter(pool, req.workspace, 'doc_generation', 'airun:' + req.workspace + ':' + p.idempotency_key);
-    res.set('Cache-Control', 'no-store').json({ task: p.task, suggestion: r.data.suggestion, notes: r.data.notes, review_required: true, applied: false, assistant: 'Qorlla AI', model: 'qorlla-ai', notice: 'AI-generated suggestion. Review it before you use it; nothing in your workspace has been changed.' });
+    const mode = APPLY[p.task] && (p.document_id || APPLY[p.task] === 'new_document') ? APPLY[p.task] : null;
+    res.set('Cache-Control', 'no-store').json({ task: p.task, suggestion: r.data.suggestion, notes: r.data.notes, review_required: true, applied: false,
+      apply: mode ? { mode, document_id: p.document_id || null, base_version: baseVersion, token: signApply({ actor: req.actor, ws: req.workspace, task: p.task, doc: p.document_id, base: baseVersion, text: r.data.suggestion }) } : null, assistant: 'Qorlla AI', model: 'qorlla-ai', notice: 'AI-generated suggestion. Review it before you use it; nothing in your workspace has been changed.' });
   })];
+  // ---- applying an accepted suggestion: the ONLY AI path that writes. Explicit confirmation, a token from the generator, and fresh permission + version checks inside the workspace lock. ----
+  app.post('/api/v1/ai/apply', member, aiOn, lim('ai'), h(async (req, res) => {
+    const p = z.object({ task: z.enum(Object.keys(APPLY)), document_id: z.string().regex(UUID_RE).optional(), base_version: z.number().int().min(1).optional(), suggestion: z.string().min(1).max(40000), apply_token: z.string().min(10).max(300), title: z.string().trim().min(1).max(200).optional(), confirm: z.boolean(), idempotency_key: z.string().min(8).max(100) }).strict().parse(req.body);
+    if (p.confirm !== true) return res.status(400).json({ error: 'Confirm that you want to apply this suggestion', code: 'confirmation_required' });
+    const mode = APPLY[p.task];
+    if (!checkApply(p.apply_token, { actor: req.actor, ws: req.workspace, task: p.task, doc: p.document_id, base: p.base_version, text: p.suggestion })) return res.status(400).json({ error: 'This suggestion can no longer be applied. Generate it again.', code: 'invalid_suggestion' });
+    const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
+      if (mode === 'new_document') {
+        const key = 'aiapply:' + p.idempotency_key; const dup = (await c.query(`SELECT d.*, 'owner' AS my_role FROM portal.documents d WHERE d.workspace_id=$1 AND d.creation_key=$2 AND d.owner_id=$3`, [req.workspace, key, req.actor])).rows[0]; if (dup) return { ...docMeta(dup), applied: true, replayed: true };
+        const d = await createDocument(c, { ws: req.workspace, actor: req.actor, kind: 'doc', title: p.title || 'AI draft', content: { format: 'markdown', text: p.suggestion }, source: 'ai', key, note: 'Qorlla AI suggestion applied' });
+        await audit(c, req.workspace, req.actor, 'document.ai_applied', d.id); return { ...docMeta(d), applied: true };
+      }
+      if (!p.document_id || !p.base_version) throw err(400, 'document_id and base_version are required', 'input_required');
+      const d = await loadDoc(c, req, p.document_id, { forUpdate: true }); if (!d) throw err(404, 'Document not found');      // permission is checked NOW, not when the suggestion was made
+      if (!['owner', 'editor'].includes(d.my_role)) throw err(403, 'You can view but not edit this document', 'read_only');
+      const cur = (await c.query('SELECT content FROM portal.document_versions WHERE document_id=$1 AND version_no=$2', [d.id, d.current_version])).rows[0].content;
+      let content;
+      if (mode === 'append_slides') {
+        if (d.kind !== 'slides') throw err(400, 'This suggestion is for a slide deck', 'wrong_document_kind');
+        const lines = p.suggestion.split('\n').map((l) => l.replace(/^\s*(?:[-*#]+|\d+[.)])\s*/, '').trim()).filter(Boolean).slice(0, Math.max(0, 100 - cur.slides.length));
+        content = ContentSchemas.slides.parse({ slides: [...cur.slides, ...lines.map((title) => ({ title: title.slice(0, 200), bullets: [], notes: '' }))] });
+      } else {
+        if (d.kind !== 'doc') throw err(400, 'This suggestion is for a document', 'wrong_document_kind');
+        content = ContentSchemas.doc.parse({ format: 'markdown', text: mode === 'append' ? `${cur.text}${cur.text ? '\n\n' : ''}## Summary (Qorlla AI)\n\n${p.suggestion}` : p.suggestion });
+      }
+      const v = await saveVersion(c, req, d, content, { source: 'ai', note: 'Qorlla AI suggestion applied', baseVersion: p.base_version });      // 409 version_conflict if the document moved on since the preview
+      await audit(c, req.workspace, req.actor, 'document.ai_applied', d.id); return { id: d.id, current_version: v, applied: true };
+    });
+    res.set('Cache-Control', 'no-store').status(mode === 'new_document' && !out.replayed ? 201 : 200).json(out);
+  }));
   app.post('/api/v1/ai/run', ...aiRun);
   app.post('/api/v1/ai/generate', ...aiRun);                  // generic entry: still a named task, never free-form access to documents
   for (const [route, task] of [['docs/draft', 'docs_draft'], ['docs/rewrite', 'docs_rewrite'], ['sheets/analyze', 'sheets_insights'], ['slides/generate', 'slides_outline']]) {
