@@ -9,7 +9,9 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # Pull down localized structural service models
+# Every module server.js loads (directly or through another): a missing one makes the container exit at start ("Cannot find module").
 COPY server.js appointments.js docs.js post-meeting.js notifications.js workplace.js auth.js portal-token.js store.js mailer.js index.html qorlla.html chat.html login.html guest.html guest.js guest-sessions.js lockout.js ./
+COPY history.js invitation.js meet-launch.js meeting-limit.js phone-help.js shield-bridge.js support-tickets.js voice.js ./
 COPY i18n.js Qorlla-Logo.jpg ./
 COPY locales ./locales
 COPY assets ./assets
