@@ -1,0 +1,17 @@
+# TEST CLOCKS: ACCELERATED RECORDING LIFECYCLE. NEVER USE OUTSIDE AN ISOLATED TEST PROJECT.
+# 1 retention "day" = 4 seconds, so recordings expire, legal holds release, crashed recorders are recovered and unfinished recordings are finalized within seconds, and single-use links last 5 seconds.
+# Use it only as a third -f file of a project that shares NOTHING with another (own name, volumes, database and recordings folder), e.g.:
+#   ISO_PROJECT=qclk ISO_STATE_DIR=.dev-stack-clk ISO_PROXY_PORT=3800 node scripts/iso-compose-env.mjs
+#   docker compose -p qclk --env-file .dev-stack-clk/compose.env -f docker-compose.yml -f deploy/docker-compose.isolated.yml -f deploy/docker-compose.isolated-testclocks.yml up -d --build
+# The values are the ones scripts/start-recording-test-meet.cjs uses for the recording acceptance specs (R01-R18).
+services:
+  meet:
+    labels:
+      qorlla.test-clocks: "accelerated: not for production"
+    environment:
+      - RECORDING_DAY_MS=4000
+      - RECORDING_SWEEP_MS=2000
+      - RECORDING_IDLE_MS=12000
+      - RECORDING_FINALIZE_GRACE_MS=6000
+      - RECORDING_LATE_CHUNK_MS=8000
+      - RECORDING_LINK_SECONDS=5
