@@ -131,6 +131,20 @@ describe('PostgreSQL migration and rollback', () => {
     assert.equal((await p.query('SELECT amount_paid_cents FROM portal.invoices WHERE id=$1', [inv])).rows[0].amount_paid_cents, 100);
     await p.query(sqlFile('007_billing_launch.sql')); assert.ok((await tables(p)).includes('plan_changes'));
   });
+  test('008 (AI gateway): re-runnable; external processing defaults to NOT authorised; the audit trail is append-only; rollback restores the 007 schema', async () => {
+    const db = await freshDatabase({ migrate: false }); dbs.push(db); const p = db.pool;
+    for (const f of ['002_billing.sql', '004_meeting_ai.sql', '005_phone.sql', '006_workspace_tools.sql', '007_billing_launch.sql']) await p.query(sqlFile(f));
+    const before = await tables(p);
+    await p.query(sqlFile('008_ai_gateway.sql')); await p.query(sqlFile('008_ai_gateway.sql'));
+    for (const t of ['workspace_ai_settings', 'ai_gateway_audit']) assert.ok((await tables(p)).includes(t), t);
+    const ws = (await p.query("INSERT INTO portal.workspaces(name) VALUES('AI') RETURNING id")).rows[0].id;
+    await p.query('INSERT INTO portal.workspace_ai_settings(workspace_id) VALUES($1)', [ws]); assert.equal((await p.query('SELECT external_processing FROM portal.workspace_ai_settings')).rows[0].external_processing, false);
+    await p.query("INSERT INTO portal.ai_gateway_audit(feature,outcome) VALUES('docs_draft','ok')");
+    await assert.rejects(p.query("UPDATE portal.ai_gateway_audit SET outcome='x'"), /append-only/); await assert.rejects(p.query('DELETE FROM portal.ai_gateway_audit'), /append-only/);
+    await assert.rejects(p.query("INSERT INTO portal.ai_gateway_audit(feature,outcome,tier) VALUES('x','ok','gold')"), /check/i);
+    await p.query(sqlFile('rollback', '008_ai_gateway.down.sql')); await p.query(sqlFile('rollback', '008_ai_gateway.down.sql'));
+    assert.deepEqual(await tables(p), before); await p.query(sqlFile('008_ai_gateway.sql')); assert.ok((await tables(p)).includes('ai_gateway_audit'));
+  });
   test('004 refuses to run without the Meet directory view (clear error, no half-applied schema)', async () => {
     const db = await freshDatabase({ migrate: false }); dbs.push(db); await db.pool.query(sqlFile('002_billing.sql'));
     await db.pool.query('DROP VIEW public.portal_meeting_directory');

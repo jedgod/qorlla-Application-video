@@ -16,7 +16,7 @@ pool.on('error', (e) => log.error('postgres pool error', { err: e.message }));
 const jwks = cfg.authConfigured ? createRemoteJWKSet(new URL(cfg.jwksUrl), { cooldownDuration: 30_000, cacheMaxAge: 10 * 60_000, timeoutDuration: 5000 }) : null;
 const { app, billing, launch, ai } = createApp({ pool, cfg, jwks, log });
 if (cfg.ai.workerEnabled) { ai.worker.start(); ai.phoneWorker.start(); }
-if (!ai.llm.available) log.warn('AI_LLM_API_KEY is not set: AI meeting jobs will be BLOCKED (no simulated output)');
+if (!ai.llm.available) log.warn('Qorlla AI is OFF (QORLLA_AI_ENABLED is not true or no eligible provider): AI features are BLOCKED, never simulated');
 
 const server = app.listen(cfg.port, () => log.info('listening', { port: cfg.port, production: cfg.production }));
 const sweep = setInterval(() => {

@@ -12,7 +12,9 @@ import { createBillingService, BillingError } from './billing/service.mjs';
 import { createStripe } from './billing/stripe.mjs';
 import { PlanLimitError, entitlementsFor, quotaFor, withWorkspaceLock } from './entitlements.mjs';
 import { registerMeetingAi } from './meeting-ai.mjs';
-import { createLlm } from './ai/llm.mjs';
+import { createAiGateway } from './ai/gateway.mjs';
+import { registerAiGateway } from './ai-gateway.mjs';
+import { resolveAiConfig } from './ai/config.mjs';
 import { createMeetClient } from './ai/meet-client.mjs';
 import { createAiWorker } from './ai/worker.mjs';
 import { registerPhone } from './phone.mjs';
@@ -54,7 +56,13 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   const limiters = { ai: perUser('ai', 30), draft: perUser('draft', 10), job: perUser('job', 10), call: perUser('call', 6), refund: perUser('refund', 10),
     webhook: rateLimit({ windowMs: 60_000, limit: cfg.rateLimits?.webhook ?? 1200, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many requests' }) };
   const directory = aiOverride.directory || createDirectory({ baseUrl: cfg.ai.directoryUrl, secret: cfg.introspectionSecret, fetchImpl, now });
-  const llm = aiOverride.llm || createLlm({ ...cfg.ai.llm, fetchImpl });
+  // every model call goes through the Qorlla AI Gateway: provider choice, failover, external-processing consent per workspace, quotas and an audit trail without prompt text
+  const llm = aiOverride.llm || createAiGateway({
+    config: cfg.ai.gateway || resolveAiConfig({}), fetchImpl, log,
+    consent: async (ctx) => !!(await pool.query('SELECT external_processing FROM portal.workspace_ai_settings WHERE workspace_id=$1', [ctx.workspaceId])).rows[0]?.external_processing,
+    audit: (r) => pool.query('INSERT INTO portal.ai_gateway_audit(at,feature,actor_id,workspace_id,org_id,provider,tier,model,outcome,code,ms,input_chars,output_chars,input_tokens,output_tokens,prompt_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',
+      [r.at, r.feature, r.actorId, r.workspaceId, r.orgId, r.provider, r.tier, r.model, r.outcome, r.code, r.ms, r.inputChars, r.outputChars, r.inputTokens, r.outputTokens, r.promptHash])
+  });
   const meet = aiOverride.meet || createMeetClient({ baseUrl: cfg.ai.meetBaseUrl, readSecret: cfg.ai.meetReadSecret, fetchImpl });
   const phoneWorker = createPhoneWorker({ pool, llm, log, isEnabled: () => flags.enabled('ai'), ...(aiOverride.phoneWorker || {}) });
   const aiWorker = createAiWorker({ pool, llm, meet, log, overage, isEnabled: () => flags.enabled('ai'), retentionDays: cfg.ai.transcriptRetentionDays, ...(aiOverride.worker || {}) });
@@ -240,6 +248,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage, flags, limiters });
   registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags, limiters });
   registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags, limiters });
+  registerAiGateway(app, { pool, cfg, auth, h, llm, flags, limiters });
   registerPhone(app, { pool, cfg, auth, h, log, llm, limiters, ...(aiOverride.phone || {}) });
   app.get('/shared/report/:token', (req, res) => { res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' }); res.sendFile(path.join(root, 'shared.html')); });
 

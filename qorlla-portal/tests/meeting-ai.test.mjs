@@ -123,7 +123,7 @@ describe('AI meeting intelligence', () => {
     test('imported transcript becomes a report: summary, decisions, speaker-labelled transcript, action items WITH suggestions only, and accounting', async () => {
       const before = (await host().get('/api/v1/meeting-ai/usage')).body; const rid = await makeReport();
       const r = (await host().get('/api/v1/meeting-ai/reports/' + rid)).body;
-      assert.match(r.summary, /TEST-DOUBLE SUMMARY/); assert.ok(r.decisions.some((d) => /ship on Monday/.test(d))); assert.equal(r.level, 'manage'); assert.match(r.generated_by, /^llm:claude-test/);
+      assert.match(r.summary, /TEST-DOUBLE SUMMARY/); assert.ok(r.decisions.some((d) => /ship on Monday/.test(d))); assert.equal(r.level, 'manage'); assert.match(r.generated_by, /^llm:qorlla-ai/);
       assert.equal(r.action_items.length, 1); assert.deepEqual({ t: r.action_items[0].title, hint: r.action_items[0].owner_hint, due: r.action_items[0].due_hint, owner: r.action_items[0].owner_id, due_at: r.action_items[0].due_at }, { t: 'send the release notes', hint: 'Sam', due: 'Friday', owner: null, due_at: null });
       const t = (await host().get(`/api/v1/meeting-ai/reports/${rid}/transcript`)).body; assert.equal(t.speaker_labels, 'unverified'); assert.deepEqual(t.segments.map((s) => s.speaker), ['Dana', 'Sam', 'Dana']); assert.match(t.speaker_note, /not verified/);
       const usage = (await host().get('/api/v1/meeting-ai/usage')).body; assert.equal(usage.reports_used - before.reports_used, 1); assert.equal(usage.events.meeting_report - (before.events.meeting_report || 0), 1); assert.ok(usage.events.llm_input_tokens > 0 && usage.events.llm_output_tokens > 0); assert.equal(usage.unlimited, true);

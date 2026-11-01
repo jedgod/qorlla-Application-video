@@ -1,3 +1,5 @@
+import { resolveAiConfig } from './ai/config.mjs';
+
 // Environment parsing for the portal. Nothing here ever supplies a development identity: when authentication is not fully
 // configured the private API answers 503 (fail closed) instead of guessing who the caller is.
 export function loadConfig(env = process.env) {
@@ -38,6 +40,7 @@ export function loadConfig(env = process.env) {
   if (cfg.requireIntrospection && (!cfg.introspectionUrl || cfg.introspectionSecret.length < 32)) authProblems.push('MAIN_INTROSPECTION_URL + PORTAL_INTROSPECTION_SECRET (>=32 chars)');
   const aiKey = trim(env.AI_LLM_API_KEY);
   cfg.ai = {
+    gateway: resolveAiConfig(env),                     // Qorlla AI Gateway contract (OFF unless QORLLA_AI_ENABLED=true); a bad combination stops the server from starting
     workerEnabled: env.AI_WORKER_ENABLED !== 'false',
     llm: { provider: 'anthropic', apiKey: aiKey, model: trim(env.AI_LLM_MODEL) || 'claude-sonnet-5-5',
       // like the payment API base: a non-default endpoint exists only so tests can use a local test double, and is refused in production

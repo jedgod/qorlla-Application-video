@@ -51,7 +51,8 @@ export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log
         await record(ctx, a, 'ok', { ms: now() - t0, model: r.model, inputChars: (system + user).length, outputChars: r.text.length, inputTokens: r.inputTokens, outputTokens: r.outputTokens, promptHash });
         return { data: v.data, model: PUBLIC_MODEL, inputTokens: r.inputTokens, outputTokens: r.outputTokens };
       } catch (e) {
-        const code = (e && e.code) || 'llm_error'; st.failed++; st.lastCode = code; st.failures++; if (st.failures >= config.breaker.failures) st.openUntil = now() + config.breaker.cooldownMs;
+        const code = (e && e.code) || 'llm_error'; st.failed++; st.lastCode = code;
+        if (code !== 'invalid_model_output') { st.failures++; if (st.failures >= config.breaker.failures) st.openUntil = now() + config.breaker.cooldownMs; }     // unreadable output is a content problem, not an outage: it must not shut the only provider off
         await record(ctx, a, 'error', { code, ms: now() - t0, inputChars: (system + user).length, promptHash });
         last = e; if (e instanceof LlmError && !e.retryable) throw new LlmError(PUBLIC_NAME + ' could not process this request', { retryable: false, code: e.code, status: e.status });
       }

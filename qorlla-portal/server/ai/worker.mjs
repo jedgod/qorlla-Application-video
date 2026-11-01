@@ -59,7 +59,7 @@ export function createAiWorker({ pool, llm, meet, log, overage = null, isEnabled
       if (!llm.available) { await finish(job, 'blocked', 'no_ai_provider', 'No AI provider is configured on this server'); return; }
       const t = (await pool.query('SELECT id, full_text, purged_at FROM portal.meeting_transcripts WHERE job_id=$1', [job.id])).rows[0];
       if (!t || t.purged_at) { await finish(job, 'cancelled', 'consent_revoked', 'Transcript no longer available'); return; }
-      const res = await llm.summarize({ title: dir.title, transcript: t.full_text });
+      const res = await llm.summarize({ title: dir.title, transcript: t.full_text, ctx: { workspaceId: job.workspace_id, actorId: job.requested_by, feature: 'meeting_summary' } });
       const done = await fenced(job, async (c) => {
         if (!(await activeConsents(c, job))) return 'consent_revoked';  // revoked during inference: discard the model output
         const plan = (await c.query('SELECT plan_slug FROM portal.workspace_effective_plan WHERE workspace_id=$1', [job.workspace_id])).rows[0]?.plan_slug || 'basic';

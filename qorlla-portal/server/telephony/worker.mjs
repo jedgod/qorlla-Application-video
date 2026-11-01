@@ -31,7 +31,7 @@ export function createPhoneWorker({ pool, llm, log, isEnabled = async () => true
     const vm = (await pool.query('SELECT id, transcript, deleted_at FROM portal.voicemails WHERE id=$1', [job.voicemail_id])).rows[0];
     if (!vm || vm.deleted_at || !vm.transcript) { await finish(job, 'cancelled', 'voicemail_gone'); return; }
     if (!llm.available) { await finish(job, 'blocked', 'no_ai_provider'); await pool.query(`UPDATE portal.voicemails SET summary_status='blocked' WHERE id=$1`, [vm.id]); return; }
-    const r = await llm.generateJson({ system: SYSTEM, user: `<voicemail>\n${vm.transcript.slice(0, 8000)}\n</voicemail>`, schema: VoicemailSummarySchema, maxTokens: 500 });
+    const r = await llm.generateJson({ system: SYSTEM, user: `<voicemail>\n${vm.transcript.slice(0, 8000)}\n</voicemail>`, schema: VoicemailSummarySchema, maxTokens: 500, ctx: { workspaceId: job.workspace_id, actorId: 'system:voicemail-worker', feature: 'voicemail_summary' } });
     const c = await pool.connect();
     try {
       await c.query('BEGIN');

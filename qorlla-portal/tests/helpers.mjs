@@ -27,7 +27,7 @@ export async function freshDatabase({ migrate = true, ai = true } = {}) {
   await pool.query(meetSyncSql('001.sql')); await pool.query(meetSyncSql('006_meeting_directory.sql'));
   await pool.query(sql('001_portal.sql'));
   if (migrate) await pool.query(sql('002_billing.sql'));
-  if (migrate && ai) { await pool.query(sql('004_meeting_ai.sql')); await pool.query(sql('005_phone.sql')); await pool.query(sql('006_workspace_tools.sql')); await pool.query(sql('007_billing_launch.sql')); }
+  if (migrate && ai) { await pool.query(sql('004_meeting_ai.sql')); await pool.query(sql('005_phone.sql')); await pool.query(sql('006_workspace_tools.sql')); await pool.query(sql('007_billing_launch.sql')); await pool.query(sql('008_ai_gateway.sql')); }
   return { pool, name, url, sql,
     async drop() { await pool.end(); const a = new pg.Client({ connectionString: ADMIN_URL }); await a.connect(); await a.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`); await a.end(); } };
 }
@@ -57,8 +57,10 @@ export async function startMainStandIn() {
 }
 
 export function testConfig(over = {}, main) {
+  // tests that give the fake model server a key opt in to the Qorlla AI Gateway explicitly (the legacy key alone no longer enables AI); the fake server is declared a free-tier provider
+  const gw = over.env && over.env.AI_LLM_API_KEY ? { QORLLA_AI_ENABLED: 'true', QORLLA_AI_PROVIDER: 'anthropic', QORLLA_AI_ALLOW_FREE_TIER: 'true', QORLLA_AI_ALLOW_PAID_FALLBACK: 'false', QORLLA_AI_ANTHROPIC_TIER: 'free' } : {};
   const cfg = loadConfig({ NODE_ENV: 'test', DATABASE_URL: 'x', PORTAL_ALLOWED_ORIGIN: ORIGIN, MAIN_AUTH_ISSUER: ORIGIN, MAIN_AUTH_JWKS_URL: ORIGIN + '/.well-known/jwks.json',
-    MAIN_INTROSPECTION_URL: main?.introspectionUrl, PORTAL_INTROSPECTION_SECRET: main?.secret, AUTH_REQUIRE_INTROSPECTION: 'true', ...over.env });
+    MAIN_INTROSPECTION_URL: main?.introspectionUrl, PORTAL_INTROSPECTION_SECRET: main?.secret, AUTH_REQUIRE_INTROSPECTION: 'true', ...gw, ...over.env });
   // functional tests make many calls in a minute; the rate-limit behaviour itself is covered by tests/limits.test.mjs with its own values
   return Object.assign(cfg, { rateLimits: { ai: 100000, draft: 100000, job: 100000, call: 100000, refund: 100000, webhook: 1000000 } }, over.cfg || {});
 }
@@ -90,6 +92,7 @@ export async function seedWorkspace(pool, ownerSub, name = 'WS') {
   const ws = (await pool.query('INSERT INTO portal.workspaces(name) VALUES($1) RETURNING id', [name])).rows[0].id;
   await pool.query(`INSERT INTO portal.members(workspace_id,user_id,role) VALUES($1,$2,'owner')`, [ws, ownerSub]);
   await pool.query(`INSERT INTO portal.subscriptions(workspace_id,plan_slug,status) VALUES($1,'basic','active')`, [ws]);
+  await pool.query('INSERT INTO portal.workspace_ai_settings(workspace_id,external_processing) VALUES($1,true) ON CONFLICT DO NOTHING', [ws]);   // stand-in for the owner having authorised external AI processing
   return ws;
 }
 export async function addMember(pool, ws, sub, role) { await pool.query('INSERT INTO portal.members(workspace_id,user_id,role) VALUES($1,$2,$3)', [ws, sub, role]); }

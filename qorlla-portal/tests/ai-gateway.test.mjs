@@ -94,6 +94,10 @@ test('the circuit breaker stops calling a failing provider and tries it again af
   for (let i = 0; i < 3; i += 1) await run(g, { ...ctx, actorId: 'u' + i }); assert.equal(flaky.calls, 3); await run(g, { ...ctx, actorId: 'u9' }); assert.equal(flaky.calls, 3, 'open: not called again'); assert.equal(g.adminStatus().providers[0].healthy, false);
   fail = false; advance(31_000); const r = await run(g, { ...ctx, actorId: 'u10' }); assert.equal(r.data.answer, 'back'); assert.equal(g.adminStatus().providers[0].healthy, true);
 });
+test('unreadable model output is a content problem, not an outage: it never trips the circuit breaker of the only provider', async () => {
+  const junk = fake('gemini', { fn: () => ({ text: 'not json', model: 'm', inputTokens: 1, outputTokens: 1 }) }); const { g } = gw([junk], { config: { breaker: { failures: 2, cooldownMs: 30_000 } } });
+  for (let i = 0; i < 5; i += 1) await assert.rejects(run(g, { ...ctx, actorId: 'u' + i }), (e) => e.code === 'invalid_model_output'); assert.equal(junk.calls, 5); assert.equal(g.adminStatus().providers[0].healthy, true);
+});
 test('external processing needs the workspace authorisation: otherwise only local providers are used, and with none the request is refused', async () => {
   const local = fake('selfhosted', { external: false, tier: 'local' }), ext = fake('gemini');
   const noConsent = gw([ext, local], { consent: async () => false }); assert.equal((await run(noConsent.g, { actorId: 'u', workspaceId: 'w', feature: 'x' })).data.answer, 'from selfhosted'); assert.equal(ext.calls, 0);
