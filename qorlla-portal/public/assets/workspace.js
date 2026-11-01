@@ -1,5 +1,6 @@
 // Notes, QorllaMate and the productivity suite (Docs / Sheets / Slides). All text is escaped; AI output is shown as plain text only.
 import { $, esc, api, notice, describe, panel } from './core.js';
+import { mountAiPanel } from './ai-panel.js';
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
 const when = (iso) => (iso ? new Date(iso).toLocaleString() : '-');
@@ -36,6 +37,8 @@ export async function renderNotes() {
 // ------------------------------------------------------------------ QorllaMate
 export async function renderMate(root) {
   let current = null;
+  let host = document.getElementById('mate-ai-host'); if (!host) { host = document.createElement('div'); host.id = 'mate-ai-host'; root.after(host); }
+  await mountAiPanel(host, { id: 'mate-ai', mode: 'chat', current: () => '' });
   const draw = async () => {
     const [status, threads] = await Promise.all([api('/assistant/status'), api('/assistant/threads')]);
     const t = current ? await api(`/assistant/threads/${current}`).catch(() => null) : null; if (!t) current = null;
@@ -83,6 +86,10 @@ export async function renderSuite(root) {
     panel('Draft with AI', `${status.ai_provider_configured ? '' : '<p class="warn">No AI provider is configured on this server; drafting is unavailable.</p>'}<form id="ai-form" class="row"><label>Type<select name="kind">${Object.entries(KIND).map(([k, v]) => `<option value="${k}">${v[0]} ${v[1]}</option>`).join('')}</select></label><label>What should it contain?<textarea name="prompt" required minlength="3" maxlength="4000" rows="2"></textarea></label><button ${status.ai_provider_configured ? '' : 'disabled'}>Draft</button></form><p class="muted">AI drafts are starting points. Review them before relying on them.</p>`) +
     panel('Search', '<form id="doc-search" class="row"><label>Search documents<input name="q" type="search"></label><button class="secondary">Search</button></form>') +
     `<div id="docs" class="cards">${docs.length ? docs.map((d) => `<article class="card"><div class="emoji" aria-hidden="true">${KIND[d.kind][0]}</div><h3>${esc(d.title)}</h3><span class="muted">${KIND[d.kind][1]} · ${esc(d.my_role)} · v${esc(d.current_version)} · ${esc(when(d.updated_at))}</span><a class="link" href="/app/suite?doc=${esc(d.id)}">Open →</a></article>`).join('') : '<div class="empty">No documents yet.</div>'}</div>`;
+  const host = document.createElement('div'); host.id = 'draft-ai-host'; $('#docs').before(host);
+  await mountAiPanel(host, { id: 'draft-ai', mode: 'task', tasks: [{ task: 'docs_draft', label: 'Draft a new document', needs: ['text'] }], input: () => ({}), current: () => '',
+    newTitle: () => (host.querySelector('[data-ai-text]').value.trim().slice(0, 60) || 'AI draft'), confirmText: () => 'It will be created as a new private document, labelled as AI-assisted.',
+    onApplied: (out) => { location.href = `/app/suite?doc=${out.id}`; } });
   $('#doc-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { const d = await api('/documents', { method: 'POST', body: JSON.stringify({ kind: f.kind, title: f.title, idempotency_key: uid() }) }); location.href = `/app/suite?doc=${d.id}`; } catch (err) { notice(describe(err)); } };
   $('#ai-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button'); btn.disabled = true; notice('Drafting…');
     try { const d = await api('/documents/ai-draft', { method: 'POST', body: JSON.stringify({ kind: f.kind, prompt: f.prompt, idempotency_key: uid() }) }); location.href = `/app/suite?doc=${d.id}`; } catch (err) { notice(err.body?.code === 'no_ai_provider' ? 'No AI provider is configured.' : [502, 503].includes(err.status) ? 'The AI service is unavailable right now. Nothing was saved or charged.' : describe(err)); btn.disabled = false; } };
@@ -91,13 +98,13 @@ export async function renderSuite(root) {
 
 async function renderEditor(root, id) {
   let d; try { d = await api(`/documents/${id}`); } catch (e) { root.innerHTML = `<div class="empty">${e.status === 404 ? 'Document not found, or you do not have access.' : esc(describe(e))}</div><p><a class="link" href="/app/suite">← Back to documents</a></p>`; return; }
-  const canEdit = ['owner', 'editor'].includes(d.my_role); let content = d.content; let version = d.current_version;
+  const canEdit = ['owner', 'editor'].includes(d.my_role); let content = d.content; let version = d.current_version; let saved = JSON.stringify(d.content);
   root.innerHTML = `<p><a class="link" href="/app/suite">← All documents</a></p>` + (d.version_source === 'ai' ? '<p class="warn" role="note">This version was drafted by AI. Review it before relying on it.</p>' : '') +
     panel(`${KIND[d.kind][0]} ${esc(d.title)}`, `<p class="muted">${KIND[d.kind][1]} · you are ${esc(d.my_role)} · <span id="doc-version">version ${esc(version)}</span></p>${canEdit ? '' : '<p class="muted">Read only.</p>'}
       <label>Title<input id="doc-title" value="${esc(d.title)}" maxlength="200" ${canEdit ? '' : 'disabled'}></label>
       <div id="editor-area">${d.kind === 'doc' ? `<label>Content<textarea id="doc-text" rows="18" ${canEdit ? '' : 'disabled'}>${esc(content.text)}</textarea></label>` : d.kind === 'sheet' ? sheetEditor(content) : slidesEditor(content)}</div>
       ${canEdit ? '<div class="row"><button id="save-doc">Save</button></div>' : ''}`) +
-    '<div id="doc-side"></div>';
+    '<div id="ai-host"></div><div id="doc-side"></div>';
   const area = $('#editor-area');
   const collect = () => (d.kind === 'doc' ? { format: 'markdown', text: $('#doc-text').value } : d.kind === 'sheet' ? readSheet(area, content) : readSlides(area));
   const rerender = (c) => { content = c; area.innerHTML = d.kind === 'sheet' ? sheetEditor(c) : slidesEditor(c); wire(); };
@@ -108,7 +115,7 @@ async function renderEditor(root, id) {
   };
   wire();
   $('#save-doc')?.addEventListener('click', async () => {
-    try { const r = await api(`/documents/${id}`, { method: 'PUT', body: JSON.stringify({ base_version: version, content: collect(), title: $('#doc-title').value.trim() || d.title }) }); version = r.current_version; $('#doc-version').textContent = `version ${version}`; notice('Saved.'); await side(); }
+    try { const next = collect(); const r = await api(`/documents/${id}`, { method: 'PUT', body: JSON.stringify({ base_version: version, content: next, title: $('#doc-title').value.trim() || d.title }) }); version = r.current_version; saved = JSON.stringify(next); $('#doc-version').textContent = `version ${version}`; notice('Saved.'); await side(); }
     catch (err) { notice(err.body?.code === 'version_conflict' ? 'Someone else saved a newer version. Reload to see it - your unsaved edits are still in the page, so copy them first.' : err.body?.code === 'read_only' ? 'You can view but not edit this document.' : describe(err)); }
   });
   const side = async () => {
@@ -130,4 +137,13 @@ async function renderEditor(root, id) {
     $('#del-doc')?.addEventListener('click', async () => { if (!confirm('Delete this document?')) return; try { await api(`/documents/${id}`, { method: 'DELETE' }); location.href = '/app/suite'; } catch (err) { notice(describe(err)); } });
   };
   await side();
+  // Qorlla AI works from the last SAVED version, previews first, and applies only after confirmation (the server re-checks permission and version).
+  const TASKS = { doc: [{ task: 'docs_rewrite', label: 'Rewrite' }, { task: 'docs_improve', label: 'Improve' }, { task: 'docs_proofread', label: 'Proofread' }, { task: 'docs_summarize', label: 'Summarize (add to the end)' }, { task: 'docs_translate', label: 'Translate', needs: ['language'] }],
+    sheet: [{ task: 'sheets_insights', label: 'Analyze the data' }, { task: 'sheets_formula', label: 'Suggest a formula' }, { task: 'sheets_chart', label: 'Recommend a chart' }], slides: [{ task: 'slides_outline', label: 'Outline (add slides)' }, { task: 'slides_notes', label: 'Speaker notes' }] };
+  const savedText = () => { const c = JSON.parse(saved); return d.kind === 'doc' ? c.text : d.kind === 'slides' ? c.slides.map((s) => s.title).join('\n') : ''; };
+  const dirty = () => { try { return JSON.stringify(collect()) !== saved; } catch { return false; } };
+  await mountAiPanel($('#ai-host'), { id: 'doc-ai', mode: 'task', tasks: TASKS[d.kind], input: () => ({ document_id: id }), current: savedText,
+    after: (r) => (r.apply?.mode === 'append' ? savedText() + (savedText() ? '\n\n' : '') + '## Summary (Qorlla AI)\n\n' + r.suggestion : r.apply?.mode === 'append_slides' ? savedText() + '\n' + r.suggestion.split('\n').map((l) => l.replace(/^\s*(?:[-*#]+|\d+[.)])\s*/, '').trim()).filter(Boolean).join('\n') : r.suggestion),
+    confirmText: () => `It will be saved as version ${version + 1} of this ${KIND[d.kind][1].toLowerCase()}, labelled as AI-assisted; version ${version} stays in the history.${dirty() ? ' You have unsaved edits on this page; they will be replaced.' : ''}`,
+    onApplied: async () => { await renderEditor(root, id); notice('Applied. The previous version is kept in the version history.'); } });
 }

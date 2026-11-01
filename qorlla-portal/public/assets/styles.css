@@ -12,3 +12,10 @@ dialog{border:0;border-radius:14px;padding:24px;width:min(560px,94vw);box-shadow
 .sheet-wrap{overflow:auto;max-width:100%}.sheet{border-collapse:collapse}.sheet th,.sheet td{border:1px solid #d4dbe8;padding:0}.sheet input{border:0;width:9rem;padding:6px 8px;background:transparent}
 fieldset[data-slide]{border:1px solid #d4dbe8;border-radius:10px;margin:0 0 12px;padding:10px 14px}
 .warn{background:#fff4e5;border:1px solid #f5c26b;border-radius:10px;padding:10px 14px}.ok{background:#e9f7ef;border:1px solid #9fd8b4;border-radius:10px;padding:10px 14px}
+
+/* Qorlla AI Review Panel */
+.ai-panel{border:1px solid #cfe0fb;background:#fbfdff}.ai-panel h2 .muted{font-size:.8rem;font-weight:600;margin-left:6px}.ai-panel h3{margin:14px 0 4px}
+.ai-suggestion{white-space:pre-wrap;word-break:break-word;background:#f4f7fc;border-left:4px solid #0866e9;border-radius:6px;padding:12px 14px;margin:8px 0;max-height:360px;overflow:auto;font:inherit}
+.ai-diff{border:1px solid #d4dbe8;border-radius:8px;margin:8px 0;max-height:320px;overflow:auto;font-family:ui-monospace,Consolas,monospace;font-size:.85rem}.ai-diff div{padding:2px 10px;white-space:pre-wrap;word-break:break-word}.ai-diff span{display:inline-block;width:1.2em;font-weight:700}
+.ai-add{background:#e6f7ee;color:#0d5c32}.ai-del{background:#fdecec;color:#8a1c1c;text-decoration:line-through}.ai-same{color:#475569}
+.ai-confirm{background:#fff8e1;border:1px solid #f5c26b;border-radius:10px;padding:10px 14px;margin:8px 0}.ai-actions{margin-top:8px}
