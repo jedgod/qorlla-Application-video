@@ -1,0 +1,13 @@
+# Keep the build context small and keep local secrets, test output and dependency junctions out of every image.
+node_modules
+**/node_modules
+.git
+.dev-stack
+.dev-stack-iso
+test-results
+playwright-report
+tests
+evidence
+qorlla-clients
+qorlla-ops
+mockups

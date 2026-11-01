@@ -1,0 +1,15 @@
+# ISOLATED TEST PROJECT ONLY (never production). Use with:
+#   node scripts/iso-compose-env.mjs
+#   docker compose -p qiso --env-file .dev-stack-iso/compose.env -f docker-compose.yml -f deploy/docker-compose.isolated.yml up -d --build
+# The project name gives its own network and volumes (qiso_*); nothing of another stack is reused. Fixed container names would collide with another project, so these get their own;
+# Meet's database also needs the later idempotent migrations (v4_16 to v4_18), without which Meet cannot register a meeting from the main app.
+services:
+  workspace-signaling-engine:
+    container_name: qiso_main
+  dashboard-client-proxy:
+    container_name: qiso_proxy
+  meet-db:
+    volumes:
+      - ./qorlla-meet-video/sql/v4_16_number_authority.sql:/docker-entrypoint-initdb.d/005k_number_authority.sql:ro
+      - ./qorlla-meet-video/sql/v4_17_shield_identity.sql:/docker-entrypoint-initdb.d/005l_shield_identity.sql:ro
+      - ./qorlla-meet-video/sql/v4_18_billing_hold.sql:/docker-entrypoint-initdb.d/005m_billing_hold.sql:ro
