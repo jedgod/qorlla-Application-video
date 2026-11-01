@@ -18,3 +18,4 @@ Thumbs.db
 *.key
 *.pfx
 .dev-stack/
+.dev-stack-iso/

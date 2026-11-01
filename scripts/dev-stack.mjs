@@ -13,7 +13,9 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAIN_PORT = Number(process.env.MAIN_PORT || 3200), MEET_PORT = Number(process.env.MEET_PORT || 3300), DB_PORT = Number(process.env.MEET_DB_PORT || 35432);
-const DB = 'qorlla-meet-dev-db', state = path.join(root, '.dev-stack'); fs.mkdirSync(path.join(state, 'data'), { recursive: true });
+// An ISOLATED copy of the stack (other ports, its own database container, volume, secrets and data) is started by naming all of them; with none named this is the usual dev stack.
+//   DEV_DB_CONTAINER=qiso-meet-db DEV_DB_VOLUME=qiso-meet-data DEV_STATE_DIR=.dev-stack-iso MAIN_PORT=3400 MEET_PORT=3500 VOICE_PORT=4700 MEET_DB_PORT=35433 MAIL_PORT=1125 MAIL_VIEW_PORT=3325 npm run dev:stack
+const DB = process.env.DEV_DB_CONTAINER || 'qorlla-meet-dev-db', DB_VOLUME = process.env.DEV_DB_VOLUME || 'qorlla-meet-dev-data', state = path.join(root, process.env.DEV_STATE_DIR || '.dev-stack'); fs.mkdirSync(path.join(state, 'data'), { recursive: true });
 if (process.env.DEV_SEED_FROM && !fs.existsSync(path.join(state, 'data', 'auth', 'users.json'))) {
   const from = path.resolve(process.env.DEV_SEED_FROM);
   if (!fs.existsSync(path.join(from, 'auth', 'users.json'))) { console.error('DEV_SEED_FROM has no auth/users.json: ' + from); process.exit(1); }
@@ -34,7 +36,7 @@ fs.writeFileSync(secretsFile, JSON.stringify(secrets), { mode: 0o600 });
 if (docker('version').status !== 0) { console.error('Docker is required for Meet\'s database. Start Docker Desktop and try again.'); process.exit(1); }
 const exists = docker('ps', '-a', '--filter', `name=^${DB}$`, '--format', '{{.Names}}').stdout.trim() === DB;
 if (!exists) {
-  const r = docker('run', '-d', '--name', DB, '-e', 'POSTGRES_USER=qorlla', '-e', `POSTGRES_PASSWORD=${secrets.dbPassword}`, '-e', 'POSTGRES_DB=qorlla_meet', '-p', `127.0.0.1:${DB_PORT}:5432`, '-v', 'qorlla-meet-dev-data:/var/lib/postgresql/data', 'postgres:16-alpine');
+  const r = docker('run', '-d', '--name', DB, '-e', 'POSTGRES_USER=qorlla', '-e', `POSTGRES_PASSWORD=${secrets.dbPassword}`, '-e', 'POSTGRES_DB=qorlla_meet', '-p', `127.0.0.1:${DB_PORT}:5432`, '-v', DB_VOLUME + ':/var/lib/postgresql/data', 'postgres:16-alpine');
   if (r.status !== 0) { console.error(r.stderr); process.exit(1); }
 } else if (docker('ps', '--filter', `name=^${DB}$`, '--format', '{{.Names}}').stdout.trim() !== DB) docker('start', DB);
 for (let i = 0; i < 60 && docker('exec', DB, 'pg_isready', '-U', 'qorlla', '-d', 'qorlla_meet').status !== 0; i++) spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},1000)']);
@@ -66,6 +68,12 @@ if (has !== 't') {
   if (r.status !== 0) { console.error('Telephony migration failed:', r.stderr); process.exit(1); } }
 { const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_15_telephony_features.sql')), encoding: 'utf8' });
   if (r.status !== 0) { console.error('Telephony features migration failed:', r.stderr); process.exit(1); } }
+
+// Later Meet migrations (number authority, account identity on meetings, billing hold): all idempotent, applied on every start. Without v4_17 Meet cannot register a meeting from the main app.
+for (const f of ['v4_16_number_authority.sql', 'v4_17_shield_identity.sql', 'v4_18_billing_hold.sql']) {
+  const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', f)), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Meet migration ' + f + ' failed:', r.stderr); process.exit(1); }
+}
 
 const children = [];
 // Qorlla Voice (self-hosted internet calls): dependencies once, then its tables, then the service on :4600. Internal calls only: no carrier, no Twilio.

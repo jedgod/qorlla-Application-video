@@ -22,6 +22,14 @@ Status: **validated on one device and one isolated test server only. The full we
 - Test-method notes: the WebView skips history entries created without a user gesture when Back is pressed, so the test evaluates scripts with `userGesture: true`; an earlier "Back goes to Welcome" result was caused by script-driven navigation, not by the app.
 - NOT checked: the real Qorlla Meet video page. This server has no Meet and the v46 stack was not running (and not started), so "the new video page" itself remains unverified.
 
+## Real Qorlla Meet video page (isolated stack)
+- Stack: `scripts/dev-stack.mjs` with `DEV_DB_CONTAINER=qiso-meet-db DEV_DB_VOLUME=qiso-meet-data DEV_STATE_DIR=.dev-stack-iso MAIN_PORT=3400 MEET_PORT=3500 VOICE_PORT=4700 MEET_DB_PORT=35433 MAIL_PORT=1125 MAIL_VIEW_PORT=3325`: its own PostgreSQL container, volume, secrets and data. The v46 stack (3200/3300/4600, DB 35432, container `qorlla-meet-dev-db`, volume `qorlla-meet-dev-data`) was not started, read or changed.
+- Two repo gaps found and fixed on the way: the script had no way to name its own container/volume/state folder (now `DEV_DB_CONTAINER`, `DEV_DB_VOLUME`, `DEV_STATE_DIR`, defaults unchanged), and it stopped at migration `v4_15`, so Meet answered 500 ("column host_account_id does not exist") when main registered a meeting; `v4_16` to `v4_18` (all idempotent) are now applied on every start.
+- App: local-stack build for these origins, `npm run local-stack:build` with `QORLLA_APP_URL=http://localhost:3400/` and `QORLLA_MEET_URLS=http://localhost:3500/`. SHA-256 `5e84822b480f347fed5a8b318b854fb6db66c62239d374fa13e14ac441eee2ff`, built 12:51 to 13:03 (exit 0, 11 minutes); its bundle contains `localhost:3400` and `localhost:3500` and no `localhost:3200` or `18081`. Development APK, not a release.
+- `QORLLA_ANDROID_SERIAL=<serial> QORLLA_STACK_APP=http://localhost:3400 QORLLA_STACK_MEET=http://localhost:3500 node --test e2e/android-real-stack.test.cjs`: **3 of 3 passed**. Starting a meeting returns `mode: "meet"` and a guest session returns a URL on the Meet origin (never `index.html`). On the Galaxy A03s an invited guest following `qorlla://join` lands on the Qorlla Meet page (title "Qorlla Meet | Collaboration", the waiting room, no navigation buttons before it), and a signed-in host starting a meeting lands in the Meet room ("Stack Host's meeting") with camera and microphone off.
+- No screenshots of the Meet page were taken or committed (it asks for the camera); the checks read the page's DOM. Not covered: audio or video between participants, admitting a guest from the waiting room, Meet's own controls on a phone screen, TURN across networks.
+- Still NOT verified: Docs and Clips (the Workplace Portal behind nginx; needs the full docker-compose), and anything on the v46 stack itself.
+
 ## Results (final code)
 | Suite | Result |
 | --- | --- |
