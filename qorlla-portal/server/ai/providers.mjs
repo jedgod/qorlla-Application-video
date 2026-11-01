@@ -81,7 +81,12 @@ function testAdapter() {
         return reply({ title, text: '# Draft\n\nTEST-DOUBLE body for: ' + user.slice(0, 80) });
       }
       const task = (/QORLLA-TASK:([a-z_]+)/.exec(system) || [])[1];
-      if (task) return reply({ suggestion: 'TEST-DOUBLE ' + task + ': ' + (/<input>\n([\s\S]*?)\n<\/input>/.exec(user) || [])[1]?.slice(0, 120), notes: [] });
+      if (task) {
+        const input = (/<input>\n([\s\S]*?)\n<\/input>/.exec(user) || [])[1] || '';
+        const evidence = /^docs_/.test(task) ? [{ quote: (input.match(/[^\n]{8,}/) || [''])[0].slice(0, 30) }] : /^sheets_/.test(task) ? [{ range: 'A1:B2' }] : /^slides_/.test(task) ? [{ slide: 1 }] : [];
+        if (/FABRICATE/.test(user)) evidence.push({ quote: 'a sentence that is nowhere in the source document' }, { range: 'ZZ99' }, { slide: 99 });       // made-up evidence: the backend must drop all of it
+        return reply({ suggestion: 'TEST-DOUBLE ' + task + ': ' + input.slice(0, 120), notes: [], evidence });
+      }
       const transcript = (/<transcript>\n([\s\S]*?)\n<\/transcript>/.exec(user) || [])[1] || '', lines = transcript.split('\n').filter(Boolean);
       const speakers = [...new Set(lines.map((l) => (/^([^:]{1,60}):/.exec(l) || [])[1]).filter(Boolean))];
       const items = lines.map((l) => /ACTION:\s*([A-Za-z]+)\s+to\s+(.+?)(?:\s+by\s+([A-Za-z0-9 ]+))?\.?$/i.exec(l)).filter(Boolean).map((m) => ({ title: m[2].trim(), owner_hint: m[1], due_hint: m[3] ? m[3].trim() : null }));

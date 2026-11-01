@@ -2,11 +2,14 @@
 // Every side effect is idempotent: transcripts are UNIQUE(job_id), reports UNIQUE(job_id), usage events UNIQUE(workspace, key).
 // Consent is re-checked at every stage; a revoked consent cancels the job and nothing further is stored or sent to the model.
 import crypto from 'node:crypto';
+import { segmentsFromMeetChat } from './parse.mjs';
+import { applyParticipantConsent, importAllowed, stillConsented } from './meet-consent.mjs';
+import { groundStatement, sha } from './citations.mjs';
 
 const CONSENT_SCOPES = ['transcription', 'summary'];
 const safe = (s, n = 300) => String(s || '').replace(/[\u0000-\u001F]/g, ' ').slice(0, n);
 
-export function createAiWorker({ pool, llm, meet, log, overage = null, isEnabled = async () => true, leaseSeconds = 120, maxAttempts = 5, backoffBaseSeconds = 15, retentionDays = 0 }) {
+export function createAiWorker({ pool, llm, meet, citations, log, overage = null, isEnabled = async () => true, leaseSeconds = 120, maxAttempts = 5, backoffBaseSeconds = 15, retentionDays = 0 }) {
   async function activeConsents(db, job) {
     const r = await db.query(`SELECT scope FROM portal.meeting_ai_consents WHERE workspace_id=$1 AND meet_meeting_id=$2 AND revoked_at IS NULL AND scope = ANY($3)`, [job.workspace_id, job.meet_meeting_id, CONSENT_SCOPES]);
     return CONSENT_SCOPES.every((s) => r.rows.some((x) => x.scope === s));
@@ -23,23 +26,58 @@ export function createAiWorker({ pool, llm, meet, log, overage = null, isEnabled
     `UPDATE portal.meeting_ai_jobs SET status=$3, error_code=$4, error_message=$5, lease_until=NULL, lease_token=NULL, finished_at=CASE WHEN $3 IN ('completed','failed','cancelled') THEN now() ELSE finished_at END
      WHERE id=$1 AND lease_token=$2`, [job.id, job.lease_token, status, code || null, message ? safe(message) : null]);
 
+  // LOCK ORDER, everywhere: workspace row, then job row, then transcript rows (a host's revocation, meeting-ai.mjs, takes them in this order too). A KEY SHARE lock on the workspace is exactly
+  // what the foreign keys of the rows written below need anyway, and it only conflicts with a revocation's FOR UPDATE, so workers do not block each other. Without taking it FIRST, a worker holding
+  // the job row and a revocation holding the workspace row waited on each other and PostgreSQL aborted one of them (found by the revocation-race test).
+  const lockWorkspace = (c, job) => c.query('SELECT 1 FROM portal.workspaces WHERE id=$1 FOR KEY SHARE', [job.workspace_id]);
+
   /** Runs `fn(client)` inside a transaction that holds the job row, but only if this worker still owns the lease. */
   async function fenced(job, fn) {
     const c = await pool.connect();
     try {
-      await c.query('BEGIN');
+      await c.query('BEGIN'); await lockWorkspace(c, job);
       const cur = (await c.query('SELECT status, lease_token FROM portal.meeting_ai_jobs WHERE id=$1 FOR UPDATE', [job.id])).rows[0];
       if (!cur || cur.lease_token !== job.lease_token || cur.status !== 'running') { await c.query('ROLLBACK'); return { lost: true }; }
       const out = await fn(c); await c.query('COMMIT'); return { out };
     } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
   }
 
+  // ---- consent evidence (append-only, counts and reason codes only: never transcript text or names) ----
+  const cAudit = (db, job, event, detail = {}, scope = null) => db.query('INSERT INTO portal.meeting_ai_consent_audit(workspace_id,meet_meeting_id,job_id,actor,event,scope,detail) VALUES($1,$2,$3,$4,$5,$6,$7)', [job.workspace_id, job.meet_meeting_id, job.id, 'system:ai-worker', event, scope, JSON.stringify(detail)]);
+  const CODE = { request_closed: 'participant_consent_required', participant_consent_required: 'participant_consent_required', participant_withdrew: 'participant_consent_withdrawn', participant_declined: 'participant_declined' };
+  const clockLabel = (s) => (s?.at ? new Date(s.at).toISOString().slice(11, 16) + ' UTC' : (s?.start_ms != null ? Math.floor(s.start_ms / 60000) + ':' + String(Math.floor(s.start_ms / 1000) % 60).padStart(2, '0') : ''));
+
+  /** Meet's answer right now: is every person whose content is (or would be) used still agreeing, and is the host's AI request still open? Unreachable Meet = no answer = nothing proceeds. */
+  async function participantCheck(job) {
+    const consent = await meet.fetchConsent(job.meet_meeting_id);
+    if (job.source === 'transcript_import') { const r = importAllowed(consent); return r.allowed ? { ok: true } : { ok: false, reason: r.reason }; }
+    const ids = (await pool.query('SELECT participant_id FROM portal.meeting_ai_job_participants WHERE job_id=$1 AND included', [job.id])).rows.map((r) => r.participant_id);
+    return stillConsented({ consent, participantIds: ids });
+  }
+  /** Consent was withdrawn while a job was in flight: nothing further is processed, the stored transcript is discarded, no result is published.
+   *  ONE transaction, locking the job row first and the transcript second: the same order as a host's revocation (meeting-ai.mjs), so the two can never deadlock. */
+  async function stopForConsent(job, reason, event, stage) {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN'); await lockWorkspace(c, job);
+      await c.query(`UPDATE portal.meeting_ai_jobs SET status='cancelled', error_code=$3, error_message='Consent was withdrawn', lease_until=NULL, lease_token=NULL, finished_at=now() WHERE id=$1 AND lease_token=$2`, [job.id, job.lease_token, CODE[reason] || 'consent_revoked']);
+      await c.query(`UPDATE portal.meeting_transcripts SET segments='[]'::jsonb, full_text='', purged_at=now(), purge_reason='participant_consent' WHERE job_id=$1 AND purged_at IS NULL`, [job.id]);
+      await cAudit(c, job, event, { reason, stage });
+      await c.query('COMMIT');
+    } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
+  }
+
   async function process(job) {
-    if (!(await activeConsents(pool, job))) { await finish(job, 'cancelled', 'consent_revoked', 'Consent is not active'); return; }
+    if (!(await activeConsents(pool, job))) { await finish(job, 'cancelled', 'consent_revoked', 'Consent is not active'); await cAudit(pool, job, 'processing_stopped', { reason: 'host_consent_revoked', stage: job.stage }); return; }
     const dir = (await pool.query('SELECT title, owner_user_id FROM public.portal_meeting_directory WHERE meet_uuid=$1', [job.meet_meeting_id])).rows[0] || {};
 
     if (job.stage === 'fetch') {
-      const chat = await meet.fetchChat(job.meet_meeting_id);            // retryable network/Meet errors bubble up
+      const raw = await meet.fetchChatRaw(job.meet_meeting_id);          // retryable network/Meet errors bubble up
+      const consent = await meet.fetchConsent(job.meet_meeting_id);      // so do these: without Meet's answer nothing is processed
+      const d = applyParticipantConsent({ messages: raw.messages, consent });
+      if (!d.requested) { await cAudit(pool, job, 'job_blocked', { reason: 'participant_consent_required' }); await finish(job, 'blocked', 'participant_consent_required', 'The host has not asked participants for Qorlla AI consent in this meeting'); return; }
+      if (!d.included.length) { await cAudit(pool, job, 'job_blocked', { reason: 'no_consented_content', excluded: d.excluded }); await finish(job, 'blocked', 'no_consented_content', 'No participant has agreed to AI processing of their messages'); return; }
+      let chat; try { chat = { title: raw.title, ...segmentsFromMeetChat(d.included) }; } catch (e) { e.retryable = false; throw e; }       // only consented content is ever turned into a transcript
       const r = await fenced(job, async (c) => {
         if (!(await activeConsents(c, job))) return 'consent_revoked';   // revoked while we were fetching: store nothing
         const t = await c.query(
@@ -47,6 +85,8 @@ export function createAiWorker({ pool, llm, meet, log, overage = null, isEnabled
            VALUES($1,$2,$3,'meet_chat',$4,$5,$6,$7,$8) ON CONFLICT (job_id) DO NOTHING RETURNING id`,
           [job.workspace_id, job.meet_meeting_id, job.id, chat.speakerLabels, JSON.stringify(chat.segments), chat.fullText, crypto.createHash('sha256').update(chat.fullText).digest('hex'), job.requested_by]);
         const tid = t.rows[0]?.id || (await c.query('SELECT id FROM portal.meeting_transcripts WHERE job_id=$1', [job.id])).rows[0].id;
+        for (const p of d.participants) await c.query('INSERT INTO portal.meeting_ai_job_participants(job_id,participant_id,transcription,summary,included,reason) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING', [job.id, p.participant_id, p.transcription, p.summary, p.included, p.reason]);
+        await cAudit(c, job, 'job_snapshot', { included_participants: d.participants.filter((p) => p.included).length, excluded: d.excluded, messages_used: d.included.length });
         await c.query(`UPDATE portal.meeting_ai_jobs SET transcript_id=$2, stage='summarize' WHERE id=$1`, [job.id, tid]);
         return 'ok';
       });
@@ -57,16 +97,23 @@ export function createAiWorker({ pool, llm, meet, log, overage = null, isEnabled
 
     if (job.stage === 'summarize') {
       if (!llm.available) { await finish(job, 'blocked', 'no_ai_provider', 'No AI provider is configured on this server'); return; }
-      const t = (await pool.query('SELECT id, full_text, purged_at FROM portal.meeting_transcripts WHERE job_id=$1', [job.id])).rows[0];
+      const t = (await pool.query('SELECT id, full_text, segments, purged_at FROM portal.meeting_transcripts WHERE job_id=$1', [job.id])).rows[0];
       if (!t || t.purged_at) { await finish(job, 'cancelled', 'consent_revoked', 'Transcript no longer available'); return; }
+      // before ANY content goes to the gateway: every participant whose messages are in the transcript must still agree, and the host's request must still be open
+      const pre = await participantCheck(job); if (!pre.ok) { await stopForConsent(job, pre.reason, 'processing_stopped', 'before_model'); return; }
       const res = await llm.summarize({ title: dir.title, transcript: t.full_text, ctx: { workspaceId: job.workspace_id, actorId: job.requested_by, feature: 'meeting_summary' } });
+      // citations are made HERE, from the transcript we hold: each decision / action item points at the segments that really contain it (the model supplies no identifiers)
+      const segs = Array.isArray(t.segments) ? t.segments : [];
+      const refsFor = (statement) => groundStatement(statement, segs).map((i) => ({ ref: citations.sign({ ws: job.workspace_id, kind: 'meet_transcript', id: t.id, loc: { t: 'segment', i }, h: sha(segs[i].text), label: `Meeting chat, message ${i + 1}` }), label: `Message ${i + 1}${clockLabel(segs[i]) ? ' at ' + clockLabel(segs[i]) : ''}` }));
+      const cites = { decisions: res.report.decisions.map(refsFor), action_items: res.report.action_items.map((a) => refsFor(a.title)) };
       const done = await fenced(job, async (c) => {
         if (!(await activeConsents(c, job))) return 'consent_revoked';  // revoked during inference: discard the model output
+        const post = await participantCheck(job); if (!post.ok) return 'pc:' + post.reason;      // a participant withdrew while the model was working: nothing is published
         const plan = (await c.query('SELECT plan_slug FROM portal.workspace_effective_plan WHERE workspace_id=$1', [job.workspace_id])).rows[0]?.plan_slug || 'basic';
         let rep = (await c.query(
-          `INSERT INTO portal.meeting_reports(workspace_id,external_meeting_id,meet_meeting_id,job_id,transcript_id,title,summary,decisions,topics,generated_by,created_by,host_user_id)
-           VALUES($1,$2,$12::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (job_id) DO NOTHING RETURNING id`,
-          [job.workspace_id, job.meet_meeting_id, job.id, t.id, `Meeting report: ${dir.title || 'Meeting'}`.slice(0, 200), res.report.summary, JSON.stringify(res.report.decisions), JSON.stringify(res.report.topics), `llm:${res.model}`, job.requested_by, dir.owner_user_id || job.requested_by, job.meet_meeting_id])).rows[0];
+          `INSERT INTO portal.meeting_reports(workspace_id,external_meeting_id,meet_meeting_id,job_id,transcript_id,title,summary,decisions,topics,generated_by,created_by,host_user_id,citations)
+           VALUES($1,$2,$12::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$13) ON CONFLICT (job_id) DO NOTHING RETURNING id`,
+          [job.workspace_id, job.meet_meeting_id, job.id, t.id, `Meeting report: ${dir.title || 'Meeting'}`.slice(0, 200), res.report.summary, JSON.stringify(res.report.decisions), JSON.stringify(res.report.topics), `llm:${res.model}`, job.requested_by, dir.owner_user_id || job.requested_by, job.meet_meeting_id, JSON.stringify(cites)])).rows[0];
         const created = !!rep;
         if (!rep) rep = (await c.query('SELECT id FROM portal.meeting_reports WHERE job_id=$1', [job.id])).rows[0];
         if (created) for (const a of res.report.action_items) {
@@ -78,16 +125,18 @@ export function createAiWorker({ pool, llm, meet, log, overage = null, isEnabled
           await c.query(`INSERT INTO portal.ai_usage_events(workspace_id,job_id,feature,units,idempotency_key,plan_slug) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (workspace_id, idempotency_key) DO NOTHING`, [job.workspace_id, job.id, feature, units, `job:${job.id}:${key}`, plan]);
         }
         await c.query(`UPDATE portal.meeting_ai_jobs SET status='completed', stage='done', report_id=$2, error_code=NULL, error_message=NULL, lease_until=NULL, lease_token=NULL, finished_at=now() WHERE id=$1`, [job.id, rep.id]);
+        await cAudit(c, job, 'result_published', { report_id: rep.id, cited_decisions: cites.decisions.filter((x) => x.length).length, cited_actions: cites.action_items.filter((x) => x.length).length });
         return 'ok';
       });
       if (done.lost) return;
-      if (done.out === 'consent_revoked') await finish(job, 'cancelled', 'consent_revoked', 'Consent was revoked');
+      if (done.out === 'consent_revoked') { await cAudit(pool, job, 'result_discarded', { reason: 'host_consent_revoked' }); await finish(job, 'cancelled', 'consent_revoked', 'Consent was revoked'); }
+      else if (String(done.out).startsWith('pc:')) await stopForConsent(job, String(done.out).slice(3), 'result_discarded', 'before_publish');
     }
   }
 
   async function fail(job, e) {
     const code = e.code || 'job_error'; const retryable = e.retryable === true;
-    if (code === 'no_ai_provider') return finish(job, 'blocked', code, e.message);
+    if (['no_ai_provider', 'consent_required', 'private_unavailable', 'ai_quota_exceeded'].includes(code)) return finish(job, 'blocked', code, e.message);   // the AI gateway refused (not authorised / no provider / quota): explicit, retryable by a person
     if (retryable && job.attempts < maxAttempts) {
       const delay = backoffBaseSeconds * 2 ** (job.attempts - 1);
       await pool.query(`UPDATE portal.meeting_ai_jobs SET status='queued', error_code=$3, error_message=$4, next_attempt_at=now()+($5::float8 * interval '1 second'), lease_until=NULL, lease_token=NULL WHERE id=$1 AND lease_token=$2`, [job.id, job.lease_token, code, safe(e.message), delay]);

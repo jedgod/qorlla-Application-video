@@ -12,7 +12,7 @@ function finish(segments) {
   if (segments.length > MAX_SEGMENTS) throw Object.assign(new Error('The transcript is too long.'), { code: 'transcript_too_large' });
   const labelled = segments.filter((s) => s.speaker).length;
   const speakerLabels = labelled / segments.length >= 0.5 ? 'unverified' : 'none';
-  const norm = segments.map((s) => ({ speaker: speakerLabels === 'none' ? null : (s.speaker || 'Unknown'), text: s.text, ...(s.start_ms != null ? { start_ms: s.start_ms } : {}), ...(s.at ? { at: s.at } : {}) }));
+  const norm = segments.map((s) => ({ speaker: speakerLabels === 'none' ? null : (s.speaker || 'Unknown'), text: s.text, ...(s.start_ms != null ? { start_ms: s.start_ms } : {}), ...(s.at ? { at: s.at } : {}), ...(s.participant_id ? { participant_id: s.participant_id } : {}) }));
   return { segments: norm, speakerLabels, fullText: norm.map((s) => (s.speaker ? `${s.speaker}: ${s.text}` : s.text)).join('\n') };
 }
 function splitSpeaker(text) { const m = SPEAKER.exec(text.trim()); return m ? { speaker: m[1].trim(), text: m[2].trim() } : { speaker: null, text: text.trim() }; }
@@ -48,7 +48,7 @@ export function parseTranscript(format, raw) {
 
 /** Meet chat export -> segments (speakers are the display names participants typed: unverified). */
 export function segmentsFromMeetChat(messages) {
-  const segs = (messages || []).filter((m) => m && typeof m.text === 'string' && m.text.trim()).map((m) => ({ speaker: String(m.speaker || 'Unknown').slice(0, 70), text: clean(m.text).trim().slice(0, 4000), at: m.at }));
+  const segs = (messages || []).filter((m) => m && typeof m.text === 'string' && m.text.trim()).map((m) => ({ speaker: String(m.speaker || 'Unknown').slice(0, 70), text: clean(m.text).trim().slice(0, 4000), participant_id: typeof m.participantId === 'string' ? m.participantId : undefined, at: m.at }));
   if (!segs.length) throw Object.assign(new Error('The meeting chat has no messages to process.'), { code: 'no_content' });
   return finish(segs.map((s) => ({ ...s })));
 }

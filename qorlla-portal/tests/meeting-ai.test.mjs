@@ -137,7 +137,7 @@ describe('AI meeting intelligence', () => {
       const job = (await host().get('/api/v1/meeting-ai/jobs/' + j.body.id)).body; assert.equal(job.status, 'completed', JSON.stringify(job));
       const r = (await host().get('/api/v1/meeting-ai/reports/' + job.report_id)).body; assert.ok(r.decisions.some((d) => /blue logo/.test(d))); assert.equal(r.action_items[0].owner_hint, 'Dana');
       assert.equal((await host().get(`/api/v1/meeting-ai/reports/${job.report_id}/transcript`)).body.source, 'meet_chat');
-      assert.ok(meetd.st.requests.every((q) => q.secret === READ_SECRET && q.url.endsWith('/chat')), 'Meet is only ever read, with the read-only secret');
+      assert.ok(meetd.st.requests.every((q) => q.secret === READ_SECRET && /\/(chat|ai-consent)$/.test(q.url)), 'Meet is only ever read (chat and consent answers), with the read-only secret');
     });
     test('jobs are idempotent: same key => same job; different request under the same key => 409; concurrent creates => one job', async () => {
       const k = key(); const a = await importJob(host(), { idempotency_key: k }); const b = await importJob(host(), { idempotency_key: k });

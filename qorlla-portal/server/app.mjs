@@ -17,6 +17,7 @@ import { registerAiGateway } from './ai-gateway.mjs';
 import { resolveAiConfig } from './ai/config.mjs';
 import { createMeetClient } from './ai/meet-client.mjs';
 import { createAiWorker } from './ai/worker.mjs';
+import { createCitations } from './ai/citations.mjs';
 import { registerPhone } from './phone.mjs';
 import { registerWorkspaceTools } from './workspace-tools.mjs';
 import { createFlags } from './flags.mjs';
@@ -66,7 +67,8 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   });
   const meet = aiOverride.meet || createMeetClient({ baseUrl: cfg.ai.meetBaseUrl, readSecret: cfg.ai.meetReadSecret, fetchImpl });
   const phoneWorker = createPhoneWorker({ pool, llm, log, isEnabled: () => flags.enabled('ai'), ...(aiOverride.phoneWorker || {}) });
-  const aiWorker = createAiWorker({ pool, llm, meet, log, overage, isEnabled: () => flags.enabled('ai'), retentionDays: cfg.ai.transcriptRetentionDays, ...(aiOverride.worker || {}) });
+  const citations = createCitations({ secret: cfg.introspectionSecret });
+  const aiWorker = createAiWorker({ pool, llm, meet, citations, log, overage, isEnabled: async () => (await flags.enabled('ai')) && (await flags.enabled('meet_ai')), retentionDays: cfg.ai.transcriptRetentionDays, ...(aiOverride.worker || {}) });
 
   // ---- webhook FIRST: it needs the raw bytes, and its authenticity is the provider signature (no cookies, no CSRF) ----
   app.post('/api/v1/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), h(async (req, res) => {
@@ -248,7 +250,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
 
   registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage, flags, limiters });
   registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags, limiters });
-  registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags, limiters });
+  registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags, limiters, citations });
   registerAiGateway(app, { pool, cfg, auth, h, llm, flags, limiters });
   registerPhone(app, { pool, cfg, auth, h, log, llm, limiters, ...(aiOverride.phone || {}) });
   app.get('/shared/report/:token', (req, res) => { res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' }); res.sendFile(path.join(root, 'shared.html')); });

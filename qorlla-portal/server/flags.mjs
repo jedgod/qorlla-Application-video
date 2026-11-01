@@ -1,6 +1,6 @@
 // Platform kill switches. Stored in PostgreSQL so every replica agrees; cached for a few seconds so a hot path costs no query.
 // A switched-off feature answers 503 {code:'feature_disabled'} and background workers pause (jobs stay queued and resume when re-enabled).
-export const FLAG_KEYS = ['checkout', 'plan_changes', 'ai', 'overage_billing'];
+export const FLAG_KEYS = ['checkout', 'plan_changes', 'ai', 'overage_billing', 'meet_ai'];   // meet_ai: Meet transcript analysis, separately from the other AI features
 
 export function createFlags({ pool, ttlMs = 3000, now = () => Date.now() }) {
   let cache = null, at = 0;

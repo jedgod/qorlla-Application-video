@@ -21,6 +21,7 @@ import { makeLimit } from './limit.mjs';
 import { registerPhone } from './phone.mjs';
 import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
+import { registerAiConsent } from './ai-consent.mjs';
 import { registerRecording } from './recording.mjs';
 import { createCarrier } from './telephony/provider.mjs';
 import { registerTelephony } from './telephony/routes.mjs';
@@ -179,8 +180,8 @@ app.get('/api/integrations/meetings/:id/chat',readAuth,async(req,res)=>{
  try{
   const m=await db.query('SELECT id,title,created_at,ended_at FROM meetings WHERE id=$1',[req.params.id]);
   if(!m.rowCount)return fail(res,404,'Meeting unavailable');
-  const {rows}=await db.query('SELECT p.display_name AS name, p.role, c.body, c.created_at FROM messages c JOIN participants p ON p.id=c.participant_id WHERE c.meeting_id=$1 ORDER BY c.created_at,c.id LIMIT 5000',[req.params.id]);
-  res.json({meetingId:m.rows[0].id,title:m.rows[0].title,startedAt:m.rows[0].created_at,endedAt:m.rows[0].ended_at,messages:rows.map(r=>({speaker:r.name,speakerRole:r.role,text:r.body,at:r.created_at}))});
+  const {rows}=await db.query('SELECT p.id AS pid, p.display_name AS name, p.role, c.body, c.created_at FROM messages c JOIN participants p ON p.id=c.participant_id WHERE c.meeting_id=$1 ORDER BY c.created_at,c.id LIMIT 5000',[req.params.id]);
+  res.json({meetingId:m.rows[0].id,title:m.rows[0].title,startedAt:m.rows[0].created_at,endedAt:m.rows[0].ended_at,messages:rows.map(r=>({participantId:r.pid,speaker:r.name,speakerRole:r.role,text:r.body,at:r.created_at}))});
  }catch(e){console.error('chat export failed');fail(res,503,'Unavailable');}
 });
 // v3.9: host credential recovery with stable request ID + acknowledgment (replaces v3.8 blind rotation).
@@ -400,6 +401,7 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
+const aiConsent = registerAiConsent({ app, io, db, auth, fail, audit: recAudit, room, readAuth, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });   // Qorlla AI consent: host request, late-joiner prompt, read-only export for the portal
 let limiter;
 const recording = registerRecording({ app, io, db, auth, member, fail, room, audit: recAudit, media: recMedia, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 limiter = makeLimit({ io, db, room, audit, upgradeUrl: process.env.UPGRADE_URL || '/pricing?reason=meeting-limit', onEnd: async (id) => { await recording.stopFor(id, 'meeting_ended'); await phone.endAll(id, 'time_limit'); } });
@@ -450,7 +452,8 @@ io.on('connection',socket=>{
  socket.emit('names',Object.fromEntries(activeList(id).map(p=>[p,names.get(id)?.get(p)||'']).filter(([,n])=>n)));   // who is who, for people already in the meeting
  if(!names.has(id)) names.set(id,new Map()); names.get(id).set(pid,u.name);
  recording.publicState(id).then(s=>socket.emit('recording-state',s)).catch(()=>{});
- recording.reevaluate(id,'joined',pid,u.role).catch(e=>console.error('[recording] join check failed:',e.message));   // a late joiner pauses a running recording until they answer
+ recording.reevaluate(id,'joined',pid,u.role).catch(e=>console.error('[recording] join check failed:',e.message));
+ aiConsent.onJoin(socket,id,pid);   // a late joiner who has not answered the AI request is asked now; it never touches the recording state   // a late joiner pauses a running recording until they answer
  socket.to(room(id)).emit('participant-online',{participantId:pid,name:u.name,role:u.role});
  const isOnline=(target)=>roster.get(target);
  socket.on('signal',({to,data}={},ack)=>{

@@ -10,6 +10,8 @@ import { PlanLimitError, quotaFor, withWorkspaceLock } from './entitlements.mjs'
 import { parseTranscript } from './ai/parse.mjs';
 import { exportModel, toPdf, toDocx } from './ai/export.mjs';
 import { UUID_RE } from './auth.mjs';
+import { importAllowed, stillConsented } from './ai/meet-consent.mjs';
+import { sha } from './ai/citations.mjs';
 
 export const NOTICE = {
   version: 'v1',
@@ -26,6 +28,8 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
   const { member } = auth;
   const audit = (db, ws, actor, action, obj) => db.query('INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,$3,$4)', [ws, actor, action, String(obj ?? '')]);
 
+  // append-only consent evidence: who, what, when, which scope; reason codes and counts only
+  const cAudit = (db, req, meetUuid, event, scope, detail = {}) => db.query('INSERT INTO portal.meeting_ai_consent_audit(workspace_id,meet_meeting_id,actor,event,scope,detail) VALUES($1,$2,$3,$4,$5,$6)', [req.workspace, meetUuid, req.actor, event, scope, JSON.stringify(detail)]);
   // ---------------------------------------------------------------- meetings & consent
   /** The Meet meeting, if (and only if) the caller may use AI on it: they host it, or they are owner/admin of the host's workspace. */
   async function meetingFor(db, req, meetUuid) {
@@ -63,7 +67,8 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     if (m.owner_user_id !== req.actor) return res.status(403).json({ error: 'Only the meeting host can grant consent', code: 'host_only' });
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
       for (const scope of new Set(p.scopes)) {
-        await c.query(`INSERT INTO portal.meeting_ai_consents(workspace_id,meet_meeting_id,scope,notice_version,notice_text,granted_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, [req.workspace, m.meet_uuid, scope, NOTICE.version, NOTICE.text, req.actor]);
+        const ins = await c.query(`INSERT INTO portal.meeting_ai_consents(workspace_id,meet_meeting_id,scope,notice_version,notice_text,granted_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id`, [req.workspace, m.meet_uuid, scope, NOTICE.version, NOTICE.text, req.actor]);
+        if (ins.rowCount) await cAudit(c, req, m.meet_uuid, 'host_consent_granted', scope, { notice_version: NOTICE.version, basis: 'host_attestation' });
       }
       await audit(c, req.workspace, req.actor, 'meeting_ai.consent_granted', m.meet_uuid);
       return activeConsents(c, req.workspace, m.meet_uuid);
@@ -82,7 +87,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
       if (CONSENT_SCOPES.includes(c0.scope)) {      // derived content exists only for these scopes; recording is never processed
         summary.cancelled_jobs = (await c.query(`UPDATE portal.meeting_ai_jobs SET status='cancelled', error_code='consent_revoked', error_message='Consent revoked', lease_until=NULL, lease_token=NULL, finished_at=now() WHERE workspace_id=$1 AND meet_meeting_id=$2 AND status IN ('queued','running','blocked')`, [req.workspace, c0.meet_meeting_id])).rowCount;
         summary.purged_transcripts = (await c.query(`UPDATE portal.meeting_transcripts SET segments='[]'::jsonb, full_text='', purged_at=now(), purge_reason='consent_revoked' WHERE workspace_id=$1 AND meet_meeting_id=$2 AND purged_at IS NULL`, [req.workspace, c0.meet_meeting_id])).rowCount;
-        const reps = (await c.query(`UPDATE portal.meeting_reports SET status='withdrawn', summary='', decisions='[]'::jsonb, topics='[]'::jsonb, updated_at=now() WHERE workspace_id=$1 AND meet_meeting_id=$2 AND status='final' RETURNING id`, [req.workspace, c0.meet_meeting_id])).rows.map((x) => x.id);
+        const reps = (await c.query(`UPDATE portal.meeting_reports SET status='withdrawn', summary='', decisions='[]'::jsonb, topics='[]'::jsonb, citations='{}'::jsonb, updated_at=now() WHERE workspace_id=$1 AND meet_meeting_id=$2 AND status='final' RETURNING id`, [req.workspace, c0.meet_meeting_id])).rows.map((x) => x.id);
         summary.withdrawn_reports = reps.length;
         if (reps.length) {
           await c.query('DELETE FROM portal.meeting_action_items WHERE workspace_id=$1 AND report_id = ANY($2)', [req.workspace, reps]);
@@ -90,14 +95,32 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
         }
       }
       await audit(c, req.workspace, req.actor, 'meeting_ai.consent_revoked', c0.meet_meeting_id);
+      await cAudit(c, req, c0.meet_meeting_id, 'host_consent_revoked', c0.scope, summary);
       return summary;
     });
     res.json(out.already ? { already_revoked: true } : { revoked: true, ...out });
   }));
 
+  // ---------------------------------------------------------------- citations to transcript segments (called by the citation endpoint in workspace-tools.mjs)
+  app.locals.meetCitation = async (req, ref) => {
+    const t = (await pool.query('SELECT id, source, meet_meeting_id, segments, purged_at, created_at FROM portal.meeting_transcripts WHERE id=$1 AND workspace_id=$2', [ref.id, req.workspace])).rows[0];
+    if (!t) return { status: 404, body: { error: 'Source not found', code: 'source_not_found' } };
+    const refuse = async (status, code, error) => { await cAudit(pool, req, t.meet_meeting_id, 'citation_refused', null, { code }); return { status, body: { error, code } }; };
+    const days = cfg.ai.transcriptRetentionDays;
+    if (t.purged_at || (days > 0 && Date.now() - new Date(t.created_at).getTime() > days * 86400_000)) return refuse(410, 'source_expired', 'This source is no longer retained.');            // retention applies even before the sweeper has run
+    const m = await meetingFor(pool, req, t.meet_meeting_id); if (!m) return refuse(403, 'citation_access_revoked', 'You no longer have access to this source.');
+    const have = await activeConsents(pool, req.workspace, t.meet_meeting_id); if (!CONSENT_SCOPES.every((s) => have.some((x) => x.scope === s))) return refuse(403, 'consent_withdrawn', 'Consent for AI processing of this meeting was withdrawn.');
+    const seg = Array.isArray(t.segments) ? t.segments[ref.loc?.i] : null; if (!seg || sha(seg.text) !== ref.h) return refuse(409, 'source_changed', 'This source is no longer what the citation pointed to.');
+    let consent; try { consent = await meet.fetchConsent(t.meet_meeting_id); } catch { return { status: 503, body: { error: 'Participant consent could not be verified right now, so the source was not shown.', code: 'participant_consent_unverifiable' } }; }
+    const ok = t.source === 'transcript_import' ? importAllowed(consent) : (seg.participant_id ? stillConsented({ consent, participantIds: [seg.participant_id] }) : { ok: false, reason: 'participant_withdrew' });
+    if (!(ok.ok ?? ok.allowed)) return refuse(403, 'participant_withdrew', 'The person who wrote this withdrew their consent, so it cannot be shown.');
+    await cAudit(pool, req, t.meet_meeting_id, 'citation_opened', null, { segment: ref.loc.i });
+    return { status: 200, body: { kind: 'meet_transcript', label: ref.label, passage: seg.text, speaker: seg.speaker ?? null, at: seg.at ?? null, start_ms: seg.start_ms ?? null, locator: ref.loc, meeting_id: t.meet_meeting_id } };
+  };
+
   // ---------------------------------------------------------------- jobs
   const jobView = (j) => ({ id: j.id, meet_meeting_id: j.meet_meeting_id, source: j.source, status: j.status, stage: j.stage, attempts: j.attempts, error_code: j.error_code, error_message: j.error_message, report_id: j.report_id, created_at: j.created_at, finished_at: j.finished_at, requested_by: j.requested_by });
-  app.post('/api/v1/meeting-ai/jobs', member, (flags ? flags.require('ai') : (req, res, next) => next()), lim('job'), h(async (req, res) => {
+  app.post('/api/v1/meeting-ai/jobs', member, (flags ? flags.require('ai') : (req, res, next) => next()), (flags ? flags.require('meet_ai') : (req, res, next) => next()), lim('job'), h(async (req, res) => {
     const p = z.object({
       meet_meeting_id: uuid, source: z.enum(['meet_chat', 'transcript_import']), idempotency_key: z.string().min(8).max(100),
       transcript: z.object({ format: z.enum(['txt', 'vtt', 'srt']), text: z.string().min(1).max(500_000) }).optional()
@@ -106,6 +129,11 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     const m = await meetingFor(pool, req, p.meet_meeting_id); if (!m) return res.status(404).json({ error: 'Meeting not found' });
     let parsed = null;
     if (p.transcript) { try { parsed = parseTranscript(p.transcript.format, p.transcript.text); } catch (e) { return res.status(400).json({ error: e.message, code: e.code || 'bad_transcript' }); } }
+    if (p.source === 'transcript_import') {          // an imported transcript cannot be split by person, so it is stored only while Meet shows an open AI request and nobody who took part has declined or withdrawn
+      let consent; try { consent = await meet.fetchConsent(m.meet_uuid); } catch { return res.status(503).json({ error: 'Participant consent could not be verified, so nothing was stored or processed. Try again shortly.', code: 'participant_consent_unverifiable' }); }
+      const ok = importAllowed(consent);
+      if (!ok.allowed) { await cAudit(pool, req, m.meet_uuid, 'job_blocked', null, { reason: ok.reason, source: 'transcript_import' }); return res.status(403).json({ error: ok.reason === 'participant_declined' ? 'A participant declined or withdrew Qorlla AI consent, and an imported transcript cannot be separated by person, so it cannot be used.' : 'The host has not asked the participants for Qorlla AI consent in this meeting.', code: ok.reason }); }
+    }
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const dup = (await c.query('SELECT * FROM portal.meeting_ai_jobs WHERE workspace_id=$1 AND idempotency_key=$2', [req.workspace, p.idempotency_key])).rows[0];
       if (dup) { if (dup.meet_meeting_id !== m.meet_uuid || dup.source !== p.source) throw httpErr(409, 'Idempotency key was used for a different request', 'idempotency_conflict'); return { job: dup, duplicate: true }; }
@@ -188,6 +216,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
       permissions: { manage, transcript: manage && r.status === 'final', export: a.level === 'manage' || a.level === 'view' } };
     if (a.level !== 'meta' && a.level !== 'assignee') Object.assign(body, { summary: r.summary, decisions: r.decisions, topics: r.topics });
     if (a.level === 'assignee') body.summary_hidden = true;
+    if (manage && r.status === 'final') body.citations = r.citations || {};           // signed references only; opening one re-checks access, consent and retention
     body.action_items = a.level === 'meta' ? [] : await itemsFor(pool, req, r.id, a.level);
     if (manage) body.members = (await pool.query('SELECT user_id, role FROM portal.members WHERE workspace_id=$1', [req.workspace])).rows;
     if (manage && body.members) { const n = await directory.names(body.members.map((m) => m.user_id)); body.members = body.members.map((m) => ({ ...m, display_name: n[m.user_id] || null })); }

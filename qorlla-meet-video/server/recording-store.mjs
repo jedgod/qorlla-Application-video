@@ -201,7 +201,7 @@ export function registerRecordingStorage({ app, db, auth, fail, audit, getRoster
     if (decision === 'withdraw' && last?.decision !== 'agree') return fail(res, 409, 'There is no consent to withdraw');
     const ref = await audit(req.params.id, null, req.user.participantId, req.user.role, 'ai_consent.' + decision, { purpose });
     await db.query('INSERT INTO ai_consents(id,meeting_id,participant_id,participant_name,purpose,decision,policy_version,audit_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [crypto.randomUUID(), req.params.id, req.user.participantId, getName(req.params.id, req.user.participantId), purpose, decision, policyVersion, ref]);
-    res.status(201).json({ auditRef: ref, purpose, decision, note: 'AI processing is not enabled in this version; this records your choice only.' });
+    res.status(201).json({ auditRef: ref, purpose, decision, note: 'Recorded. Your messages are processed by Qorlla AI only for the purposes you agreed to, and only while this meeting\'s host has an AI request open and has given the meeting\'s AI consent in Workplace. Recording consent is separate.' });
   }, 'Could not record your choice'));
 
   app.get(paths('/consent-status'), auth, participant, guard(async (req, res) => {
@@ -209,7 +209,8 @@ export function registerRecordingStorage({ app, db, auth, fail, audit, getRoster
     const roster = getRoster(req.params.id), out = {};
     for (const p of AI_PURPOSES) { const mine = rows.filter((r) => r.purpose === p); out[p] = { agree: roster.filter((id) => mine.find((r) => r.participant_id === id)?.decision === 'agree').length, decline: roster.filter((id) => ['decline', 'withdraw'].includes(mine.find((r) => r.participant_id === id)?.decision)).length, mine: mine.find((r) => r.participant_id === req.user.participantId)?.decision || 'pending' }; out[p].pending = roster.length - out[p].agree - out[p].decline; }
     const { rows: [rs] } = await db.query("SELECT status FROM recording_sessions WHERE meeting_id=$1 AND status IN ('awaiting','blocked','ready','recording','paused') LIMIT 1", [req.params.id]);
-    res.set('Cache-Control', 'no-store').json({ recording: { status: rs?.status || 'disabled' }, ai: out, aiProcessingEnabled: false });
+    const { rows: [mt] } = await db.query('SELECT ai_requested_at FROM meetings WHERE id=$1', [req.params.id]);
+    res.set('Cache-Control', 'no-store').json({ recording: { status: rs?.status || 'disabled' }, ai: out, aiProcessingEnabled: !!mt?.ai_requested_at });
   }, 'Status unavailable'));
 
   return media;

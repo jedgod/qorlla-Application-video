@@ -145,6 +145,21 @@ describe('PostgreSQL migration and rollback', () => {
     await p.query(sqlFile('rollback', '008_ai_gateway.down.sql')); await p.query(sqlFile('rollback', '008_ai_gateway.down.sql'));
     assert.deepEqual(await tables(p), before); await p.query(sqlFile('008_ai_gateway.sql')); assert.ok((await tables(p)).includes('ai_gateway_audit'));
   });
+  test('009 (Meet AI consent): re-runnable; the consent audit is append-only; the meet_ai switch is added and removed with it; rollback restores the 008 schema', async () => {
+    const db = await freshDatabase({ migrate: false }); dbs.push(db); const p = db.pool;
+    for (const f of ['002_billing.sql', '004_meeting_ai.sql', '005_phone.sql', '006_workspace_tools.sql', '007_billing_launch.sql', '008_ai_gateway.sql']) await p.query(sqlFile(f));
+    const before = await tables(p), cols0 = await cols(p, 'meeting_reports');
+    await p.query(sqlFile('009_meet_ai_consent.sql')); await p.query(sqlFile('009_meet_ai_consent.sql'));
+    for (const t of ['meeting_ai_consent_audit', 'meeting_ai_job_participants']) assert.ok((await tables(p)).includes(t), t);
+    assert.ok((await cols(p, 'meeting_reports')).includes('citations')); assert.equal(Number((await p.query('SELECT count(*) FROM portal.platform_flags WHERE enabled')).rows[0].count), 5, 'the new switch starts ON like the others');
+    const ws = (await p.query("INSERT INTO portal.workspaces(name) VALUES('M') RETURNING id")).rows[0].id;
+    await p.query("INSERT INTO portal.meeting_ai_consent_audit(workspace_id,event,scope,detail) VALUES($1,'host_consent_granted','summary','{}')", [ws]);
+    await assert.rejects(p.query("UPDATE portal.meeting_ai_consent_audit SET event='job_blocked'"), /append-only/); await assert.rejects(p.query('DELETE FROM portal.meeting_ai_consent_audit'), /append-only/);
+    await assert.rejects(p.query("INSERT INTO portal.meeting_ai_consent_audit(workspace_id,event) VALUES($1,'whatever')", [ws]), /check/i); await assert.rejects(p.query("INSERT INTO portal.platform_flags(key) VALUES ('everything')"), /check/i);
+    await p.query(sqlFile('rollback', '009_meet_ai_consent.down.sql')); await p.query(sqlFile('rollback', '009_meet_ai_consent.down.sql'));
+    assert.deepEqual(await tables(p), before); assert.deepEqual(await cols(p, 'meeting_reports'), cols0); assert.equal(Number((await p.query('SELECT count(*) FROM portal.platform_flags')).rows[0].count), 4);
+    await p.query(sqlFile('009_meet_ai_consent.sql')); assert.ok((await tables(p)).includes('meeting_ai_consent_audit'));
+  });
   test('004 refuses to run without the Meet directory view (clear error, no half-applied schema)', async () => {
     const db = await freshDatabase({ migrate: false }); dbs.push(db); await db.pool.query(sqlFile('002_billing.sql'));
     await db.pool.query('DROP VIEW public.portal_meeting_directory');
