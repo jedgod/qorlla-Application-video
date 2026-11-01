@@ -59,3 +59,22 @@ On-device tests: start screen, one page without scrolling, hero and card order, 
 Screenshots show only these screens (no camera preview).
 
 Known gaps: native text is translated for es/fr/pt-PT but the chosen language is not stored across restarts; the hero artwork is a vector redraw; the Portuguese numeric-field placeholder is cut off at 320 dp; TalkBack was not run; the LG phone was never launched; downloads, installers and PSTN stay disabled and unpublished.
+
+## Qorlla AI Gateway, Docs AI and device round (commits 4df8f3e, 64e82c1, a1a2f92)
+
+| Check | Result | Notes |
+|---|---|---|
+| Gateway unit tests (`tests/ai-gateway.test.mjs`) | 18/18 PASS | stubbed provider endpoints + labelled test adapter; **not** evidence that any live account works |
+| Gateway routes + PostgreSQL (`tests/ai-gateway-routes.test.mjs`) | 12/12 PASS | status, settings (owner/admin only, audited), admin-only provider/audit views, review-first `/ai/run` (13 tasks, nothing written), document-level authorisation, kill switch, append-only audit, production refuses the test adapter |
+| Full portal suite on a disposable PostgreSQL | 199/199 PASS (0 failed, 0 skipped) | includes migration 008 re-run/rollback test; earlier "hung" run was only a missing test database |
+| Docs AI specs on `qai` (test-adapter contract, port 3900) | 2/2 PASS + 3 AI-independent PASS (+ 2 notes/documents PASS) | 6 passed; the "no provider" spec is skipped by design on an AI stack |
+| Production-default stack `qnoai` (AI OFF, port 4300) | "no provider" spec PASS; 5 passed, 2 AI specs SKIPPED | proves disabled AI actions are inaccessible and nothing is simulated |
+| Galaxy A03s (SM_A037U), Meet on `qiso` | 8/8 PASS | same APK `9318f717…d214` (origin localhost:3600) |
+| LG LM-S320 | BLOCKED | visible to Windows only as an MTP device; no ADB interface (USB debugging off / not authorised). Nothing was tested on it |
+| Live providers (OpenAI / Gemini / xAI / self-hosted) | BLOCKED | no credentials, no authorisation |
+| Aria AI | BLOCKED | no officially supported API integration verified |
+
+Contracts verified in compose: `qai` portal = NODE_ENV=test, QORLLA_ENVIRONMENT=test, ENABLED=true, PROVIDER=test, TEST_ADAPTER=true, PAID_FALLBACK=false. Base compose (production default) renders ENABLED=false, PROVIDER=none, TEST_ADAPTER=false.
+Image IDs (qai): meet `2085e939…5862`, meet-sync-worker `d366f678…6f6e`, portal `5925ff9a…0705`, main `d425b5fa…78e9`, nginx `892bb215…3d33d`, postgres `721873c3…80ea`.
+Behaviour changes to note: the legacy `AI_LLM_API_KEY` alone no longer enables AI; meeting reports now record the public model name `qorlla-ai` (the real model id is only in the admin audit trail); unreadable model output no longer trips a provider's circuit breaker.
+Windows reserves some TCP ranges (4024–4223 here): an isolated project needs a base port whose +0..+3, +43, +44 are outside them (4300 works).
