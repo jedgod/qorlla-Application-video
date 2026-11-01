@@ -78,3 +78,8 @@ Contracts verified in compose: `qai` portal = NODE_ENV=test, QORLLA_ENVIRONMENT=
 Image IDs (qai): meet `2085e939…5862`, meet-sync-worker `d366f678…6f6e`, portal `5925ff9a…0705`, main `d425b5fa…78e9`, nginx `892bb215…3d33d`, postgres `721873c3…80ea`.
 Behaviour changes to note: the legacy `AI_LLM_API_KEY` alone no longer enables AI; meeting reports now record the public model name `qorlla-ai` (the real model id is only in the admin audit trail); unreadable model output no longer trips a provider's circuit breaker.
 Windows reserves some TCP ranges (4024–4223 here): an isolated project needs a base port whose +0..+3, +43, +44 are outside them (4300 works).
+
+### AI activation round 2 (commit 924e751)
+- Portal suite 205/205 PASS (gateway unit 21, gateway routes 15, migrations incl. 008). `qai` (test-adapter contract): Docs AI Draft PASS, QorllaMate PASS, 4 non-AI specs PASS (6 passed, "no provider" spec skipped by design). `qnoai` (production default, AI OFF): 5 passed incl. "no provider" refusal, 2 AI specs SKIPPED.
+- New controls: `QORLLA_AI_APPROVED_PROVIDERS` (a configured key is never used until the provider is named there), per-workspace daily cap (`QORLLA_AI_WORKSPACE_DAILY_REQUESTS`, default 2000, 429 `ai_quota_exceeded`), Qorlla model profiles (`qorlla-ai`, `qorlla-ai-private` = local providers only), `GET /api/v1/ai/{providers,models,usage}`, preview-only `POST /api/v1/ai/{generate,docs/draft,docs/rewrite,sheets/analyze,slides/generate,qorllamate/chat}`.
+- Still BLOCKED: live OpenAI / Gemini / xAI / self-hosted calls (no approved credentials); "Arial" (no provider/API identified); LG LM-S320 (no ADB).
