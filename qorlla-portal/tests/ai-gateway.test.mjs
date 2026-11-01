@@ -9,7 +9,7 @@ import { LlmError } from '../server/ai/llm.mjs';
 // The gateway is tested against STUBBED provider endpoints and the labelled deterministic adapter. A pass proves our configuration rules, request building, parsing, failover, consent and audit logic;
 // it does NOT prove that a real account, quota or model works. Live-provider checks are a separate, separately authorised step.
 const KEYS = { QORLLA_AI_GEMINI_API_KEY: 'g-SECRET-key', QORLLA_AI_GEMINI_MODEL: 'g-model', QORLLA_AI_GEMINI_TIER: 'free', QORLLA_AI_OPENAI_API_KEY: 'o-SECRET-key', QORLLA_AI_OPENAI_MODEL: 'o-model', QORLLA_AI_XAI_API_KEY: 'x-SECRET-key', QORLLA_AI_XAI_MODEL: 'x-model', QORLLA_AI_XAI_TIER: 'free' };
-const INTEGRATION = { QORLLA_AI_ENABLED: 'true', QORLLA_AI_PROVIDER: 'auto', QORLLA_AI_ALLOW_FREE_TIER: 'true', QORLLA_AI_ALLOW_PAID_FALLBACK: 'false', QORLLA_AI_TEST_ADAPTER_ENABLED: 'false', ...KEYS };
+const INTEGRATION = { QORLLA_AI_ENABLED: 'true', QORLLA_AI_PROVIDER: 'auto', QORLLA_AI_ALLOW_FREE_TIER: 'true', QORLLA_AI_ALLOW_PAID_FALLBACK: 'false', QORLLA_AI_TEST_ADAPTER_ENABLED: 'false', QORLLA_AI_APPROVED_PROVIDERS: 'openai,gemini,xai,selfhosted', ...KEYS };
 const ids = (cfg) => eligibleProviders(cfg).map((p) => p.id);
 const Out = z.object({ answer: z.string() });
 const reply = (text) => ({ ok: true, status: 200, json: async () => text });
@@ -133,4 +133,23 @@ test('the deterministic test adapter answers the way the Docs, QorllaMate and me
 });
 test('with nothing configured the gateway says so plainly and never invents an answer', async () => {
   const g = createAiGateway({ config: resolveAiConfig({}), log: { error() {} } }); assert.equal(g.available, false); await assert.rejects(run(g), (e) => e.code === 'no_ai_provider'); assert.deepEqual(g.publicStatus(), { assistant: 'Qorlla AI', available: false });
+});
+
+test('only approved providers are ever used: a configured but unapproved provider receives nothing and is reported to administrators', async () => {
+  const none = resolveAiConfig({ ...INTEGRATION, QORLLA_AI_APPROVED_PROVIDERS: '' }); assert.deepEqual(ids(none), [], 'keys alone do not make a provider usable');
+  const some = resolveAiConfig({ ...INTEGRATION, QORLLA_AI_APPROVED_PROVIDERS: 'gemini' }); assert.deepEqual(ids(some), ['gemini']);
+  const gwx = createAiGateway({ config: some, adapters: [] }); assert.deepEqual(gwx.adminStatus().configuredNotApproved.sort(), ['openai', 'xai']);
+  assert.ok(resolveAiConfig({ ...INTEGRATION, QORLLA_AI_PROVIDER: 'xai', QORLLA_AI_APPROVED_PROVIDERS: 'gemini' }).problems.some((x) => /not in QORLLA_AI_APPROVED_PROVIDERS/.test(x)), 'asking for an unapproved provider by name is an error');
+});
+test('the workspace quota stops a request before any provider is called', async () => {
+  const a = fake('gemini'); const audits = []; let allowed = true; const g = createAiGateway({ config: cfgFor(), adapters: [a], audit: async (r) => audits.push(r), quota: async () => allowed, log: { error() {} } });
+  assert.equal((await run(g)).data.answer, 'from gemini'); allowed = false;
+  await assert.rejects(run(g), (e) => e.code === 'ai_quota_exceeded' && /Qorlla AI/.test(e.message) && !e.retryable); assert.equal(a.calls, 1); assert.equal(audits.at(-1).outcome, 'quota_exceeded');
+});
+test('model choices are Qorlla profiles; the private profile uses only local providers and refuses rather than sending content out', async () => {
+  const local = fake('selfhosted', { external: false, tier: 'local' }), ext = fake('gemini'); const { g } = gw([local, ext]); const m = g.models();
+  assert.deepEqual(m.map((x) => [x.id, x.available]), [['qorlla-ai', true], ['qorlla-ai-private', true]]); assert.doesNotMatch(JSON.stringify(m), /gemini|openai|grok|xai|selfhosted/i);
+  assert.equal((await run(g, { ...ctx, profile: 'private' })).data.answer, 'from selfhosted'); assert.equal(ext.calls, 0);
+  const onlyExt = gw([fake('gemini')]); assert.equal(onlyExt.g.models()[1].available, false);
+  await assert.rejects(run(onlyExt.g, { ...ctx, profile: 'private' }), (e) => e.code === 'private_unavailable'); assert.equal(onlyExt.audits.at(-1).outcome, 'unavailable');
 });

@@ -29,6 +29,8 @@ export function resolveAiConfig(env = process.env) {
   const cfg = {
     environment, enabled: false, requested, allowFreeTier: bool(env.QORLLA_AI_ALLOW_FREE_TIER), allowPaidFallback: bool(env.QORLLA_AI_ALLOW_PAID_FALLBACK), testAdapter: false,
     timeoutMs: Number(env.QORLLA_AI_TIMEOUT_MS || 30_000), maxInputChars: Number(env.QORLLA_AI_MAX_INPUT_CHARS || 120_000),
+    approved: new Set(trim(env.QORLLA_AI_APPROVED_PROVIDERS).toLowerCase().split(',').map((x) => x.trim()).filter(Boolean)),   // only providers whose credentials, quota, data handling and commercial terms were approved
+    workspaceDailyRequests: Number(env.QORLLA_AI_WORKSPACE_DAILY_REQUESTS || 2000),
     ratePerMinute: Number(env.QORLLA_AI_RATE_PER_MINUTE || 30), breaker: { failures: Number(env.QORLLA_AI_BREAKER_FAILURES || 3), cooldownMs: Number(env.QORLLA_AI_BREAKER_COOLDOWN_MS || 30_000) },
     providers: {}, problems
   };
@@ -52,6 +54,7 @@ export function resolveAiConfig(env = process.env) {
   // the pre-gateway Anthropic path keeps working when its own key is set (compatibility), under the same rules as every other provider
   if (trim(env.AI_LLM_API_KEY)) p.anthropic = { apiKey: trim(env.AI_LLM_API_KEY), baseUrl: production ? 'https://api.anthropic.com' : (trim(env.AI_LLM_API_BASE) || 'https://api.anthropic.com'), model: trim(env.AI_LLM_MODEL) || 'claude-sonnet-5-5', tier: tier(env.QORLLA_AI_ANTHROPIC_TIER), external: true };
   for (const [id, o] of Object.entries(p)) if (id !== 'selfhosted' && !o.model && id !== 'anthropic') problems.push('QORLLA_AI_' + id.toUpperCase() + '_MODEL is required when a ' + id + ' key is configured');
+  if (requested !== 'auto' && requested !== 'test' && !cfg.approved.has(requested)) problems.push('QORLLA_AI_PROVIDER=' + requested + ' is not in QORLLA_AI_APPROVED_PROVIDERS');
   if (requested !== 'auto' && requested !== 'test' && !p[requested]) problems.push('QORLLA_AI_PROVIDER=' + requested + ' but that provider has no credentials or URL');
   return cfg;
 }
@@ -65,6 +68,7 @@ export function eligibleProviders(cfg) {
   const rank = { local: 0, free: 1, paid: 2 };
   for (const [id, o] of Object.entries(cfg.providers)) {
     if (cfg.requested !== 'auto' && cfg.requested !== id) continue;
+    if (!cfg.approved.has(id)) continue;                                  // configured but not approved: never used, never sent content
     if (o.tier === 'paid' && !cfg.allowPaidFallback) continue;          // paid use needs separate approval
     if (o.tier === 'free' && !cfg.allowFreeTier) continue;
     out.push({ id, ...o });

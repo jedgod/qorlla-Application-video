@@ -58,7 +58,7 @@ export async function startMainStandIn() {
 
 export function testConfig(over = {}, main) {
   // tests that give the fake model server a key opt in to the Qorlla AI Gateway explicitly (the legacy key alone no longer enables AI); the fake server is declared a free-tier provider
-  const gw = over.env && over.env.AI_LLM_API_KEY ? { QORLLA_AI_ENABLED: 'true', QORLLA_AI_PROVIDER: 'anthropic', QORLLA_AI_ALLOW_FREE_TIER: 'true', QORLLA_AI_ALLOW_PAID_FALLBACK: 'false', QORLLA_AI_ANTHROPIC_TIER: 'free' } : {};
+  const gw = over.env && over.env.AI_LLM_API_KEY ? { QORLLA_AI_ENABLED: 'true', QORLLA_AI_PROVIDER: 'anthropic', QORLLA_AI_ALLOW_FREE_TIER: 'true', QORLLA_AI_ALLOW_PAID_FALLBACK: 'false', QORLLA_AI_ANTHROPIC_TIER: 'free', QORLLA_AI_APPROVED_PROVIDERS: 'anthropic' } : {};
   const cfg = loadConfig({ NODE_ENV: 'test', DATABASE_URL: 'x', PORTAL_ALLOWED_ORIGIN: ORIGIN, MAIN_AUTH_ISSUER: ORIGIN, MAIN_AUTH_JWKS_URL: ORIGIN + '/.well-known/jwks.json',
     MAIN_INTROSPECTION_URL: main?.introspectionUrl, PORTAL_INTROSPECTION_SECRET: main?.secret, AUTH_REQUIRE_INTROSPECTION: 'true', ...gw, ...over.env });
   // functional tests make many calls in a minute; the rate-limit behaviour itself is covered by tests/limits.test.mjs with its own values

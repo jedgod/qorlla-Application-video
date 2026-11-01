@@ -107,6 +107,39 @@ describe('Qorlla AI Gateway routes (test adapter, PostgreSQL)', () => {
     await assert.rejects(db.pool.query('UPDATE portal.ai_gateway_audit SET outcome=$1', ['x']), /append-only/); await assert.rejects(db.pool.query('DELETE FROM portal.ai_gateway_audit'), /append-only/);
   });
 
+  test('unified choice list and module endpoints: members see Qorlla profiles only; every module call is a preview that changes nothing', async () => {
+    const w = { 'x-workspace-id': W }; const c = owner();
+    const pr = await c.get('/api/v1/ai/providers', w); assert.deepEqual(pr.body, [{ id: 'qorlla-ai', name: 'Qorlla AI', available: true }]);
+    const md = await c.get('/api/v1/ai/models', w); assert.deepEqual(md.body.map((m) => [m.id, m.available]), [['qorlla-ai', true], ['qorlla-ai-private', true]]); assert.doesNotMatch(JSON.stringify([pr.body, md.body]), /test|gemini|openai|grok|xai|selfhosted/i);
+    const doc = await mkDoc(c, 'doc', { text: 'Pelican notes' }); const sheet = await mkDoc(c, 'sheet', { columns: ['A'], rows: [[1]] }); const slides = await mkDoc(c, 'slides', { slides: [{ title: 'S', bullets: ['b'] }] });
+    const docsBefore = (await q('SELECT count(*)::int n FROM portal.documents WHERE workspace_id=$1', [W]))[0].n;
+    for (const [path, body, task] of [['docs/draft', { text: 'A brief about pelicans' }, 'docs_draft'], ['docs/rewrite', { document_id: doc.id }, 'docs_rewrite'], ['sheets/analyze', { document_id: sheet.id }, 'sheets_insights'], ['slides/generate', { document_id: slides.id }, 'slides_outline'], ['generate', { task: 'docs_proofread', document_id: doc.id }, 'docs_proofread']]) {
+      const r = await c.post('/api/v1/ai/' + path, { ...body, idempotency_key: key() }, w); assert.equal(r.status, 200, path + ' ' + JSON.stringify(r.body)); assert.deepEqual([r.body.task, r.body.review_required, r.body.applied, r.body.model], [task, true, false, 'qorlla-ai']);
+    }
+    assert.equal((await q('SELECT count(*)::int n FROM portal.documents WHERE workspace_id=$1', [W]))[0].n, docsBefore, 'previews create no document');
+    assert.equal((await c.post('/api/v1/ai/sheets/analyze', { document_id: doc.id, idempotency_key: key() }, w)).status, 400, 'sheet analysis of a document is refused');
+    assert.equal((await other().post('/api/v1/ai/docs/rewrite', { document_id: doc.id, idempotency_key: key() }, w)).status, 404, 'private documents stay private through every endpoint');
+  });
+  test('QorllaMate chat is permission-scoped: it sees what the caller can read, proposes without creating anything, and never reveals another member\'s private note', async () => {
+    const w = { 'x-workspace-id': W }; const mine = await owner().post('/api/v1/notes', { title: 'Zebra planning', body: 'owner private zebra budget' }, w); assert.ok(mine.status < 300, JSON.stringify(mine.body));
+    const notesBefore = (await q('SELECT count(*)::int n FROM portal.notes WHERE workspace_id=$1', [W]))[0].n, tasksBefore = (await q('SELECT count(*)::int n FROM portal.assistant_tasks WHERE workspace_id=$1', [W]))[0].n;
+    const own = await owner().post('/api/v1/ai/qorllamate/chat', { content: 'zebra budget: please create a note titled "Offsite" saying "book it"', idempotency_key: key() }, w); assert.equal(own.status, 200, JSON.stringify(own.body));
+    assert.match(own.body.reply, /TEST-DOUBLE REPLY/); assert.ok(own.body.sources.some((s) => /Zebra planning/.test(s)), 'the owner\'s own note is retrieved'); assert.deepEqual(own.body.proposed_actions.map((a) => a.kind), ['create_note']); assert.deepEqual([own.body.applied, own.body.review_required], [false, true]);
+    const spy = await other().post('/api/v1/ai/qorllamate/chat', { content: 'zebra budget', idempotency_key: key() }, w); assert.equal(spy.status, 200); assert.ok(!spy.body.sources.some((s) => /Zebra/.test(s)), 'another member never retrieves it'); assert.doesNotMatch(spy.body.reply, /owner private/);
+    assert.equal((await q('SELECT count(*)::int n FROM portal.notes WHERE workspace_id=$1', [W]))[0].n, notesBefore, 'no note was created'); assert.equal((await q('SELECT count(*)::int n FROM portal.assistant_tasks WHERE workspace_id=$1', [W]))[0].n, tasksBefore, 'no task was stored');
+  });
+  test('usage shows the workspace what was used; the private profile works when a local provider exists; the daily workspace cap returns 429 with a clear message', async () => {
+    const w = { 'x-workspace-id': W }; const u = await owner().get('/api/v1/ai/usage', w); assert.equal(u.status, 200); assert.ok(u.body.requests_this_month >= 10 && u.body.by_feature.some((f) => f.feature === 'docs_rewrite') && u.body.my_requests_this_month > 0);
+    assert.equal((await owner().post('/api/v1/ai/run', { task: 'docs_summarize', text: 'private please', model: 'qorlla-ai-private', idempotency_key: key() }, w)).status, 200);
+    assert.equal((await owner().post('/api/v1/ai/run', { task: 'docs_summarize', text: 'x', model: 'gpt-9', idempotency_key: key() }, w)).status, 400, 'only Qorlla profiles can be named');
+    const capped = await startApp({ pool: db.pool, cfg: testConfig({ env: { ...TEST_CONTRACT, QORLLA_AI_WORKSPACE_DAILY_REQUESTS: '1' } }, main), jwks: main.jwks });
+    try { const u2 = await main.mint(); const w2 = await seedWorkspace(db.pool, u2.sub, 'Capped Co'); await db.pool.query(`UPDATE portal.subscriptions SET plan_slug='pro',status='active',current_period_end=now()+interval '20 days' WHERE workspace_id=$1`, [w2]);
+      const cl = capped.client(u2); const h2 = { 'x-workspace-id': w2 }; assert.equal((await cl.post('/api/v1/ai/run', { task: 'docs_summarize', text: 'one', idempotency_key: key() }, h2)).status, 200);
+      const over = await cl.post('/api/v1/ai/run', { task: 'docs_summarize', text: 'two', idempotency_key: key() }, h2); assert.equal(over.status, 429); assert.equal(over.body.code, 'ai_quota_exceeded'); assert.match(over.body.error, /limit for today/);
+      assert.equal((await owner().post('/api/v1/ai/run', { task: 'docs_summarize', text: 'other workspace unaffected', idempotency_key: key() }, w)).status, 200);
+    } finally { await capped.close(); }
+  });
+
   test('the platform kill switch pauses every AI route without losing anything', async () => {
     await app.flags.set('ai', false, 'incident', P.sub);
     try { const r = await owner().post('/api/v1/ai/run', { task: 'docs_rewrite', text: 'hello', idempotency_key: key() }, { 'x-workspace-id': W }); assert.equal(r.status, 503); assert.equal(r.body.code, 'feature_disabled'); assert.equal((await owner().get('/api/v1/ai/status', { 'x-workspace-id': W })).body.available, false); }

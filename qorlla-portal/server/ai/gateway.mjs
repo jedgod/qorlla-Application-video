@@ -13,7 +13,7 @@ import { buildAdapters } from './providers.mjs';
 export const PUBLIC_NAME = 'Qorlla AI', PUBLIC_MODEL = 'qorlla-ai';
 const hash = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
 
-export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log = console, audit = async () => {}, consent = async () => false, adapters } = {}) {
+export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log = console, audit = async () => {}, consent = async () => false, quota = async () => true, adapters } = {}) {
   if (!config) throw new Error('AI gateway needs a configuration');
   if (config.problems.length) throw new Error('AI configuration refused: ' + config.problems.join('; '));      // fail closed: a bad AI configuration stops the server from starting
   const eligible = eligibleProviders(config);
@@ -35,10 +35,12 @@ export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log
   async function generateJson({ system, user, schema, maxTokens = 3000, ctx = {} }) {
     if (!list.length) throw new LlmError('No AI provider is configured', { code: 'no_ai_provider' });
     if (limited(ctx.actorId || 'anonymous')) { await record(ctx, null, 'rate_limited', { code: 'ai_rate_limited' }); throw new LlmError(PUBLIC_NAME + ' is busy. Try again in a minute.', { retryable: false, code: 'ai_rate_limited' }); }
+    if (!(await quota(ctx))) { await record(ctx, null, 'quota_exceeded', { code: 'ai_quota_exceeded' }); throw new LlmError('This workspace has reached its ' + PUBLIC_NAME + ' limit for today. It resets tomorrow.', { retryable: false, code: 'ai_quota_exceeded' }); }
     const t = now(); let candidates = list.filter((a) => (state.get(a.id).openUntil || 0) <= t);
     // content leaves the platform only for a workspace that authorised external processing
     let externalOk = ctx.externalProcessing; if (externalOk === undefined) externalOk = ctx.workspaceId ? await consent(ctx) : false;
     if (!externalOk) { const before = candidates.length; candidates = candidates.filter((a) => !a.external); if (!candidates.length && before) { await record(ctx, null, 'consent_required', { code: 'consent_required' }); throw new LlmError('This workspace has not authorised external AI processing. A workspace owner can turn it on in the AI settings.', { code: 'consent_required' }); } }
+    if (ctx.profile === 'private') { candidates = candidates.filter((a) => !a.external); if (!candidates.length) { await record(ctx, null, 'unavailable', { code: 'private_unavailable' }); throw new LlmError('The private ' + PUBLIC_NAME + ' model is not available on this server', { code: 'private_unavailable' }); } }
     if (!candidates.length) { await record(ctx, null, 'unavailable', { code: 'ai_unavailable' }); throw new LlmError(PUBLIC_NAME + ' is temporarily unavailable', { retryable: true, code: 'ai_unavailable' }); }
     const promptHash = hash(system + '\u0000' + user); let last = null;
     for (const a of candidates) {
@@ -71,9 +73,12 @@ export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log
   const adminStatus = () => ({
     environment: config.environment, enabled: config.enabled, mode: config.requested, allowFreeTier: config.allowFreeTier, allowPaidFallback: config.allowPaidFallback, testAdapter: config.testAdapter,
     providers: list.map((a) => { const s = state.get(a.id); return { id: a.id, tier: a.tier, external: a.external, model: a.model || null, healthy: (s.openUntil || 0) <= now(), consecutiveFailures: s.failures, ok: s.ok, failed: s.failed, lastErrorCode: s.lastCode }; }),
+    configuredNotApproved: Object.keys(config.providers).filter((id) => !config.approved.has(id)),
     blocked: Object.entries(BLOCKED_PROVIDERS).map(([id, reason]) => ({ id, reason }))
   });
+  /** The choices a workspace user may pick: Qorlla profiles, never a vendor. "private" keeps content on infrastructure the operator controls. */
+  const models = () => [{ id: PUBLIC_MODEL, name: PUBLIC_NAME, description: 'Automatic: the best available option', available: list.length > 0 }, { id: 'qorlla-ai-private', name: PUBLIC_NAME + ' Private', description: 'Runs only on Qorlla-controlled infrastructure; content never leaves it', available: list.some((a) => !a.external) }];
   /** What a workspace user may see: the product name and whether it can answer. */
   const publicStatus = () => ({ assistant: PUBLIC_NAME, available: list.length > 0 });
-  return { available: list.length > 0, provider: 'qorlla', model: PUBLIC_MODEL, maxInputChars, generateJson, summarize, adminStatus, publicStatus, name: PUBLIC_NAME };
+  return { available: list.length > 0, provider: 'qorlla', model: PUBLIC_MODEL, maxInputChars, generateJson, summarize, adminStatus, publicStatus, models, name: PUBLIC_NAME };
 }

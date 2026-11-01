@@ -14,6 +14,21 @@ export function registerAiGateway(app, { pool, cfg, auth, h, llm, flags = null }
       note: 'Qorlla AI drafts suggestions for you to review. Nothing changes in your workspace until you accept it.' });
   }));
 
+  // the unified choice list: Qorlla profiles only (the vendor behind them is an administrator concern)
+  app.get('/api/v1/ai/providers', member, h(async (req, res) => {
+    const s = llm.publicStatus ? llm.publicStatus() : { assistant: 'Qorlla AI', available: !!llm.available };
+    res.set('Cache-Control', 'no-store').json([{ id: 'qorlla-ai', name: s.assistant, available: s.available && await aiEnabled() }]);
+  }));
+  app.get('/api/v1/ai/models', member, h(async (req, res) => {
+    const on = await aiEnabled(); res.set('Cache-Control', 'no-store').json((llm.models ? llm.models() : [{ id: 'qorlla-ai', name: 'Qorlla AI', available: !!llm.available }]).map((m) => ({ ...m, available: m.available && on })));
+  }));
+  app.get('/api/v1/ai/usage', member, h(async (req, res) => {
+    const by = (await pool.query(`SELECT feature, count(*)::int AS requests, COALESCE(sum(input_tokens),0)::int AS input_tokens, COALESCE(sum(output_tokens),0)::int AS output_tokens, count(*) FILTER (WHERE actor_id=$2)::int AS mine
+      FROM portal.ai_gateway_audit WHERE workspace_id=$1 AND outcome='ok' AND at >= date_trunc('month', now()) GROUP BY feature ORDER BY feature`, [req.workspace, req.actor])).rows;
+    const today = Number((await pool.query(`SELECT count(*) FROM portal.ai_gateway_audit WHERE workspace_id=$1 AND outcome='ok' AND at >= date_trunc('day', now())`, [req.workspace])).rows[0].count);
+    res.set('Cache-Control', 'no-store').json({ period: 'month', by_feature: by, requests_today: today, daily_limit: cfg.ai.gateway?.workspaceDailyRequests ?? null, requests_this_month: by.reduce((a, r) => a + r.requests, 0), my_requests_this_month: by.reduce((a, r) => a + r.mine, 0) });
+  }));
+
   app.put('/api/v1/ai/settings', member, roles('owner', 'admin'), h(async (req, res) => {
     const p = z.object({ external_processing: z.boolean() }).strict().parse(req.body);
     await pool.query(`INSERT INTO portal.workspace_ai_settings(workspace_id,external_processing,updated_by,updated_at) VALUES($1,$2,$3,now()) ON CONFLICT (workspace_id) DO UPDATE SET external_processing=EXCLUDED.external_processing, updated_by=EXCLUDED.updated_by, updated_at=now()`, [req.workspace, p.external_processing, req.actor]);
