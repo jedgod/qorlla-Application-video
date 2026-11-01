@@ -14,6 +14,12 @@ Status: **validated on one device and one isolated test server only. The full we
 - That build: SHA-256 `05976e4f431d7a348be28aab99acd2a6b9aa32bbefce69fd6b48309e24bec973`, built 2026-11-01 02:10, exit 0 in 9 minutes. The bundle contains `localhost:3200` and `localhost:3300` and no `localhost:18081`. Installed on the Galaxy A03s over the previous build; it starts on the Welcome screen.
 - NOT verified: reaching the Qorlla Meet video page. The v46 stack (3200/3300/4600) was not running and was not started by this work, and the 19-test device suite above ran on the 18081 build (SHA-256 `a8db8862...`), not on this one. Policy unit tests prove only that the 3200 and 3300 origins are trusted and others are not.
 
+## New pages inside the phone app (local-stack build `05976e4f...`)
+- `QORLLA_ANDROID_SERIAL=<serial> node --test e2e/android-pages.test.cjs`: **5 of 5 passed** on the Galaxy A03s; screenshots in `pages/`.
+- How: the app is built for `http://localhost:3200`. For this run only, the phone's own `adb reverse tcp:3200` was pointed at the isolated test server on the host (18081) and put back to `tcp:3200` afterwards, so nothing on the host's port 3200 was used. Test accounts exist only on that throw-away server.
+- Checked in the app's WebView: the app loads its pages from `localhost:3200`; guest Welcome keeps its navigation, Explore and Help are the guest pages; the invitation page (opened by `qorlla://join`) has no navigation, the `QorllaMobile/1` marker is set, the "get the app" panel is hidden, and Join says "Video meetings are not available right now" and stays on the invitation page (never the old built-in room); after signing in the workspace has exactly Home, Chat, Phone, Docs, Clips, More in one row without scrolling, the one-tab guard is active, More has the moved pages (Schedule, Calendar, Mail, Whiteboards, Notes, History, Settings), pages opened from it have a close button that returns to the page before (More, then Home), and New meeting says video is unavailable instead of opening the old room.
+- NOT checked: the real Qorlla Meet video page. This server has no Meet and the v46 stack was not running (and not started), so "the new video page" itself remains unverified.
+
 ## Results (final code)
 | Suite | Result |
 | --- | --- |
