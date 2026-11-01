@@ -20,6 +20,7 @@ test.describe('sheets, slides and the AI switch, with no AI provider', () => {
     expect(dbq(`SELECT content->'slides'->0->>'title' FROM portal.document_versions v JOIN portal.documents d ON d.id=v.document_id WHERE d.title='Pitch' AND d.workspace_id='${me.workspaceId}' AND version_no=2`)).toBe('Why now');
   });
   test('no AI provider: Draft and QorllaMate are disabled in the page, the API refuses with a reason, and nothing is created or counted', async ({ page, context }) => {
+    test.skip(!!process.env.E2E_AI_TEST_PROVIDER, 'this test is about a stack WITHOUT an AI provider; run it against the production-default project');
     const me = await signUpWithWorkspace(context, 'noaiuser');
     await page.goto('/app/suite'); await page.selectOption('#ai-form [name=kind]', 'doc'); await page.fill('#ai-form [name=prompt]', 'A brief about the pelican launch'); await expect(page.getByRole('button', { name: 'Draft', exact: true })).toBeDisabled();
     await page.goto('/app/mate'); await page.locator('#new-thread').click().catch(() => {}); await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();

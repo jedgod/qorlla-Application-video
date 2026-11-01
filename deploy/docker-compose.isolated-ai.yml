@@ -1,0 +1,21 @@
+# AI TEST ENVIRONMENT: the isolated AUTOMATED-TEST contract for the Qorlla AI Gateway. NEVER USE OUTSIDE AN ISOLATED TEST PROJECT.
+# It turns on the labelled deterministic TEST ADAPTER (outputs say TEST-DOUBLE; it is not a model) so the Docs, Sheets, Slides, QorllaMate and meeting-AI flows can be tested end to end.
+# The portal runs as NODE_ENV=test with QORLLA_ENVIRONMENT=test: a NODE_ENV=production portal refuses this adapter and will not start with it, which is the point.
+# Use it only as a third -f file of a project that shares NOTHING with another (own name, volumes, database), e.g.:
+#   ISO_PROJECT=qai ISO_STATE_DIR=.dev-stack-ai ISO_PROXY_PORT=3900 node scripts/iso-compose-env.mjs
+#   docker compose -p qai --env-file .dev-stack-ai/compose.env -f docker-compose.yml -f deploy/docker-compose.isolated.yml -f deploy/docker-compose.isolated-ai.yml up -d --build
+# Live providers (QORLLA_AI_PROVIDER=auto with real keys) are a different contract and need separate authorisation; no key belongs in this file.
+services:
+  qorlla-portal:
+    labels:
+      qorlla.ai-test-adapter: "test environment only: not for production"
+    environment:
+      - NODE_ENV=test
+      - TRUST_PROXY_HOPS=1
+      - AUTH_REQUIRE_INTROSPECTION=true
+      - QORLLA_ENVIRONMENT=test
+      - QORLLA_AI_ENABLED=true
+      - QORLLA_AI_PROVIDER=test
+      - QORLLA_AI_TEST_ADAPTER_ENABLED=true
+      - QORLLA_AI_ALLOW_FREE_TIER=false
+      - QORLLA_AI_ALLOW_PAID_FALLBACK=false

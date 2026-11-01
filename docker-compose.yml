@@ -82,6 +82,13 @@ services:
       - MEET_READ_SECRET=${MEET_READ_SECRET:-}
       - AI_LLM_API_KEY=${AI_LLM_API_KEY:-}
       - AI_LLM_MODEL=${AI_LLM_MODEL:-}
+      # Qorlla AI Gateway. Production default: OFF. Nothing is enabled, and no test adapter is accepted, until certification says so.
+      - QORLLA_AI_ENABLED=${QORLLA_AI_ENABLED:-false}
+      - QORLLA_AI_PROVIDER=${QORLLA_AI_PROVIDER:-none}
+      - QORLLA_AI_ALLOW_FREE_TIER=${QORLLA_AI_ALLOW_FREE_TIER:-false}
+      - QORLLA_AI_ALLOW_PAID_FALLBACK=${QORLLA_AI_ALLOW_PAID_FALLBACK:-false}
+      - QORLLA_AI_TEST_ADAPTER_ENABLED=${QORLLA_AI_TEST_ADAPTER_ENABLED:-false}
+      - QORLLA_ENVIRONMENT=${QORLLA_ENVIRONMENT:-}
       - PLATFORM_ADMIN_USER_IDS=${PLATFORM_ADMIN_USER_IDS:-}
       - METRICS_TOKEN=${METRICS_TOKEN:-}
       - TELEPHONY_ENABLED=${TELEPHONY_ENABLED:-false}

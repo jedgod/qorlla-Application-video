@@ -21,3 +21,5 @@ Thumbs.db
 .dev-stack-iso/
 .dev-stack-tls/
 .dev-stack-clk/
+.dev-stack-ai/
+.dev-stack-noai/
