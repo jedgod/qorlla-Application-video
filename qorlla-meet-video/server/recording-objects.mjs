@@ -3,6 +3,7 @@
 // An S3-compatible backend (private bucket, SSE, no public ACLs) would implement the same four methods; it is NOT implemented or tested in this build.
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 const KEY = /^[0-9a-f-]{36}\/\d{1,9}\.bin$/;
 export function createObjectStore(env = process.env) {
@@ -13,7 +14,10 @@ export function createObjectStore(env = process.env) {
   const file = (key) => { if (!KEY.test(key)) throw new Error('Bad object key'); return path.join(root, key); };
   return {
     ready: true, kind, root,
-    async put(key, buf) { const f = file(key); await fs.mkdir(path.dirname(f), { recursive: true, mode: 0o700 }); const tmp = f + '.tmp'; await fs.writeFile(tmp, buf, { mode: 0o600 }); await fs.rename(tmp, f); },
+    async put(key, buf) { const f = file(key); await fs.mkdir(path.dirname(f), { recursive: true, mode: 0o700 }); 
+      // A temp name of its own for every write: two uploads of the same chunk racing each other must not share one temp file (the loser's rename failed with ENOENT, a 500). The rename is atomic, the content identical.
+      const tmp = f + '.' + crypto.randomBytes(8).toString('hex') + '.tmp';
+      try { await fs.writeFile(tmp, buf, { mode: 0o600 }); await fs.rename(tmp, f); } catch (e) { await fs.rm(tmp, { force: true }).catch(() => {}); throw e; } },
     async get(key) { return fs.readFile(file(key)); },
     async delete(key) { await fs.rm(file(key), { force: true }); },
     async removePrefix(prefix) { if (!/^[0-9a-f-]{36}$/.test(prefix)) throw new Error('Bad prefix'); await fs.rm(path.join(root, prefix), { recursive: true, force: true }); },
