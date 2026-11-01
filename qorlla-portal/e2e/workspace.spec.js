@@ -8,6 +8,9 @@ async function addMember(ownerCtx, ownerCsrf, ws, userId) {
   if (r.status() !== 201) throw new Error('add member failed ' + r.status() + ' ' + (await r.text()));
 }
 
+// The two tests that need a language model run ONLY when an AI test provider is explicitly configured (E2E_AI_TEST_PROVIDER=1 with the stack started against the repo's labelled test double). Without one they are SKIPPED, never faked;
+// Sheets and Slides persistence lives in suite-no-ai.spec.js and needs no provider.
+const needsAi = () => test.skip(!process.env.E2E_AI_TEST_PROVIDER, 'needs an explicitly configured AI test provider (E2E_AI_TEST_PROVIDER=1); this stack has none');
 test.describe('notes, documents and QorllaMate', () => {
   test('notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it', async ({ page, browser, context }) => {
     const owner = await signUpWithWorkspace(context, 'notesowner');
@@ -62,20 +65,16 @@ test.describe('notes, documents and QorllaMate', () => {
     await ctx2.close();
   });
 
-  test('sheets and slides edit and persist; AI draft is labelled and private (test-double model)', async ({ page, context }) => {
+  test('AI draft is labelled and private (test-double model)', async ({ page, context }) => {
+    needsAi();
     const me = await signUpWithWorkspace(context, 'suiteuser');
-    await page.goto('/app/suite'); await page.selectOption('#doc-form [name=kind]', 'sheet'); await page.fill('#doc-form [name=title]', 'Stock'); await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await page.waitForURL(/\/app\/suite\?doc=/); await page.locator('#add-row').click(); await page.locator('[data-cell="0:0"]').fill('Giraffes'); await page.locator('[data-cell="0:1"]').fill('12'); await page.locator('#save-doc').click(); await expect(page.locator('#doc-version')).toHaveText('version 2');
-    await page.reload(); await expect(page.locator('[data-cell="0:0"]')).toHaveValue('Giraffes'); await expect(page.locator('[data-cell="0:1"]')).toHaveValue('12');
-    expect(dbq(`SELECT content->'rows'->0->>1 FROM portal.document_versions v JOIN portal.documents d ON d.id=v.document_id WHERE d.title='Stock' AND d.workspace_id='${me.workspaceId}' AND version_no=2`)).toBe('12');
-    await page.goto('/app/suite'); await page.selectOption('#doc-form [name=kind]', 'slides'); await page.fill('#doc-form [name=title]', 'Pitch'); await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await page.waitForURL(/\/app\/suite\?doc=/); await page.locator('[data-slide="0"] [data-f=title]').fill('Why now'); await page.locator('[data-slide="0"] [data-f=bullets]').fill('Market\nTiming'); await page.locator('#save-doc').click(); await expect(page.locator('#doc-version')).toHaveText('version 2');
     await page.goto('/app/suite'); await page.selectOption('#ai-form [name=kind]', 'doc'); await page.fill('#ai-form [name=prompt]', 'A brief about the pelican launch'); await page.getByRole('button', { name: 'Draft', exact: true }).click();
     await page.waitForURL(/\/app\/suite\?doc=/, { timeout: 30000 }); await expect(page.locator('body')).toContainText('drafted by AI'); await expect(page.locator('#doc-text')).toHaveValue(/TEST-DOUBLE/);
     expect(dbq(`SELECT count(*) FROM portal.ai_usage_events WHERE feature='doc_generation' AND workspace_id='${me.workspaceId}'`)).toBe('1');
   });
 
   test('QorllaMate proposes, the user approves, and only then does the note exist; email stays blocked (test-double model)', async ({ page, context }) => {
+    needsAi();
     const me = await signUpWithWorkspace(context, 'mateuser');
     await page.goto('/app/mate'); await expect(page.locator('#mate-note')).toContainText('Nothing is created until you approve');
     await page.locator('#new-thread').click(); await page.fill('#mate-form [name=content]', 'Please create a note titled "Offsite agenda" saying "book the venue"'); await page.getByRole('button', { name: 'Send', exact: true }).click();

@@ -13,7 +13,7 @@ const sessionOf = (page) => page.evaluate(() => JSON.parse(sessionStorage.getIte
 async function savedRecording(page, session, { expectStatus = 'available' } = {}) {
   const s = session || await sessionOf(page); let rec;
   await expect.poll(async () => { rec = (await page.evaluate(async ({ url, t }) => (await (await fetch(url, { headers: { Authorization: 'Bearer ' + t } })).json()).recordings, { url: API + s.meetingId + '/recordings', t: s.token }))[0]; return rec?.status; }, { timeout: 60000 }).toBe(expectStatus);
-  const file = await page.evaluate(async ({ url, t, rid }) => { const a = await (await fetch(url + rid + '/access', { headers: { Authorization: 'Bearer ' + t } })).json(); const r = await fetch(a.url); const buf = new Uint8Array(await r.arrayBuffer()); return { status: r.status, length: buf.length, head: [...buf.slice(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join('') }; }, { url: RAPI, t: s.token, rid: rec.id });
+  const file = await page.evaluate(async ({ url, t, rid, root }) => { const a = await (await fetch(url + rid + '/access', { headers: { Authorization: 'Bearer ' + t } })).json(); const r = await fetch(a.url.startsWith('/api/') ? root + a.url.slice(1) : a.url); const buf = new Uint8Array(await r.arrayBuffer()); return { status: r.status, length: buf.length, head: [...buf.slice(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join('') }; }, { url: RAPI, t: s.token, rid: rec.id, root: MEET.replace(/\/?$/, '/') });
   return { rec, ...file };
 }
 

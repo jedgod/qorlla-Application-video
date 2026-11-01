@@ -30,8 +30,11 @@ async function open(browser, who, code, { holdUploads = true } = {}) {
 // authenticated call (as person p) to a path under the meeting, or an absolute API path when it starts with /api
 async function call(p, pathStr, method = 'GET', body, extraHeaders = {}) {
   const url = pathStr.startsWith('/api') ? ROOT + pathStr.slice(1) : API + p.session.meetingId + pathStr;
-  return p.page.evaluate(async ({ url, method, body, t, h }) => { const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json', ...(t ? { Authorization: 'Bearer ' + t } : {}), ...h }, body: body === undefined ? undefined : JSON.stringify(body) }); const text = await r.text(); let json = {}; try { json = JSON.parse(text); } catch {} return { status: r.status, body: json, text }; },
+  const res = await p.page.evaluate(async ({ url, method, body, t, h }) => { const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json', ...(t ? { Authorization: 'Bearer ' + t } : {}), ...h }, body: body === undefined ? undefined : JSON.stringify(body) }); const text = await r.text(); let json = {}; try { json = JSON.parse(text); } catch {} return { status: r.status, body: json, text }; },
     { url, method, body, t: p.session.token, h: extraHeaders });
+  // Meet returns root-relative links (/api/recordings/...); its own page adds its base path (BASE + url). Behind the /meet/ proxy prefix the same must be done here.
+  if (res && res.body && typeof res.body.url === 'string' && res.body.url.startsWith('/api/')) res.body.url = ROOT + res.body.url.slice(1);
+  return res;
 }
 // upload a chunk with exact bytes (array of numbers); returns status
 const upload = (p, rid, seq, bytes) => p.page.evaluate(async ({ url, t, bytes }) => { const r = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/octet-stream', 'x-test-manual': '1' }, body: new Uint8Array(bytes) }); return { status: r.status, body: await r.json().catch(() => ({})) }; }, { url: API + p.session.meetingId + '/recordings/' + rid + '/chunks?seq=' + seq, t: p.session.token, bytes });

@@ -13,3 +13,7 @@ services:
       - ./qorlla-meet-video/sql/v4_16_number_authority.sql:/docker-entrypoint-initdb.d/005k_number_authority.sql:ro
       - ./qorlla-meet-video/sql/v4_17_shield_identity.sql:/docker-entrypoint-initdb.d/005l_shield_identity.sql:ro
       - ./qorlla-meet-video/sql/v4_18_billing_hold.sql:/docker-entrypoint-initdb.d/005m_billing_hold.sql:ro
+  # Recordings go to a git-ignored host folder so the acceptance specs can inspect what is really on disk (encrypted, no plaintext); the container user keeps writing as usual.
+  meet:
+    volumes:
+      - ./.dev-stack-iso/recordings:/var/lib/qorlla/recordings
