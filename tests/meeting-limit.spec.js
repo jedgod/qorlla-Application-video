@@ -45,7 +45,8 @@ test.describe('free plan, built-in room and Meet-hosted meetings', () => {
     await expect(page.locator('#meetingBar')).toBeHidden(); await expect(page.locator('#limitBanner')).toHaveCount(0);
     const b = (await (await ctx.request.get(main.base + '/api/history/meetings')).json()).meetings[0]; expect(b).toMatchObject({ title: 'Free meeting', status: 'completed', endReason: 'time_limit' }); expect(b.durationSeconds).toBeGreaterThanOrEqual(18); expect(b.durationSeconds).toBeLessThan(40);
     expect((await ctx.request.get(main.base + '/api/meetings/validate/' + encodeURIComponent(s.meetingId))).status()).toBe(404);   // cannot be joined again
-    await page.click('#limitClose'); await expect(page.locator('#limitModal')).toHaveCount(0); await ctx.close();
+    await expect(page.locator('#limitClose')).toHaveText('Leave'); await Promise.all([page.waitForURL((u) => new URL(u).pathname === '/'), page.click('#limitClose')]);          // Leave takes the person to the main landing page
+    await ctx.close();
   });
 
   test('a paid (exempt) host is never interrupted: no banner, no closing, well past the limit', async ({ browser }) => {
@@ -64,7 +65,8 @@ test.describe('free plan, built-in room and Meet-hosted meetings', () => {
     const gc = await browser.newContext({ permissions: ['camera', 'microphone'] }); const gs = await gc.request.post(main.base + '/api/guest/sessions', { data: { meetingId: item.meetingId, displayName: 'Gail' } }); expect(gs.status()).toBe(201);
     const gp = await gc.newPage(); await gp.goto((await gs.json()).meet.url); await expect(gp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });
     for (const p of [hp, gp]) { await expect(p.locator('#limitBanner')).toBeVisible({ timeout: 40000 }); await expect(p.locator('#limitText')).toContainText('free plan'); await expect(p.locator('#limitUp')).toHaveAttribute('href', /pricing\?reason=meeting-limit/); }
-    for (const p of [hp, gp]) { await expect(p.locator('#rcModal')).toContainText('Upgrade to have full access to Qorlla packages', { timeout: 30000 }); await expect(p.locator('#limitPlans')).toBeVisible(); await expect(p.locator('#limitBanner')).toHaveCount(0); }
+    for (const p of [hp, gp]) { await expect(p.locator('#rcModal')).toContainText('Upgrade to have full access to Qorlla packages', { timeout: 30000 }); await expect(p.locator('#limitPlans')).toBeVisible(); await expect(p.locator('#limitPlans')).toHaveAttribute('href', new RegExp('^' + main.base.replace(/[.*+?^${}()|[\]\]/g, '\$&') + '/pricing\?reason=meeting-limit')); await expect(p.locator('#limitBanner')).toHaveCount(0); }
+    await Promise.all([gp.waitForURL((u) => new URL(u).origin === new URL(main.base).origin && new URL(u).pathname === '/'), gp.click('#limitLeave')]);          // Leave on the Meet page goes to the MAIN landing page
     await expect.poll(async () => (await (await ctx.request.get(main.base + '/api/history/meetings')).json()).meetings[0]?.endReason, { timeout: 30000, intervals: [1000] }).toBe('time_limit');
     const b = (await (await ctx.request.get(main.base + '/api/history/meetings')).json()).meetings[0]; expect(b).toMatchObject({ title: 'Free Meet room', status: 'completed', uniqueAttendeeCount: 2 });
     expect((await ctx.request.post(main.base + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/start', { data: {} })).status()).toBe(404);   // cannot be restarted
