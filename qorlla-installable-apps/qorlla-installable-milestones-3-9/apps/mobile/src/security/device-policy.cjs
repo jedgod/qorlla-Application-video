@@ -1,0 +1,1 @@
+function validateDeepLink(url){try{const u=new URL(url);if(u.protocol!=='qorlla:'||u.hostname!=='join')return null;const id=u.searchParams.get('meeting');return id&&/^[0-9]{11}$/.test(id)?{meetingId:id}:null}catch{return null}}module.exports={validateDeepLink};

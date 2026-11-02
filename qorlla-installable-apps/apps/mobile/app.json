@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Qorlla",
+    "slug": "qorlla",
+    "scheme": "qorlla",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "ios": {
+      "bundleIdentifier": "com.qorlla.mobile"
+    },
+    "android": {
+      "package": "com.qorlla.mobile"
+    },
+    "plugins": []
+  }
+}

@@ -1,0 +1,1 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const {validateDeepLink}=require('../src/security/device-policy.cjs');test('only approved meeting links',()=>{assert.deepEqual(validateDeepLink('qorlla://join?meeting=12345678901'),{meetingId:'12345678901'});assert.equal(validateDeepLink('https://evil.test/join?meeting=12345678901'),null)});
