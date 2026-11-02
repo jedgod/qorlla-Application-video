@@ -1,0 +1,1 @@
+{"name":"qorlla-voice-a34-security","version":"0.1.0","private":true,"type":"module","scripts":{"test":"node --test"},"dependencies":{"jose":"^6.0.0","pg":"^8.13.0"},"engines":{"node":">=20"}}

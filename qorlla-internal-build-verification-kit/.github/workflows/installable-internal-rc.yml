@@ -1,0 +1,85 @@
+name: Qorlla internal installable RC
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact commit SHA to certify
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce immutable commit
+        shell: pwsh
+        run: |
+          if ('${{ github.sha }}' -ne '${{ inputs.expected_sha }}') { throw 'SHA mismatch: select the exact commit in Run workflow' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: qorlla-clients/apps/desktop/package-lock.json }
+      - name: Test and package unsigned Windows RC
+        shell: pwsh
+        working-directory: qorlla-clients/apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm ci
+          npm test
+          npm run dist -- --win nsis --x64
+      - name: Hash installers
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem qorlla-clients/apps/desktop/dist -Recurse -File | Where-Object { $_.Extension -eq '.exe' }
+          if (!$files) { throw 'No NSIS executable produced' }
+          $files | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path)" } | Set-Content windows-sha256.txt
+          Get-Content windows-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned-internal-${{ github.sha }}
+          path: |
+            qorlla-clients/apps/desktop/dist/*.exe
+            windows-sha256.txt
+          if-no-files-found: error
+          retention-days: 14
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce immutable commit
+        run: test "${{ github.sha }}" = "${{ inputs.expected_sha }}"
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: qorlla-clients/apps/mobile/package-lock.json }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - name: Unit tests and native Android generation
+        working-directory: qorlla-clients/apps/mobile
+        run: |
+          npm ci
+          npm test
+          npx expo prebuild --platform android --non-interactive --clean
+      - name: Build internal arm64 APK
+        working-directory: qorlla-clients/apps/mobile/android
+        env:
+          QORLLA_TEST_BUILD: '0'
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+      - name: Validate and hash APK
+        run: |
+          find qorlla-clients/apps/mobile/android/app/build/outputs/apk/release -name '*.apk' -type f -print | tee android-apks.txt
+          test -s android-apks.txt
+          while read -r apk; do sha256sum "$apk"; done < android-apks.txt | tee android-sha256.txt
+          command -v apksigner && while read -r apk; do apksigner verify --verbose "$apk"; done < android-apks.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-internal-${{ github.sha }}
+          path: |
+            qorlla-clients/apps/mobile/android/app/build/outputs/apk/release/*.apk
+            android-sha256.txt
+          if-no-files-found: error
+          retention-days: 14

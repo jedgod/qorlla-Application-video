@@ -1,0 +1,1 @@
+{"name":"qorlla-internal-voice-a34-a36","version":"0.1.0","private":true,"type":"module","engines":{"node":">=22"},"scripts":{"test":"node --test test/*.test.js","start":"node src/server.js","worker":"node src/worker.js"},"dependencies":{"fastify":"^5.6.0","jose":"^6.1.0","pg":"^8.16.0","redis":"^5.9.0","ws":"^8.18.0"}}
