@@ -1,0 +1,414 @@
+Qorlla_Aud-Video API Reference
+==============================
+
+This file documents the public REST API exposed by the Qorlla Workplace server so it can be fused into an external application or custom client.
+
+Base URL
+--------
+- Local development: http://localhost:5000
+- Production: use the site URL configured through PUBLIC_URL in the environment
+
+Authentication
+--------------
+- Most account-protected endpoints use cookie-based authentication.
+- The auth cookie name is: qs
+- For browser apps, send cookies with credentials: 'include' or via the browser session automatically.
+- For app-to-app integrations, include the session cookie in the Cookie header if using a signed-in session.
+
+Common response patterns
+------------------------
+- Success: JSON object or array
+- Error: { "error": "message" }
+- Auth required: HTTP 401
+- Validation error: HTTP 400
+- Conflict: HTTP 409
+- Rate limit: HTTP 429
+
+--------------------------------------------------------------------------------
+Health and service status
+--------------------------------------------------------------------------------
+GET /api/health
+Description: Liveness / health check and version info.
+Example response:
+{
+  "status": "ok",
+  "version": "1.0.0",
+  "uptimeSeconds": 123
+}
+
+--------------------------------------------------------------------------------
+Authentication endpoints (mounted under /api/auth)
+--------------------------------------------------------------------------------
+GET /api/auth/config
+Description: Returns whether email verification and encrypted storage are enabled.
+Response:
+{
+  "emailEnabled": true,
+  "encryptedAtRest": false
+}
+
+POST /api/auth/register
+Description: Create a new account.
+Body:
+{
+  "username": "jane",
+  "displayName": "Jane Doe",
+  "password": "StrongPass123",
+  "email": "jane@example.com"
+}
+Notes:
+- username must match /^[a-z0-9][a-z0-9_.-]{2,23}$/
+- password must be at least 8 characters and not equal to username
+- if email is supplied, verification email may be sent
+
+POST /api/auth/login
+Body:
+{
+  "username": "jane",
+  "password": "StrongPass123"
+}
+Success:
+{
+  "user": {
+    "id": "u_xxx",
+    "username": "jane",
+    "displayName": "Jane Doe",
+    "email": "",
+    "emailVerified": false,
+    "recoveryCodesRemaining": 10
+  }
+}
+
+POST /api/auth/logout
+Description: Clears the current signed-in session.
+
+GET /api/auth/me
+Description: Returns the active user profile from the current session.
+Response:
+{
+  "user": {
+    "id": "u_xxx",
+    "username": "jane",
+    "displayName": "Jane Doe",
+    "email": "",
+    "emailVerified": false,
+    "recoveryCodesRemaining": 10
+  }
+}
+
+PATCH /api/auth/me
+Body:
+{
+  "displayName": "Jane D."
+}
+
+POST /api/auth/password
+Description: Change the current password. Requires current password confirmation.
+Body:
+{
+  "currentPassword": "oldpass",
+  "password": "newStrongPass123"
+}
+
+POST /api/auth/email
+Description: Update and verify account email.
+Body:
+{
+  "currentPassword": "oldpass",
+  "email": "new@example.com"
+}
+
+POST /api/auth/verify/resend
+Description: Re-send the verification email.
+
+POST /api/auth/verify
+Body:
+{
+  "token": "<single-use verification token>"
+}
+
+POST /api/auth/forgot
+Description: Request a password reset email.
+Body:
+{
+  "username": "jane"
+}
+
+POST /api/auth/reset
+Body:
+{
+  "token": "<reset token>",
+  "password": "NewStrongPass123"
+}
+
+POST /api/auth/recover
+Description: Recovery using a single-use recovery code.
+Body:
+{
+  "username": "jane",
+  "code": "abcd-efgh-ijkl-mnop"
+}
+
+POST /api/auth/recovery-codes
+Description: Generates a new set of recovery codes and returns them once.
+
+GET /api/auth/users
+Description: Search account directory for starting chats, public user list.
+Query params:
+- q: search string
+Response:
+[
+  { "id": "u_xxx", "username": "jane", "displayName": "Jane Doe" }
+]
+
+--------------------------------------------------------------------------------
+Workplace API (mounted under /api/workplace)
+--------------------------------------------------------------------------------
+All workplace endpoints require authentication unless otherwise noted.
+
+Mail
+----
+GET /api/workplace/mail
+Description: Get mail items for the current user.
+Response: array of message objects.
+
+POST /api/workplace/mail
+Body:
+{
+  "subject": "Hello",
+  "body": "Message content",
+  "to": ["user2", "user2@qorlla.local"]
+}
+Notes:
+- Supports internal mail by username or username@qorlla.local
+- If the user is outside the local system, email may be sent only when the account has a verified email and SMTP is configured
+
+PUT /api/workplace/mail/:id
+PATCH /api/workplace/mail/:id
+Description: Update message flags/folder, e.g. read, starred, folder.
+
+DELETE /api/workplace/mail/:id
+Description: Remove a message.
+
+Notes
+-----
+GET /api/workplace/notes
+POST /api/workplace/notes
+PUT /api/workplace/notes/:id
+DELETE /api/workplace/notes/:id
+Description: Personal notes collection.
+
+Calendar
+--------
+GET /api/workplace/calendar
+POST /api/workplace/calendar
+DELETE /api/workplace/calendar/:id
+Description: Personal calendar items.
+Calendar entry body:
+{
+  "title": "Design Review",
+  "date": "2026-11-15",
+  "start": "09:00",
+  "end": "10:00",
+  "host": "Jane Doe"
+}
+
+Schedule
+--------
+GET /api/workplace/schedule
+POST /api/workplace/schedule
+DELETE /api/workplace/schedule/:id
+Description: Scheduling items. Creating one allocates a live meeting room automatically.
+Body:
+{
+  "title": "Client Meeting",
+  "date": "2026-11-15",
+  "time": "10:00",
+  "duration": 45
+}
+
+Whiteboard
+----------
+GET /api/workplace/whiteboard
+POST /api/workplace/whiteboard
+PUT /api/workplace/whiteboard/:id
+Description: Whiteboard payloads are PNG data URLs.
+Body:
+{
+  "name": "Sprint Board",
+  "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+}
+
+Chat
+----
+GET /api/workplace/chat
+Description: Returns the current user's chat list, folders, apps and personal metadata.
+
+GET /api/workplace/chat/directory
+Description: Lists public chats that the user can join.
+
+POST /api/workplace/chat
+Description: Create a new channel or space.
+Body:
+{
+  "type": "channel",
+  "name": "Product Updates",
+  "public": true,
+  "usernames": ["john", "mary"]
+}
+
+POST /api/workplace/chat/dm
+Description: Start or open a direct message conversation.
+Body:
+{
+  "username": "john"
+}
+
+POST /api/workplace/chat/read-all
+Description: Marks all chats as read for the current user.
+
+POST /api/workplace/chat/:id/join
+Description: Join a public chat.
+
+POST /api/workplace/chat/:id/leave
+Description: Leave a chat.
+
+POST /api/workplace/chat/:id/read
+Description: Mark a chat as read for the current user.
+
+POST /api/workplace/chat/:id/members
+Description: Add a user to a chat.
+Body:
+{
+  "username": "john"
+}
+
+POST /api/workplace/chat/:id/members/remove
+Description: Remove a user from a channel or space. Only creator may do this.
+
+POST /api/workplace/chat/:id/messages
+Description: Send a chat message.
+Body:
+{
+  "text": "Hello team!"
+}
+
+GET /api/workplace/chat/:id/messages
+Description: Get messages for a chat. Supports pagination via query parameters like before and limit.
+Example:
+GET /api/workplace/chat/abc123/messages?before=<messageId>&limit=50
+
+POST /api/workplace/chat/:id/messages/:mid/vote
+Description: Vote on a poll message.
+
+POST /api/workplace/chat/:id/messages/:mid/close
+Description: Close a poll created by the same user.
+
+PATCH /api/workplace/chat/:id
+Description: Update a chat name or public/private visibility.
+
+DELETE /api/workplace/chat/:id
+Description: Delete a chat.
+
+CHAT folder and app endpoints
+----------------------------
+POST /api/workplace/chat-folders
+PATCH /api/workplace/chat-folders/:id
+DELETE /api/workplace/chat-folders/:id
+
+GET /api/workplace/chat-apps
+POST /api/workplace/chat-apps/:id/install
+DELETE /api/workplace/chat-apps/:id
+
+Built-in chat apps include:
+- meeting-bot (/meet)
+- dice-roller (/roll)
+- poll-bot (/poll)
+- reminder-bot (/remind)
+
+--------------------------------------------------------------------------------
+Meeting API
+--------------------------------------------------------------------------------
+GET /api/meetings/validate/:meetingId
+Description: Validate a meeting code.
+Response:
+{
+  "isValid": true,
+  "topic": "Master's Thesis Research I",
+  "status": "scheduled"
+}
+
+POST /api/meetings/create
+Description: Create a new meeting room.
+Body:
+{
+  "topic": "Weekly Sync",
+  "startTime": "2026-11-15T10:00:00.000Z",
+  "durationMinutes": 45,
+  "hostId": "u_xxx",
+  "timezone": "GMT-4:00 (Eastern Time)"
+}
+Response:
+{
+  "message": "Meeting room allocation successful.",
+  "meeting": {
+    "meetingId": "123 4567 8901",
+    "topic": "Weekly Sync",
+    "hostId": "u_xxx",
+    "status": "scheduled"
+  }
+}
+
+--------------------------------------------------------------------------------
+Appointments, docs, notifications, and post-meeting
+--------------------------------------------------------------------------------
+These routes are mounted at the root /api namespace and may be useful in UI integration.
+
+/app-api prefix examples:
+- /api/appointments
+- /api/docs
+- /api/post-meeting
+- /api/notifications
+
+Consult the server implementation for their exact request shapes if you need to plug in those modules.
+
+--------------------------------------------------------------------------------
+Example integration flow
+--------------------------------------------------------------------------------
+1. Register or log in via /api/auth/register or /api/auth/login.
+2. Store the resulting session cookie in the client or use browser cookies.
+3. Call /api/auth/me to confirm the session.
+4. Fetch /api/workplace/chat and other personal lists.
+5. Use /api/meetings/create or /api/workplace/schedule to allocate meeting rooms.
+6. Keep reading /api/workplace/chat/:id/messages for live conversation updates.
+
+Example curl flow
+-----------------
+# Register
+curl -X POST http://localhost:5000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"jane","displayName":"Jane Doe","password":"StrongPass123","email":"jane@example.com"}' \
+  -c cookies.txt
+
+# Check session
+curl http://localhost:5000/api/auth/me -b cookies.txt
+
+# Get chats
+curl http://localhost:5000/api/workplace/chat -b cookies.txt
+
+# Create meeting
+curl -X POST http://localhost:5000/api/meetings/create \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{"topic":"Weekly Sync","hostId":"u_xxx","durationMinutes":45}'
+
+Notes for app integration
+-------------------------
+- The system is cookie-authenticated; browser integration is easiest.
+- For external API clients, treat the session-token cookie as the bearer-like credential.
+- Protect the cookie and never expose it in frontend source if you are building a server-side app.
+- Most data is stored as JSON files under the data directory and is not a formal database layer; this API is designed for a lightweight self-hosted deployment.
+- For production use, protect the backend with reverse proxy TLS and ensure PUBLIC_URL is set correctly.
+
+End of API spec
+---------------

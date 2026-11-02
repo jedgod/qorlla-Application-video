@@ -1,0 +1,718 @@
+TAP version 13
+# Subtest: EventLog: each durable id is applied once, ids without a number always pass, the cursor only grows, memory is bounded
+ok 1 - EventLog: each durable id is applied once, ids without a number always pass, the cursor only grows, memory is bounded
+  ---
+  duration_ms: 3436.9928
+  type: 'test'
+  ...
+# Subtest: collapseReplay: a ring for something that already ended never pops up again; only the latest roster survives; stale invitations go
+ok 2 - collapseReplay: a ring for something that already ended never pops up again; only the latest roster survives; stale invitations go
+  ---
+  duration_ms: 2.1819
+  type: 'test'
+  ...
+# Subtest: the SDK against a real engine: it connects with a device-bound ticket, applies a duplicated event once, and a reconnecting device resumes without replaying finished calls
+ok 3 - the SDK against a real engine: it connects with a device-bound ticket, applies a duplicated event once, and a reconnecting device resumes without replaying finished calls
+  ---
+  duration_ms: 2272.1057
+  type: 'test'
+  ...
+# Subtest: the same device id on the SDK is stable, and an explicit device id wins (a second device is a different id)
+ok 4 - the same device id on the SDK is stable, and an explicit device id wins (a second device is a different id)
+  ---
+  duration_ms: 228.4143
+  type: 'test'
+  ...
+# Subtest: the browser still refuses a late or older event if two replicas ever deliver out of order: no ring for a finished call, no older roster over a newer one
+ok 5 - the browser still refuses a late or older event if two replicas ever deliver out of order: no ring for a finished call, no older roster over a newer one
+  ---
+  duration_ms: 2.3421
+  type: 'test'
+  ...
+# Subtest: valid extensions
+ok 6 - valid extensions
+  ---
+  duration_ms: 2.3197
+  type: 'test'
+  ...
+# Subtest: state machine prevents backwards transitions
+ok 7 - state machine prevents backwards transitions
+  ---
+  duration_ms: 0.3055
+  type: 'test'
+  ...
+# Subtest: signal requires valid UUID
+ok 8 - signal requires valid UUID
+  ---
+  duration_ms: 0.5019
+  type: 'test'
+  ...
+# Subtest: rejects oversize SDP
+ok 9 - rejects oversize SDP
+  ---
+  duration_ms: 0.4095
+  type: 'test'
+  ...
+# Subtest: rejects invalid ICE payload
+ok 10 - rejects invalid ICE payload
+  ---
+  duration_ms: 0.3995
+  type: 'test'
+  ...
+# Subtest: extensions are 3 to 8 digits only
+ok 11 - extensions are 3 to 8 digits only
+  ---
+  duration_ms: 0.3078
+  type: 'test'
+  ...
+# Subtest: every terminal state is final and only ringing can become missed
+ok 12 - every terminal state is final and only ringing can become missed
+  ---
+  duration_ms: 0.4943
+  type: 'test'
+  ...
+# Subtest: call ids and idempotency keys are validated
+ok 13 - call ids and idempotency keys are validated
+  ---
+  duration_ms: 0.3995
+  type: 'test'
+  ...
+# Subtest: signals: SDP must look like SDP; ICE fields are bounded
+ok 14 - signals: SDP must look like SDP; ICE fields are bounded
+  ---
+  duration_ms: 0.6557
+  type: 'test'
+  ...
+# Subtest: only the standard candidate fields are forwarded
+ok 15 - only the standard candidate fields are forwarded
+  ---
+  duration_ms: 3.2176
+  type: 'test'
+  ...
+# Subtest: TURN credentials follow the coturn REST scheme and fail without a secret
+ok 16 - TURN credentials follow the coturn REST scheme and fail without a secret
+  ---
+  duration_ms: 2.5374
+  type: 'test'
+  ...
+# Subtest: ICE servers: nothing third-party by default, TURN only when really configured
+ok 17 - ICE servers: nothing third-party by default, TURN only when really configured
+  ---
+  duration_ms: 0.8708
+  type: 'test'
+  ...
+# Subtest: ICE policy: TURN can be required and relay-only can be forced, and a misconfiguration fails closed instead of silently weakening privacy
+ok 18 - ICE policy: TURN can be required and relay-only can be forced, and a misconfiguration fails closed instead of silently weakening privacy
+  ---
+  duration_ms: 0.6097
+  type: 'test'
+  ...
+# Subtest: emergency numbers are never extensions: they cannot be provisioned, dialled, invited or blocked
+ok 19 - emergency numbers are never extensions: they cannot be provisioned, dialled, invited or blocked
+  ---
+  duration_ms: 0.4645
+  type: 'test'
+  ...
+# Subtest: admin secret comparison is exact and handles any length
+ok 20 - admin secret comparison is exact and handles any length
+  ---
+  duration_ms: 0.6281
+  type: 'test'
+  ...
+# Subtest: limiter allows a burst, refuses the excess, and recovers after the window
+ok 21 - limiter allows a burst, refuses the excess, and recovers after the window
+  ---
+  duration_ms: 0.4775
+  type: 'test'
+  ...
+# Subtest: duration comes from server timestamps and is zero for unanswered calls
+ok 22 - duration comes from server timestamps and is zero for unanswered calls
+  ---
+  duration_ms: 0.2736
+  type: 'test'
+  ...
+# Subtest: ring timeout is bounded
+ok 23 - ring timeout is bounded
+  ---
+  duration_ms: 0.2296
+  type: 'test'
+  ...
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# Subtest: DR-06: two replicas share one truth: events, signaling and device ownership agree across nodes
+ok 24 - DR-06: two replicas share one truth: events, signaling and device ownership agree across nodes
+  ---
+  duration_ms: 10523.9135
+  type: 'test'
+  ...
+# voice_delivery_error Unexpected token 'o', "not json" is not valid JSON
+# Subtest: DR-06: forged or malformed bus messages are dropped, and the envelope rules hold
+ok 25 - DR-06: forged or malformed bus messages are dropped, and the envelope rules hold
+  ---
+  duration_ms: 981.2838
+  type: 'test'
+  ...
+# redis_error Socket closed unexpectedly
+# redis_error Socket closed unexpectedly
+# redis_error Socket closed unexpectedly
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# Subtest: DR-02 + DR-03: a Redis outage loses no durable event; a device that was offline recovers everything on a DIFFERENT node, in order, and only its own
+ok 26 - DR-02 + DR-03: a Redis outage loses no durable event; a device that was offline recovers everything on a DIFFERENT node, in order, and only its own
+  ---
+  duration_ms: 9385.0573
+  type: 'test'
+  ...
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice error 57P01
+# voice_outbox_worker_error 57P01
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# Subtest: DR-08: a signaling node is killed mid-call and a new one takes over: no duplicate call, state intact, the device recovers by claiming a new generation
+ok 27 - DR-08: a signaling node is killed mid-call and a new one takes over: no duplicate call, state intact, the device recovers by claiming a new generation
+  ---
+  duration_ms: 2480.1462
+  type: 'test'
+  ...
+# Subtest: DR-07: a slow consumer is closed instead of letting the send buffer grow, and a full bus cannot grow memory (publishing is awaited and bounded by the outbox)
+ok 28 - DR-07: a slow consumer is closed instead of letting the send buffer grow, and a full bus cannot grow memory (publishing is awaited and bounded by the outbox)
+  ---
+  duration_ms: 2.2986
+  type: 'test'
+  ...
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# Subtest: Redis security: the engine runs as a least-privilege Redis user (publish/subscribe on its one channel only), and that user cannot do anything else
+ok 29 - Redis security: the engine runs as a least-privilege Redis user (publish/subscribe on its one channel only), and that user cannot do anything else
+  ---
+  duration_ms: 2405.4251
+  type: 'test'
+  ...
+# redis_error Socket closed unexpectedly
+# redis_error Socket closed unexpectedly
+# voice_outbox_publish_failed Socket closed unexpectedly
+# voice_outbox_publish_failed Socket closed unexpectedly
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# voice_outbox_publish_failed distributed_bus_unavailable
+# Subtest: ordering end to end: a stream of events for one account, with Redis stopped and restarted in the middle, reaches a socket on the OTHER replica complete and in order
+ok 30 - ordering end to end: a stream of events for one account, with Redis stopped and restarted in the middle, reaches a socket on the OTHER replica complete and in order
+  ---
+  duration_ms: 10245.0835
+  type: 'test'
+  ...
+# Subtest: every outcome, rejoin segments summing to the duration, host transfer, and a timeline that is correct for each person
+ok 31 - every outcome, rejoin segments summing to the duration, host transfer, and a timeline that is correct for each person
+  ---
+  duration_ms: 11679.7678
+  type: 'test'
+  ...
+# Subtest: kicked, missed (invitation expired) and a lease-expired stay are recorded; a suspended invitee is missed
+ok 32 - kicked, missed (invitation expired) and a lease-expired stay are recorded; a suspended invitee is missed
+  ---
+  duration_ms: 4236.9136
+  type: 'test'
+  ...
+# Subtest: privacy and validation: only your own calls, no other account ids, bounded input, no caching
+ok 33 - privacy and validation: only your own calls, no other account ids, bounded input, no caching
+  ---
+  duration_ms: 766.7319
+  type: 'test'
+  ...
+# Subtest: pagination never skips or repeats a call, even when many calls share the same timestamp
+ok 34 - pagination never skips or repeats a call, even when many calls share the same timestamp
+  ---
+  duration_ms: 4436.1795
+  type: 'test'
+  ...
+# Subtest: the history commits with the room change or not at all (a failed transaction leaves no room, segment or timeline entry)
+ok 35 - the history commits with the room change or not at all (a failed transaction leaves no room, segment or timeline entry)
+  ---
+  duration_ms: 670.4486
+  type: 'test'
+  ...
+# Subtest: concurrency: simultaneous joins and leaves leave exactly one closed stay each, never an open one
+ok 36 - concurrency: simultaneous joins and leaves leave exactly one closed stay each, never an open one
+  ---
+  duration_ms: 4326.0995
+  type: 'test'
+  ...
+# Subtest: the migration backfills rooms that existed before it, and running it twice changes nothing
+ok 37 - the migration backfills rooms that existed before it, and running it twice changes nothing
+  ---
+  duration_ms: 151.5625
+  type: 'test'
+  ...
+# Subtest: several workers racing never deliver one account's events out of order, repeat one, or lose one
+ok 38 - several workers racing never deliver one account's events out of order, repeat one, or lose one
+  ---
+  duration_ms: 9629.9452
+  type: 'test'
+  ...
+# Subtest: a failure holds back that account's later events, not anyone else's, and the event is retried
+ok 39 - a failure holds back that account's later events, not anyone else's, and the event is retried
+  ---
+  duration_ms: 791.4081
+  type: 'test'
+  ...
+# Subtest: a poison event is set aside after the retry limit (and stays replayable) so it cannot block the account; a Redis outage is never treated as poison
+ok 40 - a poison event is set aside after the retry limit (and stays replayable) so it cannot block the account; a Redis outage is never treated as poison
+  ---
+  duration_ms: 1678.3465
+  type: 'test'
+  ...
+# Subtest: a publish that hangs times out and is retried; it does not stall the other accounts
+ok 41 - a publish that hangs times out and is retried; it does not stall the other accounts
+  ---
+  duration_ms: 639.2315
+  type: 'test'
+  ...
+# Subtest: a worker that dies holding a claim blocks only its accounts, only until the lock expires; then another worker continues in order
+ok 42 - a worker that dies holding a claim blocks only its accounts, only until the lock expires; then another worker continues in order
+  ---
+  duration_ms: 245.0125
+  type: 'test'
+  ...
+# Subtest: a database hiccup while marking delivered is retried; nothing is duplicated, nothing is lost
+ok 43 - a database hiccup while marking delivered is retried; nothing is duplicated, nothing is lost
+  ---
+  duration_ms: 628.4276
+  type: 'test'
+  ...
+#   drained 480 events for 12 accounts in 3160 ms with 3 workers
+# Subtest: the optimised claim still scales: a large backlog drains in order across workers
+ok 44 - the optimised claim still scales: a large backlog drains in order across workers
+  ---
+  duration_ms: 19448.9545
+  type: 'test'
+  ...
+# Subtest: TLS with the private authority trusted: both ends connect and a message crosses; the link is encrypted (the plaintext port is closed)
+ok 45 - TLS with the private authority trusted: both ends connect and a message crosses; the link is encrypted (the plaintext port is closed)
+  ---
+  duration_ms: 9984.2419
+  type: 'test'
+  ...
+# Subtest: without trust in the authority the link is refused (never silently downgraded); a wrong password is refused over TLS too
+ok 46 - without trust in the authority the link is refused (never silently downgraded); a wrong password is refused over TLS too
+  ---
+  duration_ms: 7441.013
+  type: 'test'
+  ...
+# Subtest: engine level: with the authority trusted the node reports Redis up; without it the node still serves (degraded) but is never connected, and says so
+ok 47 - engine level: with the authority trusted the node reports Redis up; without it the node still serves (degraded) but is never connected, and says so
+  ---
+  duration_ms: 12632.3807
+  type: 'test'
+  ...
+# Subtest: the shipped template is BLOCKED on all 15 gates
+ok 48 - the shipped template is BLOCKED on all 15 gates
+  ---
+  duration_ms: 195.8714
+  type: 'test'
+  ...
+# Subtest: complete, credible evidence only ever reaches "review required", never an approval
+ok 49 - complete, credible evidence only ever reaches "review required", never an approval
+  ---
+  duration_ms: 172.1746
+  type: 'test'
+  ...
+# Subtest: each kind of weak evidence is refused, with the reason
+ok 50 - each kind of weak evidence is refused, with the reason
+  ---
+  duration_ms: 2.9914
+  type: 'test'
+  ...
+# Subtest: the CLI fails safe on a missing or broken file
+ok 51 - the CLI fails safe on a missing or broken file
+  ---
+  duration_ms: 482.4216
+  type: 'test'
+  ...
+# Subtest: DR-01: a call-state change and its events commit atomically, or not at all
+ok 52 - DR-01: a call-state change and its events commit atomically, or not at all
+  ---
+  duration_ms: 3043.1689
+  type: 'test'
+  ...
+# Subtest: the ring timeout and account suspension also write their events in the same transaction
+ok 53 - the ring timeout and account suspension also write their events in the same transaction
+  ---
+  duration_ms: 1781.9029
+  type: 'test'
+  ...
+# Subtest: DR-03: replay returns exactly what the account missed, in order, only its own, and pages correctly
+ok 54 - DR-03: replay returns exactly what the account missed, in order, only its own, and pages correctly
+  ---
+  duration_ms: 1341.5846
+  type: 'test'
+  ...
+# Subtest: DR-04: the outbox delivers at least once; a crash after publishing causes a duplicate with the SAME id and never a second state transition
+ok 55 - DR-04: the outbox delivers at least once; a crash after publishing causes a duplicate with the SAME id and never a second state transition
+  ---
+  duration_ms: 3533.277
+  type: 'test'
+  ...
+# Subtest: a worker that died holding a claim only delays the event: the lock expires and another worker takes it
+ok 56 - a worker that died holding a claim only delays the event: the lock expires and another worker takes it
+  ---
+  duration_ms: 911.2969
+  type: 'test'
+  ...
+# Subtest: DR-05: a replaced device loses signaling authority at once, on every operation; the new generation wins
+ok 57 - DR-05: a replaced device loses signaling authority at once, on every operation; the new generation wins
+  ---
+  duration_ms: 1643.5625
+  type: 'test'
+  ...
+# Subtest: DR-05/06: concurrent claims are serialised: unique generations, one final owner, consistent for every reader
+ok 58 - DR-05/06: concurrent claims are serialised: unique generations, one final owner, consistent for every reader
+  ---
+  duration_ms: 2625.2702
+  type: 'test'
+  ...
+# Subtest: a ringing callee cannot hold a lease before answering, and a lease is not needed to hang up from any device
+ok 59 - a ringing callee cannot hold a lease before answering, and a lease is not needed to hang up from any device
+  ---
+  duration_ms: 374.515
+  type: 'test'
+  ...
+# Subtest: DR-07: when the outbox backlog is over its limit, NEW calls and rooms are refused (fail closed) while existing calls continue; recovery is automatic
+ok 60 - DR-07: when the outbox backlog is over its limit, NEW calls and rooms are refused (fail closed) while existing calls continue; recovery is automatic
+  ---
+  duration_ms: 10785.5749
+  type: 'test'
+  ...
+# Subtest: queue statistics and retention: undelivered events are never pruned, delivered ones are after the window
+ok 61 - queue statistics and retention: undelivered events are never pruned, delivered ones are after the window
+  ---
+  duration_ms: 434.0988
+  type: 'test'
+  ...
+# Subtest: leases expire: a call whose participant stopped renewing ends after the grace period instead of holding both accounts busy
+ok 62 - leases expire: a call whose participant stopped renewing ends after the grace period instead of holding both accounts busy
+  ---
+  duration_ms: 1143.9294
+  type: 'test'
+  ...
+# Subtest: ordering (v1.9 audit blocker): for one account a later-committing writer can never hold a lower event id, so a cursor never skips an event
+ok 63 - ordering (v1.9 audit blocker): for one account a later-committing writer can never hold a lower event id, so a cursor never skips an event
+  ---
+  duration_ms: 9183.3736
+  type: 'test'
+  ...
+# Subtest: v1.9 operations: a server-side consumer applies each event once; strict readiness tells a load balancer where new calls may go
+ok 64 - v1.9 operations: a server-side consumer applies each event once; strict readiness tells a load balancer where new calls may go
+  ---
+  duration_ms: 1138.223
+  type: 'test'
+  ...
+# Subtest: retention setting: unset is the default, 0 is off, 7-3650 is accepted, anything else falls back to the default and says so
+ok 65 - retention setting: unset is the default, 0 is off, 7-3650 is accepted, anything else falls back to the default and says so
+  ---
+  duration_ms: 2126.3631
+  type: 'test'
+  ...
+# Subtest: deleting my record: my stays, my timeline and my copies go; everyone else keeps theirs, unchanged; a second delete finds nothing
+ok 66 - deleting my record: my stays, my timeline and my copies go; everyone else keeps theirs, unchanged; a second delete finds nothing
+  ---
+  duration_ms: 5078.1659
+  type: 'test'
+  ...
+# Subtest: a call in progress, or an invitation still open, can never be deleted; nothing about it changes
+ok 67 - a call in progress, or an invitation still open, can never be deleted; nothing about it changes
+  ---
+  duration_ms: 1108.5729
+  type: 'test'
+  ...
+# Subtest: delete everything: needs ?confirm=all, skips live calls, counts what it did
+ok 68 - delete everything: needs ?confirm=all, skips live calls, counts what it did
+  ---
+  duration_ms: 3218.5804
+  type: 'test'
+  ...
+# Subtest: legal hold: nothing is deleted while it lasts (not by retention, not by a user, and the database itself refuses); a deletion request hides the record and completes when the hold is released
+ok 69 - legal hold: nothing is deleted while it lasts (not by retention, not by a user, and the database itself refuses); a deletion request hides the record and completes when the hold is released
+  ---
+  duration_ms: 3184.7426
+  type: 'test'
+  ...
+# Subtest: retention: only ENDED calls past the period go (in batches); live rooms, young calls, one-to-one calls and the outbox are untouched; 0 means keep
+ok 70 - retention: only ENDED calls past the period go (in batches); live rooms, young calls, one-to-one calls and the outbox are untouched; 0 means keep
+  ---
+  duration_ms: 6549.8112
+  type: 'test'
+  ...
+# voice: VOICE_HISTORY_RETENTION_DAYS="banana" is not 0 or 7-3650: using 365
+# Subtest: scheduled cleanup: the engine deletes expired history by itself, reports it in the metrics, and an operator can trigger it
+ok 71 - scheduled cleanup: the engine deletes expired history by itself, reports it in the metrics, and an operator can trigger it
+  ---
+  duration_ms: 2495.9364
+  type: 'test'
+  ...
+# Subtest: concurrency: simultaneous deletions, reads, and live room activity never error, never leak a half-deleted record, and never delete a call that is still going
+ok 72 - concurrency: simultaneous deletions, reads, and live room activity never error, never leak a half-deleted record, and never delete a call that is still going
+  ---
+  duration_ms: 21689.2678
+  type: 'test'
+  ...
+# Subtest: the audit gap: after any mix of room operations, the history agrees with the rooms (random sequence, invariants checked after every step)
+ok 73 - the audit gap: after any mix of room operations, the history agrees with the rooms (random sequence, invariants checked after every step)
+  ---
+  duration_ms: 32290.5972
+  type: 'test'
+  ...
+# Subtest: the engine works end to end as the restricted role: provisioning, calls, rooms, events, replay, outbox, maintenance
+ok 74 - the engine works end to end as the restricted role: provisioning, calls, rooms, events, replay, outbox, maintenance
+  ---
+  duration_ms: 5727.9812
+  type: 'test'
+  ...
+# Subtest: the restricted role cannot change the schema, truncate, drop, or read the certification record
+ok 75 - the restricted role cannot change the schema, truncate, drop, or read the certification record
+  ---
+  duration_ms: 934.3539
+  type: 'test'
+  ...
+# Subtest: a room: host creates and invites, invitees are told durably, join and roster, busy rules, and mesh signaling only between joined members
+ok 76 - a room: host creates and invites, invitees are told durably, join and roster, busy rules, and mesh signaling only between joined members
+  ---
+  duration_ms: 6401.1006
+  type: 'test'
+  ...
+# Subtest: host rules: invite (cap and blocks), kick, host transfer, end, decline, and the room closes itself when empty
+ok 77 - host rules: invite (cap and blocks), kick, host transfer, end, decline, and the room closes itself when empty
+  ---
+  duration_ms: 8483.2027
+  type: 'test'
+  ...
+# Subtest: the seat is fenced like a call: a replaced device loses authority, peers learn the new generation, and the old device cannot renew
+ok 78 - the seat is fenced like a call: a replaced device loses authority, peers learn the new generation, and the old device cannot renew
+  ---
+  duration_ms: 2364.3177
+  type: 'test'
+  ...
+# Subtest: inputs are validated, blocks are honoured, suspension removes a member, and nobody can be pulled in against their will
+ok 79 - inputs are validated, blocks are honoured, suspension removes a member, and nobody can be pulled in against their will
+  ---
+  duration_ms: 2508.3413
+  type: 'test'
+  ...
+# Subtest: invitations nobody answers become missed, and a seat whose device stopped renewing is dropped after the grace period
+ok 80 - invitations nobody answers become missed, and a seat whose device stopped renewing is dropped after the grace period
+  ---
+  duration_ms: 2315.648
+  type: 'test'
+  ...
+# Subtest: concurrent joins cannot exceed the room size, and one account cannot be in two rooms at once
+ok 81 - concurrent joins cannot exceed the room size, and one account cannot be in two rooms at once
+  ---
+  duration_ms: 3655.0803
+  type: 'test'
+  ...
+# voice_outbox_worker_error Cannot use a pool after calling end on the pool
+# Subtest: provisioning is server-to-server only: the secret is required, constant-time checked, and the feature is off when it is not configured
+ok 82 - provisioning is server-to-server only: the secret is required, constant-time checked, and the feature is off when it is not configured
+  ---
+  duration_ms: 2072.5355
+  type: 'test'
+  ...
+# Subtest: a browser token is verified properly: signature, issuer, audience, expiry and subject
+ok 83 - a browser token is verified properly: signature, issuer, audience, expiry and subject
+  ---
+  duration_ms: 91.158
+  type: 'test'
+  ...
+# Subtest: CORS: only the exact allowed origins; a stranger origin gets nothing
+ok 84 - CORS: only the exact allowed origins; a stranger origin gets nothing
+  ---
+  duration_ms: 36.6099
+  type: 'test'
+  ...
+# Subtest: WebSocket tickets: one use, bound to the origin, short-lived, and never needed in a URL
+ok 85 - WebSocket tickets: one use, bound to the origin, short-lived, and never needed in a URL
+  ---
+  duration_ms: 359.3495
+  type: 'test'
+  ...
+# Subtest: a complete call: ring, answer, relayed signaling in the right order only, hang up; history, usage and diagnostics reflect it
+ok 86 - a complete call: ring, answer, relayed signaling in the right order only, hang up; history, usage and diagnostics reflect it
+  ---
+  duration_ms: 5724.8557
+  type: 'test'
+  ...
+# Subtest: input is validated and rejected before it reaches the database; blocks apply
+ok 87 - input is validated and rejected before it reaches the database; blocks apply
+  ---
+  duration_ms: 668.8491
+  type: 'test'
+  ...
+# Subtest: an unanswered call becomes missed on its own and both people are told
+ok 88 - an unanswered call becomes missed on its own and both people are told
+  ---
+  duration_ms: 978.2023
+  type: 'test'
+  ...
+# Subtest: connections are limited: three devices per person, and a flood closes the socket
+ok 89 - connections are limited: three devices per person, and a flood closes the socket
+  ---
+  duration_ms: 966.7181
+  type: 'test'
+  ...
+# Subtest: suspending an account ends its call, closes its sockets and stops new tickets
+ok 90 - suspending an account ends its call, closes its sockets and stops new tickets
+  ---
+  duration_ms: 1441.0172
+  type: 'test'
+  ...
+# Subtest: ICE servers: self-hosted only, TURN credentials are per account and short-lived
+ok 91 - ICE servers: self-hosted only, TURN credentials are per account and short-lived
+  ---
+  duration_ms: 26.9616
+  type: 'test'
+  ...
+# Subtest: extensions are allocated without collisions, even when requested at the same moment
+ok 92 - extensions are allocated without collisions, even when requested at the same moment
+  ---
+  duration_ms: 2573.5931
+  type: 'test'
+  ...
+# Subtest: many callers ringing the same person: exactly one gets through, the rest are busy
+ok 93 - many callers ringing the same person: exactly one gets through, the rest are busy
+  ---
+  duration_ms: 1128.5446
+  type: 'test'
+  ...
+# Subtest: one caller dialling many people at once: exactly one call is placed
+ok 94 - one caller dialling many people at once: exactly one call is placed
+  ---
+  duration_ms: 702.7291
+  type: 'test'
+  ...
+# Subtest: two people calling each other at the same moment: one call, not two
+ok 95 - two people calling each other at the same moment: one call, not two
+  ---
+  duration_ms: 474.2382
+  type: 'test'
+  ...
+# Subtest: a retried request (same idempotency key) returns the same call and never rings twice; a key reused for someone else is a conflict
+ok 96 - a retried request (same idempotency key) returns the same call and never rings twice; a key reused for someone else is a conflict
+  ---
+  duration_ms: 538.7682
+  type: 'test'
+  ...
+# Subtest: blocks work in both directions, can be added and removed, and disabled people cannot call or be called
+ok 97 - blocks work in both directions, can be added and removed, and disabled people cannot call or be called
+  ---
+  duration_ms: 829.1804
+  type: 'test'
+  ...
+# Subtest: only the right person can change a call, and a stranger cannot tell it exists
+ok 98 - only the right person can change a call, and a stranger cannot tell it exists
+  ---
+  duration_ms: 665.213
+  type: 'test'
+  ...
+# Subtest: answering and hanging up at the same moment leaves one consistent final state; two answers: one wins
+ok 99 - answering and hanging up at the same moment leaves one consistent final state; two answers: one wins
+  ---
+  duration_ms: 839.0889
+  type: 'test'
+  ...
+# Subtest: unanswered calls become missed once, with an audit event, and the people are free again
+ok 100 - unanswered calls become missed once, with an audit event, and the people are free again
+  ---
+  duration_ms: 485.5581
+  type: 'test'
+  ...
+# Subtest: disabling a person ends their live call
+ok 101 - disabling a person ends their live call
+  ---
+  duration_ms: 447.1838
+  type: 'test'
+  ...
+# Subtest: history lists both extensions, usage counts server-measured seconds, and nothing leaks between accounts
+ok 102 - history lists both extensions, usage counts server-measured seconds, and nothing leaks between accounts
+  ---
+  duration_ms: 768.1322
+  type: 'test'
+  ...
+# Subtest: a WebSocket ticket can be used exactly once, even when twenty connections race for it
+ok 103 - a WebSocket ticket can be used exactly once, even when twenty connections race for it
+  ---
+  duration_ms: 441.1782
+  type: 'test'
+  ...
+# Subtest: origin allowlist uses exact match
+ok 104 - origin allowlist uses exact match
+  ---
+  duration_ms: 2.1196
+  type: 'test'
+  ...
+# Subtest: ticket hash is deterministic but not the token
+ok 105 - ticket hash is deterministic but not the token
+  ---
+  duration_ms: 1.0873
+  type: 'test'
+  ...
+# Subtest: ticket is random and DB receives hash only
+ok 106 - ticket is random and DB receives hash only
+  ---
+  duration_ms: 1.4428
+  type: 'test'
+  ...
+# Subtest: consume rejects malformed and mismatched origin before DB
+ok 107 - consume rejects malformed and mismatched origin before DB
+  ---
+  duration_ms: 0.5882
+  type: 'test'
+  ...
+# Subtest: atomic consume returns account only when DB returns one row
+ok 108 - atomic consume returns account only when DB returns one row
+  ---
+  duration_ms: 0.7297
+  type: 'test'
+  ...
+# Subtest: a ticket is refused for a disallowed origin before anything is stored
+ok 109 - a ticket is refused for a disallowed origin before anything is stored
+  ---
+  duration_ms: 1.0459
+  type: 'test'
+  ...
+# Subtest: too many open tickets are refused
+ok 110 - too many open tickets are refused
+  ---
+  duration_ms: 0.6176
+  type: 'test'
+  ...
+# Subtest: two tickets are never equal
+ok 111 - two tickets are never equal
+  ---
+  duration_ms: 0.6556
+  type: 'test'
+  ...
+# Subtest: the ticket is read from the WebSocket subprotocol first, then (unless disabled) the query string
+ok 112 - the ticket is read from the WebSocket subprotocol first, then (unless disabled) the query string
+  ---
+  duration_ms: 2.1927
+  type: 'test'
+  ...
+1..112
+# tests 112
+# suites 0
+# pass 112
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 121834.0129

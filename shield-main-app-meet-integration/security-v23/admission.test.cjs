@@ -1,0 +1,14 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { createAdmissionGuard } = require('./admission.cjs');
+const allow = createAdmissionGuard({ enabled: true, client: { consumeMedia: async b => ({ valid: true, capabilities: ['meeting.media.join'] }) } });
+const deny = createAdmissionGuard({ enabled: true, client: { consumeMedia: async () => { throw Error('offline'); } } });
+test('disabled shield fails closed', async () => { const g = createAdmissionGuard({ client: { consumeMedia: async () => ({}) } }); assert.equal((await g({meetingId:'m',guest:true})).allow,false); });
+test('guest without media credential denied', async () => assert.equal((await allow({meetingId:'m',guest:true})).allow,false));
+test('guest credential can pass shield', async () => assert.equal((await allow({meetingId:'m',guest:true,mediaCredential:'opaque'})).allow,true));
+test('shield unavailable denies', async () => assert.equal((await deny({meetingId:'m',guest:true,mediaCredential:'opaque'})).allow,false));
+test('unverified account denied', async () => assert.equal((await allow({meetingId:'m',guest:false,account:'u1',verified:false})).allow,false));
+test('verified account passes initial gate', async () => assert.equal((await allow({meetingId:'m',guest:false,account:'u1',verified:true})).allow,true));
+test('guest cannot impersonate account', async () => assert.equal((await allow({meetingId:'m',guest:true,account:'u1',mediaCredential:'opaque'})).allow,false));
+test('shield valid false denied', async () => { const g=createAdmissionGuard({enabled:true,client:{consumeMedia:async()=>({valid:false})}});assert.equal((await g({meetingId:'m',guest:true,mediaCredential:'opaque'})).allow,false); });

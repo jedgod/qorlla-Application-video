@@ -1,0 +1,93 @@
+// One command for local development: Qorlla Meet (its own PostgreSQL in Docker) + the main app, wired together.
+//   npm run dev:stack            main app http://localhost:3200   Meet http://localhost:3300
+//   MAIN_PORT=3100 MEET_PORT=3000 npm run dev:stack     (use other ports)
+//   DEV_SEED_FROM=<folder> npm run dev:stack            first start only: copy an existing data folder (e.g. the project's data/) so those accounts exist here.
+//                                                       The ORIGINAL folder is never written to; the stack works on its own copy in .dev-stack/data.
+// Needs Docker (for Meet's PostgreSQL) and the dependencies installed in this folder and in qorlla-meet-video/. State lives in .dev-stack/ (git-ignored).
+import { spawn, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const MAIN_PORT = Number(process.env.MAIN_PORT || 3200), MEET_PORT = Number(process.env.MEET_PORT || 3300), DB_PORT = Number(process.env.MEET_DB_PORT || 35432);
+const DB = 'qorlla-meet-dev-db', state = path.join(root, '.dev-stack'); fs.mkdirSync(path.join(state, 'data'), { recursive: true });
+if (process.env.DEV_SEED_FROM && !fs.existsSync(path.join(state, 'data', 'auth', 'users.json'))) {
+  const from = path.resolve(process.env.DEV_SEED_FROM);
+  if (!fs.existsSync(path.join(from, 'auth', 'users.json'))) { console.error('DEV_SEED_FROM has no auth/users.json: ' + from); process.exit(1); }
+  fs.cpSync(from, path.join(state, 'data'), { recursive: true, filter: (src) => !/passcode-lockout|limits.json$/.test(src) });   // copy accounts and content; start with clean sign-in throttles
+  console.log('Seeded .dev-stack/data from a copy of ' + from);
+}
+// This PC's addresses on the local network (private ranges only, virtual adapters left out): where other devices can reach the stack once the firewall allows it.
+const LAN = Object.entries(os.networkInterfaces()).filter(([n]) => !/vethernet|wsl|loopback|virtual|vmware|docker/i.test(n)).flatMap(([, a]) => a || []).filter((a) => a.family === 'IPv4' && !a.internal && /^(10.|192.168.|172.(1[6-9]|2d|3[01]).)/.test(a.address)).map((a) => a.address);
+const docker = (...a) => spawnSync('docker', a, { encoding: 'utf8' });
+
+// secrets are generated once and kept, so restarts keep working (Meet encrypts host-recovery material with the escrow key)
+const secretsFile = path.join(state, 'secrets.json');
+const secrets = fs.existsSync(secretsFile) ? JSON.parse(fs.readFileSync(secretsFile, 'utf8')) : { jwt: crypto.randomBytes(24).toString('hex'), bridge: crypto.randomBytes(24).toString('hex'), escrow: crypto.randomBytes(32).toString('base64'), dbPassword: crypto.randomBytes(12).toString('hex') };
+if (!secrets.recordingKey) secrets.recordingKey = crypto.randomBytes(32).toString('base64');
+if (!secrets.voiceAdmin) secrets.voiceAdmin = crypto.randomBytes(32).toString('base64url');          // Qorlla Voice: server-to-server provisioning secret (browsers never see it)
+fs.writeFileSync(secretsFile, JSON.stringify(secrets), { mode: 0o600 });
+
+if (docker('version').status !== 0) { console.error('Docker is required for Meet\'s database. Start Docker Desktop and try again.'); process.exit(1); }
+const exists = docker('ps', '-a', '--filter', `name=^${DB}$`, '--format', '{{.Names}}').stdout.trim() === DB;
+if (!exists) {
+  const r = docker('run', '-d', '--name', DB, '-e', 'POSTGRES_USER=qorlla', '-e', `POSTGRES_PASSWORD=${secrets.dbPassword}`, '-e', 'POSTGRES_DB=qorlla_meet', '-p', `127.0.0.1:${DB_PORT}:5432`, '-v', 'qorlla-meet-dev-data:/var/lib/postgresql/data', 'postgres:16-alpine');
+  if (r.status !== 0) { console.error(r.stderr); process.exit(1); }
+} else if (docker('ps', '--filter', `name=^${DB}$`, '--format', '{{.Names}}').stdout.trim() !== DB) docker('start', DB);
+for (let i = 0; i < 60 && docker('exec', DB, 'pg_isready', '-U', 'qorlla', '-d', 'qorlla_meet').status !== 0; i++) spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},1000)']);
+spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},1500)']);
+const has = docker('exec', DB, 'psql', '-U', 'qorlla', '-d', 'qorlla_meet', '-tAc', "select to_regclass('public.meetings') is not null").stdout.trim();
+if (has !== 't') {
+  for (const f of ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql']) {
+    const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', f)), encoding: 'utf8' });
+    if (r.status !== 0) { console.error('Meet schema step failed:', f, r.stderr); process.exit(1); }
+  }
+}
+
+// idempotent additions are applied on EVERY start, so an existing development database picks them up
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_7_recording_consent.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Recording-consent migration failed:', r.stderr); process.exit(1); } }
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_8_collab.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Collaboration migration failed:', r.stderr); process.exit(1); } }
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_9_recording_storage.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Recording-storage migration failed:', r.stderr); process.exit(1); } }
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_10_admission.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Admission migration failed:', r.stderr); process.exit(1); } }
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_11_history.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('History migration failed:', r.stderr); process.exit(1); } }
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_12_limit.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Meeting-limit migration failed:', r.stderr); process.exit(1); } }
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_13_phone.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Phone migration failed:', r.stderr); process.exit(1); } }
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_14_telephony.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Telephony migration failed:', r.stderr); process.exit(1); } }
+{ const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(root, 'qorlla-meet-video', 'sql', 'v4_15_telephony_features.sql')), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Telephony features migration failed:', r.stderr); process.exit(1); } }
+
+const children = [];
+// Qorlla Voice (self-hosted internet calls): dependencies once, then its tables, then the service on :4600. Internal calls only: no carrier, no Twilio.
+const VOICE_PORT = Number(process.env.VOICE_PORT || 4600), voiceDir = path.join(root, 'qorlla-voice-engine');
+if (!fs.existsSync(path.join(voiceDir, 'node_modules'))) { console.log('Installing Qorlla Voice dependencies (first run)...'); const r = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--no-audit', '--no-fund'], { cwd: voiceDir, encoding: 'utf8', shell: process.platform === 'win32' }); if (r.status !== 0) { console.error('Voice dependency install failed:', r.stderr || r.stdout); process.exit(1); } }
+for (const f of fs.readdirSync(path.join(voiceDir, 'sql')).filter((x) => /^\d{3}_.+\.sql$/.test(x)).sort()) {            // every migration, in order (all are idempotent)
+  const r = spawnSync('docker', ['exec', '-i', DB, 'psql', '-v', 'ON_ERROR_STOP=1', '-q', '-U', 'qorlla', '-d', 'qorlla_meet'], { input: fs.readFileSync(path.join(voiceDir, 'sql', f)), encoding: 'utf8' });
+  if (r.status !== 0) { console.error('Voice migration ' + f + ' failed:', r.stderr); process.exit(1); }
+}
+const appOrigins = [...new Set(['http://localhost:' + MAIN_PORT, 'http://127.0.0.1:' + MAIN_PORT, ...LAN.map((ip) => 'http://' + ip + ':' + MAIN_PORT)])].join(',');
+const run = (name, cmd, args, cwd, env) => { const c = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(c); for (const s of [c.stdout, c.stderr]) s.on('data', (d) => process.stdout.write(String(d).split('\n').filter(Boolean).map((l) => `[${name}] ${l}\n`).join(''))); c.on('exit', (code) => { console.log(`[${name}] exited (${code})`); }); return c; };
+// Email: with no SMTP_URL set, a local catcher takes the mail so invitations can be seen at http://localhost:3225/ (nothing is delivered to real inboxes).
+// Set SMTP_URL, SMTP_FROM and PUBLIC_URL (a real provider) before `npm run dev:stack` for real delivery.
+const MAIL_VIEW = Number(process.env.MAIL_VIEW_PORT || 3225), SMTP_PORT = Number(process.env.MAIL_PORT || 1025);
+const mailEnv = process.env.SMTP_URL ? {} : { SMTP_URL: `smtp://127.0.0.1:${SMTP_PORT}`, SMTP_FROM: process.env.SMTP_FROM || 'Qorlla <no-reply@qorlla.local>', PUBLIC_URL: process.env.PUBLIC_URL || `http://localhost:${MAIN_PORT}` };
+if (!process.env.SMTP_URL) run('mail', process.execPath, ['scripts/dev-mail.cjs'], root, { MAIL_PORT: String(SMTP_PORT), MAIL_VIEW_PORT: String(MAIL_VIEW) });
+run('meet', process.execPath, ['server/index.js'], path.join(root, 'qorlla-meet-video'), { PORT: String(MEET_PORT), DATABASE_URL: `postgres://qorlla:${secrets.dbPassword}@127.0.0.1:${DB_PORT}/qorlla_meet`, JWT_SECRET: secrets.jwt, QORLLA_BRIDGE_SECRET: secrets.bridge, RECOVERY_ESCROW_KEY: secrets.escrow, NODE_ENV: 'development', UPGRADE_URL: process.env.UPGRADE_URL || `http://localhost:${MAIN_PORT}/pricing?reason=meeting-limit`, RECORDING_MASTER_KEYS: JSON.stringify({ dev1: secrets.recordingKey }), RECORDING_ACTIVE_KEY_ID: 'dev1', RECORDING_STORE_DIR: path.join(state, 'recordings'), RETURN_ORIGINS: process.env.RETURN_ORIGINS || [`http://localhost:${MAIN_PORT}`, `http://127.0.0.1:${MAIN_PORT}`, ...LAN.map((ip) => `http://${ip}:${MAIN_PORT}`)].join(',') });
+run('voice', process.execPath, ['src/server.mjs'], voiceDir, { PORT: String(VOICE_PORT), DATABASE_URL: `postgres://qorlla:${secrets.dbPassword}@127.0.0.1:${DB_PORT}/qorlla_meet`, VOICE_JWKS_URL: `http://127.0.0.1:${MAIN_PORT}/.well-known/voice-jwks.json`, VOICE_JWT_ISSUER: 'qorlla-main', VOICE_JWT_AUDIENCE: 'qorlla-voice', VOICE_ALLOWED_ORIGIN: process.env.VOICE_ALLOWED_ORIGIN || appOrigins, VOICE_ADMIN_SECRET: secrets.voiceAdmin, REDIS_URL: process.env.VOICE_REDIS_URL || '', VOICE_REQUIRE_TURN: process.env.VOICE_REQUIRE_TURN || '', VOICE_RELAY_ONLY: process.env.VOICE_RELAY_ONLY || '', TURN_SHARED_SECRET: process.env.TURN_SHARED_SECRET || '', TURN_URLS: process.env.TURN_URLS || '', STUN_URL: process.env.STUN_URL || '' });
+run('main', process.execPath, ['server.js'], root, { PORT: String(MAIN_PORT), QORLLA_VOICE_ENABLED: 'true', VOICE_ADMIN_SECRET: secrets.voiceAdmin, VOICE_PORT: String(VOICE_PORT), VOICE_INTERNAL_URL: `http://127.0.0.1:${VOICE_PORT}`, DATA_DIR: path.join(state, 'data'), MEET_PROBE_URL: `http://127.0.0.1:${MEET_PORT}`, QORLLA_BRIDGE_SECRET: secrets.bridge, ...mailEnv });
+console.log(`\nQorlla is starting:\n  app   http://localhost:${MAIN_PORT}/qorlla.html\n  Meet  http://localhost:${MEET_PORT}/   (New meeting opens it automatically)
+  Voice http://localhost:${VOICE_PORT}/healthz   (internet calls between Qorlla accounts; extensions are shown in Phone)
+  LAN   ${LAN.length ? LAN.map((ip) => `http://${ip}:${MAIN_PORT}/qorlla.html`).join('  ') + '   (other devices; allow the ports once: scripts/windows-firewall.ps1; cameras need https there)' : 'no local-network address found'}
+  mail  ${process.env.SMTP_URL ? 'real SMTP from SMTP_URL' : 'http://localhost:' + MAIL_VIEW + '/   (development catcher: emails are shown here, not delivered)'}\n  Ctrl+C stops both. Meet's database keeps its data in the Docker volume qorlla-meet-dev-data.\n`);
+const stop = () => { for (const c of children) try { c.kill(); } catch (e) { /* already gone */ } process.exit(0); };
+process.on('SIGINT', stop); process.on('SIGTERM', stop);

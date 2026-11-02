@@ -1,0 +1,1792 @@
+{
+  "config": {
+    "argv": [
+      "C:\\nvm4w\\nodejs\\node.exe",
+      "C:\\Users\\cj_wo\\qorlla-v46\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "-c",
+      "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\playwright.config.cjs"
+    ],
+    "configFile": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\playwright.config.cjs",
+    "rootDir": "C:/Users/cj_wo/qorlla-v46/qorlla-portal/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/cj_wo/qorlla-v46/qorlla-portal/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/cj_wo/qorlla-v46/qorlla-portal/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.spec\\.js/"
+        ],
+        "timeout": 90000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "chromium",
+        "testDir": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e",
+        "snapshotDir": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e",
+        "testIgnore": [],
+        "testMatch": {},
+        "timeout": 90000,
+        "use": {
+          "baseURL": "https://localhost:28443",
+          "ignoreHTTPSErrors": true,
+          "headless": true,
+          "trace": "off",
+          "screenshot": "only-on-failure",
+          "permissions": [
+            "camera",
+            "microphone"
+          ],
+          "launchOptions": {
+            "args": [
+              "--use-fake-ui-for-media-stream",
+              "--use-fake-device-for-media-stream",
+              "--ignore-certificate-errors"
+            ]
+          },
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.4 Safari/537.36",
+          "viewport": {
+            "width": 1280,
+            "height": 720
+          },
+          "screen": {
+            "width": 1920,
+            "height": 1080
+          },
+          "deviceScaleFactor": 1,
+          "isMobile": false,
+          "hasTouch": false,
+          "defaultBrowserType": "chromium"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": "chromium"
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "C:\\Users\\cj_wo\\qorlla-v46\\cert\\e2e-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "billing-launch.spec.js",
+      "file": "billing-launch.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "plan changes, usage and the platform console",
+          "file": "billing-launch.spec.js",
+          "line": 21,
+          "column": 6,
+          "specs": [
+            {
+              "title": "upgrade now, schedule a downgrade, cancel it; usage panel says no pay-as-you-go prices exist",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5092,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [
+                        {
+                          "text": "(node:15168) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.\n"
+                        }
+                      ],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:10:20.438Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3e56ab4afe196916fef3-c0837ea0c76e94be2710",
+              "file": "billing-launch.spec.js",
+              "line": 22,
+              "column": 3
+            },
+            {
+              "title": "the platform console is invisible to ordinary users and works for the configured admin: overview, health, refund, sales workflow, kill switch",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 7575,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:10:25.916Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3e56ab4afe196916fef3-29c2ba742ae30c3a92d9",
+              "file": "billing-launch.spec.js",
+              "line": 42,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "guest-meeting.spec.js",
+      "file": "guest-meeting.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "guest access through the HTTPS origin",
+          "file": "guest-meeting.spec.js",
+          "line": 22,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Welcome -> Join -> Pre-Join -> meeting over HTTPS; the guest cookie is Secure, HttpOnly and SameSite=Strict",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1485,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:10:33.645Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "69bb01aa8283a41b5cbe-b4223c809908ee01cee3",
+              "file": "guest-meeting.spec.js",
+              "line": 23,
+              "column": 3
+            },
+            {
+              "title": "direct URL and WebSocket bypass attempts fail: no session, wrong-meeting session, and a passcode field on the socket",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 438,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:10:35.147Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "69bb01aa8283a41b5cbe-040306a36290f0fd9d85",
+              "file": "guest-meeting.spec.js",
+              "line": 35,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "durable passcode lockout in PostgreSQL",
+          "file": "guest-meeting.spec.js",
+          "line": 45,
+          "column": 6,
+          "specs": [
+            {
+              "title": "five failures lock the meeting; the lock is stored in PostgreSQL and survives a MAIN container restart; the host can lift it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 240000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 13241,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:10:35.603Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "69bb01aa8283a41b5cbe-5b1bfe9a9fa13a092e66",
+              "file": "guest-meeting.spec.js",
+              "line": 46,
+              "column": 3
+            },
+            {
+              "title": "the DEPLOYED application role is append-only on security events (effective privileges, inherited ones included) and the passcode never reaches the database",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 7663,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:10:48.874Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "69bb01aa8283a41b5cbe-5eb680c170cbf3e23d25",
+              "file": "guest-meeting.spec.js",
+              "line": 68,
+              "column": 3
+            },
+            {
+              "title": "the recovery allowance used BEFORE a MAIN restart is still counted AFTER it: two lifts, restart, exactly one more succeeds, concurrent requests cannot exceed it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 240000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 13314,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:10:56.567Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "69bb01aa8283a41b5cbe-6db2a9934e7c8238b545",
+              "file": "guest-meeting.spec.js",
+              "line": 82,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "meet-route.spec.js",
+      "file": "meet-route.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Meet through the single HTTPS origin (/meet/)",
+          "file": "meet-route.spec.js",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Meet UI loads under /meet/, redirects /meet, and its assets and API are prefix-aware",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 840,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:09.918Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce5c1c54e6f164fe0294-6eb4c3395512a33b946e",
+              "file": "meet-route.spec.js",
+              "line": 5,
+              "column": 3
+            },
+            {
+              "title": "internal bridge, recovery and readiness endpoints are not reachable even with the right secret header",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 48,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:10.794Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce5c1c54e6f164fe0294-76f60d54a9874ec1c788",
+              "file": "meet-route.spec.js",
+              "line": 12,
+              "column": 3
+            },
+            {
+              "title": "two browsers meet under /meet/: websocket upgrade on the prefixed path, chat both ways, passcode, refresh and rejoin",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4429,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:10.874Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce5c1c54e6f164fe0294-b54712f582b2dbeaf070",
+              "file": "meet-route.spec.js",
+              "line": 19,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "meeting-ai.spec.js",
+      "file": "meeting-ai.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "AI Meeting Intelligence - meeting to report in the browser",
+          "file": "meeting-ai.spec.js",
+          "line": 26,
+          "column": 6,
+          "specs": [
+            {
+              "title": "host consents, builds a report from the real Meet chat, assigns work, shares, exports, and revokes - with permissions enforced throughout",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 20254,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:15.345Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3cdb2a36bd6cdc58a199-1ef777a1dd264da3cbc7",
+              "file": "meeting-ai.spec.js",
+              "line": 27,
+              "column": 3
+            },
+            {
+              "title": "plan limit: the Basic plan allows 3 AI reports a month and the dashboard explains it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4105,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:35.629Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3cdb2a36bd6cdc58a199-d25bdf856588f6d74317",
+              "file": "meeting-ai.spec.js",
+              "line": 109,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "navigation.spec.js",
+      "file": "navigation.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "navigation - links, keyboard, mobile",
+          "file": "navigation.spec.js",
+          "line": 6,
+          "column": 6,
+          "specs": [
+            {
+              "title": "every internal link on the pricing page, the portal and the apps menu resolves (no dead product/sidebar links)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2439,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:39.772Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce7c070a851ea64285fd-9d47a65cbb289310f60d",
+              "file": "navigation.spec.js",
+              "line": 7,
+              "column": 3
+            },
+            {
+              "title": "[I07] header and product links on the pricing page are same-origin routes to the portal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 746,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:42.244Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce7c070a851ea64285fd-aa0d1617abf704aa13a0",
+              "file": "navigation.spec.js",
+              "line": 21,
+              "column": 3
+            },
+            {
+              "title": "[I08][I09] sidebar items work from the keyboard and open real portal pages",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5445,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:43.020Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce7c070a851ea64285fd-399795d51ab4c857b5af",
+              "file": "navigation.spec.js",
+              "line": 27,
+              "column": 3
+            },
+            {
+              "title": "apps menu opens, items are reachable by Tab, and Escape closes it and restores focus",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 894,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:48.496Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce7c070a851ea64285fd-a9e7388bcc78176ee6af",
+              "file": "navigation.spec.js",
+              "line": 39,
+              "column": 3
+            },
+            {
+              "title": "highlights expand/collapse by mouse and keyboard",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1006,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:49.421Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce7c070a851ea64285fd-cb72e9d1764b0860c278",
+              "file": "navigation.spec.js",
+              "line": 46,
+              "column": 3
+            },
+            {
+              "title": "phone layout: pricing and portal pages do not overflow horizontally and purchase controls stay reachable",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1947,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:50.455Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce7c070a851ea64285fd-8fdb18da225e934d3ce1",
+              "file": "navigation.spec.js",
+              "line": 53,
+              "column": 5
+            },
+            {
+              "title": "tablet layout: pricing and portal pages do not overflow horizontally and purchase controls stay reachable",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2045,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:52.429Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce7c070a851ea64285fd-765a7fa7dcc096af148c",
+              "file": "navigation.spec.js",
+              "line": 53,
+              "column": 5
+            },
+            {
+              "title": "legacy pages keep working: /index.html (built-in meetings), /chat.html, /qorlla.html, /login.html",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1587,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:54.506Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce7c070a851ea64285fd-a00a67e9b55a96165ac5",
+              "file": "navigation.spec.js",
+              "line": 65,
+              "column": 3
+            },
+            {
+              "title": "[I01][I02][I03] the catalogue is same-origin only: no CORS grants, GET-only, private endpoints closed",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 90,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:56.120Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ce7c070a851ea64285fd-4eeb855acf1a13e1dded",
+              "file": "navigation.spec.js",
+              "line": 77,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "phone.spec.js",
+      "file": "phone.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Phone and AI Receptionist (telephony OFF)",
+          "file": "phone.spec.js",
+          "line": 7,
+          "column": 6,
+          "specs": [
+            {
+              "title": "the phone page states that telephony is off, shows an empty history, and public webhooks refuse to run",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2772,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:56.251Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ee7f6a4e5a7ac00640cb-ec25427b8847600b788e",
+              "file": "phone.spec.js",
+              "line": 8,
+              "column": 3
+            },
+            {
+              "title": "receptionist: create a profile, set business hours, enable it, add rules, and book an appointment against the hours",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5940,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:11:59.058Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ee7f6a4e5a7ac00640cb-f0ae32660855e1f51f2e",
+              "file": "phone.spec.js",
+              "line": 28,
+              "column": 3
+            },
+            {
+              "title": "the workspace owner sees the manager-only phone sections",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 987,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:05.033Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ee7f6a4e5a7ac00640cb-70b633835d6a9b052870",
+              "file": "phone.spec.js",
+              "line": 59,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "portal.spec.js",
+      "file": "portal.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "portal - real MAIN sign-in, workspaces, authorization",
+          "file": "portal.spec.js",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "signed-out visitors get a sign-in prompt on private pages and the API answers 401",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 664,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:06.057Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "a59c075e2277509753eb-562c12f5749016b228e5",
+              "file": "portal.spec.js",
+              "line": 5,
+              "column": 3
+            },
+            {
+              "title": "sign up in MAIN -> portal onboarding -> workspace -> notes with plan quota; second user cannot see the data",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3426,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:06.750Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "a59c075e2277509753eb-34d4c1ddc513c7b826a5",
+              "file": "portal.spec.js",
+              "line": 12,
+              "column": 3
+            },
+            {
+              "title": "plan limit is enforced and explained in the UI",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3370,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:10.206Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "a59c075e2277509753eb-1c692b1bd5747e589cd6",
+              "file": "portal.spec.js",
+              "line": 30,
+              "column": 3
+            },
+            {
+              "title": "an expired portal token is renewed silently from the live MAIN session; sign-out ends access at once",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2013,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:13.605Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "a59c075e2277509753eb-55f126ccd70765a82cd4",
+              "file": "portal.spec.js",
+              "line": 39,
+              "column": 3
+            },
+            {
+              "title": "tampered / garbage portal cookies are refused (and MAIN has no session to renew from)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 700,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:15.646Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "a59c075e2277509753eb-b2a39799120549bc9c04",
+              "file": "portal.spec.js",
+              "line": 49,
+              "column": 3
+            },
+            {
+              "title": "billing page: owner sees plan and invoices area; billing details stay hidden from plain members",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 908,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:16.373Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "a59c075e2277509753eb-1dc6cae635f205c16089",
+              "file": "portal.spec.js",
+              "line": 55,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "pricing.spec.js",
+      "file": "pricing.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "pricing page - prices come only from the server catalogue",
+          "file": "pricing.spec.js",
+          "line": 7,
+          "column": 6,
+          "specs": [
+            {
+              "title": "[I04][I05] displayed prices equal the database-backed API (monthly and annual), with computed saving",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 738,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:17.316Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5c974b4cd75371cdc64-97eca4ed0e0ef301f005",
+              "file": "pricing.spec.js",
+              "line": 10,
+              "column": 3
+            },
+            {
+              "title": "[I06] annual/monthly switch works with the mouse and the keyboard and exposes its state",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 872,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:18.082Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5c974b4cd75371cdc64-8eda7f4edcf20ec20644",
+              "file": "pricing.spec.js",
+              "line": 26,
+              "column": 3
+            },
+            {
+              "title": "seat count changes the displayed total",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 966,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:18.983Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5c974b4cd75371cdc64-fd5ed5cae52fbbecd6f3",
+              "file": "pricing.spec.js",
+              "line": 34,
+              "column": 3
+            },
+            {
+              "title": "[I13] a price change in PostgreSQL shows on the page after reload; nothing is cached or hard-coded",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2092,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:19.979Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5c974b4cd75371cdc64-769ca5f7240922ca7d33",
+              "file": "pricing.spec.js",
+              "line": 41,
+              "column": 3
+            },
+            {
+              "title": "[I14] annual billing is disabled (not invented) when a plan has no annual price row",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1569,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:22.146Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5c974b4cd75371cdc64-d59a61bff59c506929ba",
+              "file": "pricing.spec.js",
+              "line": 49,
+              "column": 3
+            },
+            {
+              "title": "[I15] catalogue unavailable => explicit \"unavailable\" state, buying disabled, NO fallback prices; Retry recovers",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 847,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:23.743Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5c974b4cd75371cdc64-53036c17e5db88675328",
+              "file": "pricing.spec.js",
+              "line": 58,
+              "column": 3
+            },
+            {
+              "title": "when the server says checkout is not available, purchase buttons are disabled with an explanation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 708,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:24.619Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5c974b4cd75371cdc64-41561c477f01ba466b22",
+              "file": "pricing.spec.js",
+              "line": 70,
+              "column": 3
+            },
+            {
+              "title": "[I12] Enterprise \"Contact sales\" creates a real inquiry in PostgreSQL (and the honeypot does not)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1352,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:25.355Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5c974b4cd75371cdc64-c4edb294e0fac24c9d6a",
+              "file": "pricing.spec.js",
+              "line": 77,
+              "column": 3
+            },
+            {
+              "title": "signed-out visitors who click Buy are sent to sign in and come back to pricing",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 968,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:26.737Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5c974b4cd75371cdc64-b07bbf74debbc94a9748",
+              "file": "pricing.spec.js",
+              "line": 90,
+              "column": 3
+            },
+            {
+              "title": "[I10] signed-in Buy creates a SERVER-SIDE checkout with the database price; the redirect alone activates nothing; a verified webhook does",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6326,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:27.736Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e5c974b4cd75371cdc64-cc2c09a039c21fc910ab",
+              "file": "pricing.spec.js",
+              "line": 96,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "workspace.spec.js",
+      "file": "workspace.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "notes, documents and QorllaMate",
+          "file": "workspace.spec.js",
+          "line": 11,
+          "column": 6,
+          "specs": [
+            {
+              "title": "notes are private by default, searchable and filed in notebooks; a colleague in the same workspace sees none of it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3266,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:34.103Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "469843e17c99c5f3017e-8eeb26a8a9f492dbfde2",
+              "file": "workspace.spec.js",
+              "line": 12,
+              "column": 3
+            },
+            {
+              "title": "documents: create, edit with version history and restore, optimistic-concurrency conflict, and sharing as read-only",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6255,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:37.400Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "469843e17c99c5f3017e-cfd595d12f56bc7fe7d5",
+              "file": "workspace.spec.js",
+              "line": 39,
+              "column": 3
+            },
+            {
+              "title": "sheets and slides edit and persist; AI draft is labelled and private (test-double model)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3502,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:43.685Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "469843e17c99c5f3017e-4e5261b1a03b4488f73c",
+              "file": "workspace.spec.js",
+              "line": 65,
+              "column": 3
+            },
+            {
+              "title": "QorllaMate proposes, the user approves, and only then does the note exist; email stays blocked (test-double model)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3794,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T08:12:47.220Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "469843e17c99c5f3017e-e4f51df1e32294eb7ab3",
+              "file": "workspace.spec.js",
+              "line": 78,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-27T08:10:18.595Z",
+    "duration": 162533.682,
+    "expected": 44,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

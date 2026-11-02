@@ -1,0 +1,30 @@
+{
+  "name": "qorlla-portal",
+  "version": "4.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "dev": "node --watch server/index.mjs",
+    "check": "node --check server/index.mjs && node --check server/app.mjs && node --check server/auth.mjs && node --check server/billing/service.mjs && node --check server/billing/stripe.mjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:unit": "node --test tests/unit/"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "docx": "^9.14.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jose": "^5.9.6",
+    "pdfkit": "^0.20.2",
+    "pg": "^8.13.1",
+    "zod": "^4.6.7"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "jszip": "^3.10.2"
+  }
+}

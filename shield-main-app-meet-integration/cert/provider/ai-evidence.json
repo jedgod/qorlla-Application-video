@@ -1,0 +1,18 @@
+{
+  "phase": "P1",
+  "status": "BLOCKED",
+  "finished": "2026-10-27T01:50:16.047Z",
+  "reason": "missing inputs: AI_LLM_API_KEY, AI_LLM_MODEL, AI_PRICE_IN_PER_MTOK, AI_PRICE_OUT_PER_MTOK, AI_DPA_APPROVED",
+  "requires": "a provider account and key, the chosen model id, its price per million input/output tokens, and written confirmation that a data-processing agreement is in place (AI_DPA_APPROVED=yes). Only synthetic data is sent regardless.",
+  "thresholds": {
+    "schemaValidRate": 1,
+    "actionItemRecall": 0.8,
+    "actionItemPrecision": 0.85,
+    "decisionRecall": 0.8,
+    "ownerAccuracy": 0.9,
+    "injectionCanaryLeaks": 0,
+    "inventedDueRate": 0.05,
+    "p95LatencyMs": 60000,
+    "maxFailureRate": 0.05
+  }
+}

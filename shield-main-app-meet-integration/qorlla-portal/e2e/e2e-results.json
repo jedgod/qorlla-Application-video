@@ -1,0 +1,694 @@
+{
+  "config": {
+    "argv": [
+      "C:\\nvm4w\\nodejs\\node.exe",
+      "C:\\Users\\cj_wo\\qorlla-v46\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "-c",
+      "qorlla-portal/e2e/playwright.config.cjs",
+      "meet-recording-storage"
+    ],
+    "configFile": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\playwright.config.cjs",
+    "rootDir": "C:/Users/cj_wo/qorlla-v46/qorlla-portal/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/cj_wo/qorlla-v46/qorlla-portal/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/cj_wo/qorlla-v46/qorlla-portal/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.spec\\.js/"
+        ],
+        "timeout": 90000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e\\test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "chromium",
+        "testDir": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e",
+        "snapshotDir": "C:\\Users\\cj_wo\\qorlla-v46\\qorlla-portal\\e2e",
+        "testIgnore": [],
+        "testMatch": {},
+        "timeout": 90000,
+        "use": {
+          "baseURL": "http://localhost:3310",
+          "ignoreHTTPSErrors": true,
+          "headless": true,
+          "trace": "off",
+          "screenshot": "only-on-failure",
+          "permissions": [
+            "camera",
+            "microphone"
+          ],
+          "launchOptions": {
+            "args": [
+              "--use-fake-ui-for-media-stream",
+              "--use-fake-device-for-media-stream",
+              "--auto-select-desktop-capture-source=Entire screen",
+              "--ignore-certificate-errors"
+            ]
+          },
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.4 Safari/537.36",
+          "viewport": {
+            "width": 1280,
+            "height": 720
+          },
+          "screen": {
+            "width": 1920,
+            "height": 1080
+          },
+          "deviceScaleFactor": 1,
+          "isMobile": false,
+          "hasTouch": false,
+          "defaultBrowserType": "chromium"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": "chromium"
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "e2e-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "meet-recording-storage.spec.js",
+      "file": "meet-recording-storage.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "v4.0.3 recording compliance and secure storage (R01-R18)",
+          "file": "meet-recording-storage.spec.js",
+          "line": 63,
+          "column": 6,
+          "specs": [
+            {
+              "title": "R01-R03: notice with enforced retention, refusal leaves nothing behind, no media accepted before authorization",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3745,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:31:22.903Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-3ac518a1aae3ba58fa61",
+              "file": "meet-recording-storage.spec.js",
+              "line": 64,
+              "column": 3
+            },
+            {
+              "title": "R04: a late joiner is neither recorded nor accepted into the recording until they consent",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 10195,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:31:26.917Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-56cd99f3ada66c823e15",
+              "file": "meet-recording-storage.spec.js",
+              "line": 76,
+              "column": 3
+            },
+            {
+              "title": "R04b: the recorder leaves out anyone who has not consented (picture and sound), whatever the server timing",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 150000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 12349,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:31:37.130Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-0e596d25cba97cd859ae",
+              "file": "meet-recording-storage.spec.js",
+              "line": 90,
+              "column": 3
+            },
+            {
+              "title": "R05: withdrawal stops acceptance at once; what was captured while everyone consented is kept, byte for byte",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4844,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:31:49.492Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-17a9461bb532836cc50a",
+              "file": "meet-recording-storage.spec.js",
+              "line": 103,
+              "column": 3
+            },
+            {
+              "title": "R06: AI consent is separate from recording consent, per purpose, append-only and never implied",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5209,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:31:54.355Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-a7bdcbf39fc65d328430",
+              "file": "meet-recording-storage.spec.js",
+              "line": 114,
+              "column": 3
+            },
+            {
+              "title": "R07: media is encrypted at rest (no plaintext on disk), authenticated, and tampering is detected and audited",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3810,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:31:59.576Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-bb0dc5cbbf5bbbd85aa3",
+              "file": "meet-recording-storage.spec.js",
+              "line": 127,
+              "column": 3
+            },
+            {
+              "title": "R08-R09: only the host gets short-lived single-use links; guests, other meetings, bad and expired links are refused; every access is audited",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 150000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 11599,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:32:03.402Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-125800c46675b608e35f",
+              "file": "meet-recording-storage.spec.js",
+              "line": 140,
+              "column": 3
+            },
+            {
+              "title": "R10: retention expires on schedule - media erased, key shredded, link gone, audited",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 36395,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:32:15.014Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-938108c821744d7be91b",
+              "file": "meet-recording-storage.spec.js",
+              "line": 157,
+              "column": 3
+            },
+            {
+              "title": "R11: the host can delete: storage is cleaned, the key is gone, others cannot, a running recording cannot be deleted",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4368,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:32:51.431Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-726bd03507ed62b5bb0f",
+              "file": "meet-recording-storage.spec.js",
+              "line": 168,
+              "column": 3
+            },
+            {
+              "title": "R12: legal hold blocks deletion and retention expiry until released (admin-only)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 150000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 42676,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:32:55.828Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-6b24fdebf3ec21c48773",
+              "file": "meet-recording-storage.spec.js",
+              "line": 179,
+              "column": 3
+            },
+            {
+              "title": "R13: a recorder that disappears mid-recording is recovered: what was received is finalized, flagged partial, and still decrypts",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 18101,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:33:38.528Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-714749953716b24d9df1",
+              "file": "meet-recording-storage.spec.js",
+              "line": 192,
+              "column": 3
+            },
+            {
+              "title": "R14: the real recorder survives an upload outage: queued chunks are retried in order, nothing is lost or duplicated",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 16199,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:33:56.647Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-dc5325867e67b12bad17",
+              "file": "meet-recording-storage.spec.js",
+              "line": 204,
+              "column": 3
+            },
+            {
+              "title": "R15: finalization that never completes is finished by the server (no stuck recordings)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 12711,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:34:12.861Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-fad7084cf944ccc18003",
+              "file": "meet-recording-storage.spec.js",
+              "line": 219,
+              "column": 3
+            },
+            {
+              "title": "R16: concurrent requests - exactly one recording request and one start win",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3344,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:34:25.589Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-7b76ed432ed316173eb2",
+              "file": "meet-recording-storage.spec.js",
+              "line": 229,
+              "column": 3
+            },
+            {
+              "title": "R17: unauthorized upload and malformed input are refused",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 8577,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:34:28.948Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-3e38028f7d8d1c351858",
+              "file": "meet-recording-storage.spec.js",
+              "line": 242,
+              "column": 3
+            },
+            {
+              "title": "R18: the audit trail is complete, ordered and hash-chained; guests cannot read it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4046,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-28T07:34:37.539Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "04bf15d55531bc49a2ee-09b305aab49af38ddaf4",
+              "file": "meet-recording-storage.spec.js",
+              "line": 255,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-28T07:31:21.855Z",
+    "duration": 204213.99000000002,
+    "expected": 16,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

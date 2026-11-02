@@ -1,0 +1,249 @@
+services:
+  workspace-signaling-engine:
+    container_name: zoom_core_backend_instance
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${MAIN_HOST_PORT:-5000}:5000"   # local access only; the public entry point is the nginx service
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      # Optional. Put real values in a .env file next to this one (see .env.example).
+      - PUBLIC_URL=${PUBLIC_URL:-}
+      - ENCRYPT_KEY=${ENCRYPT_KEY:-}
+      - ENCRYPT_KEY_OLD=${ENCRYPT_KEY_OLD:-}
+      - SMTP_URL=${SMTP_URL:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      - MAIL_DAILY_LIMIT=${MAIL_DAILY_LIMIT:-20}
+      - CHAT_MAX_MESSAGES=${CHAT_MAX_MESSAGES:-500}
+      - DATABASE_URL=postgres://qorlla_app:${QORLLA_APP_DB_PASSWORD}@main-db:5432/qorlla_main
+      - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:-}
+      - MEET_BASE_URL=${MEET_BASE_URL:-http://host.docker.internal:3000}
+      - MEET_PUBLIC_URL=${MEET_PUBLIC_URL:-}
+      - MAIN_AUTH_ISSUER=${PUBLIC_ORIGIN:-}
+      - PORTAL_AUTH_AUDIENCE=qorlla-workplace
+      - PORTAL_INTROSPECTION_SECRET=${PORTAL_INTROSPECTION_SECRET:-}
+    depends_on:
+      main-db:
+        condition: service_healthy
+    volumes:
+      - workspace-data:/usr/src/app/data
+    restart: always
+    networks:
+      - cluster-mesh-network
+
+  main-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: qorlla_main
+      POSTGRES_PASSWORD: ${MAIN_DB_PASSWORD:?set MAIN_DB_PASSWORD in .env}
+      POSTGRES_DB: qorlla_main
+      QORLLA_APP_DB_PASSWORD: ${QORLLA_APP_DB_PASSWORD:?set QORLLA_APP_DB_PASSWORD in .env}
+      PORTAL_DB_PASSWORD: ${PORTAL_DB_PASSWORD:?set PORTAL_DB_PASSWORD in .env}
+    volumes:
+      - main-db-data:/var/lib/postgresql/data
+      - ./meet-sync/sql/001.sql:/docker-entrypoint-initdb.d/001.sql:ro
+      - ./meet-sync/sql/002_recovery.sql:/docker-entrypoint-initdb.d/002_recovery.sql:ro
+      - ./meet-sync/sql/003_passcode.sql:/docker-entrypoint-initdb.d/003_passcode.sql:ro
+      - ./meet-sync/sql/004_ack_retry.sql:/docker-entrypoint-initdb.d/004_ack_retry.sql:ro
+      - ./meet-sync/sql/005_roles.sh:/docker-entrypoint-initdb.d/005_roles.sh:ro
+      - ./meet-sync/sql/006_meeting_directory.sql:/docker-entrypoint-initdb.d/007_meeting_directory.sql:ro
+      - ./meet-sync/sql/008_passcode_lockout.sql:/docker-entrypoint-initdb.d/008_passcode_lockout.sql:ro
+      - ./qorlla-portal/sql/001_portal.sql:/docker-entrypoint-initdb.d/010_portal_001.sql:ro
+      - ./qorlla-portal/sql/002_billing.sql:/docker-entrypoint-initdb.d/011_portal_002_billing.sql:ro
+      - ./qorlla-portal/sql/004_meeting_ai.sql:/docker-entrypoint-initdb.d/012_portal_004_meeting_ai.sql:ro
+      - ./qorlla-portal/sql/005_phone.sql:/docker-entrypoint-initdb.d/012b_portal_005_phone.sql:ro
+      - ./qorlla-portal/sql/006_workspace_tools.sql:/docker-entrypoint-initdb.d/012c_portal_006_workspace_tools.sql:ro
+      - ./qorlla-portal/sql/007_billing_launch.sql:/docker-entrypoint-initdb.d/012d_portal_007_billing_launch.sql:ro
+      - ./qorlla-portal/sql/003_roles.sh:/docker-entrypoint-initdb.d/013_portal_roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qorlla_main"]
+      interval: 5s
+      retries: 10
+    restart: always
+    networks:
+      - cluster-mesh-network
+
+  qorlla-portal:
+    build:
+      context: ./qorlla-portal
+    environment:
+      - NODE_ENV=production
+      - PORT=5500
+      - DATABASE_URL=postgres://qorlla_portal_app:${PORTAL_DB_PASSWORD}@main-db:5432/qorlla_main
+      - PORTAL_ALLOWED_ORIGIN=${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN (https://your.domain) in .env}
+      - MAIN_AUTH_ISSUER=${PUBLIC_ORIGIN}
+      - MAIN_AUTH_JWKS_URL=http://workspace-signaling-engine:5000/.well-known/jwks.json
+      - MAIN_INTROSPECTION_URL=http://workspace-signaling-engine:5000/api/auth/internal/session
+      - PORTAL_INTROSPECTION_SECRET=${PORTAL_INTROSPECTION_SECRET:?set PORTAL_INTROSPECTION_SECRET (32+ chars) in .env}
+      - MEET_INTERNAL_URL=http://meet:3000
+      - MEET_READ_SECRET=${MEET_READ_SECRET:-}
+      - AI_LLM_API_KEY=${AI_LLM_API_KEY:-}
+      - AI_LLM_MODEL=${AI_LLM_MODEL:-}
+      - PLATFORM_ADMIN_USER_IDS=${PLATFORM_ADMIN_USER_IDS:-}
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
+      - TELEPHONY_ENABLED=${TELEPHONY_ENABLED:-false}
+      - TELEPHONY_COMPLIANCE_ACK=${TELEPHONY_COMPLIANCE_ACK:-}
+      - TELEPHONY_ALLOW_INTERNATIONAL=${TELEPHONY_ALLOW_INTERNATIONAL:-false}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - TWILIO_API_KEY_SID=${TWILIO_API_KEY_SID:-}
+      - TWILIO_API_KEY_SECRET=${TWILIO_API_KEY_SECRET:-}
+      - TWILIO_TWIML_APP_SID=${TWILIO_TWIML_APP_SID:-}
+      - AI_TRANSCRIPT_RETENTION_DAYS=${AI_TRANSCRIPT_RETENTION_DAYS:-90}
+      - TRUST_PROXY_HOPS=1
+      - BILLING_ENABLED=${BILLING_ENABLED:-false}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - BILLING_LIVE_AUTHORIZED=${BILLING_LIVE_AUTHORIZED:-}
+      - SALES_IP_PEPPER=${SALES_IP_PEPPER:-}
+    depends_on:
+      main-db:
+        condition: service_healthy
+      workspace-signaling-engine:
+        condition: service_healthy
+    restart: always
+    networks:
+      - cluster-mesh-network
+
+  meet-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: qorlla
+      POSTGRES_PASSWORD: ${MEET_DB_PASSWORD:?set MEET_DB_PASSWORD in .env}
+      POSTGRES_DB: qorlla_meet
+      MEET_APP_DB_PASSWORD: ${MEET_APP_DB_PASSWORD:?set MEET_APP_DB_PASSWORD in .env}
+    volumes:
+      - meet-db-data:/var/lib/postgresql/data
+      - ./qorlla-meet-video/sql:/meet-sql:ro
+      - ./qorlla-meet-video/sql/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - ./qorlla-meet-video/sql/v2_migration.sql:/docker-entrypoint-initdb.d/002_v2.sql:ro
+      - ./qorlla-meet-video/sql/v3_migration.sql:/docker-entrypoint-initdb.d/003_v3.sql:ro
+      - ./qorlla-meet-video/sql/v3_1_to_v3_5_migration.sql:/docker-entrypoint-initdb.d/004_v3_5.sql:ro
+      - ./qorlla-meet-video/sql/002_recovery.sql:/docker-entrypoint-initdb.d/005_recovery.sql:ro
+      - ./qorlla-meet-video/sql/v4_7_recording_consent.sql:/docker-entrypoint-initdb.d/005b_recording_consent.sql:ro
+      - ./qorlla-meet-video/sql/v4_8_collab.sql:/docker-entrypoint-initdb.d/005c_collab.sql:ro
+      - ./qorlla-meet-video/sql/v4_9_recording_storage.sql:/docker-entrypoint-initdb.d/005d_recording_storage.sql:ro
+      - ./qorlla-meet-video/sql/v4_10_admission.sql:/docker-entrypoint-initdb.d/005e_admission.sql:ro
+      - ./qorlla-meet-video/sql/v4_11_history.sql:/docker-entrypoint-initdb.d/005f_history.sql:ro
+      - ./qorlla-meet-video/sql/v4_12_limit.sql:/docker-entrypoint-initdb.d/005g_limit.sql:ro
+      - ./qorlla-meet-video/sql/v4_13_phone.sql:/docker-entrypoint-initdb.d/005h_phone.sql:ro
+      - ./qorlla-meet-video/sql/v4_14_telephony.sql:/docker-entrypoint-initdb.d/005i_telephony.sql:ro
+      - ./qorlla-meet-video/sql/v4_15_telephony_features.sql:/docker-entrypoint-initdb.d/005j_telephony_features.sql:ro
+      - ./qorlla-meet-video/sql/initdb-app-role.sh:/docker-entrypoint-initdb.d/006_app_role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qorlla -d qorlla_meet"]
+      interval: 5s
+      retries: 10
+    restart: always
+    networks:
+      - cluster-mesh-network
+
+  meet:
+    build:
+      context: ./qorlla-meet-video
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgres://qorlla_meet_app:${MEET_APP_DB_PASSWORD}@meet-db:5432/qorlla_meet
+      - JWT_SECRET=${MEET_JWT_SECRET:?set MEET_JWT_SECRET (32+ chars) in .env}
+      - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:?set QORLLA_BRIDGE_SECRET (32+ chars) in .env}
+      - RECOVERY_ESCROW_KEY=${RECOVERY_ESCROW_KEY:?set RECOVERY_ESCROW_KEY (base64 of 32 bytes) in .env}
+      - CORS_ORIGIN=${PUBLIC_ORIGIN:-}
+      - TRUST_PROXY_HOPS=1
+      - MEET_READ_SECRET=${MEET_READ_SECRET:-}
+      - ICE_SERVERS_JSON=${ICE_SERVERS_JSON:-[{"urls":"stun:stun.l.google.com:19302"}]}
+      # recording storage (v4.0.3): without a master key recording cannot start (503). Keep the keys backed up separately from the recordings.
+      - RECORDING_MASTER_KEYS=${RECORDING_MASTER_KEYS:-}
+      - RECORDING_ACTIVE_KEY_ID=${RECORDING_ACTIVE_KEY_ID:-}
+      - RECORDING_ADMIN_SECRET=${RECORDING_ADMIN_SECRET:-}
+      - RECORDING_STORE_DIR=/var/lib/qorlla/recordings
+    volumes:
+      - meet-recordings:/var/lib/qorlla/recordings
+    ports:
+      - "127.0.0.1:${MEET_HOST_PORT:-3000}:3000"
+    depends_on:
+      meet-db:
+        condition: service_healthy
+    restart: always
+    networks:
+      - cluster-mesh-network
+
+  meet-sync-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "meet-sync/src/worker.mjs"]
+    healthcheck:
+      disable: true # the image healthcheck probes the web port, which the worker does not serve
+    environment:
+      - DATABASE_URL=postgres://qorlla_app:${QORLLA_APP_DB_PASSWORD}@main-db:5432/qorlla_main
+      - MEET_BASE_URL=${MEET_BASE_URL:-http://meet:3000}
+      - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:-}
+      - QORLLA_VAULT_KEY=${QORLLA_VAULT_KEY:-}
+      - MEET_SYNC_LEASE_SECONDS=${MEET_SYNC_LEASE_SECONDS:-90}
+      - MEET_SYNC_BACKOFF_BASE_SECONDS=${MEET_SYNC_BACKOFF_BASE_SECONDS:-5}
+      - MEET_SYNC_ACK_BACKOFF_BASE_SECONDS=${MEET_SYNC_ACK_BACKOFF_BASE_SECONDS:-5}
+    depends_on:
+      main-db:
+        condition: service_healthy
+    restart: always
+    networks:
+      - cluster-mesh-network
+
+  dashboard-client-proxy:
+    container_name: zoom_frontend_client_layer
+    image: nginx:alpine
+    depends_on:
+      workspace-signaling-engine:
+        condition: service_healthy
+      qorlla-portal:
+        condition: service_healthy
+      meet:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - MAIN_UPSTREAM=${MAIN_UPSTREAM:-workspace-signaling-engine:5000}
+      - PORTAL_UPSTREAM=${PORTAL_UPSTREAM:-qorlla-portal:5500}
+      - MEET_UPSTREAM=${MEET_UPSTREAM:-meet:3000}
+      - NGINX_ENVSUBST_FILTER=_UPSTREAM
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      retries: 5
+    ports:
+      # Host ports are configurable so the proxy never has to fight for 8080 (PROXY_*_PORT in .env)
+      - "${PROXY_MAIN_PORT:-8080}:80"
+      - "${PROXY_MEET_PORT:-8081}:81"
+      - "${PROXY_MAIN_TLS_PORT:-8443}:443"
+      - "${PROXY_MEET_TLS_PORT:-8444}:444"
+    volumes:
+      - ./Qorlla-Logo.jpg:/usr/share/nginx/html/Qorlla-Logo.jpg:ro
+      - ./deploy/nginx/snippets:/etc/nginx/snippets:ro
+      - ./deploy/nginx/templates:/etc/nginx/templates:ro
+      - ./Web_qorlla-pricing:/usr/share/nginx/pricing:ro
+      - ${PROXY_TLS_CONF:-./deploy/nginx/tls-disabled.conf}:/etc/nginx/conf.d/tls.conf:ro
+      - ${PROXY_CERT_DIR:-./deploy/certs}:/etc/nginx/certs:ro
+      - ./index.html:/usr/share/nginx/html/index.html:ro
+      - ./qorlla.html:/usr/share/nginx/html/qorlla.html:ro
+      - ./chat.html:/usr/share/nginx/html/chat.html:ro
+      - ./login.html:/usr/share/nginx/html/login.html:ro
+      - ./assets:/usr/share/nginx/html/assets:ro
+      - ./i18n.js:/usr/share/nginx/html/i18n.js:ro
+      - ./locales:/usr/share/nginx/html/locales:ro
+      - ${PROXY_HTTP_CONF:-./nginx.conf}:/etc/nginx/conf.d/default.conf:ro
+    restart: always
+    networks:
+      - cluster-mesh-network
+
+volumes:
+  workspace-data:
+  main-db-data:
+  meet-db-data:
+  meet-recordings:
+
+networks:
+  cluster-mesh-network:
+    driver: bridge

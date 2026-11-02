@@ -1,0 +1,1 @@
+{"name":"qorlla-meet-v3-6-closure","private":true,"type":"module","scripts":{"check":"node --check integration/bridge.mjs && node --check integration/sync-queue.mjs && node --check integration/backfill.mjs && node --check integration/worker.mjs"},"dependencies":{"pg":"^8.13.0"}}

@@ -1,0 +1,80 @@
+# Zoom Workspace Core Platform Continuous Integration Pipeline
+# Target Scope: Automated Dependency Provisioning, Container Orchestration, & Playwright Testing Matrix
+
+name: Zoom Workspace CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master, 'release/**' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    name: Build Cluster & Execute Integration Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Checkout application codebase repositories
+      - name: Checkout Source Code Repository
+        uses: actions/checkout@v4
+
+      # 2) Initialize uniform Node runtime environments
+      - name: Setup Node.js Build Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # 3) Provision core package dependencies
+      - name: Install Application and Testing Dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      # 4) Audit configuration setups and syntax compilation checks
+      - name: Run Basic Lint & Syntax Validation Checks
+        run: |
+          for f in server.js appointments.js docs.js post-meeting.js notifications.js workplace.js auth.js store.js mailer.js; do node --check "$f" || exit 1; done
+
+      # 5) Build and orchestrate isolated container runtime engines
+      - name: Initialize Docker Compose Multi-Container Cluster
+        run: |
+          docker compose up --build -d
+          echo "Awaiting virtual service cluster boot sequences..."
+          sleep 5
+
+      # 6) Validate operational environment readiness via HTTP endpoints
+      - name: Verify Backend Signaling Gateway Telemetry
+        run: |
+          curl --silent --fail http://localhost:5000/api/meetings/validate/858%209833%203712 || exit 1
+          curl --silent --fail http://localhost:8080 || exit 1
+
+      # 7) Execute the complete Playwright E2E Integration Suite
+      - name: Execute Playwright Automated Integration Test Matrix
+        run: |
+          npx playwright test
+        env:
+          CI: true
+          NODE_ENV: test
+
+      # 8) Aggregate system runtime outputs on error triggers
+      - name: Capture Internal Container Log Traces on Failure
+        if: failure()
+        run: |
+          docker compose logs --tail=100
+
+      # 9) Archive structural output summaries for verification visual reviews
+      - name: Archive Integration Test Output Artifact Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-execution-report
+          path: playwright-report/
+          retention-days: 30
+
+      # 10) Teardown transient resource limits cleanly
+      - name: Teardown Active Cluster Containers
+        if: always()
+        run: |
+          docker compose down --volumes

@@ -1,0 +1,79 @@
+{
+  "generated": "2026-10-27T01:50:17.080Z",
+  "branch": "feature/qorlla-workplace-v4.6-provider-certification",
+  "headSha": "5b2a334c9f3a9ffbe15ca0192197c17dbb9f886f",
+  "baseSourceSha": "e9878003952817b2216c251506e639b34bbe1238",
+  "baseEvidenceCommit": "5499d0a",
+  "decision": "FAIL",
+  "gates": [
+    {
+      "id": "P1",
+      "name": "Real AI provider: contracts, structured output, quality thresholds, injection, cost",
+      "status": "BLOCKED",
+      "reason": "missing inputs: AI_LLM_API_KEY, AI_LLM_MODEL, AI_PRICE_IN_PER_MTOK, AI_PRICE_OUT_PER_MTOK, AI_DPA_APPROVED",
+      "evidence": "cert/provider/ai-evidence.json"
+    },
+    {
+      "id": "P2",
+      "name": "Twilio: number, inbound/outbound authorised calls, signed webhooks, voicemail, handoff, usage",
+      "status": "BLOCKED",
+      "reason": "missing inputs: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_TEST_FROM, TWILIO_TEST_TO, PORTAL_PUBLIC_URL, PORTAL_OWNER_COOKIE, PORTAL_OWNER_CSRF, PORTAL_WORKSPACE_ID, DATABASE_URL, TWILIO_INTERACTIVE",
+      "evidence": "cert/provider/twilio-evidence.json"
+    },
+    {
+      "id": "P3",
+      "name": "Stripe test mode: lifecycle, failures, refunds, usage billing, replay/reconciliation, ledger",
+      "status": "BLOCKED",
+      "reason": "missing inputs: STRIPE_TEST_SECRET_KEY, STRIPE_WEBHOOK_SECRET, PORTAL_PUBLIC_URL, PORTAL_OWNER_COOKIE, PORTAL_OWNER_CSRF, PORTAL_WORKSPACE_ID, PORTAL_ADMIN_COOKIE, PORTAL_ADMIN_CSRF, DATABASE_URL",
+      "evidence": "cert/provider/stripe-evidence.json"
+    },
+    {
+      "id": "P4a",
+      "name": "Load test on the candidate",
+      "status": "FAIL",
+      "reason": "targets missed: L1 meeting creation, L2 concurrent joins, L4 scheduling throughput (host: 4 CPUs, win32; a loaded developer machine is not a production-like host - rerun on one before deciding)",
+      "evidence": "cert/LOAD_EVIDENCE.json"
+    },
+    {
+      "id": "P4b",
+      "name": "Backup and restore of MAIN and Meet databases, encrypted secret restoration",
+      "status": "PASS",
+      "reason": "drill only: RPO measured here is only the gap between this drill's backup and the simulated disaster. No automated backup schedule exists yet, so the RPO the product can actually guarantee is undefined until one is configured.",
+      "evidence": "cert/BACKUP_RESTORE_EVIDENCE.json"
+    },
+    {
+      "id": "P4c",
+      "name": "Portal database restoration and key recovery tested",
+      "status": "BLOCKED",
+      "reason": "portal database restore test not recorded in cert/provider/ops-approvals.json",
+      "evidence": "ops-approvals.json#portalRestore"
+    },
+    {
+      "id": "P4d",
+      "name": "RPO/RTO documented and approved; automated backup monitoring in place",
+      "status": "BLOCKED",
+      "reason": "approved RPO/RTO and backup monitoring not recorded in cert/provider/ops-approvals.json",
+      "evidence": "ops-approvals.json#rpoRto"
+    },
+    {
+      "id": "P4e",
+      "name": "Physical-device audio/video and responsive UI testing",
+      "status": "BLOCKED",
+      "reason": "physical-device results (>= 3 devices) not recorded in cert/provider/ops-approvals.json",
+      "evidence": "ops-approvals.json#devices"
+    },
+    {
+      "id": "P4f",
+      "name": "Independent security review signed; no open release-blocking findings",
+      "status": "BLOCKED",
+      "reason": "signed independent security review not recorded in cert/provider/ops-approvals.json",
+      "evidence": "ops-approvals.json#securityReview"
+    },
+    {
+      "id": "R1",
+      "name": "v4.5 regression evidence still valid (portal, Meet, security, proxy, browser)",
+      "status": "PASS",
+      "evidence": "cert/WORKPLACE_V4_5_REPORT.json (SHA e9878003952817b2216c251506e639b34bbe1238)"
+    }
+  ]
+}

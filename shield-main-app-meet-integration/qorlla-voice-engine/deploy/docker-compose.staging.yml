@@ -1,0 +1,55 @@
+# Two-node staging for Qorlla Voice: PostgreSQL (least-privilege roles), password-protected Redis, one migration job, and two engine replicas built from the same image.
+#   POSTGRES_PASSWORD=... MIGRATOR_PASSWORD=... APP_PASSWORD=... REDIS_PASSWORD=... VOICE_ADMIN_SECRET=<32+ chars> VOICE_JWKS_URL=https://... VOICE_ALLOWED_ORIGIN=https://... \
+#     docker compose -f deploy/docker-compose.staging.yml up -d --build
+# Staging only: put TLS (WSS) and a load balancer in front, add coturn (TURN_URLS / TURN_SHARED_SECRET), and use rediss:// with a real ACL user. Nothing here is a production deployment.
+name: qorlla-voice-staging
+x-voice: &voice
+  image: qorlla-voice-engine:staging
+  restart: unless-stopped
+  environment: &voice-env
+    PORT: 4600
+    DATABASE_URL: postgres://qorlla_voice_app:${APP_PASSWORD:?set APP_PASSWORD}@postgres:5432/qorlla_voice
+    REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379
+    VOICE_JWKS_URL: ${VOICE_JWKS_URL:?set VOICE_JWKS_URL}
+    VOICE_JWT_ISSUER: ${VOICE_JWT_ISSUER:-qorlla-main}
+    VOICE_JWT_AUDIENCE: ${VOICE_JWT_AUDIENCE:-qorlla-voice}
+    VOICE_ALLOWED_ORIGIN: ${VOICE_ALLOWED_ORIGIN:?set VOICE_ALLOWED_ORIGIN}
+    VOICE_ADMIN_SECRET: ${VOICE_ADMIN_SECRET:?set VOICE_ADMIN_SECRET}
+    VOICE_WS_QUERY_TICKET: "off"
+    TURN_URLS: ${TURN_URLS:-}
+    TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-}
+  extra_hosts: ["host.docker.internal:host-gateway"]
+  depends_on:
+    migrate: { condition: service_completed_successfully }
+    redis: { condition: service_healthy }
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      MIGRATOR_PASSWORD: ${MIGRATOR_PASSWORD:?set MIGRATOR_PASSWORD}
+      APP_PASSWORD: ${APP_PASSWORD:?set APP_PASSWORD}
+    volumes: ["pgdata:/var/lib/postgresql/data", "./postgres-init.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres -d qorlla_voice"], interval: 3s, retries: 30 }
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}", "--appendonly", "yes"]
+    healthcheck: { test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"], interval: 3s, retries: 30 }
+    environment: { REDIS_PASSWORD: "${REDIS_PASSWORD}" }
+  migrate:
+    build: { context: .. }
+    image: qorlla-voice-engine:staging
+    command: ["sh", "-c", "node src/migrate.mjs && node scripts/apply-roles.mjs"]
+    environment:
+      DATABASE_URL: postgres://qorlla_voice_migrator:${MIGRATOR_PASSWORD}@postgres:5432/qorlla_voice
+      APP_ROLE: qorlla_voice_app
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+  voice-a:
+    <<: *voice
+    ports: ["127.0.0.1:${VOICE_A_PORT:-4601}:4600"]
+  voice-b:
+    <<: *voice
+    ports: ["127.0.0.1:${VOICE_B_PORT:-4602}:4600"]
+volumes:
+  pgdata:

@@ -1,0 +1,10 @@
+POST-RESTART RECORD (the development stack, restarted through its documented command: node scripts/dev-stack.mjs)
+code under test: cb26ae2563ce26da181c1f4883c134b88a445ae8 (tag rc2-evidence-baseline-v2). Checked-out HEAD at the time: 6d9ffc22a0dad6b181b71591ffb429e8b74971e3, which differs from cb26ae2 only by evidence files and tests/live-emergency-check.spec.js (source difference outside evidence/ and that spec: none).
+date: 2026-10-29T16:00:26.594Z
+before: the previous stack (launcher pid 13080) was stopped with its children (main app, Meet, voice engine, mail catcher); data backed up to .dev-stack/backup-before-v2-restart-20261029-115747 (90 files); the old log was kept as .dev-stack/launch-before-v2-restart-*.log
+after: main 3200, Meet 3300, voice 4600 and the mail catcher 3225 up within 4 seconds; data intact (users.json 41380 bytes, the QA accounts and the original six screenshots in .dev-stack/live-check untouched)
+emergency protection ACTIVE in the live engine: POST /v1/voice/admin/identities with extension 911, 112, 999 each answered HTTP 400 and created nothing.
+live checks after the restart (runs the real app with real browsers): live-checks-after-restart.txt: 6 passed. They are: services and health; one-to-one call; group call with history and deletion; second device takeover and reload recovery; clean outbox and ordered events and no secrets in the log; emergency numbers refused by the Dial Pad and the API.
+screenshots of this run: screenshots/ (7 files). The earlier run, before the restart, is preserved in .dev-stack/live-check (6 files) and was not overwritten.
+
+This is evidence that the certified code runs correctly on the development stack. It is NOT a staging or production certification: single machine, no Redis, no TURN, one process of each service.

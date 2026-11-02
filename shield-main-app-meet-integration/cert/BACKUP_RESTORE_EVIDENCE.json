@@ -1,0 +1,133 @@
+{
+  "finished": "2026-10-27T01:42:09.650Z",
+  "git": {
+    "headSha": "5499d0af0ddbd4f6953525d08a3e41cf426e9838",
+    "branch": "feature/qorlla-workplace-v4.6-provider-certification",
+    "sourceTreeClean": true,
+    "dirtySourcePaths": []
+  },
+  "gitHeadSha": "5499d0af0ddbd4f6953525d08a3e41cf426e9838",
+  "steps": [
+    {
+      "at": "2026-10-27T01:40:26.262Z",
+      "step": "seed: user, 5 synced schedules (1 passcode), 1 completed recovery, 2 pending recoveries (escrow pending)"
+    },
+    {
+      "at": "2026-10-27T01:40:50.259Z",
+      "step": "pre-backup state: {\"auditEvents\":4,\"escrow\":[{\"state\":\"acknowledged\",\"c\":1},{\"state\":\"pending\",\"c\":2}],\"schedules\":6}"
+    },
+    {
+      "at": "2026-10-27T01:40:50.261Z",
+      "step": "backup: quiesce MAIN + worker + Meet, dump both databases, archive MAIN data volume"
+    },
+    {
+      "at": "2026-10-27T01:41:11.650Z",
+      "step": "DISASTER: destroy MAIN stack + volumes and Meet database container"
+    },
+    {
+      "at": "2026-10-27T01:41:22.061Z",
+      "step": "restore: fresh Meet PostgreSQL, fresh MAIN PostgreSQL, MAIN data volume, services"
+    },
+    {
+      "at": "2026-10-27T01:41:59.952Z",
+      "step": "verify"
+    }
+  ],
+  "checks": [
+    {
+      "name": "backup artifacts contain no key material or secrets",
+      "status": "PASS",
+      "detail": "checked 4 secrets against all artifacts"
+    },
+    {
+      "name": "restored MAIN data volume: pre-disaster session still valid",
+      "status": "PASS",
+      "detail": "{\"u\":\"bk0d643e5e\"}"
+    },
+    {
+      "name": "schedules restored consistently (JSON volume and PostgreSQL agree)",
+      "status": "PASS",
+      "detail": "restored=6, marker absent in both stores"
+    },
+    {
+      "name": "legacy codes still resolve to the same meetings",
+      "status": "PASS",
+      "detail": "6 schedules"
+    },
+    {
+      "name": "post-restore host authentication with vaulted secrets",
+      "status": "PASS",
+      "detail": "schedules 0-2"
+    },
+    {
+      "name": "completed recovery (acked pre-backup) host secret still valid",
+      "status": "PASS",
+      "detail": "200"
+    },
+    {
+      "name": "pending encrypted escrow recoverable after restore (same request replays same secret)",
+      "status": "PASS",
+      "detail": "200"
+    },
+    {
+      "name": "wrong RECOVERY_ESCROW_KEY cannot decrypt escrow (fails closed, no secret leaked)",
+      "status": "PASS",
+      "detail": "status 503"
+    },
+    {
+      "name": "correct key (from secure backup) recovers the escrow",
+      "status": "PASS",
+      "detail": "200"
+    },
+    {
+      "name": "restored sync worker completes outstanding acknowledgments; no escrow left pending",
+      "status": "PASS",
+      "detail": "pending=0"
+    },
+    {
+      "name": "audit log preserved and sequence continues (no id reuse)",
+      "status": "PASS",
+      "detail": "before=4/4 after=12/12"
+    },
+    {
+      "name": "schedule reconciliation works after restore (edit + new schedule sync)",
+      "status": "PASS",
+      "detail": "ok"
+    },
+    {
+      "name": "measured RTO within target (900 s)",
+      "status": "PASS",
+      "detail": "RTO 49.949s"
+    }
+  ],
+  "timings": {
+    "backupSeconds": 11.67,
+    "rpoSeconds": 9.72,
+    "rtoSeconds": 49.949,
+    "restoreCompletedSeconds": 57.923
+  },
+  "backupArtifacts": [
+    {
+      "file": "main.dump",
+      "bytes": 156415,
+      "sha256": "8593bb67542b2758c8da08971cd91e1aa802ce9de06d0160b28f58cf05aaa9d6"
+    },
+    {
+      "file": "meet.dump",
+      "bytes": 23468,
+      "sha256": "7abe4c4021813f63a9355d80be05a49c01819b4ad32c59fbafdecb5084a0a730"
+    },
+    {
+      "file": "workspace.tgz",
+      "bytes": 3789,
+      "sha256": "6317fb11f895819411caa245e123c2a456ba3e9856ac9b98e937d548c3223701"
+    }
+  ],
+  "objectives": {
+    "rtoTargetSeconds": 900,
+    "rpoTargetSeconds": 900,
+    "rtoMeasuredSeconds": 49.949,
+    "rpoMeasuredSeconds": 9.72,
+    "note": "RPO measured here is only the gap between this drill's backup and the simulated disaster. No automated backup schedule exists yet, so the RPO the product can actually guarantee is undefined until one is configured."
+  }
+}

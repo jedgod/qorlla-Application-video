@@ -1,0 +1,7 @@
+{
+  "phase": "P2",
+  "finished": "2026-10-27T01:49:39.750Z",
+  "status": "BLOCKED",
+  "reason": "missing inputs: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_TEST_FROM, TWILIO_TEST_TO, PORTAL_PUBLIC_URL, PORTAL_OWNER_COOKIE, PORTAL_OWNER_CSRF, PORTAL_WORKSPACE_ID, DATABASE_URL, TWILIO_INTERACTIVE",
+  "requires": "a Twilio account with credentials, a provisioned number, an authorised callee phone and a tester present, a public HTTPS portal URL, and the compliance review before telephony is enabled"
+}

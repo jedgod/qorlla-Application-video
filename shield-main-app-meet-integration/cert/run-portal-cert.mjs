@@ -1,0 +1,160 @@
+// Workplace v4.1 certification: portal PostgreSQL/auth/billing suites + the REAL unified deployment (nginx + MAIN + portal + Meet,
+// all in Docker, one HTTPS origin) exercised by Chromium. The payment provider is the labelled TEST DOUBLE: the real-provider
+// gate is reported separately as BLOCKED. Writes cert/V41_EVIDENCE.json and cert/V41_EVIDENCE.md.
+// Usage: node cert/run-portal-cert.mjs        (needs Docker; uses host ports 28080/28081/28443/28444, 25000, 23000, 19500, 25611)
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { gitState } from './lib-git.mjs';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const run = (cmd, args, o = {}) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], cwd: root, maxBuffer: 1 << 28, ...o });
+const docker = (...a) => run('docker', a);
+const results = [];
+const record = (id, name, status, detail = '') => { results.push({ id, name, status, detail: String(detail).slice(0, 800) }); console.log(status, id, name, detail ? '- ' + String(detail).slice(0, 200) : ''); };
+async function waitFor(fn, { timeout = 120000, every = 1000, what = 'condition' } = {}) { const end = Date.now() + timeout; let last; while (Date.now() < end) { try { const v = await fn(); if (v) return v; last = v; } catch (e) { last = e.message; } await sleep(every); } throw new Error(`Timed out: ${what} (${JSON.stringify(last)})`); }
+async function check(id, name, fn) { try { record(id, name, 'PASS', (await fn()) ?? ''); } catch (e) { record(id, name, 'FAIL', e.message); } }
+
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // self-signed test certificate only
+const P = { http: 28080, meet: 28081, tls: 28443, meetTls: 28444, main: 25000, meetHost: 23000, fake: 19500, pg: 25611 };
+const ORIGIN = `https://localhost:${P.tls}`;
+const PROJECT = 'qv41';
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'qv41-'));
+const rnd = (n) => crypto.randomBytes(n).toString('hex');
+const WEBHOOK_SECRET = 'whsec_' + 'test'.repeat(8);
+const METRICS_TOKEN = 'metrics-' + crypto.randomBytes(16).toString('hex');
+
+// ------------------------------------------------------------------ 1. portal suites (PostgreSQL, auth, billing, migrations, MAIN contract)
+const pgName = 'qv41-test-pg';
+try { docker('rm', '-f', pgName); } catch {}
+docker('run', '-d', '--name', pgName, '-e', 'POSTGRES_PASSWORD=postgres', '-p', `127.0.0.1:${P.pg}:5432`, 'postgres:16-alpine');
+await waitFor(() => { try { docker('exec', pgName, 'pg_isready', '-U', 'postgres'); return true; } catch { return false; } }, { what: 'test postgres' }); await sleep(2500);
+{
+  const r = spawnSync('node', ['--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/auth.test.mjs', 'tests/billing.test.mjs', 'tests/entitlements.test.mjs', 'tests/migrations.test.mjs', 'tests/contract-main.test.mjs', 'tests/meeting-ai.test.mjs', 'tests/phone.test.mjs', 'tests/workspace-tools.test.mjs', 'tests/billing-launch.test.mjs', 'tests/limits.test.mjs'], { cwd: path.join(root, 'qorlla-portal'), encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, TEST_DATABASE_ADMIN_URL: `postgres://postgres:postgres@127.0.0.1:${P.pg}/postgres` } });
+  fs.writeFileSync(path.join(root, 'cert', 'portal-unit.tap'), r.stdout);
+  const tests = [...r.stdout.matchAll(/^\s*(ok|not ok) \d+ - (.+?)(?: # .*)?$/gm)].filter((m) => !/^\S.*\.test\.mjs$/.test(m[2]));
+  const leaf = tests.filter((m) => !m[2].includes('authentication & authorization') || true);
+  const pass = Number((/^# pass (\d+)/m.exec(r.stdout) || [])[1] || 0), fail = Number((/^# fail (\d+)/m.exec(r.stdout) || [])[1] || 0);
+  record('U-ALL', 'portal node:test suites (auth, billing lifecycle, entitlements, sales, migrations/rollback, real-MAIN contract)', fail === 0 && pass > 60 ? 'PASS' : 'FAIL', `${pass} passed, ${fail} failed`);
+  if (fail) record('U-FAIL', 'failing tests', 'FAIL', [...r.stdout.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1]).join(' | '));
+}
+{
+  const metrics = path.join(root, 'cert', 'LOCKOUT_PG_STRESS.json');
+  const r = spawnSync('node', ['--test', '--test-reporter=tap', 'tests/lockout-pg.test.mjs', 'tests/lockout-pg-security.test.mjs'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, TEST_DATABASE_ADMIN_URL: `postgres://postgres:postgres@127.0.0.1:${P.pg}/postgres`, LOCKOUT_METRICS_FILE: metrics } });
+  fs.writeFileSync(path.join(root, 'cert', 'lockout-pg.tap'), r.stdout);
+  const pass = Number((/^# pass (\d+)/m.exec(r.stdout) || [])[1] || 0), fail = Number((/^# fail (\d+)/m.exec(r.stdout) || [])[1] || 0);
+  let detail = `${pass} passed, ${fail} failed`; try { const m = JSON.parse(fs.readFileSync(metrics, 'utf8')); detail += `; stress: ${m.attempted} attempts, ${m.comparisons} comparisons (budget ${m.budget}), outcomes ${JSON.stringify(m.outcomes)}, p95 ${m.p95Ms} ms, p99 ${m.p99Ms} ms, max pool wait ${m.maxPoolWaitMs} ms`; } catch (e) { detail += '; stress metrics missing'; }
+  record('U-LOCKOUT-PG', 'PostgreSQL lockout adapter: persistence, concurrency, release, durable recovery, fail-closed, stress metrics; migration upgrade, inherited-grant guard, append-only application role, owner-only retention', fail === 0 && pass >= 13 ? 'PASS' : 'FAIL', detail);
+}
+try { docker('rm', '-f', pgName); } catch {}
+
+// ------------------------------------------------------------------ 2. unified deployment
+const certDir = path.join(scratch, 'certs'); fs.mkdirSync(certDir);
+run('docker', ['run', '--rm', '-v', `${certDir.replace(/\\/g, '/')}:/out`, 'alpine/openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', '/out/server.key', '-out', '/out/server.pem', '-days', '2', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1']);
+const env = {
+  MAIN_DB_PASSWORD: rnd(12), QORLLA_APP_DB_PASSWORD: rnd(12), PORTAL_DB_PASSWORD: rnd(12), MEET_DB_PASSWORD: rnd(12), MEET_APP_DB_PASSWORD: rnd(12),
+  QORLLA_BRIDGE_SECRET: rnd(24), PORTAL_INTROSPECTION_SECRET: rnd(24), MEET_JWT_SECRET: rnd(24), RECOVERY_ESCROW_KEY: crypto.randomBytes(32).toString('base64'), QORLLA_VAULT_KEY: crypto.randomBytes(32).toString('base64'),
+  PUBLIC_ORIGIN: ORIGIN, PUBLIC_URL: ORIGIN, MEET_PUBLIC_URL: ORIGIN + '/meet/',
+  PROXY_MAIN_PORT: P.http, PROXY_MEET_PORT: P.meet, PROXY_MAIN_TLS_PORT: P.tls, PROXY_MEET_TLS_PORT: P.meetTls,
+  PROXY_TLS_CONF: './deploy/nginx/tls.conf', PROXY_HTTP_CONF: './deploy/nginx/http-redirect.conf', PROXY_CERT_DIR: certDir.replace(/\\/g, '/'),
+  MAIN_HOST_PORT: P.main, MEET_HOST_PORT: P.meetHost,
+  MEET_READ_SECRET: rnd(24), AI_LLM_API_KEY: 'test-llm-key', AI_LLM_MODEL: 'claude-test', AI_LLM_API_BASE: 'http://host.docker.internal:19600',
+  BILLING_ENABLED: 'true', STRIPE_SECRET_KEY: 'sk_test_fake', STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, STRIPE_API_BASE: `http://host.docker.internal:${P.fake}`
+};
+const envFile = path.join(scratch, 'v41.env'); fs.writeFileSync(envFile, Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n') + '\n');
+// e2e-only override: the portal must talk to the local provider test double, which production mode refuses (NODE_ENV=production pins api.stripe.com)
+const override = path.join(scratch, 'compose.e2e.yml');
+fs.writeFileSync(override, `services:\n  qorlla-portal:\n    extra_hosts:\n      - "host.docker.internal:host-gateway"\n    environment:\n      - NODE_ENV=staging\n      - AUTH_REQUIRE_INTROSPECTION=true\n      - STRIPE_API_BASE=\${STRIPE_API_BASE}\n      - AI_LLM_API_BASE=\${AI_LLM_API_BASE}\n`);
+const compose = (...a) => docker('compose', '--env-file', envFile, '-p', PROJECT, '-f', 'docker-compose.yml', '-f', override.replace(/\\/g, '/'), ...a);
+try { compose('down', '-v'); } catch {}
+const fake = spawn('node', ['qorlla-portal/tests/fake-stripe.mjs', String(P.fake)], { cwd: root, stdio: 'ignore' });
+const fakeLlm = spawn('node', ['qorlla-portal/tests/fake-llm.mjs', '19600', '19601'], { cwd: root, stdio: 'ignore' });   // TEST DOUBLE for the language model
+await check('D01', 'docker compose config is valid and every long-running service has a restart policy', async () => {
+  const cfg = JSON.parse(compose('config', '--format', 'json')); const svc = cfg.services;
+  const missing = Object.entries(svc).filter(([, v]) => v.restart !== 'always').map(([k]) => k); if (missing.length) throw new Error('no restart policy: ' + missing);
+  return `${Object.keys(svc).length} services: ${Object.keys(svc).join(', ')}`;
+});
+await check('D02', 'unified stack builds and every service becomes healthy (main, portal, meet, databases, nginx)', async () => {
+  compose('up', '-d', '--build', '--wait', '--wait-timeout', '300');
+  const ps = JSON.parse('[' + compose('ps', '--format', 'json').trim().split('\n').join(',') + ']');
+  const bad = ps.filter((c) => !['healthy', ''].includes(c.Health) || c.State !== 'running'); if (bad.length) throw new Error(bad.map((c) => `${c.Service}:${c.State}/${c.Health}`).join(','));
+  return ps.map((c) => `${c.Service}=${c.Health || c.State}`).join(' ');
+});
+await check('D03', 'single HTTPS entry point: only nginx listens on public interfaces; app services bind loopback or nothing', async () => {
+  const ps = JSON.parse('[' + compose('ps', '--format', 'json').trim().split('\n').join(',') + ']');
+  const exposed = []; for (const c of ps) for (const p of (c.Publishers || [])) if (p.PublishedPort && p.URL !== '127.0.0.1' && c.Service !== 'dashboard-client-proxy') exposed.push(`${c.Service}:${p.PublishedPort}@${p.URL}`);
+  if (exposed.length) throw new Error('publicly published: ' + exposed.join(', '));
+  return 'only dashboard-client-proxy (nginx) is published on 0.0.0.0';
+});
+await check('D04', 'containers run unprivileged; structured JSON logs from portal and nginx; no secrets in logs', async () => {
+  for (const svc of ['qorlla-portal', 'meet', 'workspace-signaling-engine']) { const uid = compose('exec', '-T', svc, 'id', '-u').trim(); if (uid === '0') throw new Error(svc + ' runs as root'); }
+  await fetch(`${ORIGIN}/api/v1/health`).catch(() => {}); await sleep(500);
+  const portalLog = compose('logs', '--no-log-prefix', 'qorlla-portal').trim().split('\n').filter((l) => l.startsWith('{')); if (!portalLog.length) throw new Error('portal wrote no JSON log lines');
+  portalLog.forEach((l) => JSON.parse(l)); const nginxLog = compose('logs', '--no-log-prefix', 'dashboard-client-proxy').split('\n').filter((l) => l.startsWith('{"ts"')); if (!nginxLog.length) throw new Error('nginx wrote no JSON access lines');
+  nginxLog.forEach((l) => JSON.parse(l));
+  const all = compose('logs', '--no-log-prefix'); for (const k of ['PORTAL_INTROSPECTION_SECRET', 'QORLLA_BRIDGE_SECRET', 'MEET_JWT_SECRET', 'RECOVERY_ESCROW_KEY', 'QORLLA_VAULT_KEY', 'MAIN_DB_PASSWORD', 'PORTAL_DB_PASSWORD']) if (all.includes(env[k])) throw new Error('secret in logs: ' + k);
+  return `${portalLog.length} portal and ${nginxLog.length} nginx JSON lines parsed`;
+});
+await check('D05', 'least-privilege roles: portal role can only touch the portal schema', async () => {
+  const q = (user, sql) => compose('exec', '-T', 'main-db', 'psql', '-U', user, '-d', 'qorlla_main', '-tAc', sql).trim();
+  if (q('qorlla_portal_app', 'SELECT rolsuper OR rolcreatedb OR rolcreaterole FROM pg_roles WHERE rolname=current_user') !== 'f') throw new Error('privileged');
+  for (const bad of ['SELECT 1 FROM public.qorlla_schedules LIMIT 1', 'DROP TABLE portal.notes', 'CREATE TABLE portal.x(i int)', 'DELETE FROM portal.invoices']) { let blocked = false; try { q('qorlla_portal_app', bad); } catch { blocked = true; } if (!blocked) throw new Error('allowed: ' + bad); }
+  q('qorlla_portal_app', 'SELECT count(*) FROM portal.plans');
+});
+await check('D06', 'portal fails closed (503) while authentication is not operational, and answers 401 once configured', async () => {
+  const r = await fetch(`${ORIGIN}/api/v1/notes`); if (r.status !== 401) throw new Error('expected 401 got ' + r.status);
+  // configuration check on a throwaway process: no issuer/JWKS => 503
+  const out = spawnSync('node', ['-e', `import('./qorlla-portal/server/config.mjs').then(async ({loadConfig})=>{const {createApp}=await import('./qorlla-portal/server/app.mjs');const cfg=loadConfig({NODE_ENV:'production',DATABASE_URL:'x'});const {app}=createApp({pool:{query:async()=>({rows:[]})},cfg,jwks:null});const s=app.listen(0,async()=>{const r=await fetch('http://127.0.0.1:'+s.address().port+'/api/v1/notes',{headers:{cookie:'qorlla_portal_session=x'}});console.log(r.status+' '+JSON.stringify(cfg.authProblems));s.close()})})`], { cwd: root, encoding: 'utf8' });
+  const last = out.stdout.trim().split(/\r?\n/).pop(); if (!last.startsWith('503')) throw new Error('unconfigured portal answered ' + out.stdout.slice(-300) + out.stderr.slice(-300)); return last;
+});
+
+// ------------------------------------------------------------------ 2b. platform-admin bootstrap, metrics exposure, kill-switch endpoints (v4.5)
+const ADMIN = { username: 'e2eplatformadmin', password: 'E2e-admin-pass-0123456789!8' };
+await check('D08', 'a platform admin can be provisioned (configuration only) and the console + metrics are not reachable by anyone else', async () => {
+  const reg = await fetch(`${ORIGIN}/api/auth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: ADMIN.username, displayName: 'E2E Platform Admin', password: ADMIN.password }) });
+  if (reg.status !== 201) throw new Error('admin registration failed: ' + reg.status);
+  const adminId = String((await reg.json()).user.id).replace(/^u_/, '');
+  fs.appendFileSync(envFile, `PLATFORM_ADMIN_USER_IDS=${adminId}\nMETRICS_TOKEN=${METRICS_TOKEN}\n`);
+  compose('up', '-d', '--no-deps', '--force-recreate', '--wait', '--wait-timeout', '120', 'qorlla-portal');
+  await waitFor(async () => (await fetch(`${ORIGIN}/api/v1/health`)).status === 200, { timeout: 60000, what: 'portal after admin configuration' });
+  const anon = await fetch(`${ORIGIN}/api/v1/admin/me`); if (anon.status !== 401) throw new Error('anonymous /admin/me answered ' + anon.status);
+  const pub = await fetch(`${ORIGIN}/internal/metrics`, { headers: { authorization: 'Bearer ' + METRICS_TOKEN } }); if (pub.status === 200) throw new Error('metrics reachable through the public proxy');
+  return 'admin id configured; /internal/metrics is not routed publicly';
+});
+await check('D09', 'metrics are served inside the private network only, with the bearer token, as Prometheus text with no secrets', async () => {
+  const probe = (auth) => compose('exec', '-T', 'qorlla-portal', 'node', '-e', `fetch('http://127.0.0.1:'+(process.env.PORT||5500)+'/internal/metrics',{headers:${auth ? ("{authorization:'Bearer " + METRICS_TOKEN + "'}") : '{}'}}).then(async r=>{console.log(r.status);console.log((await r.text()).slice(0,4000))})`);
+  const no = probe(false).split(/\r?\n/)[0]; if (no !== '404') throw new Error('metrics answered without a token: ' + no);
+  const out = probe(true); if (!out.startsWith('200') || !out.includes('qorlla_billing_available 1') || !out.includes('# TYPE qorlla_subscriptions gauge')) throw new Error('unexpected metrics: ' + out.slice(0, 200));
+  for (const k of ['STRIPE_SECRET_KEY', 'sk_test_fake', WEBHOOK_SECRET, METRICS_TOKEN]) if (out.includes(k)) throw new Error('secret in metrics: ' + k);
+  return out.split('\n').filter((l) => l.startsWith('# TYPE')).length + ' gauges';
+});
+
+// ------------------------------------------------------------------ 3. browser E2E against the unified origin
+{
+  const cfgFile = path.join(root, 'qorlla-portal', 'e2e', 'playwright.config.cjs'); const json = path.join(root, 'cert', 'e2e-results.json');
+  const r = spawnSync('npx', ['playwright', 'test', '-c', cfgFile], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32', maxBuffer: 1 << 28, env: { ...process.env, E2E_BASE: ORIGIN, E2E_DB_CONTAINER: `${PROJECT}-main-db-1`, E2E_MAIN_CONTAINER: 'zoom_core_backend_instance', E2E_COMPOSE_PROJECT: PROJECT, E2E_FAKE_STRIPE_URL: `http://127.0.0.1:${P.fake}`, E2E_JSON: json, E2E_ADMIN_USER: ADMIN.username, E2E_ADMIN_PASS: ADMIN.password, NO_COLOR: '1', NODE_TLS_REJECT_UNAUTHORIZED: '0' } });
+  fs.writeFileSync(path.join(root, 'cert', 'e2e-output.txt'), (r.stdout || '') + (r.stderr || ''));
+  let counts = { passed: 0, failed: 0, skipped: 0, titles: [] };
+  try { const j = JSON.parse(fs.readFileSync(json, 'utf8')); const walk = (s) => { (s.specs || []).forEach((sp) => sp.tests.forEach((t) => { const st = t.results?.[t.results.length - 1]?.status; counts[st === 'passed' ? 'passed' : st === 'skipped' ? 'skipped' : 'failed']++; counts.titles.push((st === 'passed' ? 'ok ' : 'FAIL ') + sp.title); })); (s.suites || []).forEach(walk); }; (j.suites || []).forEach(walk); } catch (e) { counts.error = e.message; }
+  if (!counts.passed && !counts.failed && !counts.error) counts.error = 'NO TESTS EXECUTED (a spec file probably failed to parse): ' + String((r.stdout || '') + (r.stderr || '')).split(String.fromCharCode(10)).find((l) => l.trim());
+  record('E2E', 'browser E2E: pricing, checkout/webhook, portal auth, navigation, mobile, Meet under /meet/, meeting-to-report', counts.failed === 0 && counts.passed >= 20 ? 'PASS' : 'FAIL', `${counts.passed} passed, ${counts.failed} failed${counts.error ? ' (' + counts.error + ')' : ''}`);
+  for (const t of counts.titles.filter((x) => x.startsWith('FAIL'))) record('E2E-FAIL', t, 'FAIL');
+  results.find((x) => x.id === 'E2E').titles = counts.titles;
+}
+
+try { fake.kill(); fakeLlm.kill(); } catch {}
+await check('D07', 'restart resilience: portal and nginx restart cleanly and the site keeps serving', async () => {
+  compose('restart', 'qorlla-portal'); compose('restart', 'dashboard-client-proxy');
+  await waitFor(async () => (await fetch(`${ORIGIN}/api/v1/health`)).status === 200 && (await fetch(`${ORIGIN}/pricing/`)).status === 200, { timeout: 90000, what: 'site back after restart' });
+});
+const state = gitState(root);
+const summary = { pass: results.filter((r) => r.status === 'PASS').length, fail: results.filter((r) => r.status === 'FAIL').length };
+const evidence = { finished: new Date().toISOString(), git: state, ports: P, note: 'Payment provider = local TEST DOUBLE; real-provider verification is BLOCKED (no account/keys, no authorization to collect payments).', summary, results };
+fs.writeFileSync(path.join(root, 'cert', 'V41_EVIDENCE.json'), JSON.stringify(evidence, null, 2));
+fs.writeFileSync(path.join(root, 'cert', 'V41_EVIDENCE.md'), ['# Workplace v4.1 certification evidence', '', `- Git HEAD: \`${state.headSha}\` (branch ${state.branch}; source tree ${state.sourceTreeClean ? 'clean' : 'DIRTY: ' + state.dirtySourcePaths.join(', ')})`, `- Result: **${summary.pass} passed, ${summary.fail} failed**`, `- ${evidence.note}`, '', '| ID | Result | Check | Detail |', '|---|---|---|---|', ...results.map((r) => `| ${r.id} | ${r.status} | ${r.name} | ${String(r.detail).replace(/\|/g, '\\|').replace(/\n/g, ' ')} |`), '', '## Browser E2E test titles', ...(results.find((r) => r.id === 'E2E')?.titles || []).map((t) => '- ' + t)].join('\n') + '\n');
+if (!process.env.KEEP_STACK) { try { compose('down', '-v'); } catch {} }
+console.log(JSON.stringify(summary)); process.exit(summary.fail ? 1 : 0);
