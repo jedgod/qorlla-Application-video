@@ -68,6 +68,9 @@
   .search svg.i { width: 18px; height: 18px; }
   .search kbd { margin-left: auto; font-family: inherit; font-weight: 600; font-size: 11px; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px; }
   .top-actions { display: flex; align-items: center; gap: 8px; position: absolute; right: 0; top: 0; }
+  .upgrade-btn { height: 36px; padding: 0 16px; border-radius: 18px; display: inline-flex; align-items: center; background: linear-gradient(135deg, #6a4dff, #9a6bff); color: #fff; font-weight: 700; font-size: 13px; text-decoration: none; box-shadow: var(--shadow); white-space: nowrap; }
+  .upgrade-btn:hover { filter: brightness(1.08); }
+  .upgrade-btn.hidden { display: none; }
   .icon-btn {
     width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--panel); box-shadow: var(--shadow);
     display: grid; place-items: center; color: var(--muted); cursor: pointer; position: relative; transition: transform .15s, color .15s;
@@ -677,6 +680,7 @@
         </form>
       </div>
       <div class="top-actions">
+        <a class="upgrade-btn hidden" id="upgradeBtn" href="/pricing?reason=upgrade" data-i18n="Upgrade">Upgrade</a>
         <button class="icon-btn" id="bellBtn" aria-label="Notifications" data-i18n-aria-label="Notifications" type="button">
           <svg class="i" viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8.5 3 8.5H3S6 15 6 8Z"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/></svg>
           <span class="dot" id="bellDot" style="display:none"></span>
@@ -3657,6 +3661,13 @@
   $('vmHere').addEventListener('click', function () { var a = voice.avail; if (!a || !voice.client) return; $('vmHere').disabled = true; (a.kind === 'room' ? voice.client.resumeRoom(a.room) : voice.client.continueHere(a.call, a.role)).catch(function (e) { if (e && e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') toast(I18n.t('The call could not be moved to this device.'), 'err'); }).then(function () { $('vmHere').disabled = false; }); });
 
   // initial unread badge, then first view
+  function paintUpgrade() {
+    fetch(BASE + '/api/phone/overview', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      var b = $('upgradeBtn'); if (!b) return;
+      b.href = BASE + '/pricing?reason=upgrade';
+      b.classList.toggle('hidden', !(d && d.plan && d.plan.exempt === false));   // paid / exempt accounts never see it
+    }).catch(function () {});
+  }
   function applyAccount(user) {
     state.user = user;
     document.body.classList.remove('signed-out');
@@ -3667,6 +3678,7 @@
     $('avatarBtn').title = user.displayName + ' (@' + user.username + ')';
     if (state.view === 'home') paintClock();
     if (window.QorllaSingleTab) QorllaSingleTab.start(user.id, { root: '.app' });   // one tab per account in this browser
+    paintUpgrade();                                       // free accounts get an Upgrade button in the header
     voiceInit();                                          // internet calling: connects only when the server owner has configured Qorlla Voice
   }
   state.userReady = Promise.all([
