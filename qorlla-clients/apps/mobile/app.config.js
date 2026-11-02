@@ -10,6 +10,6 @@ module.exports = {
     name: profile.name, slug: 'qorlla', scheme: 'qorlla', version: '0.3.0', orientation: 'portrait', userInterfaceStyle: 'dark', icon: './assets/icon.png',
     ios: { bundleIdentifier: profile.iosBundle, infoPlist: { NSCameraUsageDescription: 'Qorlla uses the camera so other people in a meeting can see you.', NSMicrophoneUsageDescription: 'Qorlla uses the microphone so other people in a meeting can hear you.' } },
     android: { adaptiveIcon: { foregroundImage: './assets/adaptive-foreground.png', backgroundColor: '#001383' }, package: profile.androidPackage, versionCode: 3, allowBackup: false, permissions: ['CAMERA', 'RECORD_AUDIO', 'MODIFY_AUDIO_SETTINGS', 'INTERNET'], blockedPermissions: ['android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE', 'android.permission.SYSTEM_ALERT_WINDOW'] },
-    plugins: [['expo-build-properties', { android: { usesCleartextTraffic: test } }], ['./plugins/with-release-signing.cjs', { required: profile.profile !== 'development' }]]
+    plugins: [['expo-build-properties', { android: { usesCleartextTraffic: test } }], ['./plugins/with-release-signing.cjs', { required: profile.profile !== 'development' }], './plugins/with-system-insets.cjs']
   }
 };
