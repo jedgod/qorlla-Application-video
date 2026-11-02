@@ -1,3 +1,4 @@
+try{if(/QorllaMobile/.test(navigator.userAgent))document.documentElement.style.setProperty('--wrapper-min-b','48px');}catch(e){}
 import {initCollab} from './collab.js';
 const $=id=>document.getElementById(id);
 // Mounted at / or behind a path prefix such as /meet/ (reverse proxy strips it): everything is relative to this page's directory.

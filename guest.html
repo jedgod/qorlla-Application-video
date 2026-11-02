@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>try{if(/QorllaMobile/.test(navigator.userAgent))document.documentElement.style.setProperty('--wrapper-min-b','48px');}catch(e){}</script>
+<style>:root{--safe-b:max(env(safe-area-inset-bottom,0px),var(--wrapper-min-b,0px))}</style>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="referrer" content="no-referrer">
@@ -89,7 +91,7 @@
   /* phone: the rail becomes a bottom bar */
   @media (max-width:700px) {
     header.topbar { height:60px; padding:0 16px; } header.topbar img { height:32px; }
-    .shell { flex-direction:column-reverse; } .sidebar { position:fixed; left:0; right:0; bottom:0; z-index:20; width:auto; flex-direction:row; padding:6px 6px calc(6px + env(safe-area-inset-bottom)); gap:2px; border-top:1px solid var(--q-border); }
+    .shell { flex-direction:column-reverse; } .sidebar { position:fixed; left:0; right:0; bottom:0; z-index:20; width:auto; flex-direction:row; padding:6px 6px calc(6px + var(--safe-b, env(safe-area-inset-bottom))); gap:2px; border-top:1px solid var(--q-border); }
     .nav { flex:1; min-width:0; min-height:56px; font-size:11px; gap:3px; } .nav .ic { font-size:22px; } .nav.settings, .nav.wb { display:none; }
     .content { padding:0 14px 96px; } .hero { margin:0 -14px; padding:24px 20px 22px; min-height:0; } .guest-pill { font-size:15px; padding:9px 16px 9px 14px; }
     .benefits { gap:14px 18px; margin-top:20px; } .benefits b { font-size:16px; } .benefits b .ic { font-size:26px; } .benefits small { margin-left:38px; font-size:13px; }

@@ -1,4 +1,6 @@
-﻿/* Small progressive enhancements; application behavior remains in the page modules. */
+﻿/* inside the Qorlla app keep the page clear of the navigation bar (see --safe-b in product.css) */
+try{if(/QorllaMobile/.test(navigator.userAgent))document.documentElement.style.setProperty('--wrapper-min-b','48px');}catch(e){}
+/* Small progressive enhancements; application behavior remains in the page modules. */
 (function () {
   'use strict';
   function init() {

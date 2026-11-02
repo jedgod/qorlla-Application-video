@@ -1,4 +1,5 @@
-﻿/* Qorlla product foundation: shared across authentication, workspace and meetings. */
+﻿:root { --safe-b:max(env(safe-area-inset-bottom,0px),var(--wrapper-min-b,0px)); }
+/* Qorlla product foundation: shared across authentication, workspace and meetings. */
 :root { --brand:#3157e8; --brand-2:#627cf0; --bg:#f4f6fa; --panel:#fff; --line:#e4e8f0; --text:#17213b; --muted:#64718b; --soft:#f3f5fc; --radius:16px; --shadow:0 2px 8px #18234204,0 12px 32px #18234205; color-scheme:light; }
 html { scroll-behavior:smooth; }
 body { font-family:"Segoe UI",Inter,system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased; }
@@ -175,9 +176,9 @@ body[data-page=meeting] #slotRows { line-height:1.6; }
 @media (max-width:900px) { .home-heading { align-items:flex-start; } .home-clock { max-width:160px; } body[data-page=workspace] .time { font-size:25px; } body[data-page=workspace] .topbar { padding:0 20px; gap:14px; } body[data-page=auth] { grid-template-columns:minmax(0,.85fr) minmax(380px,1fr); } .auth-story { padding:36px; } .auth-story h1 { font-size:40px; } }
 @media (max-width:760px) { body[data-page=chat] .sidebar { width:100%; } body[data-page=chat] .chat-header { padding:12px; gap:8px; } body[data-page=chat] .hdr-btn { padding:8px; font-size:11px; } body[data-page=chat] .messages { padding:18px 14px; } body[data-page=chat] .msg { max-width:88%; } body[data-page=chat] .chat-input { padding:12px; } body[data-page=chat] .poll { min-width:0; } }
 @media (max-width:700px) {
-  body[data-page=workspace] .app { padding:0 0 calc(56px + env(safe-area-inset-bottom)); }
+  body[data-page=workspace] .app { padding:0 0 calc(56px + var(--safe-b)); }
   /* six tabs share the width (no scrolling); every other page is a tile on More */
-  body[data-page=workspace] .sidebar { position:fixed; z-index:30; left:0; right:0; bottom:0; height:calc(52px + env(safe-area-inset-bottom)); width:auto; border-radius:0; border-top:1px solid var(--line); border-right:0; padding:2px 4px env(safe-area-inset-bottom); flex-direction:row; gap:0; overflow:hidden; }
+  body[data-page=workspace] .sidebar { position:fixed; z-index:30; left:0; right:0; bottom:0; height:calc(52px + var(--safe-b)); width:auto; border-radius:0; border-top:1px solid var(--line); border-right:0; padding:2px 4px env(safe-area-inset-bottom); flex-direction:row; gap:0; overflow:hidden; }
   body[data-page=workspace] .sidebar .logo, body[data-page=workspace] .sidebar .spacer { display:none; }
   body[data-page=workspace] .sidebar .nav-item { min-height:48px; flex:1 1 0; width:auto; min-width:0; padding:3px 0; gap:1px; font-size:9.5px; }
   body[data-page=workspace] .sidebar .nav-item svg.i { width:18px; height:18px; }
