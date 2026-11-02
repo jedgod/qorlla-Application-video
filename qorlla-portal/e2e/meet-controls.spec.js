@@ -64,7 +64,9 @@ test.describe('Qorlla Meet controls', () => {
     for (const vp of [{ width: 1366, height: 768 }, { width: 1024, height: 600 }, { width: 800, height: 500 }, { width: 390, height: 844 }]) { await a.page.setViewportSize(vp); await a.page.waitForTimeout(300); await expectFit(a.page, 'window ' + vp.width + 'x' + vp.height); }
     await a.page.setViewportSize({ width: 1366, height: 768 });
     for (const layout of ['speaker', 'stage', 'gallery']) { await a.page.click('[data-layout=' + layout + ']'); await a.page.waitForTimeout(300); await expectFit(a.page, 'layout ' + layout); }
-    await a.page.click('#shareBtn'); await expect(a.page.locator('#shareBtn')).toHaveText('Stop share'); await a.page.waitForTimeout(500); await expectFit(a.page, 'while sharing (host)'); await expectFit(guests[0].page, 'while sharing (viewer)');
+    await a.page.click('#shareBtn'); await expect(a.page.locator('#shareBtn')).toHaveText('Stop share'); // the viewer learns about the share over the network: wait until ITS page shows it (until then it is the ordinary gallery, every tile equal, which is correct and not what is being measured; measured 160-850 ms on an idle host)
+    await expect(guests[0].page.locator('.tile.sharing-remote')).toHaveCount(1, { timeout: 30000 }); await expect(guests[0].page.locator('#videos')).toHaveClass(/autoshare/, { timeout: 30000 }); await a.page.waitForTimeout(500);
+    await expectFit(a.page, 'while sharing (host)'); await expectFit(guests[0].page, 'while sharing (viewer)');
     const mainBox = await guests[0].page.locator('.tile.main').boundingBox(); const other = await guests[0].page.locator('.tile:not(.main)').first().boundingBox(); expect(mainBox.width).toBeGreaterThan(other.width * 2);   // the shared screen gets the big area
     await a.ctx.close(); for (const g of guests) await g.ctx.close();
   });
