@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Keyboard, Modal, Platform, Pressable, ScrollView, StatusBar as RNStatusBar, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { BookIcon, ChevronDown, ChevronRight, GearIcon, GlobeIcon, HashIcon, HeadsetIcon, HeroArt, InfoIcon, LinkIcon, MessageIcon, QorllaMark, ShieldIcon, UserIcon, UsersIcon, VideoIcon } from './icons';
-import { FEATURES, FOOTER, LANGUAGES, ROUTES, columns, fitScale, groupMeetingId, parseMeetingId } from './welcome';
+import { FEATURES, FOOTER, HERO, LANGUAGES, ROUTES, columns, fitScale, groupMeetingId, heroArtWidth, parseMeetingId } from './welcome';
 import { digitsHint, tooLongHint, translate } from './i18n';
 
 // Design tokens from the Welcome / Join specification.
@@ -25,7 +25,7 @@ export default function WelcomeScreen({ onJoin, joining, error, onOpen, onSettin
   const { width, height: winH } = useWindowDimensions(), [availH, setAvailH] = useState(0), cols = columns({ width }), k = fitScale(width, availH || winH - TOP - BOTTOM);
   const kbd = useRef(false);
   useEffect(() => { const a = Keyboard.addListener('keyboardDidShow', () => { kbd.current = true; }), b = Keyboard.addListener('keyboardDidHide', () => { kbd.current = false; }); return () => { a.remove(); b.remove(); }; }, []);
-  const inner = width - 2 * Math.round(16 * k), heroW = Math.round(inner * 0.58), artW = Math.round(inner * 0.38), s = useMemo(() => makeStyles(k, heroW, artW), [k, heroW, artW]), t = (x) => translate(language, x), gap = Math.ceil(8 * k);
+  const inner = width - 2 * Math.round(16 * k), heroW = Math.round(inner * 0.58), artW = heroArtWidth(inner, k), s = useMemo(() => makeStyles(k, heroW, artW), [k, heroW, artW]), t = (x) => translate(language, x), gap = Math.ceil(8 * k);
   const [picker, setPicker] = useState(false), [focused, setFocused] = useState(false);
   const raw = meetingRaw, scroll = useRef(null), input = useRef(null), cardY = useRef(0);
   const id = parseMeetingId(raw), canJoin = id.state === 'valid' && !joining, shown = id.state === 'valid' || id.state === 'incomplete' ? groupMeetingId(id.digits) : raw;
@@ -145,9 +145,9 @@ function makeStyles(k, heroW, artW) {
     root: { flex: 1, backgroundColor: C.bg, paddingTop: TOP },
     scroll: { flexGrow: 1, justifyContent: 'space-between', paddingHorizontal: Math.round(16 * k), paddingBottom: d(6) + BOTTOM },
     pressed: { opacity: 0.78 },
-    hero: { height: d(150) },
+    hero: { height: d(HERO.height) },
     heroText: { width: heroW, paddingTop: d(4) },
-    art: { position: 'absolute', right: -d(4), top: d(44), width: artW },
+    art: { position: 'absolute', right: -d(4), top: d(HERO.artTop), width: artW },
     lang: { position: 'absolute', right: 0, top: 0, zIndex: 2, flexDirection: 'row', alignItems: 'center', gap: d(6), minHeight: 48, maxWidth: '50%', paddingHorizontal: d(12), borderRadius: 24, borderWidth: 1, borderColor: C.border, backgroundColor: 'rgba(7,29,52,0.9)' },
     langText: { color: C.text, fontSize: f(13), fontWeight: '600', flexShrink: 1 },
     brandRow: { flexDirection: 'row', alignItems: 'center' },

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { FOOTER, LANGUAGES, ROUTES, FEATURES, groupMeetingId, isSupportedLanguage, localeScript, parseMeetingId, columns, fitScale } from '../src/welcome.js';
+import { FOOTER, LANGUAGES, ROUTES, FEATURES, groupMeetingId, isSupportedLanguage, localeScript, parseMeetingId, columns, fitScale, HERO, heroArtWidth } from '../src/welcome.js';
 import { createPolicy } from '../src/policy.js';
 import { CATALOG, digitsHint, tooLongHint, translate } from '../src/i18n.js';
 
@@ -94,4 +94,14 @@ test('pages that are separate documents (chat, portal /app/*) get a native close
   assert.ok(APP.includes('if (canGoBack.current && web.current) { web.current.goBack(); return true; } setUrl(null); return true;'), 'hardware Back follows the own back state of the WebView (a page with nothing behind it leaves to the Welcome screen); it never traps the person'); assert.ok(!APP.includes('HISTORY_PROBE'));
   const SEP = /^\/(chat\.html|app(\/|$))/; for (const ok of ['/chat.html', '/app', '/app/', '/app/suite', '/app/meet']) assert.ok(SEP.test(ok), ok);
   for (const no of ['/qorlla.html', '/guest/welcome', '/meet/room', '/application', '/guest/chat.html']) assert.ok(!SEP.test(no), no);
+});
+
+test('the decorative circle always fits inside the hero block, whatever the phone (it must never overlap the feature cards)', () => {
+  for (const [w, h] of [[320, 568], [360, 640], [360, 592], [384, 700], [390, 844], [412, 915], [412, 600], [600, 960], [800, 1280]]) {
+    const k = fitScale(w, h - 24 - 48), inner = w - 2 * Math.round(16 * k), artW = heroArtWidth(inner, k);
+    const bottom = HERO.artTop * k + artW * HERO.artRatio, heroH = HERO.height * k;
+    assert.ok(bottom <= heroH, `${w}x${h}: circle bottom ${bottom.toFixed(1)} must be above the hero bottom ${heroH.toFixed(1)}`);
+    assert.ok(artW <= inner * 0.32 + 1 && artW >= 40, `${w}x${h}: a reasonable size`);
+  }
+  assert.ok(heroArtWidth(358, 1) < Math.round(358 * 0.38), 'smaller than the old 38% circle');
 });
