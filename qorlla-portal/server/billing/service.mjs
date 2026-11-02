@@ -18,9 +18,9 @@ export function createBillingService({ pool, stripe, cfg, log, now = () => Date.
   // ---------- catalogue ----------
   async function catalog() {
     const [plans, prices, ents] = await Promise.all([
-      pool.query('SELECT slug,name,description,contact_sales,sort_order FROM portal.plans ORDER BY sort_order,slug'),
+      pool.query('SELECT slug,name,description,contact_sales,sort_order FROM portal.plans WHERE listed ORDER BY sort_order,slug'),
       pool.query('SELECT plan_slug,billing_interval,currency,amount_cents FROM portal.plan_prices WHERE active ORDER BY plan_slug,billing_interval'),
-      pool.query('SELECT plan_slug,feature,quota,description FROM portal.entitlements ORDER BY plan_slug,feature')
+      pool.query(`SELECT plan_slug,feature,quota,description FROM portal.entitlements WHERE enabled AND plan_slug IN (SELECT slug FROM portal.plans WHERE listed) AND feature ~ '^(notes|members|ai\.queries|meet\.max)' ORDER BY plan_slug,feature`)
     ]);
     return {
       currency: 'usd',

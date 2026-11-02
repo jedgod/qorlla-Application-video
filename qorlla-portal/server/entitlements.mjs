@@ -10,12 +10,12 @@ export async function effectivePlan(db, workspaceId) {
 }
 export async function entitlementsFor(db, workspaceId) {
   const plan = await effectivePlan(db, workspaceId);
-  const rows = (await db.query('SELECT feature,quota,description FROM portal.entitlements WHERE plan_slug=$1 ORDER BY feature', [plan])).rows;
+  const rows = (await db.query('SELECT feature,quota,description FROM portal.entitlements WHERE plan_slug=$1 AND enabled ORDER BY feature', [plan])).rows;
   return { plan, features: Object.fromEntries(rows.map((r) => [r.feature, { quota: r.quota, unlimited: r.quota === null, description: r.description }])) };
 }
 export async function quotaFor(db, workspaceId, feature) {
   const plan = await effectivePlan(db, workspaceId);
-  const r = (await db.query('SELECT quota FROM portal.entitlements WHERE plan_slug=$1 AND feature=$2', [plan, feature])).rows[0];
+  const r = (await db.query('SELECT quota FROM portal.entitlements WHERE plan_slug=$1 AND feature=$2 AND enabled', [plan, feature])).rows[0];
   // a feature with no row for the plan is not granted at all
   return { plan, granted: !!r, quota: r ? r.quota : 0 };
 }

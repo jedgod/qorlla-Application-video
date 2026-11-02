@@ -27,6 +27,7 @@ import { createBillingLaunch } from './billing/launch.mjs';
 import { registerBillingLaunch } from './billing/routes.mjs';
 import { createPhoneWorker } from './telephony/worker.mjs';
 import { createDirectory } from './directory.mjs';
+import { createSbacs, registerSbacs } from './sbacs.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
 const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -252,6 +253,8 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
 
   registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage, flags, limiters, citations });
   registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags, limiters });
+  const sbacs = createSbacs({ pool });
+  registerSbacs(app, { pool, auth, h, sbacs });
   registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags, limiters, citations });
   registerAiGateway(app, { pool, cfg, auth, h, llm, flags, limiters });
   registerPhone(app, { pool, cfg, auth, h, log, llm, limiters, ...(aiOverride.phone || {}) });

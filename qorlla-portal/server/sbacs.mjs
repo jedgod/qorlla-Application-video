@@ -1,0 +1,172 @@
+// SBACS: the subscription entitlement engine. It answers ONE question: does this workspace's SUBSCRIPTION entitle it to use this feature?
+// It never answers "is this action permitted": membership/roles (auth.member), document permissions, Meet consent, AI-gateway provider
+// approval and account suspension are separate checks that must also pass. A paid plan never overrides any of them.
+//   * plan comes from portal.workspace_effective_plan (Postgres), so webhook-confirmed state only; a browser redirect never changes it.
+//   * a workspace-level override (portal.entitlement_overrides) may add or remove a feature or change its quota, until it expires.
+//   * HARD_DENY features can never be granted by a plan or an override (uncertified or policy-forbidden capabilities).
+//   * metered features: reserve() -> finalize() | release() under a row lock, so concurrent requests cannot exceed the quota.
+import { effectivePlan } from './entitlements.mjs';
+
+// Payment must never unlock these: PSTN needs an approved carrier + separate telephony certification; Private AI never leaves Qorlla.
+export const HARD_DENY = new Set(['phone.pstn', 'ai.private.external']);
+// usable by anyone, including a suspended workspace's guests: joining someone else's meeting is not a use of this workspace's plan
+const ALWAYS = new Set(['meet.guest_join']);
+
+export class EntitlementError extends Error {
+  constructor(result) { super('Subscription access denied'); this.status = 403; this.code = 'subscription_access_denied'; this.result = result; }
+}
+
+export function createSbacs({ pool }) {
+  const periodStart = "date_trunc('month', now())::date";
+
+  async function suspended(db, workspaceId) {
+    const r = (await db.query(`SELECT (w.suspended_at IS NOT NULL OR s.status = 'suspended') AS blocked FROM portal.workspaces w LEFT JOIN portal.subscriptions s ON s.workspace_id = w.id WHERE w.id = $1`, [workspaceId])).rows[0];
+    return !r || r.blocked;                                                         // unknown workspace = blocked
+  }
+  /** plan row + non-expired override, merged. source says where the answer came from. */
+  async function resolve(db, workspaceId, feature) {
+    const plan = await effectivePlan(db, workspaceId);
+    const base = (await db.query('SELECT enabled, quota FROM portal.entitlements WHERE plan_slug=$1 AND feature=$2', [plan, feature])).rows[0];
+    const ov = (await db.query('SELECT enabled, quota FROM portal.entitlement_overrides WHERE workspace_id=$1 AND feature=$2 AND (expires_at IS NULL OR expires_at > now())', [workspaceId, feature])).rows[0];
+    const row = ov || base;
+    return { plan, enabled: !!row?.enabled, quota: row && row.quota !== null ? Number(row.quota) : null, source: ov ? 'override' : (base ? 'plan' : 'none') };
+  }
+  async function usageOf(db, workspaceId, feature) {
+    const r = (await db.query(`SELECT used, reserved FROM portal.subscription_usage WHERE workspace_id=$1 AND feature=$2 AND period_start=${periodStart}`, [workspaceId, feature])).rows[0];
+    return { used: Number(r?.used || 0), reserved: Number(r?.reserved || 0) };
+  }
+  async function upgradeAvailable(db, plan, feature) {
+    const r = await db.query(`SELECT 1 FROM portal.entitlements e JOIN portal.plans p ON p.slug=e.plan_slug JOIN portal.plans cur ON cur.slug=$1
+      WHERE e.feature=$2 AND e.enabled AND p.listed AND p.sort_order > cur.sort_order LIMIT 1`, [plan, feature]);
+    return r.rowCount > 0;
+  }
+
+  /** The feature gate. Pure read; metered operations must still reserve(). */
+  async function check({ workspaceId, featureKey, db = pool }) {
+    const deny = (reason, extra = {}) => ({ allowed: false, reason, feature: featureKey, upgradeAvailable: false, ...extra });
+    if (HARD_DENY.has(featureKey)) return deny('not_available');
+    if (ALWAYS.has(featureKey)) return { allowed: true, feature: featureKey, plan: null, quota: null };
+    if (await suspended(db, workspaceId)) return deny('account_suspended');
+    const r = await resolve(db, workspaceId, featureKey);
+    if (!r.enabled) return deny('not_in_plan', { plan: r.plan, upgradeAvailable: await upgradeAvailable(db, r.plan, featureKey) });
+    if (r.quota !== null) {
+      const u = await usageOf(db, workspaceId, featureKey);
+      if (u.used + u.reserved >= r.quota) return deny('quota_exhausted', { plan: r.plan, quota: r.quota, used: u.used, upgradeAvailable: await upgradeAvailable(db, r.plan, featureKey) });
+      return { allowed: true, feature: featureKey, plan: r.plan, quota: r.quota, used: u.used, source: r.source };
+    }
+    return { allowed: true, feature: featureKey, plan: r.plan, quota: null, source: r.source };
+  }
+
+  /** Every known feature, as the clients should show it (server-authoritative; the UI never decides). */
+  async function effective(workspaceId, db = pool) {
+    const blocked = await suspended(db, workspaceId), plan = await effectivePlan(db, workspaceId);
+    const keys = (await db.query(`SELECT DISTINCT feature, description FROM portal.entitlements WHERE description IS NOT NULL ORDER BY feature`)).rows;
+    const features = {};
+    for (const k of keys) {
+      if (HARD_DENY.has(k.feature)) { features[k.feature] = { enabled: false, reason: 'not_available', description: k.description }; continue; }
+      if (blocked && !ALWAYS.has(k.feature)) { features[k.feature] = { enabled: false, reason: 'account_suspended', description: k.description }; continue; }
+      const r = await resolve(db, workspaceId, k.feature), u = r.quota === null ? null : await usageOf(db, workspaceId, k.feature);
+      features[k.feature] = { enabled: r.enabled, quota: r.enabled ? r.quota : null, unlimited: r.enabled && r.quota === null, used: u ? u.used : undefined, source: r.source, description: k.description };
+    }
+    return { plan, suspended: blocked, features };
+  }
+
+  async function event(db, { workspaceId = null, actorId = null, kind, detail = {} }) {
+    await db.query('INSERT INTO portal.entitlement_events(workspace_id, actor_id, kind, detail) VALUES($1,$2,$3,$4)', [workspaceId, actorId, kind, detail]);
+  }
+
+  // ---- metered usage ----
+  async function withTx(fn) {
+    const c = await pool.connect();
+    try { await c.query('BEGIN'); const out = await fn(c); await c.query('COMMIT'); return out; }
+    catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
+  }
+  /** Reserve `units` before doing the work. Idempotent per (workspace, idempotencyKey). */
+  async function reserve({ workspaceId, featureKey, units = 1, idempotencyKey, ttlMs = 15 * 60_000 }) {
+    if (!idempotencyKey) throw new Error('idempotencyKey required');
+    const gate = await check({ workspaceId, featureKey });
+    if (!gate.allowed && gate.reason !== 'quota_exhausted') return { ok: false, ...gate };
+    return withTx(async (c) => {
+      const prior = (await c.query('SELECT id, status, feature, units FROM portal.usage_reservations WHERE workspace_id=$1 AND idempotency_key=$2', [workspaceId, idempotencyKey])).rows[0];
+      if (prior) return prior.feature === featureKey && Number(prior.units) === units ? { ok: true, reservationId: prior.id, status: prior.status, replay: true } : { ok: false, reason: 'idempotency_conflict', feature: featureKey };
+      await c.query(`INSERT INTO portal.subscription_usage(workspace_id, feature, period_start) VALUES($1,$2,${periodStart}) ON CONFLICT DO NOTHING`, [workspaceId, featureKey]);
+      await c.query(`SELECT 1 FROM portal.subscription_usage WHERE workspace_id=$1 AND feature=$2 AND period_start=${periodStart} FOR UPDATE`, [workspaceId, featureKey]);
+      // give back reservations whose work never settled (crashed caller)
+      const stale = await c.query(`UPDATE portal.usage_reservations SET status='released', settled_at=now() WHERE workspace_id=$1 AND feature=$2 AND status='reserved' AND expires_at < now() AND period_start=${periodStart} RETURNING units`, [workspaceId, featureKey]);
+      const back = stale.rows.reduce((n, r) => n + Number(r.units), 0);
+      if (back) await c.query(`UPDATE portal.subscription_usage SET reserved = GREATEST(reserved - $3, 0) WHERE workspace_id=$1 AND feature=$2 AND period_start=${periodStart}`, [workspaceId, featureKey, back]);
+      const r = await resolve(c, workspaceId, featureKey), u = await usageOf(c, workspaceId, featureKey);
+      if (!r.enabled) return { ok: false, reason: 'not_in_plan', feature: featureKey, plan: r.plan };
+      if (r.quota !== null && u.used + u.reserved + units > r.quota) return { ok: false, reason: 'quota_exhausted', feature: featureKey, plan: r.plan, quota: r.quota, used: u.used, upgradeAvailable: await upgradeAvailable(c, r.plan, featureKey) };
+      const ins = await c.query(`INSERT INTO portal.usage_reservations(workspace_id, feature, period_start, units, idempotency_key, expires_at) VALUES($1,$2,${periodStart},$3,$4, now() + ($5 || ' milliseconds')::interval) RETURNING id`, [workspaceId, featureKey, units, idempotencyKey, String(ttlMs)]);
+      await c.query(`UPDATE portal.subscription_usage SET reserved = reserved + $3 WHERE workspace_id=$1 AND feature=$2 AND period_start=${periodStart}`, [workspaceId, featureKey, units]);
+      return { ok: true, reservationId: ins.rows[0].id, status: 'reserved' };
+    });
+  }
+  async function settle(reservationId, to) {
+    return withTx(async (c) => {
+      const r = (await c.query('SELECT * FROM portal.usage_reservations WHERE id=$1 FOR UPDATE', [reservationId])).rows[0];
+      if (!r) return { ok: false, reason: 'unknown_reservation' };
+      if (r.status !== 'reserved') return { ok: r.status === to, status: r.status };          // settling twice is a no-op; settling the other way is refused
+      await c.query(`SELECT 1 FROM portal.subscription_usage WHERE workspace_id=$1 AND feature=$2 AND period_start=$3 FOR UPDATE`, [r.workspace_id, r.feature, r.period_start]);
+      await c.query(`UPDATE portal.subscription_usage SET reserved = GREATEST(reserved - $4, 0), used = used + $5 WHERE workspace_id=$1 AND feature=$2 AND period_start=$3`, [r.workspace_id, r.feature, r.period_start, r.units, to === 'finalized' ? r.units : 0]);
+      await c.query(`UPDATE portal.usage_reservations SET status=$2, settled_at=now() WHERE id=$1`, [reservationId, to]);
+      return { ok: true, status: to };
+    });
+  }
+  const finalize = (id) => settle(id, 'finalized');
+  const release = (id) => settle(id, 'released');
+
+  // ---- audited administration (callers must be platform admins; the routes for that come in a later slice) ----
+  async function setOverride({ workspaceId, feature, enabled, quota = null, reason, expiresAt = null, actorId }) {
+    if (HARD_DENY.has(feature)) throw Object.assign(new Error('This capability cannot be enabled by an override'), { status: 400 });
+    return withTx(async (c) => {
+      await c.query(`INSERT INTO portal.entitlement_overrides(workspace_id, feature, enabled, quota, reason, expires_at, created_by) VALUES($1,$2,$3,$4,$5,$6,$7)
+        ON CONFLICT (workspace_id, feature) DO UPDATE SET enabled=EXCLUDED.enabled, quota=EXCLUDED.quota, reason=EXCLUDED.reason, expires_at=EXCLUDED.expires_at, created_by=EXCLUDED.created_by, created_at=now()`, [workspaceId, feature, enabled, quota, reason, expiresAt, actorId]);
+      await event(c, { workspaceId, actorId, kind: 'override.set', detail: { feature, enabled, quota, reason, expiresAt } });
+    });
+  }
+  async function setSuspended({ workspaceId, suspended: on, reason = null, actorId }) {
+    return withTx(async (c) => {
+      await c.query('UPDATE portal.workspaces SET suspended_at = CASE WHEN $2 THEN now() ELSE NULL END, suspended_reason = $3 WHERE id=$1', [workspaceId, on, on ? reason : null]);
+      await event(c, { workspaceId, actorId, kind: on ? 'workspace.suspended' : 'workspace.unsuspended', detail: { reason } });
+    });
+  }
+
+  /** Express middleware. Sits AFTER auth.member (identity + membership already proven); a failure here is 403 subscription_access_denied. */
+  function requireEntitlement(featureKey) {
+    return async (req, res, next) => {
+      try {
+        if (!req.actor || !req.workspace) return res.status(401).json({ error: 'authentication_required' });
+        const result = await check({ workspaceId: req.workspace, featureKey });
+        if (!result.allowed) return res.status(403).json({ error: 'subscription_access_denied', reason: result.reason, feature: featureKey, upgradeAvailable: !!result.upgradeAvailable });
+        req.entitlement = result; next();
+      } catch (e) { next(e); }
+    };
+  }
+
+  return { check, effective, resolve, usageOf, reserve, finalize, release, setOverride, setSuspended, event, requireEntitlement };
+}
+
+/** Read-only SBACS endpoints. Checkout / change / cancel / resume stay on the existing /api/v1/billing/* routes (CSRF, roles, idempotency, provider confirmation). */
+export function registerSbacs(app, { pool, auth, h, sbacs }) {
+  const { member } = auth;
+  const noStore = (res) => res.set('Cache-Control', 'no-store');
+  app.get('/api/v1/subscriptions/plans', h(async (req, res) => {
+    const plans = (await pool.query('SELECT slug, name, description, contact_sales, sort_order FROM portal.plans WHERE listed ORDER BY sort_order, slug')).rows;
+    const prices = (await pool.query('SELECT plan_slug, billing_interval, currency, amount_cents FROM portal.plan_prices WHERE active ORDER BY plan_slug, billing_interval')).rows;
+    const ents = (await pool.query('SELECT plan_slug, feature, enabled, quota, description FROM portal.entitlements WHERE description IS NOT NULL ORDER BY plan_slug, feature')).rows;
+    res.set('Cache-Control', 'public, max-age=60').json({ plans: plans.map((p) => ({ ...p, prices: prices.filter((x) => x.plan_slug === p.slug),
+      features: Object.fromEntries(ents.filter((e) => e.plan_slug === p.slug).map((e) => [e.feature, { enabled: e.enabled && e.feature !== 'phone.pstn', quota: e.enabled ? e.quota : null, description: e.description }])) })) });
+  }));
+  app.get('/api/v1/subscriptions/current', member, h(async (req, res) => {
+    const e = await sbacs.effective(req.workspace);
+    const s = (await pool.query('SELECT plan_slug, status, current_period_end, cancel_at_period_end FROM portal.subscriptions WHERE workspace_id=$1', [req.workspace])).rows[0];
+    noStore(res).json({ plan: e.plan, suspended: e.suspended, subscription: s ? { plan: s.plan_slug, status: s.status, renewsOrEndsAt: s.current_period_end, cancelAtPeriodEnd: s.cancel_at_period_end } : null });
+  }));
+  app.get('/api/v1/subscriptions/entitlements', member, h(async (req, res) => noStore(res).json(await sbacs.effective(req.workspace))));
+  app.get('/api/v1/subscriptions/usage', member, h(async (req, res) => {
+    const e = await sbacs.effective(req.workspace);
+    noStore(res).json({ period: 'month', usage: Object.entries(e.features).filter(([, f]) => f.enabled && f.quota !== null && f.quota !== undefined).map(([feature, f]) => ({ feature, used: f.used || 0, quota: f.quota, description: f.description })) });
+  }));
+}
