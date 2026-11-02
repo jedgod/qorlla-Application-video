@@ -105,3 +105,24 @@ Windows reserves some TCP ranges (4024–4223 here): an isolated project needs a
 - **Test host condition found:** OneDrive (~30,000 CPU-seconds), Defender and the WSL VM keep this Windows host at 100% CPU; with six browsers in a mesh, Meet stalled for 30 s at a time. The scenario therefore uses two browsers and generous waits (assertions unchanged). This also explains the layout-during-sharing result below.
 - **Meet regression comparison** (`meet-regression/`, controlled A/B, alternating order, same host, host load recorded per run, traces kept outside git): layout-while-sharing failed 9/12 on the new build and 10/12 on the unmodified baseline (commit 5e74232) with the identical assertion (a tile 497 px wide, expected > 994). Classification: BASELINE-REPRODUCIBLE under load (existing flaky test); no evidence of a regression from the Meet AI changes; NOT resolved.
 - **Final validation of this milestone:** portal 262/262 (consent fence 14, Meet consent 23, gateway routes 26, refusal 6, gateway unit 22, meeting AI 27, migrations 11). Browser specs on the test-adapter project `qai`: 25 passed, 1 skipped by design (the "no provider" spec). Production-default project `qnoai` (QORLLA_AI_ENABLED=false, PROVIDER=none, TEST_ADAPTER=false, no keys): 9 passed, 17 AI-dependent specs skipped. Meet regression comparison: see `meet-regression/README.md`.
+
+## Review milestone (baseline 566e088 accepted; nothing merged, pushed or deployed)
+
+Commits on `feature/qorlla-ai-review-panel`: `a8aed46` (portal remediation), `ba07294` (Meet-side ordering, wording, `qorlla-portal/docs/CONSENT_FENCE_REVIEW.md`), `7b92f20` (single-use hand-off), `c045dfa` (Meet share state + layout test race).
+
+| Check | Result |
+|---|---|
+| Portal suite (node:test, real PostgreSQL, fake model/Meet) | PASS 268/268 (262 existing + 6 review-regression tests) |
+| Meet `tests/consent-lock.test.mjs` (real PostgreSQL) | PASS 3/3 (control run shows the unlocked workload does commit out of number order) |
+| `scheduled-meeting.spec.js` + `meet-ai-consent.spec.js` on `qai` after rebuild | PASS 10/10 |
+| `meeting-ai.spec.js` (v4.2, 2 tests) | **FAIL, stale**: never opens an AI request nor has participants answer, which the consent rules have required since the AI-consent milestone; not rewritten |
+| Main-app to Meet hand-off, `main-handoff.spec.js` on isolated `qlaunch` (direct mode) | PASS 8/8 (evidence: `ai/main-handoff-evidence.json`) |
+| Meet layout while sharing | The 497 px tile is the ordinary gallery before the viewer receives the share (160-850 ms); sharing layout measures 746 px main vs 249 px others. Test race, fixed by waiting for the viewer's sharing state; assertion unchanged. 3/3 after (3/12 failed before) |
+| Meet screen share (`never mirrors`) | Real defect: a `media-state` event arriving before the tile existed was dropped. Reproduced 2/6 twice before the fix, 8/8 after; controls + connection specs 16/16 |
+| Meet route two-browser test | Environment mismatch: the spec asserts `wss://` and `qai` is HTTP. A copy accepting `ws://` passed 3/3 (upgrade on `/meet/`, chat both ways, passcode, refresh, rejoin). The original `wss` assertion is **UNVERIFIED** this session (needs the TLS project) |
+
+Hand-off is verified only on an isolated direct-mode project. It stays off everywhere else; the sync-worker vault credential is still only an isolated-test workaround.
+
+Devices: one APK with both ABIs, origins `http://localhost:3900/` and `http://localhost:3901/` baked in (test build). Galaxy A03s (SM-A037U, Android 13, arm64): installed, Welcome screen verified by screenshot. LG LM-X320 (Android 10, armeabi-v7a, 32-bit, WebView 156): installed and process running; USB link dropped before a screenshot could be taken, so its screen is **UNVERIFIED**. `adb reverse` added for 3900 and 3901 only; pre-existing rules untouched.
+
+Host conditions: CPU was heavily loaded (Gradle, Docker, OneDrive); no user processes were stopped.
