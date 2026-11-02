@@ -69,8 +69,11 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange }) {
     }
 
     const publicUser = (u) => ({ id: u.id, username: u.username, displayName: u.displayName });
+    const cleanName = (v) => String(v || '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40);
     const selfUser = (u) => ({
         ...publicUser(u),
+        firstName: u.firstName || '',
+        lastName: u.lastName || '',
         email: u.email || '',
         emailVerified: !!u.emailVerified,
         recoveryCodesRemaining: (u.recoveryCodes || []).filter((c) => !c.used).length
@@ -251,11 +254,14 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange }) {
     router.post('/register', async (req, res) => {
         const body = req.body || {};
         const username = String(body.username || '').trim().toLowerCase();
-        const displayName = String(body.displayName || '').trim().slice(0, 60) || username;
+        const firstName = cleanName(body.firstName), lastName = cleanName(body.lastName);
+        // a name given on the sign-up page is the default display name; clients that only send a display name keep working
+        const displayName = String(body.displayName || '').trim().slice(0, 60) || [firstName, lastName].filter(Boolean).join(' ') || username;
         const password = typeof body.password === 'string' ? body.password : '';
         const email = normEmail(body.email);
 
         if (!USERNAME_RE.test(username)) return res.status(400).json({ error: 'Username must be 3-24 characters: letters, numbers, dot, dash or underscore.' });
+        if ((body.firstName !== undefined || body.lastName !== undefined) && (!firstName || !lastName)) return res.status(400).json({ error: 'Please enter both your first name and your last name.' });
         const pwError = checkPassword(password, username);
         if (pwError) return res.status(400).json({ error: pwError });
         if (email && !validEmail(email)) return res.status(400).json({ error: 'That email address does not look valid.' });
@@ -263,7 +269,7 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange }) {
         const users = loadUsers();
         if (users.some((u) => u.username === username)) return res.status(409).json({ error: 'That username is taken.' });
 
-        const user = { id: 'u_' + uuidv4(), username, displayName, email, emailVerified: false, createdAt: new Date().toISOString() };
+        const user = { id: 'u_' + uuidv4(), username, displayName, ...(firstName ? { firstName, lastName } : {}), email, emailVerified: false, createdAt: new Date().toISOString() };
         setPassword(user, password);
         const recoveryCodes = newRecoveryCodes(user);
         users.push(user);

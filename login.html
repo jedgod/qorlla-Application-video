@@ -53,6 +53,8 @@
   <link rel="stylesheet" href="assets/product.css">
   <script src="assets/product.js" defer></script>
 <style>
+    /* the sign-up form is taller than the sign-in form: start below the language control instead of centring into it */
+    .auth-form-area:has(.card.reg) { justify-content:flex-start; padding-top:72px; }
     html.embed body { min-height:0; padding:0; background:#fff; } html.embed .auth-story { min-height:100vh; } @media (max-width:1023px) { html.embed .auth-story { min-height:0; } }
   </style>
 </head>
@@ -72,8 +74,12 @@
       <label for="username"><span data-i18n="Username">Username</span></label>
       <input id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="24">
       <div class="only-reg">
-        <label for="displayName"><span data-i18n="Display name">Display name</span></label>
-        <input id="displayName" name="displayName" type="text" autocomplete="name" maxlength="60" placeholder="How your name appears in chat" data-i18n-placeholder="How your name appears in chat">
+        <label for="firstName"><span data-i18n="First name">First name</span></label>
+        <input id="firstName" name="firstName" type="text" autocomplete="given-name" maxlength="40" placeholder="Your first name" data-i18n-placeholder="Your first name">
+        <label for="lastName"><span data-i18n="Last name">Last name</span></label>
+        <input id="lastName" name="lastName" type="text" autocomplete="family-name" maxlength="40" placeholder="Your last name" data-i18n-placeholder="Your last name">
+        <label for="displayName"><span data-i18n="Display name">Display name</span> <small><span data-i18n="(optional)">(optional)</span></small></label>
+        <input id="displayName" name="displayName" type="text" autocomplete="nickname" maxlength="60" placeholder="Shown in chat; defaults to your first and last name" data-i18n-placeholder="Shown in chat; defaults to your first and last name">
         <label for="email"><span data-i18n="Email">Email</span> <small><span data-i18n="(optional)">(optional)</span></small></label>
         <input id="email" name="email" type="email" autocomplete="email" maxlength="254" placeholder="For password reset and sending mail" data-i18n-placeholder="For password reset and sending mail">
         <div class="hint">You will be asked to confirm it. Without email you can still recover your account with recovery codes.</div>
@@ -210,6 +216,7 @@
     $('tabIn').tabIndex = m === 'in' ? 0 : -1;
     $('tabUp').tabIndex = m === 'up' ? 0 : -1;
     $('password').minLength = m === 'up' ? 8 : 0;
+    $('firstName').required = $('lastName').required = m === 'up';          // only the sign-up form needs them (the fields are hidden when signing in)
     $('go').textContent = m === 'up' ? I18n.t('Create account') : I18n.t('Sign in');
     $('password').autocomplete = m === 'up' ? 'new-password' : 'current-password';
     $('err').classList.remove('show');
@@ -224,7 +231,7 @@
   $('form').addEventListener('submit', function (e) {
     e.preventDefault();
     var body = { username: $('username').value, password: $('password').value };
-    if (mode === 'up') { body.displayName = $('displayName').value; body.email = $('email').value; }
+    if (mode === 'up') { body.firstName = $('firstName').value; body.lastName = $('lastName').value; body.displayName = $('displayName').value; body.email = $('email').value; }
     $('go').disabled = true; $('go').classList.add('busy'); $('go').setAttribute('aria-busy', 'true'); $('go').textContent = mode === 'up' ? 'Creating account…' : 'Signing in…'; $('err').classList.remove('show');
     call(mode === 'up' ? 'register' : 'login', body).then(function (d) {
       if (mode === 'up' && d.recoveryCodes) { pendingUser = d.user; showCodes(d); }
