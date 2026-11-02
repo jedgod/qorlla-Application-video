@@ -153,3 +153,13 @@ test('model choices are Qorlla profiles; the private profile uses only local pro
   const onlyExt = gw([fake('gemini')]); assert.equal(onlyExt.g.models()[1].available, false);
   await assert.rejects(run(onlyExt.g, { ...ctx, profile: 'private' }), (e) => e.code === 'private_unavailable'); assert.equal(onlyExt.audits.at(-1).outcome, 'unavailable');
 });
+
+test('Qorlla AI Private never falls back to an external provider: not when the local one fails, is slow, is breaker-open or unauthorised; the external provider receives nothing', async () => {
+  const brokenLocal = fake('selfhosted', { external: false, tier: 'local', fn: () => { throw new LlmError('down', { retryable: true, code: 'llm_unreachable' }); } }), ext = fake('gemini');
+  const { g, audits } = gw([brokenLocal, ext], { consent: async () => true });                                  // the workspace HAS authorised external processing
+  await assert.rejects(run(g, { ...ctx, profile: 'private' }), (e) => e.code === 'ai_unavailable' && e.retryable && !/gemini/i.test(e.message)); assert.equal(ext.calls, 0, 'the external provider was never asked');
+  for (let i = 0; i < 4; i += 1) await assert.rejects(run(g, { ...ctx, actorId: 'u' + i, profile: 'private' }));           // trips the local provider's breaker
+  assert.equal(g.adminStatus().providers[0].healthy, false); await assert.rejects(run(g, { ...ctx, actorId: 'u9', profile: 'private' }), (e) => ['ai_unavailable', 'private_unavailable'].includes(e.code)); assert.equal(ext.calls, 0, 'an open breaker does not send the content elsewhere either');
+  assert.equal((await run(g, { ...ctx, actorId: 'auto' })).data.answer, 'from gemini', 'the automatic profile may use the external provider; the private one may not'); assert.equal(ext.calls, 1);
+  assert.ok(audits.filter((a) => a.provider === 'gemini').length === 1, 'exactly one request ever reached the external provider');
+});

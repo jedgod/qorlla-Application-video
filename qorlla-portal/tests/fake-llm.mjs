@@ -53,8 +53,11 @@ export async function startFakeLlm({ port = 0, host = '127.0.0.1' } = {}) {
 export const READ_SECRET = 'r'.repeat(40);
 /** TEST DOUBLE of Meet's read-only consent export: by default every person who wrote a message has agreed to both purposes and the host's request is open. Tests change `meeting.consent` to model declines, withdrawals and late joiners. */
 export const pidOf = (speaker) => 'p-' + String(speaker || 'anon').toLowerCase().replace(/\W+/g, '');
-export const decisionRow = (transcription = 'agree', summary = transcription) => ({ transcription: { decision: transcription, at: '2026-11-01T10:00:00.000Z' }, summary: { decision: summary, at: '2026-11-01T10:00:00.000Z' } });
-const consentFor = (messages) => ({ requested: true, requestedAt: '2026-11-01T09:59:00.000Z', noticeVersion: 'qorlla-ai-consent-2026-11', participants: [...new Set((messages || []).map((x) => x.participantId).filter(Boolean))].map((pid) => ({ participantId: pid, name: pid, role: 'guest', decisions: decisionRow() })) });
+// Meet numbers every answer from ONE increasing sequence; an objection (decline / withdraw) carries its own number so a result built on an earlier agreement can be recognised as out of date.
+let SEQ = 1000;
+export const decisionRow = (transcription = 'agree', summary = transcription) => { const mk = (d) => { const seq = d === 'pending' ? 0 : ++SEQ; return { decision: d, at: '2026-11-01T10:00:00.000Z', seq, objectionSeq: d === 'decline' || d === 'withdraw' ? seq : 0 }; }; return { transcription: mk(transcription), summary: mk(summary) }; };
+const revisionOf = (c) => Math.max(Number(c.requestSeq || 0), ...c.participants.flatMap((p) => Object.values(p.decisions).flatMap((d) => [Number(d.seq || 0), Number(d.objectionSeq || 0)])), 0);
+const consentFor = (messages) => ({ requested: true, requestSeq: ++SEQ, requestedAt: '2026-11-01T09:59:00.000Z', noticeVersion: 'qorlla-ai-consent-2026-11', participants: [...new Set((messages || []).map((x) => x.participantId).filter(Boolean))].map((pid) => ({ participantId: pid, name: pid, role: 'guest', decisions: decisionRow() })) });
 export async function startFakeMeet({ port = 0, host = '127.0.0.1' } = {}) {
   const st = { meetings: new Map(), requests: [], down: false, delayMs: 0 };
   const server = http.createServer(async (req, res) => {
@@ -66,10 +69,10 @@ export async function startFakeMeet({ port = 0, host = '127.0.0.1' } = {}) {
     if (st.delayMs) await new Promise((r) => setTimeout(r, st.delayMs));
     if (st.down) return send(503, { error: 'down' });
     if (req.headers['x-qorlla-readonly-secret'] !== READ_SECRET) return send(401, { error: 'Read authentication required' });
-    const mt = st.meetings.get(m[1]); if (!mt && m[2] === 'ai-consent') return send(200, { meetingId: m[1], requested: true, participants: [] });   // a meeting Meet knows nothing about yet: open request, nobody has answered
+    const mt = st.meetings.get(m[1]); if (!mt && m[2] === 'ai-consent') return send(200, { meetingId: m[1], requested: true, revision: String(SEQ), participants: [] });   // a meeting Meet knows nothing about yet: open request, nobody has answered
     if (!mt) return send(404, { error: 'Meeting unavailable' });
     if (m[2] === 'ai-consent') {          // st.onConsent(n, meeting) runs AFTER the n-th answer was sent: a test can change someone's consent at an exact moment of a job (no timing races)
-      st.consentReads = (st.consentReads || 0) + 1; const n = st.consentReads; send(200, { meetingId: m[1], ...JSON.parse(JSON.stringify(mt.consent || consentFor(mt.messages))) });
+      st.consentReads = (st.consentReads || 0) + 1; const n = st.consentReads; const cs = JSON.parse(JSON.stringify(mt.consent || (mt.consent = consentFor(mt.messages)))); send(200, { meetingId: m[1], ...cs, revision: String(cs.revision ?? revisionOf(cs)) });
       if (st.onConsent) await st.onConsent(n, mt); return;
     }
     send(200, { meetingId: m[1], title: mt.title, messages: mt.messages });

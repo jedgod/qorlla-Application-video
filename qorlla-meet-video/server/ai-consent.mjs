@@ -23,11 +23,15 @@ export function registerAiConsent({ app, io, db, auth, fail, audit, room, getNam
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
   const guard = (fn, msg) => async (req, res) => { try { await fn(req, res); } catch (e) { console.error('[ai-consent]', msg, e.message); if (!res.headersSent) fail(res, 500, msg); } };
   const requestedAt = async (meetingId) => (await db.query('SELECT ai_requested_at FROM meetings WHERE id=$1', [meetingId])).rows[0]?.ai_requested_at || null;
-  const latest = async (meetingId) => (await db.query('SELECT DISTINCT ON (participant_id,purpose) participant_id, purpose, decision, created_at FROM ai_consents WHERE meeting_id=$1 ORDER BY participant_id, purpose, created_at DESC, id DESC', [meetingId])).rows;
+  // latest answer per person and purpose (by the monotonic seq), the number of that answer, and the number of the most recent objection (decline or withdraw): what the portal needs to order publication against revocation
+  const latest = async (meetingId) => (await db.query(`SELECT c.participant_id, c.purpose, c.decision, c.created_at, c.seq::text AS seq,
+      COALESCE((SELECT max(o.seq) FROM ai_consents o WHERE o.meeting_id=c.meeting_id AND o.participant_id=c.participant_id AND o.purpose=c.purpose AND o.decision IN ('decline','withdraw')), 0)::text AS objection_seq
+    FROM (SELECT DISTINCT ON (participant_id, purpose) * FROM ai_consents WHERE meeting_id=$1 ORDER BY participant_id, purpose, seq DESC) c`, [meetingId])).rows;
+  const revisionOf = async (meetingId) => (await db.query('SELECT GREATEST(COALESCE((SELECT max(seq) FROM ai_consents WHERE meeting_id=$1), 0), COALESCE((SELECT ai_request_seq FROM meetings WHERE id=$1), 0))::text AS rev', [meetingId])).rows[0].rev;
 
   // the host asks; the host's own agreement is recorded like anybody else's, then everyone in the room is prompted
   app.post(paths('/ai-consent/request'), auth, member, hostOnly, guard(async (req, res) => {
-    const r = await db.query('UPDATE meetings SET ai_requested_at=now(), ai_requested_by=$2 WHERE id=$1 AND ai_requested_at IS NULL AND ended_at IS NULL RETURNING ai_requested_at', [req.params.id, req.user.participantId]);
+    const r = await db.query("UPDATE meetings SET ai_requested_at=now(), ai_requested_by=$2, ai_request_seq=nextval('ai_consent_seq') WHERE id=$1 AND ai_requested_at IS NULL AND ended_at IS NULL RETURNING ai_requested_at", [req.params.id, req.user.participantId]);
     if (!r.rowCount) return fail(res, 409, 'An AI consent request is already open, or the meeting has ended');
     const ref = await audit(req.params.id, null, req.user.participantId, 'host', 'ai_consent.requested', { purposes: CORE, noticeVersion: AI_NOTICE.version });
     const name = getName(req.params.id, req.user.participantId); const last = new Map((await latest(req.params.id)).filter((x) => x.participant_id === req.user.participantId).map((x) => [x.purpose, x.decision]));
@@ -41,7 +45,7 @@ export function registerAiConsent({ app, io, db, auth, fail, audit, room, getNam
 
   // the host closes the request: the portal sees requested=false and processes nothing further for this meeting
   app.post(paths('/ai-consent/cancel'), auth, member, hostOnly, guard(async (req, res) => {
-    const r = await db.query('UPDATE meetings SET ai_requested_at=NULL WHERE id=$1 AND ai_requested_at IS NOT NULL RETURNING id', [req.params.id]);
+    const r = await db.query("UPDATE meetings SET ai_requested_at=NULL, ai_request_seq=nextval('ai_consent_seq') WHERE id=$1 AND ai_requested_at IS NOT NULL RETURNING id", [req.params.id]);
     if (!r.rowCount) return fail(res, 409, 'There is no open AI consent request');
     const ref = await audit(req.params.id, null, req.user.participantId, 'host', 'ai_consent.request_cancelled', {});
     io.to(room(req.params.id)).emit('ai-consent-closed', {}); res.json({ requested: false, auditRef: ref });
@@ -60,8 +64,9 @@ export function registerAiConsent({ app, io, db, auth, fail, audit, room, getNam
     if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return fail(res, 400, 'Invalid meeting id');
     const m = await db.query('SELECT id, ai_requested_at FROM meetings WHERE id=$1', [req.params.id]); if (!m.rowCount) return fail(res, 404, 'Meeting unavailable');
     const { rows: ps } = await db.query("SELECT id, display_name, role FROM participants WHERE meeting_id=$1 AND admission='admitted'", [req.params.id]); const dec = await latest(req.params.id);
-    res.json({ meetingId: m.rows[0].id, requested: !!m.rows[0].ai_requested_at, requestedAt: m.rows[0].ai_requested_at, noticeVersion: AI_NOTICE.version,
-      participants: ps.map((p) => ({ participantId: p.id, name: p.display_name, role: p.role, decisions: Object.fromEntries(AI_PURPOSES.map((pp) => { const d = dec.find((x) => x.participant_id === p.id && x.purpose === pp); return [pp, d ? { decision: d.decision, at: d.created_at } : { decision: 'pending', at: null }]; })) })) });
+    res.json({ meetingId: m.rows[0].id, requested: !!m.rows[0].ai_requested_at, requestedAt: m.rows[0].ai_requested_at, noticeVersion: AI_NOTICE.version, revision: await revisionOf(req.params.id),
+      // identity here is the Meet SESSION (participantId); the display name is only what the person typed and is never a basis for anything
+      participants: ps.map((p) => ({ participantId: p.id, name: p.display_name, role: p.role, decisions: Object.fromEntries(AI_PURPOSES.map((pp) => { const d = dec.find((x) => x.participant_id === p.id && x.purpose === pp); return [pp, d ? { decision: d.decision, at: d.created_at, seq: d.seq, objectionSeq: d.objection_seq } : { decision: 'pending', at: null, seq: '0', objectionSeq: '0' }]; })) })) });
   }, 'Unavailable'));
 
   /** Called when a socket connects: a late joiner who has not answered yet is asked at once. */

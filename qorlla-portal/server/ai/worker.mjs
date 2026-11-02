@@ -3,7 +3,8 @@
 // Consent is re-checked at every stage; a revoked consent cancels the job and nothing further is stored or sent to the model.
 import crypto from 'node:crypto';
 import { segmentsFromMeetChat } from './parse.mjs';
-import { applyParticipantConsent, importAllowed, stillConsented } from './meet-consent.mjs';
+import { applyParticipantConsent, importAllowed, stillConsented, checkFresh, basisFor } from './meet-consent.mjs';
+import { withdrawReport } from './withdraw.mjs';
 import { groundStatement, sha } from './citations.mjs';
 
 const CONSENT_SCOPES = ['transcription', 'summary'];
@@ -50,10 +51,12 @@ export function createAiWorker({ pool, llm, meet, citations, log, overage = null
   /** Meet's answer right now: is every person whose content is (or would be) used still agreeing, and is the host's AI request still open? Unreachable Meet = no answer = nothing proceeds. */
   async function participantCheck(job) {
     const consent = await meet.fetchConsent(job.meet_meeting_id);
-    if (job.source === 'transcript_import') { const r = importAllowed(consent); return r.allowed ? { ok: true } : { ok: false, reason: r.reason }; }
-    const ids = (await pool.query('SELECT participant_id FROM portal.meeting_ai_job_participants WHERE job_id=$1 AND included', [job.id])).rows.map((r) => r.participant_id);
-    return stillConsented({ consent, participantIds: ids });
+    if (job.source === 'transcript_import') return stillConsented({ consent, importRevision: job.consent_revision });
+    const rows = (await pool.query('SELECT participant_id, transcription_seq, summary_seq FROM portal.meeting_ai_job_participants WHERE job_id=$1 AND included', [job.id])).rows;
+    return stillConsented({ consent, rows });
   }
+  /** The numbers an included person's agreements had when their messages were taken (what every later read is checked against). */
+  const snapshotRows = async (db, job) => (await db.query('SELECT participant_id, transcription_seq, summary_seq FROM portal.meeting_ai_job_participants WHERE job_id=$1 AND included ORDER BY participant_id', [job.id])).rows;
   /** Consent was withdrawn while a job was in flight: nothing further is processed, the stored transcript is discarded, no result is published.
    *  ONE transaction, locking the job row first and the transcript second: the same order as a host's revocation (meeting-ai.mjs), so the two can never deadlock. */
   async function stopForConsent(job, reason, event, stage) {
@@ -85,14 +88,15 @@ export function createAiWorker({ pool, llm, meet, citations, log, overage = null
            VALUES($1,$2,$3,'meet_chat',$4,$5,$6,$7,$8) ON CONFLICT (job_id) DO NOTHING RETURNING id`,
           [job.workspace_id, job.meet_meeting_id, job.id, chat.speakerLabels, JSON.stringify(chat.segments), chat.fullText, crypto.createHash('sha256').update(chat.fullText).digest('hex'), job.requested_by]);
         const tid = t.rows[0]?.id || (await c.query('SELECT id FROM portal.meeting_transcripts WHERE job_id=$1', [job.id])).rows[0].id;
-        for (const p of d.participants) await c.query('INSERT INTO portal.meeting_ai_job_participants(job_id,participant_id,transcription,summary,included,reason) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING', [job.id, p.participant_id, p.transcription, p.summary, p.included, p.reason]);
+        for (const p of d.participants) await c.query('INSERT INTO portal.meeting_ai_job_participants(job_id,participant_id,transcription,summary,included,reason,transcription_seq,summary_seq) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING', [job.id, p.participant_id, p.transcription, p.summary, p.included, p.reason, p.transcription_seq, p.summary_seq]);
+        await c.query('UPDATE portal.meeting_ai_jobs SET consent_revision=$2 WHERE id=$1', [job.id, consent.revision]);
         await cAudit(c, job, 'job_snapshot', { included_participants: d.participants.filter((p) => p.included).length, excluded: d.excluded, messages_used: d.included.length });
         await c.query(`UPDATE portal.meeting_ai_jobs SET transcript_id=$2, stage='summarize' WHERE id=$1`, [job.id, tid]);
         return 'ok';
       });
       if (r.lost) return;
       if (r.out === 'consent_revoked') { await finish(job, 'cancelled', 'consent_revoked', 'Consent was revoked'); return; }
-      job.stage = 'summarize';
+      job.stage = 'summarize'; job.consent_revision = consent.revision;
     }
 
     if (job.stage === 'summarize') {
@@ -106,14 +110,15 @@ export function createAiWorker({ pool, llm, meet, citations, log, overage = null
       const segs = Array.isArray(t.segments) ? t.segments : [];
       const refsFor = (statement) => groundStatement(statement, segs).map((i) => ({ ref: citations.sign({ ws: job.workspace_id, kind: 'meet_transcript', id: t.id, loc: { t: 'segment', i }, h: sha(segs[i].text), label: `Meeting chat, message ${i + 1}` }), label: `Message ${i + 1}${clockLabel(segs[i]) ? ' at ' + clockLabel(segs[i]) : ''}` }));
       const cites = { decisions: res.report.decisions.map(refsFor), action_items: res.report.action_items.map((a) => ({ title: a.title, refs: refsFor(a.title) })) };
+      const basis = basisFor({ source: job.source === 'transcript_import' ? 'transcript_import' : 'meet_chat', rows: await snapshotRows(pool, job), revision: job.consent_revision });
       const done = await fenced(job, async (c) => {
         if (!(await activeConsents(c, job))) return 'consent_revoked';  // revoked during inference: discard the model output
         const post = await participantCheck(job); if (!post.ok) return 'pc:' + post.reason;      // a participant withdrew while the model was working: nothing is published
         const plan = (await c.query('SELECT plan_slug FROM portal.workspace_effective_plan WHERE workspace_id=$1', [job.workspace_id])).rows[0]?.plan_slug || 'basic';
         let rep = (await c.query(
-          `INSERT INTO portal.meeting_reports(workspace_id,external_meeting_id,meet_meeting_id,job_id,transcript_id,title,summary,decisions,topics,generated_by,created_by,host_user_id,citations)
-           VALUES($1,$2,$12::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$13) ON CONFLICT (job_id) DO NOTHING RETURNING id`,
-          [job.workspace_id, job.meet_meeting_id, job.id, t.id, `Meeting report: ${dir.title || 'Meeting'}`.slice(0, 200), res.report.summary, JSON.stringify(res.report.decisions), JSON.stringify(res.report.topics), `llm:${res.model}`, job.requested_by, dir.owner_user_id || job.requested_by, job.meet_meeting_id, JSON.stringify(cites)])).rows[0];
+          `INSERT INTO portal.meeting_reports(workspace_id,external_meeting_id,meet_meeting_id,job_id,transcript_id,title,summary,decisions,topics,generated_by,created_by,host_user_id,citations,consent_basis)
+           VALUES($1,$2,$12::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$13,$14) ON CONFLICT (job_id) DO NOTHING RETURNING id`,
+          [job.workspace_id, job.meet_meeting_id, job.id, t.id, `Meeting report: ${dir.title || 'Meeting'}`.slice(0, 200), res.report.summary, JSON.stringify(res.report.decisions), JSON.stringify(res.report.topics), `llm:${res.model}`, job.requested_by, dir.owner_user_id || job.requested_by, job.meet_meeting_id, JSON.stringify(cites), JSON.stringify(basis)])).rows[0];
         const created = !!rep;
         if (!rep) rep = (await c.query('SELECT id FROM portal.meeting_reports WHERE job_id=$1', [job.id])).rows[0];
         if (created) for (const a of res.report.action_items) {
@@ -126,10 +131,13 @@ export function createAiWorker({ pool, llm, meet, citations, log, overage = null
         }
         await c.query(`UPDATE portal.meeting_ai_jobs SET status='completed', stage='done', report_id=$2, error_code=NULL, error_message=NULL, lease_until=NULL, lease_token=NULL, finished_at=now() WHERE id=$1`, [job.id, rep.id]);
         await cAudit(c, job, 'result_published', { report_id: rep.id, cited_decisions: cites.decisions.filter((x) => x.length).length, cited_actions: cites.action_items.filter((x) => x.refs.length).length });
-        return 'ok';
+        return { ok: true, reportId: rep.id };
       });
       if (done.lost) return;
-      if (done.out === 'consent_revoked') { await cAudit(pool, job, 'result_discarded', { reason: 'host_consent_revoked' }); await finish(job, 'cancelled', 'consent_revoked', 'Consent was revoked'); }
+      if (done.out?.ok) {                                 // published. Verify ONCE MORE straight after the commit: if a person objected in the gap between the last check and the commit, withdraw now (every read re-checks anyway; if Meet cannot be reached here the reads fail closed)
+        try { const after = checkFresh({ basis, consent: await meet.fetchConsent(job.meet_meeting_id) }); if (!after.ok) { await withdrawReport(pool, { workspaceId: job.workspace_id, reportId: done.out.reportId, reason: after.reason }); await cAudit(pool, job, 'result_discarded', { reason: after.reason, stage: 'after_commit' }); } }
+        catch (e) { await cAudit(pool, job, 'consent_unverifiable', { stage: 'after_commit', code: e.code || 'error' }); }
+      } else if (done.out === 'consent_revoked') { await cAudit(pool, job, 'result_discarded', { reason: 'host_consent_revoked' }); await finish(job, 'cancelled', 'consent_revoked', 'Consent was revoked'); }
       else if (String(done.out).startsWith('pc:')) await stopForConsent(job, String(done.out).slice(3), 'result_discarded', 'before_publish');
     }
   }

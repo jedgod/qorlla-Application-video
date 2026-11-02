@@ -23,8 +23,11 @@ export function createMeetClient({ baseUrl, readSecret, fetchImpl = fetch, timeo
   /** Who agreed to what for Qorlla AI in this meeting (Meet's own append-only records). Unreachable or malformed means NO consent: callers must fail closed. */
   async function fetchConsent(meetingUuid) {
     const j = await getJson('ai-consent', meetingUuid);
-    if (!j || typeof j.requested !== 'boolean' || !Array.isArray(j.participants)) { const e = new Error('Meet returned an unreadable consent answer'); e.code = 'meet_error'; e.retryable = true; throw e; }
-    return { requested: j.requested, participants: j.participants.filter((p) => p && typeof p.participantId === 'string').map((p) => ({ participantId: p.participantId, role: p.role, decisions: p.decisions || {} })) };
+    if (!j || typeof j.requested !== 'boolean' || !Array.isArray(j.participants) || j.revision === undefined) { const e = new Error('Meet returned an unreadable consent answer'); e.code = 'meet_error'; e.retryable = true; throw e; }
+    const num = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : 0; };
+    const dec = (d) => ({ decision: typeof d?.decision === 'string' ? d.decision : 'pending', seq: num(d?.seq), objectionSeq: num(d?.objectionSeq) });
+    // display names are deliberately NOT carried over: identity is the participantId, never typed text
+    return { requested: j.requested, revision: num(j.revision), participants: j.participants.filter((p) => p && typeof p.participantId === 'string').map((p) => ({ participantId: p.participantId, role: p.role, decisions: Object.fromEntries(['transcription', 'summary'].map((k) => [k, dec(p.decisions?.[k])])) })) };
   }
   return { available, fetchChat, fetchChatRaw, fetchConsent };
 }

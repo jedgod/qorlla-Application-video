@@ -10,7 +10,8 @@ import { PlanLimitError, quotaFor, withWorkspaceLock } from './entitlements.mjs'
 import { parseTranscript } from './ai/parse.mjs';
 import { exportModel, toPdf, toDocx } from './ai/export.mjs';
 import { UUID_RE } from './auth.mjs';
-import { importAllowed, stillConsented } from './ai/meet-consent.mjs';
+import { importAllowed, checkFresh } from './ai/meet-consent.mjs';
+import { withdrawReport } from './ai/withdraw.mjs';
 import { sha } from './ai/citations.mjs';
 
 export const NOTICE = {
@@ -111,9 +112,10 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     const m = await meetingFor(pool, req, t.meet_meeting_id); if (!m) return refuse(403, 'citation_access_revoked', 'You no longer have access to this source.');
     const have = await activeConsents(pool, req.workspace, t.meet_meeting_id); if (!CONSENT_SCOPES.every((s) => have.some((x) => x.scope === s))) return refuse(403, 'consent_withdrawn', 'Consent for AI processing of this meeting was withdrawn.');
     const seg = Array.isArray(t.segments) ? t.segments[ref.loc?.i] : null; if (!seg || sha(seg.text) !== ref.h) return refuse(409, 'source_changed', 'This source is no longer what the citation pointed to.');
-    let consent; try { consent = await meet.fetchConsent(t.meet_meeting_id); } catch { return { status: 503, body: { error: 'Participant consent could not be verified right now, so the source was not shown.', code: 'participant_consent_unverifiable' } }; }
-    const ok = t.source === 'transcript_import' ? importAllowed(consent) : (seg.participant_id ? stillConsented({ consent, participantIds: [seg.participant_id] }) : { ok: false, reason: 'participant_withdrew' });
-    if (!(ok.ok ?? ok.allowed)) return refuse(403, 'participant_withdrew', 'The person who wrote this withdrew their consent, so it cannot be shown.');
+    const rep = (await pool.query('SELECT id, workspace_id, meet_meeting_id, status, consent_basis FROM portal.meeting_reports WHERE transcript_id=$1 AND workspace_id=$2', [t.id, req.workspace])).rows[0];
+    if (!rep || rep.status !== 'final') return refuse(403, 'consent_withdrawn', 'The report this source belongs to is no longer available.');
+    const f = await freshness(rep);                                                         // the whole report rests on the same agreements: if any included person objected, none of it is shown
+    if (!f.ok) return f.code === 'unverifiable' ? { status: 503, body: { error: 'Participant consent could not be verified right now, so the source was not shown.', code: 'participant_consent_unverifiable' } } : refuse(403, 'participant_withdrew', 'A person whose messages were used withdrew their consent, so this source is no longer shown.');
     await cAudit(pool, req, t.meet_meeting_id, 'citation_opened', null, { segment: ref.loc.i });
     return { status: 200, body: { kind: 'meet_transcript', label: ref.label, passage: seg.text, speaker: seg.speaker ?? null, at: seg.at ?? null, start_ms: seg.start_ms ?? null, locator: ref.loc, meeting_id: t.meet_meeting_id } };
   };
@@ -129,9 +131,10 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     const m = await meetingFor(pool, req, p.meet_meeting_id); if (!m) return res.status(404).json({ error: 'Meeting not found' });
     let parsed = null;
     if (p.transcript) { try { parsed = parseTranscript(p.transcript.format, p.transcript.text); } catch (e) { return res.status(400).json({ error: e.message, code: e.code || 'bad_transcript' }); } }
+    let importRevision = null;
     if (p.source === 'transcript_import') {          // an imported transcript cannot be split by person, so it is stored only while Meet shows an open AI request and nobody who took part has declined or withdrawn
       let consent; try { consent = await meet.fetchConsent(m.meet_uuid); } catch { return res.status(503).json({ error: 'Participant consent could not be verified, so nothing was stored or processed. Try again shortly.', code: 'participant_consent_unverifiable' }); }
-      const ok = importAllowed(consent);
+      const ok = importAllowed(consent); importRevision = ok.revision ?? null;
       if (!ok.allowed) { await cAudit(pool, req, m.meet_uuid, 'job_blocked', null, { reason: ok.reason, source: 'transcript_import' }); return res.status(403).json({ error: ok.reason === 'participant_declined' ? 'A participant declined or withdrew Qorlla AI consent, and an imported transcript cannot be separated by person, so it cannot be used.' : 'The host has not asked the participants for Qorlla AI consent in this meeting.', code: ok.reason }); }
     }
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
@@ -142,8 +145,8 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
       const q = await quotaFor(c, req.workspace, 'ai.meeting_reports_per_month');
       const used = Number((await c.query(`SELECT count(*) FROM portal.meeting_ai_jobs WHERE workspace_id=$1 AND status IN ('queued','running','completed') AND created_at >= date_trunc('month', now())`, [req.workspace])).rows[0].count);
       if (!q.granted || (q.quota !== null && used >= q.quota)) { if (overage) await overage.allowBeyondQuota(c, req.workspace, 'meeting_report', q, { used }); else throw new PlanLimitError('ai.meeting_reports_per_month', q.quota, q.plan, { used }); }
-      const job = (await c.query(`INSERT INTO portal.meeting_ai_jobs(workspace_id,meet_meeting_id,requested_by,source,stage,idempotency_key) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
-        [req.workspace, m.meet_uuid, req.actor, p.source, parsed ? 'summarize' : 'fetch', p.idempotency_key])).rows[0];
+      const job = (await c.query(`INSERT INTO portal.meeting_ai_jobs(workspace_id,meet_meeting_id,requested_by,source,stage,idempotency_key,consent_revision) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [req.workspace, m.meet_uuid, req.actor, p.source, parsed ? 'summarize' : 'fetch', p.idempotency_key, importRevision])).rows[0];
       if (parsed) {
         const t = (await c.query(`INSERT INTO portal.meeting_transcripts(workspace_id,meet_meeting_id,job_id,source,speaker_labels,segments,full_text,content_sha256,created_by) VALUES($1,$2,$3,'transcript_import',$4,$5,$6,$7,$8) RETURNING id`,
           [req.workspace, m.meet_uuid, job.id, parsed.speakerLabels, JSON.stringify(parsed.segments), parsed.fullText, sha256(parsed.fullText), req.actor])).rows[0];
@@ -166,8 +169,9 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
   app.get('/api/v1/meeting-ai/jobs/:id', member, h(async (req, res) => { const j = await jobFor(req); return j ? res.set('Cache-Control', 'no-store').json(jobView(j)) : res.status(404).json({ error: 'Job not found' }); }));
   app.post('/api/v1/meeting-ai/jobs/:id/cancel', member, h(async (req, res) => {
     const j = await jobFor(req); if (!j) return res.status(404).json({ error: 'Job not found' });
-    const r = await pool.query(`UPDATE portal.meeting_ai_jobs SET status='cancelled', error_code='cancelled_by_user', lease_until=NULL, lease_token=NULL, finished_at=now() WHERE id=$1 AND status IN ('queued','blocked','failed')`, [j.id]);
+    const r = await pool.query(`UPDATE portal.meeting_ai_jobs SET status='cancelled', error_code='cancelled_by_user', lease_until=NULL, lease_token=NULL, finished_at=now() WHERE id=$1 AND status IN ('queued','running','blocked','failed')`, [j.id]);          // a RUNNING job too: its worker will find the job is no longer running and publish nothing
     if (!r.rowCount) return res.status(409).json({ error: 'This job can no longer be cancelled', code: 'not_cancellable' });
+    await pool.query(`UPDATE portal.meeting_transcripts SET segments='[]'::jsonb, full_text='', purged_at=now(), purge_reason='cancelled' WHERE job_id=$1 AND purged_at IS NULL`, [j.id]);   // same lock order as a revocation: job first, then transcript
     res.json({ cancelled: true });
   }));
   app.post('/api/v1/meeting-ai/jobs/:id/retry', member, h(async (req, res) => {
@@ -180,8 +184,30 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
   }));
 
   // ---------------------------------------------------------------- reports
-  /** @returns {{report, level}} level: 'manage' | 'view' | 'assignee' | 'meta' (withdrawn, managers only) | null */
-  async function reportAccess(db, req, id) {
+  // ---- THE CONSENT FENCE ON READS (see ai/meet-consent.mjs). Every path that returns content derived from a meeting passes through freshness(): Meet is asked NOW (never cached across requests),
+  // and the report is shown only while no included person has objected after the agreement it was built on. A violation is persisted as an irreversible withdrawal; if Meet cannot be asked, nothing is shown.
+  /** @returns {Promise<{ok:true}|{ok:false, code:'withdrawn'|'unverifiable'}>}  r: {id, workspace_id, meet_meeting_id, status, consent_basis}; memo: optional Map(meetingId -> Promise<consent>) to share one answer within a request */
+  async function freshness(r, memo) {
+    if (r.status !== 'final') return { ok: true };
+    let consent;
+    try { const k = r.meet_meeting_id; const p = memo?.get(k) || meet.fetchConsent(k); memo?.set(k, p); consent = await p; }
+    catch (e) { log?.warn?.('consent could not be verified for a report read', { report: r.id, code: e.code }); return { ok: false, code: 'unverifiable' }; }
+    const f = checkFresh({ basis: r.consent_basis, consent });
+    if (f.ok) return { ok: true };
+    if (f.reason === 'unverifiable') return { ok: false, code: 'unverifiable' };         // no recorded basis: it cannot be shown
+    await withdrawReport(pool, { workspaceId: r.workspace_id, reportId: r.id, reason: f.reason });
+    return { ok: false, code: 'withdrawn' };
+  }
+  /** @returns {{report, level}} level: 'manage' | 'view' | 'assignee' | 'meta' (withdrawn, managers only) | null.  fresh:false skips the consent check (deleting a report must always be possible). */
+  async function reportAccess(db, req, id, { fresh = true } = {}) {
+    const a = await reportAccessRaw(db, req, id);
+    if (!a || !fresh || a.level === 'meta' || a.report.status !== 'final') return a;
+    const f = await freshness(a.report);
+    if (f.ok) return a;
+    if (f.code === 'unverifiable') throw httpErr(503, 'Consent for this report could not be verified right now, so it is not shown. Try again shortly.', 'consent_unverifiable');
+    return reportAccessRaw(db, req, id);                                                  // now withdrawn: managers see that it was withdrawn, everyone else sees nothing
+  }
+  async function reportAccessRaw(db, req, id) {
     if (!UUID_RE.test(id)) return null;
     const r = (await db.query('SELECT * FROM portal.meeting_reports WHERE id=$1 AND workspace_id=$2 AND deleted_at IS NULL', [id, req.workspace])).rows[0]; if (!r) return null;
     const manage = req.actor === r.created_by || req.actor === r.host_user_id || isManager(req.role);
@@ -193,7 +219,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     const mine = (await db.query('SELECT 1 FROM portal.meeting_action_items WHERE report_id=$1 AND owner_id=$2', [r.id, req.actor])).rowCount;
     return mine ? { report: r, level: 'assignee' } : null;
   }
-  const listVisibleSql = `SELECT r.id, r.title, left(r.summary, 280) AS excerpt, r.status, r.visibility, r.created_at, r.meet_meeting_id, r.created_by, r.host_user_id,
+  const listVisibleSql = `SELECT r.id, r.title, left(r.summary, 280) AS excerpt, r.status, r.visibility, r.created_at, r.meet_meeting_id, r.created_by, r.host_user_id, r.consent_basis AS _basis,
       (SELECT count(*) FROM portal.meeting_action_items a WHERE a.report_id=r.id AND a.status='open')::int AS open_items
     FROM portal.meeting_reports r WHERE r.workspace_id=$1 AND r.deleted_at IS NULL AND (
       ($2::boolean AND true) OR r.created_by=$3 OR r.host_user_id=$3
@@ -201,7 +227,15 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
           OR EXISTS (SELECT 1 FROM portal.report_shares s WHERE s.report_id=r.id AND s.kind='member' AND s.recipient_user_id=$3 AND s.revoked_at IS NULL)
           OR EXISTS (SELECT 1 FROM portal.meeting_action_items a WHERE a.report_id=r.id AND a.owner_id=$3)))
     ) ORDER BY r.created_at DESC LIMIT 100`;
-  app.get('/api/v1/meeting-ai/reports', member, h(async (req, res) => res.set('Cache-Control', 'no-store').json((await pool.query(listVisibleSql, [req.workspace, isManager(req.role), req.actor])).rows)));
+  app.get('/api/v1/meeting-ai/reports', member, h(async (req, res) => {
+    const rows = (await pool.query(listVisibleSql, [req.workspace, isManager(req.role), req.actor])).rows, memo = new Map();
+    await Promise.all(rows.map(async (row) => {
+      const f = await freshness({ id: row.id, workspace_id: req.workspace, meet_meeting_id: row.meet_meeting_id, status: row.status, consent_basis: row._basis }, memo);
+      if (f.ok) return; row.excerpt = f.code === 'unverifiable' ? null : ''; if (f.code === 'unverifiable') row.consent_unverified = true; else row.status = 'withdrawn';
+    }));
+    const mine = (row) => isManager(req.role) || row.created_by === req.actor || row.host_user_id === req.actor;
+    res.set('Cache-Control', 'no-store').json(rows.filter((row) => row.status !== 'withdrawn' || mine(row)).map(({ _basis, ...row }) => row));
+  }));
 
   async function itemsFor(db, req, reportId, level) {
     const rows = (await db.query('SELECT id, title, owner_hint, due_hint, owner_id, due_at, status, completed_at, source FROM portal.meeting_action_items WHERE report_id=$1 ORDER BY created_at, id', [reportId])).rows;
@@ -231,7 +265,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     res.json(r.rows[0]);
   }));
   app.delete('/api/v1/meeting-ai/reports/:id', member, h(async (req, res) => {
-    const a = await reportAccess(pool, req, req.params.id); if (!a || a.level === 'assignee') return res.status(404).json({ error: 'Report not found' });
+    const a = await reportAccess(pool, req, req.params.id, { fresh: false }); if (!a || a.level === 'assignee') return res.status(404).json({ error: 'Report not found' });
     if (a.level !== 'manage' && a.level !== 'meta') return res.status(403).json({ error: 'Not allowed' });
     await withWorkspaceLock(pool, req.workspace, async (c) => {
       await c.query('UPDATE portal.meeting_reports SET deleted_at=now() WHERE id=$1', [a.report.id]);
@@ -277,9 +311,11 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
   }));
   app.get('/api/v1/meeting-ai/action-items', member, h(async (req, res) => {
     const rows = (await pool.query(
-      `SELECT i.id, i.title, i.due_at, i.status, i.report_id, r.title AS report_title FROM portal.meeting_action_items i JOIN portal.meeting_reports r ON r.id=i.report_id AND r.deleted_at IS NULL AND r.status='final'
+      `SELECT i.id, i.title, i.due_at, i.status, i.report_id, r.title AS report_title, r.meet_meeting_id, r.consent_basis AS _basis, r.status AS _status FROM portal.meeting_action_items i JOIN portal.meeting_reports r ON r.id=i.report_id AND r.deleted_at IS NULL AND r.status='final'
        WHERE i.workspace_id=$1 AND i.owner_id=$2 AND ($3::text IS NULL OR i.status=$3) ORDER BY i.due_at NULLS LAST, i.created_at LIMIT 200`, [req.workspace, req.actor, req.query.status === 'open' || req.query.status === 'done' ? req.query.status : null])).rows;
-    res.set('Cache-Control', 'no-store').json(rows);
+    const memo = new Map(), ok = new Map();
+    await Promise.all([...new Set(rows.map((x) => x.report_id))].map(async (rid) => { const x = rows.find((y) => y.report_id === rid); ok.set(rid, (await freshness({ id: rid, workspace_id: req.workspace, meet_meeting_id: x.meet_meeting_id, status: x._status, consent_basis: x._basis }, memo)).ok); }));
+    res.set('Cache-Control', 'no-store').json(rows.filter((x) => ok.get(x.report_id)).map(({ meet_meeting_id, _basis, _status, ...x }) => x));
   }));
 
   // ---------------------------------------------------------------- sharing
@@ -320,10 +356,11 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
   app.get('/api/v1/shared/reports/:token', shareLimiter, h(async (req, res) => {
     res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' });
     const token = String(req.params.token || ''); if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return res.status(404).json({ error: 'This link is not valid' });
-    const s = (await pool.query(`SELECT s.id, s.include_transcript, r.id AS rid, r.title, r.summary, r.decisions, r.topics, r.created_at, r.transcript_id, r.status
+    const s = (await pool.query(`SELECT s.id, s.include_transcript, r.id AS rid, r.title, r.summary, r.decisions, r.topics, r.created_at, r.transcript_id, r.status, r.workspace_id, r.meet_meeting_id, r.consent_basis
       FROM portal.report_shares s JOIN portal.meeting_reports r ON r.id=s.report_id AND r.deleted_at IS NULL AND r.status='final'
       WHERE s.token_hash=$1 AND s.kind='link' AND s.revoked_at IS NULL AND s.expires_at > now()`, [sha256(token)])).rows[0];
     if (!s) return res.status(404).json({ error: 'This link is not valid, has expired or was revoked' });   // same answer for every failure: no oracle
+    if (!(await freshness({ id: s.rid, workspace_id: s.workspace_id, meet_meeting_id: s.meet_meeting_id, status: s.status, consent_basis: s.consent_basis })).ok) return res.status(404).json({ error: 'This link is not valid, has expired or was revoked' });   // withdrawn consent or unverifiable: same answer, no oracle
     await pool.query('UPDATE portal.report_shares SET access_count=access_count+1, last_accessed_at=now() WHERE id=$1', [s.id]);
     const items = (await pool.query('SELECT title, status, due_at FROM portal.meeting_action_items WHERE report_id=$1 ORDER BY created_at, id', [s.rid])).rows;
     let transcript = null;

@@ -283,7 +283,7 @@ describe('AI meeting intelligence', () => {
     test('everything survives an application restart (new process, same database): consents, jobs, transcripts, reports, items, shares, usage', async () => {
       await consent(host()); const rid = await makeReport(); const share = (await host().post(`/api/v1/meeting-ai/reports/${rid}/shares`, { kind: 'link' })).body;
       const pool2 = new (await import('pg')).default.Pool({ connectionString: db.url });
-      const again = await startApp({ pool: pool2, cfg: testConfig({ env: { AI_LLM_API_KEY: 'test-llm-key', AI_LLM_API_BASE: llmd.url } }, main), jwks: main.jwks });
+      const again = await startApp({ pool: pool2, cfg: testConfig({ env: { AI_LLM_API_KEY: 'test-llm-key', AI_LLM_API_BASE: llmd.url, MEET_INTERNAL_URL: meetd.url, MEET_READ_SECRET: READ_SECRET } }, main), jwks: main.jwks });   // a restarted portal must still reach Meet: reports are verified against Meet's consent on every read
       const c = again.client(H); const r = (await c.get('/api/v1/meeting-ai/reports/' + rid)).body;
       assert.match(r.summary, /TEST-DOUBLE/); assert.equal(r.action_items.length, 1); assert.equal((await c.get(`/api/v1/meeting-ai/reports/${rid}/transcript`)).body.segments.length, 3);
       assert.equal((await fetch(again.base + '/api/v1/shared/reports/' + share.token)).status, 200); assert.ok((await c.get('/api/v1/meeting-ai/usage')).body.events.meeting_report >= 1);

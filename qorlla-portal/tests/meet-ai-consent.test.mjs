@@ -26,11 +26,11 @@ describe('pure consent decisions', () => {
   });
   test('a closed host request excludes everyone; imports need an open request and no objector; the publish re-check fails closed on any gap', () => {
     assert.equal(applyParticipantConsent({ messages: msgs('Dana'), consent: { requested: false, participants: [part('Dana', 'agree')] } }).included.length, 0);
-    assert.deepEqual(importAllowed({ requested: true, participants: [part('Dana', 'agree')] }), { allowed: true }); assert.equal(importAllowed({ requested: false, participants: [] }).reason, 'participant_consent_required');
+    assert.deepEqual(importAllowed({ requested: true, revision: 1005, participants: [part('Dana', 'agree')] }), { allowed: true, revision: 1005 }); assert.equal(importAllowed({ requested: false, participants: [] }).reason, 'participant_consent_required');
     assert.equal(importAllowed({ requested: true, participants: [part('Sam', 'agree', 'decline')] }).reason, 'participant_declined'); assert.equal(importAllowed({ requested: true, participants: [part('Max', 'withdraw')] }).reason, 'participant_declined');
-    const ok = { requested: true, participants: [part('Dana', 'agree')] };
-    assert.equal(stillConsented({ consent: ok, participantIds: ['p-dana'] }).ok, true); assert.equal(stillConsented({ consent: ok, participantIds: ['p-dana', 'p-unknown'] }).reason, 'participant_withdrew', 'a participant Meet no longer reports counts as NOT agreeing');
-    assert.equal(stillConsented({ consent: { ...ok, requested: false }, participantIds: ['p-dana'] }).reason, 'request_closed');
+    const dana = part('Dana', 'agree'); const ok = { requested: true, participants: [dana] }; const rows = [{ participant_id: 'p-dana', transcription_seq: dana.decisions.transcription.seq, summary_seq: dana.decisions.summary.seq }];
+    assert.equal(stillConsented({ consent: ok, rows }).ok, true); assert.equal(stillConsented({ consent: ok, rows: [...rows, { participant_id: 'p-unknown', transcription_seq: 5, summary_seq: 5 }] }).reason, 'participant_withdrew', 'a participant Meet no longer reports counts as NOT agreeing');
+    assert.equal(stillConsented({ consent: { ...ok, requested: false }, rows }).reason, 'request_closed');
   });
 });
 
@@ -191,13 +191,17 @@ describe('Meet AI consent and citations (PostgreSQL, fake model, fake Meet)', ()
       await db.pool.query(`UPDATE portal.members SET role='member' WHERE workspace_id=$1 AND user_id=$2`, [W, A.sub]); assert.equal((await open(admin(), ref)).status, 403, 'demoted: refused at once'); await db.pool.query(`UPDATE portal.members SET role='admin' WHERE workspace_id=$1 AND user_id=$2`, [W, A.sub]);
       await db.pool.query(`DELETE FROM portal.members WHERE workspace_id=$1 AND user_id=$2`, [W, M.sub]); assert.equal((await open(member(), ref)).status, 403); await addMember(db.pool, W, M.sub, 'member');
     });
-    test('the same consent applies to the citation as to the transcript: a participant who withdrew, or the host revoking, closes it', async () => {
+    test('the same consent applies to the citation as to the report: a participant who objected closes it for good, Meet being unreachable shows nothing, and the host revoking closes it too', async () => {
       const { body } = await report(); const ref = body.citations.decisions.flat()[0].ref; assert.equal((await open(host(), ref)).status, 200);
       setC(meet, { Dana: ['withdraw'], Sam: ['agree'], Lee: ['pending'] }); const w = await open(host(), ref); assert.equal(w.status, 403); assert.equal(w.body.code, 'participant_withdrew'); assert.doesNotMatch(JSON.stringify(w.body), /ship the release/);
-      setC(meet, { Dana: ['agree'], Sam: ['agree'], Lee: ['pending'] }); assert.equal((await open(host(), ref)).status, 200); meetd.st.down = true; assert.equal((await open(host(), ref)).status, 503, 'cannot verify consent = not shown'); meetd.st.down = false;
+      setC(meet, { Dana: ['agree'], Sam: ['agree'], Lee: ['pending'] }); const again = await open(host(), ref); assert.ok([403, 410].includes(again.status), 'agreeing again later does not bring a withdrawn report back: it was built on the earlier agreement'); assert.doesNotMatch(JSON.stringify(again.body), /ship the release/); assert.ok(['consent_withdrawn', 'source_expired'].includes(again.body.code));
+      assert.equal((await host().get('/api/v1/meeting-ai/reports/' + body.id)).body.status, 'withdrawn');
+      // a second report: Meet unreachable = not shown; then the host revoking the meeting's consent
+      setC(meet, { Dana: ['agree'], Sam: ['agree'], Lee: ['pending'] }); const job2 = await chatJob(); assert.equal(job2.status, 'completed'); const b2 = (await host().get('/api/v1/meeting-ai/reports/' + job2.report_id)).body; const ref2 = b2.citations.decisions.flat()[0].ref;
+      meetd.st.down = true; assert.equal((await open(host(), ref2)).status, 503, 'cannot verify consent = not shown'); meetd.st.down = false; assert.equal((await open(host(), ref2)).status, 200);
       const cid = (await host().get(`/api/v1/meeting-ai/meetings/${meet}/consents`)).body.consents.find((c) => c.scope === 'transcription').id; await host().post(`/api/v1/meeting-ai/consents/${cid}/revoke`, {});
-      const gone = await open(host(), ref); assert.ok([403, 410].includes(gone.status), String(gone.status)); assert.doesNotMatch(JSON.stringify(gone.body), /ship the release/);
-      assert.equal((await host().get('/api/v1/meeting-ai/reports/' + body.id)).body.status, 'withdrawn'); assert.deepEqual((await q('SELECT citations FROM portal.meeting_reports WHERE id=$1', [body.id]))[0].citations, {}, 'revocation also clears the citations');
+      const gone = await open(host(), ref2); assert.ok([403, 410].includes(gone.status), String(gone.status)); assert.doesNotMatch(JSON.stringify(gone.body), /ship the release/);
+      assert.equal((await host().get('/api/v1/meeting-ai/reports/' + b2.id)).body.status, 'withdrawn'); assert.deepEqual((await q('SELECT citations FROM portal.meeting_reports WHERE id=$1', [b2.id]))[0].citations, {}, 'revocation also clears the citations');
     });
     test('retention applies to citations: once the transcript is past retention (even before the sweep) or purged, the source cannot be retrieved', async () => {
       const { body } = await report(); const ref = body.citations.decisions.flat()[0].ref;
