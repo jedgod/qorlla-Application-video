@@ -1,0 +1,25 @@
+openapi: 3.1.0
+info:
+  title: Qorlla Operations API
+  version: 2.0.0
+paths:
+  /healthz:
+    get:
+      responses:
+        '200':
+          description: Process healthy
+  /api/ops/tickets:
+    get:
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Authorized ticket queue}
+    post:
+      security: [{bearerAuth: []}]
+      responses:
+        '201': {description: Ticket created}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

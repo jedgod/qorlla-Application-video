@@ -1,0 +1,13 @@
+# Production release checklist — all must pass
+- [ ] Reconcile against actual Qorlla repo SHA and schemas
+- [ ] Run migration on staging backup and test rollback
+- [ ] OIDC tenant claims verified and customer identity bound
+- [ ] Role/assignment authorization and negative e2e tests
+- [ ] Billing provider webhook signatures and refund worker certification
+- [ ] Provider idempotency and ledger reconciliation
+- [ ] Numbers & Plans authority integration, PSTN still disabled until approved
+- [ ] Secrets manager, TLS, MFA, audit least-privilege grants
+- [ ] HA PostgreSQL and Redis failure injection
+- [ ] Cross-network TURN, physical devices, carrier tests
+- [ ] Load, pen test, backup restore, incident drills
+- [ ] Signed build, SBOM, staged canary and rollback

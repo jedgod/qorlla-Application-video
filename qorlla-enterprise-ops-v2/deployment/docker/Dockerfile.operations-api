@@ -1,0 +1,5 @@
+FROM node:22-alpine
+WORKDIR /app
+# Build with a workspace-aware pipeline before production use.
+# No production image is shipped until dependency locking and hardening are complete.
+CMD ["node", "-e", "throw new Error('Production image not certified')"]
