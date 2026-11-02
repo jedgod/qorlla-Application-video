@@ -1,0 +1,6 @@
+{
+  "name":"qorlla-voice-engine","version":"1.0.0","private":true,"type":"module",
+  "scripts":{"start":"node src/server.mjs","dev":"node --watch src/server.mjs","test":"node --test test/*.test.mjs","db:migrate":"node src/migrate.mjs"},
+  "dependencies":{"express":"^4.21.2","ws":"^8.18.0","pg":"^8.13.1","jose":"^5.9.6","zod":"^3.24.2","helmet":"^8.0.0"},
+  "engines":{"node":">=20"}
+}

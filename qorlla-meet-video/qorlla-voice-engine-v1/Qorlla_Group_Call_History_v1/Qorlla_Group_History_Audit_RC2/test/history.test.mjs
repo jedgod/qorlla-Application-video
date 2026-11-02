@@ -1,0 +1,12 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mountRoomHistory } from '../src/history.mjs';
+const routes = new Map();
+const app = {get(path, ...handlers){routes.set(path,handlers.at(-1));}};
+const db={queries:[],async query(sql,params){this.queries.push({sql,params});return {rows:[]};}};
+mountRoomHistory(app,db,(_req,_res,next)=>next());
+const response=()=>({statusCode:200,headers:{},status(n){this.statusCode=n;return this;},set(k,v){this.headers[k]=v;return this;},json(v){this.body=v;return this;}});
+test('invalid cursor refused',async()=>{const r=response();await routes.get('/v1/voice/history/rooms')({account:'a',query:{before:'broken'}},r);assert.equal(r.statusCode,400);});
+test('list query scopes account',async()=>{const r=response();await routes.get('/v1/voice/history/rooms')({account:'alice',query:{}},r);assert.equal(db.queries.at(-1).params[0],'alice');assert.deepEqual(r.body.items,[]);});
+test('invalid room id refused',async()=>{const r=response();await routes.get('/v1/voice/history/rooms/:id')({account:'alice',params:{id:'bad'}},r);assert.equal(r.statusCode,400);});
+test('missing room is not disclosed',async()=>{const r=response();await routes.get('/v1/voice/history/rooms/:id')({account:'alice',params:{id:'12345678-1234-1234-1234-123456789abc'}},r);assert.equal(r.statusCode,404);});

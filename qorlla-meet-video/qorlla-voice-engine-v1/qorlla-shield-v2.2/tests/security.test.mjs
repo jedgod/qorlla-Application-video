@@ -1,0 +1,16 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {decide} from '../src/policy.mjs';import {authorizeWorkload} from '../src/workload.mjs';
+import {verifyProviderEvent,requestGuestAdmission} from '../src/guest.mjs';import {createHmac} from 'node:crypto';
+const user={kind:'user',id:'u1',verified:true,recentMfa:true,deviceTrusted:true,risk:0,orgId:'o1',scopes:[]};
+const c=(operation,principal=user,resource={})=>({operation,principal,resource,flags:{numbers:true,pstn:true}});
+test('guest denied all normal services',()=>{for(const op of ['voice.internal','voice.pstn','voice.number.assign','message.send','meeting.host','admin.manage','org.manage','meeting.media.join'])assert.equal(decide(c(op,{kind:'guest'},{})).allow,false)});
+test('unverified denied',()=>assert.equal(decide(c('message.send',{...user,verified:false})).allow,false));
+test('suspended denied',()=>assert.equal(decide(c('message.send',{...user,suspended:true})).allow,false));
+test('tenant boundary',()=>assert.equal(decide(c('message.send',user,{orgId:'o2'})).allow,false));
+test('risk unavailable fails closed',()=>assert.equal(decide(c('message.send',{...user,risk:undefined})).allow,false));
+test('PSTN requires every capability',()=>assert.equal(decide(c('voice.pstn',user,{numberActive:true,callerIdOwned:true,destinationAllowed:true,budgetAuthorized:false})).allow,false));
+test('number activation requires provider confirmation',()=>assert.equal(decide(c('voice.number.assign',user,{countryEligible:true,providerConfirmed:false})).allow,false));
+test('media requires admission',()=>assert.equal(decide(c('meeting.media.join',user,{mediaAdmissionGranted:false})).allow,false));
+test('service identity requires verified transport and permission',()=>assert.equal(authorizeWorkload({verifiedIdentity:'spiffe://qorlla/voice',expectedIdentity:'spiffe://qorlla/voice',transportAuthenticated:false,operation:'dial',allowlist:{'spiffe://qorlla/voice':['dial']}}),false));
+test('signed callback detects replay window',()=>{const body=Buffer.from('{}'),timestamp=String(Math.floor(Date.now()/1000)),secret='test';const signature=createHmac('sha256',secret).update(timestamp).update('.').update(body).digest('hex');assert.equal(verifyProviderEvent({body,timestamp,secret,signature}),true);assert.equal(verifyProviderEvent({body,timestamp,secret,signature,now:Date.now()+400000}),false)});
+test('guest admission does not issue media token',async()=>{const result=await requestGuestAdmission({meetingId:'meeting123',passcode:'secret',displayName:'Guest',lookupMeeting:async()=>({status:'active',guestsAllowed:true,passcodeHash:'hash'}),verifyPasscode:async()=>true,rateLimit:async()=>true,store:{createPending:async()=>{}}});assert.equal(result.status,'PENDING_HOST_APPROVAL');assert.equal('mediaToken' in result,false)});

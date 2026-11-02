@@ -1,0 +1,15 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {evaluate,type Context} from '../src/policy.js';
+const base:Context={action:'voice.internal',verified:true,mfa:true,trustedDevice:true,suspended:false,orgSuspended:false,isGuest:false,scopes:[],risk:0,pstnEnabled:true,internationalEnabled:false,international:false,externalInvite:false,destinationAllowed:true};
+test('ordinary internal voice allowed',()=>assert.equal(evaluate(base).allow,true));
+test('suspended principal blocked',()=>assert.equal(evaluate({...base,suspended:true}).reason,'SUSPENDED'));
+test('organization suspended blocked',()=>assert.equal(evaluate({...base,orgSuspended:true}).allow,false));
+test('high risk blocked',()=>assert.equal(evaluate({...base,risk:90}).reason,'HIGH_RISK'));
+test('mid risk review',()=>assert.equal(evaluate({...base,risk:50}).reason,'REVIEW_REQUIRED'));
+test('guest cannot send messages',()=>assert.equal(evaluate({...base,isGuest:true,action:'message.send'}).allow,false));
+test('guest requires admission',()=>assert.equal(evaluate({...base,isGuest:true,action:'guest.join'}).reason,'ADMISSION_REQUIRED'));
+test('PSTN requires MFA',()=>assert.equal(evaluate({...base,action:'voice.pstn.outbound',mfa:false}).stepUp,true));
+test('PSTN requires trusted device',()=>assert.equal(evaluate({...base,action:'voice.pstn.outbound',trustedDevice:false}).allow,false));
+test('international denied by default',()=>assert.equal(evaluate({...base,action:'voice.pstn.outbound',international:true}).reason,'INTERNATIONAL_DISABLED'));
+test('PSTN disabled',()=>assert.equal(evaluate({...base,action:'voice.pstn.outbound',pstnEnabled:false}).allow,false));
+test('admin write requires scope',()=>assert.equal(evaluate({...base,action:'admin.mutate'}).reason,'SCOPE_MISSING'));
+test('external invite requires scope',()=>assert.equal(evaluate({...base,action:'meeting.invite',externalInvite:true}).allow,false));

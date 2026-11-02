@@ -1,0 +1,13 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {authorizeSignal,signalEnvelope} from '../src/signaling-policy.mjs';
+const id='b38d7864-a8ad-4ec2-bb2f-8b7a21e2d26a';
+const call={id,caller_id:'alice',callee_id:'bob',status:'active'};
+const msg={type:'ice',callId:id,candidate:{candidate:'candidate:1 1 udp 1 192.0.2.1 5000 typ host'}};
+const lease={call_id:id,account_id:'alice',device_id:'dev-a',expires_at:new Date(Date.now()+60000).toISOString()};
+test('authorized participant and owning device',()=>assert.equal(authorizeSignal({message:msg,call,account:'alice',deviceId:'dev-a',lease}),null));
+test('reject wrong device',()=>assert.equal(authorizeSignal({message:msg,call,account:'alice',deviceId:'dev-b',lease}),'device_not_owner'));
+test('reject nonparticipant',()=>assert.equal(authorizeSignal({message:msg,call,account:'mallory',deviceId:'dev-a',lease}),'not_participant'));
+test('reject expired lease',()=>assert.equal(authorizeSignal({message:msg,call,account:'alice',deviceId:'dev-a',lease:{...lease,expires_at:new Date(Date.now()-1000).toISOString()}}),'lease_expired'));
+test('reject ringing call',()=>assert.equal(authorizeSignal({message:msg,call:{...call,status:'ringing'},account:'alice',deviceId:'dev-a',lease}),'call_not_active'));
+test('reject invalid SDP',()=>assert.equal(authorizeSignal({message:{type:'offer',callId:id,sdp:''},call,account:'alice',deviceId:'dev-a',lease}),'invalid_signal'));
+test('relay strips extra fields',()=>assert.deepEqual(signalEnvelope({...msg,secret:'oops'},'dev-a'),{type:'ice',callId:id,fromDevice:'dev-a',candidate:msg.candidate}));
