@@ -17,3 +17,7 @@ Thumbs.db
 *.pem
 *.key
 *.pfx
+
+# local notes that hold credentials: never commit
+users&address.txt
+google.txt
