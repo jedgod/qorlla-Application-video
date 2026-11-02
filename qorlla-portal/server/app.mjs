@@ -68,7 +68,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   const meet = aiOverride.meet || createMeetClient({ baseUrl: cfg.ai.meetBaseUrl, readSecret: cfg.ai.meetReadSecret, fetchImpl });
   const phoneWorker = createPhoneWorker({ pool, llm, log, isEnabled: () => flags.enabled('ai'), ...(aiOverride.phoneWorker || {}) });
   const citations = createCitations({ secret: cfg.introspectionSecret });
-  const aiWorker = createAiWorker({ pool, llm, meet, citations, log, overage, isEnabled: async () => (await flags.enabled('ai')) && (await flags.enabled('meet_ai')), retentionDays: cfg.ai.transcriptRetentionDays, ...(aiOverride.worker || {}) });
+  const aiWorker = createAiWorker({ pool, llm, meet, citations, log, overage, leaseSeconds: cfg.ai.leaseSeconds, isEnabled: async () => (await flags.enabled('ai')) && (await flags.enabled('meet_ai')), retentionDays: cfg.ai.transcriptRetentionDays, ...(aiOverride.worker || {}) });
 
   // ---- webhook FIRST: it needs the raw bytes, and its authenticity is the provider signature (no cookies, no CSRF) ----
   app.post('/api/v1/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), h(async (req, res) => {

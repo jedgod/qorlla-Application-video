@@ -42,6 +42,7 @@ export function loadConfig(env = process.env) {
   cfg.ai = {
     gateway: resolveAiConfig(env),                     // Qorlla AI Gateway contract (OFF unless QORLLA_AI_ENABLED=true); a bad combination stops the server from starting
     workerEnabled: env.AI_WORKER_ENABLED !== 'false',
+    leaseSeconds: Number(env.AI_WORKER_LEASE_SECONDS || 120),                    // a crashed worker's job is picked up again after this long
     llm: { provider: 'anthropic', apiKey: aiKey, model: trim(env.AI_LLM_MODEL) || 'claude-sonnet-5-5',
       // like the payment API base: a non-default endpoint exists only so tests can use a local test double, and is refused in production
       apiBase: production ? 'https://api.anthropic.com' : (trim(env.AI_LLM_API_BASE) || 'https://api.anthropic.com'), maxInputChars: Number(env.AI_LLM_MAX_INPUT_CHARS || 120000) },

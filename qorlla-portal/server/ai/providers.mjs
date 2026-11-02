@@ -62,10 +62,11 @@ function anthropic({ apiKey, baseUrl, model }, { fetchImpl, timeoutMs }) {      
  * The deterministic TEST ADAPTER. Not a model: it answers from fixed rules so the gateway, consent, quotas, review-before-apply and the Docs and QorllaMate flows can be tested offline.
  * Its output says TEST-DOUBLE on purpose, and it can only be built in an explicitly identified test environment (see config.mjs); production refuses it.
  */
-function testAdapter() {
+function testAdapter(delayMs = 0) {
   return {
     id: 'test',
     async call({ system, user }) {
+      if (delayMs > 0 && /QORLLA-TEST-SLOW/.test(user)) await new Promise((r) => setTimeout(r, delayMs));          // lets certification interrupt a job in the middle of the model call
       const reply = (o) => ({ text: JSON.stringify(o), model: 'test-double', inputTokens: Math.ceil(user.length / 4), outputTokens: 40 });
       if (/QorllaMate/.test(system)) {
         const um = (/User message: ([\s\S]*)$/.exec(user) || [])[1] || '', ctx = (/<context>\n([\s\S]*?)\n<\/context>/.exec(user) || [])[1] || '', actions = [];
@@ -96,10 +97,10 @@ function testAdapter() {
 }
 
 /** Builds the adapters for the eligible providers. `eligible` comes from eligibleProviders(cfg). */
-export function buildAdapters(eligible, { fetchImpl = fetch, timeoutMs = 30_000 } = {}) {
+export function buildAdapters(eligible, { fetchImpl = fetch, timeoutMs = 30_000, testDelayMs = 0 } = {}) {
   const io = { fetchImpl, timeoutMs };
   return eligible.map((p) => {
-    const a = p.id === 'test' ? testAdapter() : p.id === 'gemini' ? gemini(p, io) : p.id === 'anthropic' ? anthropic(p, io) : chatCompletions(p.id, p, io);
+    const a = p.id === 'test' ? testAdapter(testDelayMs) : p.id === 'gemini' ? gemini(p, io) : p.id === 'anthropic' ? anthropic(p, io) : chatCompletions(p.id, p, io);
     return Object.assign(a, { tier: p.tier, external: p.external, model: p.model });
   });
 }

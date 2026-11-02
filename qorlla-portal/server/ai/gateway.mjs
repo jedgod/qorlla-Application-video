@@ -17,7 +17,7 @@ export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log
   if (!config) throw new Error('AI gateway needs a configuration');
   if (config.problems.length) throw new Error('AI configuration refused: ' + config.problems.join('; '));      // fail closed: a bad AI configuration stops the server from starting
   const eligible = eligibleProviders(config);
-  const list = adapters || buildAdapters(eligible, { fetchImpl, timeoutMs: config.timeoutMs });
+  const list = adapters || buildAdapters(eligible, { fetchImpl, timeoutMs: config.timeoutMs, testDelayMs: config.testAdapterDelayMs });
   const state = new Map(list.map((a) => [a.id, { failures: 0, openUntil: 0, lastCode: null, ok: 0, failed: 0 }]));
   const windows = new Map();                                                                      // per-person sliding window for the request limit
   const maxInputChars = config.maxInputChars;

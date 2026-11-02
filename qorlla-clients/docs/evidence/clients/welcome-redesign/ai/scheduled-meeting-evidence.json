@@ -1,0 +1,53 @@
+{
+  "steps": {
+    "scheduled": {
+      "sourceId": "e67e5ace-78e7-48d6-9c2c-85a6c06e7fdf",
+      "meetUuid": "49ffc83b-7052-4fdc-8c24-162795800820",
+      "syncedBy": "sync-worker",
+      "hostAdmission": "admitted"
+    },
+    "consent": {
+      "participants": 4,
+      "answers": {
+        "dana": "agree/agree",
+        "sam": "agree/decline",
+        "lee": "pending",
+        "impostorSameName": "pending"
+      },
+      "promptsDeliveredLive": 4
+    },
+    "firstReport": {
+      "job": "59e3a604-bf27-4518-849d-b57a1e58cc2c",
+      "report": "01704cd7-c5c4-4e1b-9c85-77fa8f0e051f",
+      "basisParticipants": 1,
+      "publishedEvents": 1,
+      "includedMessages": 1,
+      "excludedAuthors": 3
+    },
+    "crashRecovery": {
+      "job": "e5ea98b5-4122-4597-acaa-39550ed34f45",
+      "killedWith": "SIGKILL",
+      "portalStartedBefore": "2026-11-02T02:40:15.490477916Z",
+      "portalStartedAfter": "2026-11-02T02:42:41.896547291Z",
+      "attemptsBefore": 1,
+      "attemptsAfter": 2,
+      "reportsForJob": 1,
+      "usageEventsForJob": 1,
+      "publishedEventsForJob": 1
+    },
+    "participantWithdrawal": {
+      "reportsWithdrawn": 2,
+      "auditRowsBefore": 8,
+      "auditRowsAfter": 11,
+      "earlierRowsUnchanged": true
+    },
+    "hostRevocation": {
+      "report": "149737c2-1fab-4d62-8384-99dbdc8564d4",
+      "withdrawn": true,
+      "newJob": 403,
+      "retry": 403
+    }
+  },
+  "stack": "qai",
+  "finishedAt": "2026-11-02T02:43:49.463Z"
+}

@@ -29,6 +29,7 @@ export function resolveAiConfig(env = process.env) {
   const cfg = {
     environment, enabled: false, requested, allowFreeTier: bool(env.QORLLA_AI_ALLOW_FREE_TIER), allowPaidFallback: bool(env.QORLLA_AI_ALLOW_PAID_FALLBACK), testAdapter: false,
     timeoutMs: Number(env.QORLLA_AI_TIMEOUT_MS || 30_000), maxInputChars: Number(env.QORLLA_AI_MAX_INPUT_CHARS || 120_000),
+    testAdapterDelayMs: Number(env.QORLLA_AI_TEST_ADAPTER_DELAY_MS || 0),          // only ever used by the labelled test adapter
     approved: new Set(trim(env.QORLLA_AI_APPROVED_PROVIDERS).toLowerCase().split(',').map((x) => x.trim()).filter(Boolean)),   // only providers whose credentials, quota, data handling and commercial terms were approved
     workspaceDailyRequests: Number(env.QORLLA_AI_WORKSPACE_DAILY_REQUESTS || 2000),
     ratePerMinute: Number(env.QORLLA_AI_RATE_PER_MINUTE || 30), breaker: { failures: Number(env.QORLLA_AI_BREAKER_FAILURES || 3), cooldownMs: Number(env.QORLLA_AI_BREAKER_COOLDOWN_MS || 30_000) },
