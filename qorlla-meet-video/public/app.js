@@ -12,11 +12,23 @@ function tile(id,name,isLocal=false){let el=document.getElementById('tile-'+id);
 // A person's media state (sharing, mic, camera) can arrive before their tile exists (they joined or started sharing a moment ago): it is kept and applied when the tile is created, instead of being dropped
 const pendingMedia=new Map();
 function setVideo(id,stream,muted=false){const el=tile(id,state.names.get(id)||id,id===state.participantId);let v=el.querySelector('video');if(!v){v=document.createElement('video');v.autoplay=true;v.playsInline=true;v.muted=muted;el.prepend(v);}v.srcObject=stream;if(state.sinkId&&v.setSinkId)v.setSinkId(state.sinkId).catch(()=>{});el.querySelector('.avatar').style.display=stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')?'none':'grid';v.play().catch(()=>{});if(id!==state.participantId)recAddAudio(id,stream);}
-function renderPeople(){const root=$('peopleList');root.replaceChildren();for(const id of state.roster){const p=document.createElement('div');p.className='person';p.textContent=(state.names.get(id)||id.slice(0,8))+(id===state.participantId?' (You)':'');root.append(p);}}
+function renderPeople(){
+  const root=$('peopleList');root.replaceChildren();const host=state.role==='host';
+  if(host&&state.roster.size>1){const all=document.createElement('button');all.className='pbtn';all.textContent='Mute everyone';all.onclick=()=>{state.socket.emit('host-mute',{all:true});announce('Everyone was muted');};root.append(all);}
+  for(const id of state.roster){const p=document.createElement('div');p.className='person';const n=document.createElement('span');n.textContent=(state.names.get(id)||id.slice(0,8))+(id===state.participantId?' (You)':'');p.append(n);
+    if(host&&id!==state.participantId){
+      const b=(label,run)=>{const x=document.createElement('button');x.className='pbtn';x.type='button';x.textContent=label;x.onclick=run;p.append(x);};
+      b('Mute',()=>{state.socket.emit('host-mute',{to:id});announce((state.names.get(id)||'The guest')+' was muted');});
+      b('Ask to unmute',()=>{state.socket.emit('host-ask-unmute',{to:id});announce('Asked '+(state.names.get(id)||'the guest')+' to unmute');});
+      const can=state.sharers.has(id);
+      b(can?'Stop sharing':'Allow sharing',async()=>{try{await api('/meetings/'+state.meetingId+'/participants/'+id+'/share','POST',{allow:!can});if(can)state.sharers.delete(id);else state.sharers.add(id);renderPeople();}catch(e){notify(e.message);}});
+    }
+    root.append(p);}
+}
 function openTab(tab){shell.tab=tab;document.querySelectorAll('[data-tab]').forEach(b=>{const on=b.dataset.tab===tab;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1;});document.querySelectorAll('.tab-view').forEach(v=>v.classList.toggle('hidden',v.id!=='tab-'+tab));}
 async function startMeeting(payload){Object.assign(state,{token:payload.token,meetingId:payload.meetingId,participantId:payload.participantId});const claims=JSON.parse(atob(payload.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));state.role=claims.role;$('recordBtn').classList.toggle('hidden',claims.role!=='host');state.name=claims.name;state.names.set(state.participantId,state.name);state.start=Date.now();sessionStorage.setItem('qorlla-session',JSON.stringify({token:state.token,meetingId:state.meetingId,participantId:state.participantId}));await waitForAdmission();                                                                    // a guest in the waiting room cannot see anything until the host admits them
   await refreshIce();
-  const data=await api('/meetings/'+state.meetingId);state.settings=data.waiting_room===undefined?null:{waitingRoom:data.waiting_room,joinBeforeHost:data.join_before_host,lockOnHostJoin:data.lock_on_host_join,locked:data.locked};$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=(c=>/^\d{11}$/.test(c)?c.slice(0,3)+' '+c.slice(3,7)+' '+c.slice(7):c)(data.meeting_code||state.meetingId.slice(0,8));state.meetingInfo='Meeting ID: '+(data.meeting_code||state.meetingId);$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);try{const cfg=await api('/config');if(!state.iceServers||!state.iceServers.length)state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];}catch{}await startMedia();connect();collab.load();loadWaiting();}
+  const data=await api('/meetings/'+state.meetingId);state.settings=data.waiting_room===undefined?null:{waitingRoom:data.waiting_room,joinBeforeHost:data.join_before_host,lockOnHostJoin:data.lock_on_host_join,locked:data.locked};$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=(c=>/^\d{11}$/.test(c)?c.slice(0,3)+' '+c.slice(3,7)+' '+c.slice(7):c)(data.meeting_code||state.meetingId.slice(0,8));state.meetingInfo='Meeting ID: '+(data.meeting_code||state.meetingId);$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);try{const cfg=await api('/config');if(!state.iceServers||!state.iceServers.length)state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];state.mainOrigin=cfg.mainOrigin||'';}catch{}await startMedia();connect();state.tools=data.tools||state.tools;applyTools();if(state.role==='host')loadTools();collab.load();loadWaiting();}
 async function startMedia(){try{state.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:{width:{ideal:1280},height:{ideal:720}}});await applyDevicePrefs();}catch(e){notify('Media unavailable: '+e.message);state.stream=new MediaStream();state.mic=false;state.cam=false;}setVideo(state.participantId,state.stream,true);updateControls();}
 function updateControls(){
   const set=(id,label,off,pressed)=>{const b=$(id);b.querySelector('span').textContent=label;b.classList.toggle('off',!!off);b.setAttribute('aria-pressed',String(!!pressed));};
@@ -26,7 +38,7 @@ function updateControls(){
 function connect(){state.socket=io({path:BASE+'socket.io',auth:{token:state.token},transports:['websocket','polling']});const s=state.socket;s.on('connect',()=>{state.reconnected=!!state.everConnected;state.everConnected=true;net.signaling='connected';net.lostAt=0;renderNet();if(state.reconnected)collab.load();s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});});s.on('connect_error',e=>{if(!net.lostAt)net.lostAt=Date.now();net.signaling=!s.active||!s.io.reconnection()?'disconnected':(state.everConnected?'reconnecting':'connecting');renderNet();if(!state.everConnected)notify('Connection error: '+e.message);});s.on('disconnect',reason=>{net.lostAt=Date.now();net.signaling=s.active&&s.io.reconnection()?'reconnecting':'disconnected';renderNet();if(reason==='io server disconnect')notify('You were disconnected from the meeting (another session may have joined as you).');});s.on('roster',ids=>{state.roster=new Set([...ids,state.participantId]);renderPeople();
   for(const id of [...state.peers.keys()])if(!state.roster.has(id))removePeer(id);                                  // people who left while we were offline
   for(const id of ids)if(id!==state.participantId){if(state.reconnected)dropPeer(id);createPeer(id,true);}          // after a reconnect every peer connection is rebuilt (the tile stays: no duplicates)
-  state.reconnected=false;renderNet();});s.on('participant-online',p=>{s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});announce(p.name+' joined');state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{announce((state.names.get(p.participantId)||'A participant')+' left');state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();renderNet();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('names',map=>{for(const [pid,n] of Object.entries(map)){state.names.set(pid,n);const t=$('tile-'+pid);if(t&&pid!==state.participantId){t.querySelector('.nameplate').textContent=n;t.querySelector('.avatar').textContent=n.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();}}renderPeople();});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('ai-consent-request',n=>aiPrompt(n));s.on('ai-consent-closed',()=>{if(!document.querySelector('#rcModal[data-ai]'))return;rcClose();notify('The host closed the Qorlla AI request.');});s.on('media-state',({participantId,sharing,mic,cam})=>{if(participantId===state.participantId)return;const t=$('tile-'+participantId);if(t){t.classList.toggle('sharing-remote',!!sharing);setTileMedia(participantId,mic,cam);}else pendingMedia.set(participantId,{sharing,mic,cam});});s.on('hand',({participantId,raised})=>{setHand(participantId,raised);if(raised)announce((state.names.get(participantId)||'Someone')+' raised their hand');});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));collab.attach(s);s.on('limit-reminder',limitReminder);s.on('meeting-limit',endedByLimit);s.on('waiting-changed',()=>loadWaiting());s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
+  state.reconnected=false;renderNet();});s.on('participant-online',p=>{s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});announce(p.name+' joined');state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{announce((state.names.get(p.participantId)||'A participant')+' left');state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();renderNet();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('names',map=>{for(const [pid,n] of Object.entries(map)){state.names.set(pid,n);const t=$('tile-'+pid);if(t&&pid!==state.participantId){t.querySelector('.nameplate').textContent=n;t.querySelector('.avatar').textContent=n.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();}}renderPeople();});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('ai-consent-request',n=>aiPrompt(n));s.on('ai-consent-closed',()=>{if(!document.querySelector('#rcModal[data-ai]'))return;rcClose();notify('The host closed the Qorlla AI request.');});s.on('media-state',({participantId,sharing,mic,cam})=>{if(participantId===state.participantId)return;const t=$('tile-'+participantId);if(t){t.classList.toggle('sharing-remote',!!sharing);setTileMedia(participantId,mic,cam);}else pendingMedia.set(participantId,{sharing,mic,cam});});s.on('hand',({participantId,raised})=>{setHand(participantId,raised);if(raised)announce((state.names.get(participantId)||'Someone')+' raised their hand');});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));collab.attach(s);attachHostControls(s);s.on('limit-reminder',limitReminder);s.on('meeting-limit',endedByLimit);s.on('waiting-changed',()=>loadWaiting());s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
 // One RTCPeerConnection per remote participant. The side that makes the offer owns the pair's "epoch"; every signal carries it, so messages from an
 // older connection (before a reconnect) are ignored instead of corrupting the new one. ICE restarts reuse the epoch; a rebuilt connection gets a new one.
 const ICE_GRACE_MS=4000,MAX_RESTARTS=3;
@@ -118,6 +130,7 @@ async function endShare(){
 }
 $('shareBtn').onclick=async()=>{
   if(state.screen){await endShare();return;}
+  if(state.role!=='host'&&!state.tools.share){notify('The host has not allowed screen sharing.');return;}
   try{
     // The window you share can contain this very page. Where the browser supports it, this tab is left out of the picker; and your own share is
     // never played back live in your tile (a placeholder is shown instead), so a shared screen can never mirror itself inside itself.
@@ -459,7 +472,7 @@ async function rcHostPanel(){
   box.parentElement.dataset.panel='1';return box;
 }
 // Debug/test hook (read access to the page state for the browser tests; exposes nothing the page does not already hold).
-const collab=initCollab({state,BASE,notify,announce,rcModal,rcClose,rcEl,askConfirm});
+const collab=initCollab({state,BASE,notify,announce,rcModal,rcClose,rcEl,askConfirm,hostPanel});
 window.__qorlla={state,recoverPeer,rec:()=>({consent:[...(REC.consent?.set||[])],audio:[...REC.src.keys()],accepted:REC.accepted||0,queue:(REC.queue||[]).length,refused:REC.refused||0,rid:REC.rid||null})};
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------
@@ -660,10 +673,13 @@ async function applyDevicePrefs(){
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // Free-plan time limit: reminders (a banner with a countdown and an Upgrade link), then the meeting is closed with an upgrade message.
 // ---------------------------------------------------------------------------------------------------------------------------------------------
+// Pricing and the landing page belong to the MAIN Qorlla app, which is not Meet's origin when the two run on different ports or hosts: build those links against the main app, never against Meet.
+const mainUrl=(path)=>{try{return new URL(path||'/',state.mainOrigin||location.origin).href;}catch{return '/';}};
+const upgradeHref=(u)=>{try{const x=new URL(u||'/pricing?reason=meeting-limit',mainUrl('/'));return x.origin===new URL(mainUrl('/')).origin?x.href:mainUrl('/pricing?reason=meeting-limit');}catch{return mainUrl('/pricing?reason=meeting-limit');}};
 function limitReminder(r){
   let b=document.getElementById('limitBanner');
   if(!b){b=rcEl('div','limit-banner');b.id='limitBanner';b.setAttribute('role','status');const t=rcEl('span','limit-text');t.id='limitText';const a=rcEl('a','limit-up','Upgrade');a.id='limitUp';a.target='_blank';a.rel='noopener noreferrer';b.append(t,a);document.body.append(b);}
-  const left=Date.now()+Number(r.remainingMs||0);b.dataset.phase=r.phase;document.getElementById('limitUp').href=r.upgradeUrl||'/pricing';
+  const left=Date.now()+Number(r.remainingMs||0);b.dataset.phase=r.phase;document.getElementById('limitUp').href=upgradeHref(r.upgradeUrl);
   const paint=()=>{const s=Math.max(0,Math.round((left-Date.now())/1000));document.getElementById('limitText').textContent=r.message+'  ('+String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')+' left)';};
   clearInterval(limitReminder.iv);paint();limitReminder.iv=setInterval(paint,1000);announce(r.message);
 }
@@ -677,7 +693,63 @@ function endedByLimit(r){
   rcModal('Meeting time limit reached',box=>{
     box.append(rcEl('p','rc-lead',(r&&r.message)||'Upgrade to have full access to Qorlla packages'));
     box.append(rcEl('p','rc-note','This meeting was closed because the free plan time limit was reached. Everyone was disconnected. Upgrade to keep meeting without interruptions.'));
-    const row=rcEl('div','rc-row'),up=rcEl('a','rc-primary','See plans');up.href=(r&&r.upgradeUrl)||'/pricing';up.target='_blank';up.rel='noopener noreferrer';up.id='limitPlans';
-    const lv=rcEl('button','rc-secondary','Leave');lv.onclick=()=>{location.href=safeReturn(returnRaw)||BASE;};row.append(up,lv);box.append(row);
+    // both go in THIS window (a new window is blocked or ignored inside the mobile and desktop apps, and the meeting is already closed): See plans -> the main app's pricing page, Leave -> the main app's landing page
+    const row=rcEl('div','rc-row'),up=rcEl('a','rc-primary','See plans');up.href=upgradeHref(r&&r.upgradeUrl);up.id='limitPlans';
+    const lv=rcEl('button','rc-secondary','Leave');lv.id='limitLeave';lv.type='button';lv.onclick=()=>{location.href=mainUrl('/');};row.append(up,lv);box.append(row);
   },{focus:'#limitPlans'});
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// Host-controlled tools. The SERVER decides (server/host-controls.mjs); this only shows what the person may use.
+//   Guests see Share, Polls, Breakout rooms and Whiteboard only after the host switches each one on (or, for Share, grants it to them personally).
+//   The host can mute a guest, mute everyone, or ask a guest to unmute (a microphone is never switched on remotely: the guest decides).
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+state.tools={share:false,polls:false,breakout:false,whiteboard:false};state.guestTools={};state.sharers=new Set();
+function applyTools(){
+  const host=state.role==='host',t=state.tools||{};
+  $('shareBtn').classList.toggle('hidden',!host&&!t.share);
+  const pb=document.querySelector('[data-tab=polls]');if(pb)pb.classList.toggle('hidden',!host&&!t.polls);
+  if(!host&&!t.polls&&shell.tab==='polls')openTab('chat');
+  if(!host&&!t.share&&state.screen)endShare();
+  try{collab.refreshMore();}catch(e){/* tools panel not built yet */}
+  renderPeople();
+}
+async function loadTools(){try{const d=await api('/meetings/'+state.meetingId+'/tools');state.tools=d.tools;state.guestTools=d.guestTools||{};state.sharers=new Set(d.sharers||[]);}catch(e){/* keep what we have */}applyTools();}
+function askUnmute(){
+  rcModal('The host asks you to unmute',box=>{
+    box.append(rcEl('p','rc-lead','The host would like you to turn your microphone on.'),rcEl('p','rc-note','Your microphone only comes on if you choose to.'));
+    const row=rcEl('div','rc-row'),yes=rcEl('button','rc-primary','Unmute');yes.onclick=async()=>{rcClose();if(!state.mic)await $('micBtn').onclick();};
+    const no=rcEl('button','rc-secondary','Not now');no.onclick=()=>rcClose();row.append(yes,no);box.append(row);
+  },{focus:'.rc-primary'});
+}
+function attachHostControls(s){
+  s.on('tools-changed',m=>{if(m&&m.guestTools)state.guestTools=m.guestTools;loadTools();});
+  s.on('share-denied',()=>{notify('The host has not allowed you to share your screen.');if(state.screen)endShare();});
+  s.on('force-mute',()=>{
+    const tracks=state.stream?.getAudioTracks()||[];tracks.forEach(t=>t.enabled=false);
+    if(state.mic){state.mic=false;s.emit('media-state',{mic:false,cam:state.cam,sharing:!!state.screen});updateControls();}
+    notify('The host muted your microphone.');announce('The host muted your microphone.');
+  });
+  s.on('unmute-request',()=>askUnmute());
+}
+// the host's entry choices and tool switches, shown in the More tab (called from collab.js)
+const ENTRY_MODES=[['accept','Waiting room: I accept each guest before they come in',{waitingRoom:true}],['afterstart','Guests wait until I officially start the meeting, then come in',{waitingRoom:false,joinBeforeHost:false}],['anytime','Guests come in right away, even before I start',{waitingRoom:false,joinBeforeHost:true}]];
+const entryModeOf=st=>st.waitingRoom?'accept':(st.joinBeforeHost?'anytime':'afterstart');
+function hostPanel(body){
+  if(state.role!=='host'||!state.settings)return;
+  const head=(t,note)=>{const d=rcEl('div','mg-info');d.append(rcEl('strong','',t));if(note)d.append(rcEl('p','muted',note));return d;};
+  body.append(head('Who can come in','Guests who open the invitation link wait to be accepted unless you choose otherwise.'));
+  const cur=entryModeOf(state.settings);
+  for(const [key,label,patch] of ENTRY_MODES){
+    const lab=rcEl('label','rc-check'),r=rcEl('input');r.type='radio';r.name='entryMode';r.checked=cur===key;
+    r.onchange=async()=>{try{const j=await api('/meetings/'+state.meetingId+'/settings','PATCH',patch);Object.assign(state.settings,j);announce('Guest entry changed');}catch(e){notify(e.message);r.checked=false;}};
+    lab.append(r,document.createTextNode(' '+label));body.append(lab);
+  }
+  body.append(head('Tools for guests','Guests do not see a tool until you switch it on. Whiteboard and Breakout rooms are not available yet; their switches are saved for when they are.'));
+  for(const [k,label] of [['share','Screen sharing (everyone)'],['polls','Polls'],['breakout','Breakout rooms (planned)'],['whiteboard','Whiteboard (planned)']]){
+    const lab=rcEl('label','rc-check'),cb=rcEl('input');cb.type='checkbox';cb.checked=!!state.guestTools[k];
+    cb.onchange=async()=>{cb.disabled=true;try{const j=await api('/meetings/'+state.meetingId+'/tools','PATCH',{[k]:cb.checked});state.guestTools=j.guestTools;announce(label+(cb.checked?' on for guests':' off for guests'));}catch(e){notify(e.message);cb.checked=!cb.checked;}cb.disabled=false;};
+    lab.append(cb,document.createTextNode(' '+label));body.append(lab);
+  }
+  body.append(head('One person only','To let one guest share, use the People tab.'));
 }

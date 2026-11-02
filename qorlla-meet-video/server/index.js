@@ -23,6 +23,7 @@ import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
 import { registerAiConsent } from './ai-consent.mjs';
 import { registerHandoff } from './handoff.mjs';
+import { registerHostControls } from './host-controls.mjs';
 import { registerRecording } from './recording.mjs';
 import { createCarrier } from './telephony/provider.mjs';
 import { registerTelephony } from './telephony/routes.mjs';
@@ -261,7 +262,9 @@ app.get('/api/ready',async(_req,res)=>{
  res.status(bridgeConfigured?200:503).json({ready:bridgeConfigured,database:'ok',bridgeConfigured});
  }catch{res.status(503).json({ready:false,database:'unavailable'});}
 });
-app.get('/api/config', (_req,res) => { let iceServers=[]; try { iceServers=JSON.parse(process.env.ICE_SERVERS_JSON||'[]'); } catch {} res.json({iceServers,returnOrigins:(process.env.RETURN_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean)}); });
+// where the main Qorlla app lives (pricing, landing page): MAIN_APP_URL, else the CORS origin (the main app's own origin), else the first return origin. Empty = the same origin as Meet (single-origin deployments serve both).
+const mainAppOrigin = () => { for (const v of [process.env.MAIN_APP_URL, process.env.CORS_ORIGIN, ...(process.env.RETURN_ORIGINS||'').split(',')]) { try { const u = new URL(String(v||'').trim()); if (['http:','https:'].includes(u.protocol)) return u.origin; } catch {} } return ''; };
+app.get('/api/config', (_req,res) => { let iceServers=[]; try { iceServers=JSON.parse(process.env.ICE_SERVERS_JSON||'[]'); } catch {} res.json({iceServers,mainOrigin:mainAppOrigin(),returnOrigins:(process.env.RETURN_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean)}); });
 // ---- TURN. STUN and operator-managed servers keep coming from ICE_SERVERS_JSON through the public /api/config, which must never hold a secret. TURN is different: with TURN_URLS and TURN_SHARED_SECRET every ADMITTED
 // participant gets short-lived credentials of their own (coturn "REST" scheme: username = expiry:participantId, credential = base64(HMAC-SHA1(secret, username))) from GET /api/meetings/:id/ice. They cannot be revoked
 // before they expire, so the lifetime is bounded (TURN_CREDENTIAL_TTL_SECONDS, 60..14400, default 3600); the relay must refuse private peer addresses (docs/TURN.md). ICE_TRANSPORT_POLICY=relay makes every client use
@@ -339,7 +342,8 @@ app.get('/api/meetings/:id',auth,member,async(req,res)=>{
  const {rows:polls}=await db.query('SELECT id,question,options FROM polls WHERE meeting_id=$1 ORDER BY created_at DESC LIMIT 30',[req.params.id]);
  // a meeting that was scheduled elsewhere shows the ID people were given (its registered alias), not Meet's internal code
  const {rows:[al]}=await db.query('SELECT alias_code FROM meeting_code_aliases WHERE meeting_id=$1 ORDER BY alias_code LIMIT 1',[req.params.id]).catch(()=>({rows:[]}));
- res.json({...m,...(al?{meeting_code:al.alias_code}:{}),messages:messages.reverse(),polls,online:activeList(req.params.id)});
+ const tools=await hostControls.effective(req.params.id,req.user.participantId,req.user.role);
+ res.json({...m,...(al?{meeting_code:al.alias_code}:{}),messages:messages.reverse(),polls:tools.polls?polls:[],tools,online:activeList(req.params.id)});
 });
 // ---- admission control (v4.0.2b) -------------------------------------------------------------------------------------------------------------
 // A person who is waiting (or was denied) can ONLY ask where they stand; every other route and the socket refuse them until the host admits them.
@@ -399,7 +403,8 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
  audit(req.params.id,req.user.participantId,'meeting.ended'); res.json({ok:true});
 });
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
-const collab = registerCollab({ app, io, db, auth, fail, room, audit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
+const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
+const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 registerHandoff({ app, db, sign, fail, bridgeAuth, audit });          // single-use hand-off codes (Workplace -> Meet page), see server/handoff.mjs
@@ -470,7 +475,13 @@ io.on('connection',socket=>{
   } catch {ackError(ack,'Message failed');}
  });
  socket.on('hand',raised=>{socket.to(room(id)).emit('hand',{participantId:pid,raised:!!raised});});
- socket.on('media-state',state=>{socket.to(room(id)).emit('media-state',{participantId:pid,mic:!!state?.mic,cam:!!state?.cam,sharing:!!state?.sharing});});
+ hostControls.attach(socket,{id,pid,role:u.role});
+ socket.on('media-state',async state=>{
+  // a guest announces a screen share only if the host allows it (for everyone, or for this person): otherwise it is not announced and the sender is told
+  let sharing=!!state?.sharing;
+  if(sharing&&u.role!=='host'&&!(await hostControls.mayUse(id,pid,u.role,'share').catch(()=>false))){sharing=false;socket.emit('share-denied',{});}
+  socket.to(room(id)).emit('media-state',{participantId:pid,mic:!!state?.mic,cam:!!state?.cam,sharing});
+ });
  socket.on('reaction',emoji=>{if(['👍','👏','❤️','🎉','😂'].includes(emoji))io.to(room(id)).emit('reaction',{name:u.name,emoji});});
  socket.on('notes',async(text,ack)=>{
   if(u.role!=='host')return ackError(ack,'Host only');

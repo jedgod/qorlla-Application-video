@@ -16,6 +16,7 @@ services:
       - ./qorlla-meet-video/sql/v4_19_ai_request.sql:/docker-entrypoint-initdb.d/005n_ai_request.sql:ro
       - ./qorlla-meet-video/sql/v4_20_ai_consent_seq.sql:/docker-entrypoint-initdb.d/005o_ai_consent_seq.sql:ro
       - ./qorlla-meet-video/sql/v4_21_handoffs.sql:/docker-entrypoint-initdb.d/005p_handoffs.sql:ro
+      - ./qorlla-meet-video/sql/v4_22_host_controls.sql:/docker-entrypoint-initdb.d/005q_host_controls.sql:ro
   # Recordings go to a git-ignored host folder so the acceptance specs can inspect what is really on disk (encrypted, no plaintext); the container user keeps writing as usual.
   meet:
     volumes:

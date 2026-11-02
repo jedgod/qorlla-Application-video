@@ -1,7 +1,7 @@
 // Qorlla Meet sidebar: structured notes (autosave, history, edit access), polls (server-authoritative), and the More tool groups.
 // Everything is validated again on the server; this file only presents it. Nothing here is mock data.
 export function initCollab(h) {
-  const { state, BASE, notify, announce, rcModal, rcClose, rcEl, askConfirm } = h;
+  const { state, BASE, notify, announce, rcModal, rcClose, rcEl, askConfirm, hostPanel } = h;
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text, attrs) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; if (attrs) for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
   const newId = () => Math.random().toString(36).slice(2, 10).padEnd(8, 'x');
@@ -242,19 +242,20 @@ export function initCollab(h) {
   const polls$ = () => { clearTimeout(pollLoadTimer); pollLoadTimer = setTimeout(loadPolls, 250); };
 
   // =================================================================================================================================== MORE
+  const openGroups = new Set(['collab']);                // which groups of the More tab are open: kept when the tab is rebuilt (a host switching a tool must not see the group fold up)
   function buildMore() {
     const t = $('tab-more'); t.textContent = '';
     const soon = (label, note) => ({ label, note: note || 'Planned for v4.1', soon: true });
     const groups = [
-      { id: 'collab', title: 'Collaboration', items: [{ label: 'Reactions', reactions: true }, soon('Whiteboard'), soon('Breakout rooms'), soon('Shared files'), soon('Q&A')] },
+      { id: 'collab', title: 'Collaboration', items: [{ label: 'Reactions', reactions: true }, ...(state.role === 'host' || (state.tools && state.tools.whiteboard) ? [soon('Whiteboard')] : []), ...(state.role === 'host' || (state.tools && state.tools.breakout) ? [soon('Breakout rooms')] : []), soon('Shared files'), soon('Q&A')] },
       { id: 'intel', title: 'Meeting intelligence', items: [soon('AI meeting summary', 'Planned v4.2 — needs its own consent'), soon('Live transcription', 'Planned v4.2 — needs its own consent'), soon('Translated captions', 'Planned v4.2')] },
-      { id: 'manage', title: 'Meeting management', items: [{ label: 'Copy invitation link', run: () => $('copyLink').click() }, ...(state.role === 'host' && state.settings ? [{ toggle: 'waitingRoom', label: 'Waiting room: hold guests until I admit them' }, { toggle: 'locked', label: 'Lock meeting: nobody new can join' }, { toggle: 'joinBeforeHost', label: 'Guests may join before the host' }] : []), { label: 'Export notes (Markdown)', run: () => exportNotes('md') }, { label: 'Meeting information', info: () => state.meetingInfo || '' }, soon('Attendance report'), soon('Lock meeting / remove people')] },
+      { id: 'manage', title: 'Meeting management', items: [{ label: 'Copy invitation link', run: () => $('copyLink').click() }, ...(state.role === 'host' && state.settings ? [{ custom: true }, { toggle: 'locked', label: 'Lock meeting: nobody new can join' }] : []), { label: 'Export notes (Markdown)', run: () => exportNotes('md') }, { label: 'Meeting information', info: () => state.meetingInfo || '' }, soon('Attendance report'), soon('Lock meeting / remove people')] },
       { id: 'sec', title: 'Security and recording', items: [{ label: state.role === 'host' ? 'Recording and consent…' : 'About recording', run: () => (state.role === 'host' ? $('recordBtn').click() : notify('Recording only happens if everyone present agrees. You will be asked, and you can withdraw at any time.')) }, ...(state.role === 'host' ? [{ label: 'Recordings (download or delete)…', run: openRecordings }] : []), { label: 'Calls and chat are encrypted in transit', info: () => 'Audio and video use WebRTC (DTLS-SRTP); the page uses HTTPS in production. Recordings are not stored by Qorlla.' }] },
       { id: 'tools', title: 'Tools and settings', items: [{ label: 'Settings and keyboard shortcuts', run: () => $('settingsBtn').click() }, { label: 'Panel position and lock', info: () => 'On wide screens use the arrow buttons at the top of this panel to dock it left, right, top or bottom, and the lock to keep it stable.' }] },
     ];
     for (const [gi, g] of groups.entries()) {
-      const sec = el('section', 'mg'); const hb = el('button', 'mg-h', '', { 'aria-expanded': String(gi === 0), 'aria-controls': 'mg-' + g.id, id: 'mgh-' + g.id }); hb.append(el('span', '', g.title), el('span', 'mg-chev', gi === 0 ? '▴' : '▾', { 'aria-hidden': 'true' }));
-      const body = el('div', 'mg-b', '', { id: 'mg-' + g.id, role: 'region', 'aria-labelledby': 'mgh-' + g.id }); body.hidden = gi !== 0;
+      const sec = el('section', 'mg'); const hb = el('button', 'mg-h', '', { 'aria-expanded': String(openGroups.has(g.id)), 'aria-controls': 'mg-' + g.id, id: 'mgh-' + g.id }); hb.append(el('span', '', g.title), el('span', 'mg-chev', openGroups.has(g.id) ? '▴' : '▾', { 'aria-hidden': 'true' }));
+      const body = el('div', 'mg-b', '', { id: 'mg-' + g.id, role: 'region', 'aria-labelledby': 'mgh-' + g.id }); body.hidden = !openGroups.has(g.id);
       for (const it of g.items) {
         if (it.reactions) { const row = el('div', 'emoji'); for (const e of ['👍', '👏', '❤️', '🎉', '😂']) { const b = el('button', '', e, { 'aria-label': 'React with ' + e }); b.onclick = () => state.socket?.emit('reaction', e); row.append(b); } body.append(el('p', '', 'Reactions'), row); }
         else if (it.toggle) {
@@ -262,11 +263,12 @@ export function initCollab(h) {
           cb.onchange = async () => { cb.disabled = true; try { const r = await fetch(BASE + 'api/meetings/' + state.meetingId + '/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.token }, body: JSON.stringify({ [it.toggle]: cb.checked }) }); const j = await r.json(); if (!r.ok) throw Error(j.error); Object.assign(state.settings, j); announce(it.label.split(':')[0] + (cb.checked ? ' on' : ' off')); } catch (e) { cb.checked = !cb.checked; notify(e.message); } cb.disabled = false; };
           body.append(lab);
         }
+        else if (it.custom) { hostPanel(body); }
         else if (it.soon) { const b = el('button', 'mg-i', '', { disabled: '', 'aria-disabled': 'true' }); b.append(el('span', '', it.label), el('small', 'muted', it.note)); body.append(b); }
         else if (it.info) { const d = el('div', 'mg-info'); d.append(el('strong', '', it.label), el('p', 'muted', it.info())); body.append(d); }
         else { const b = el('button', 'mg-i', it.label); b.onclick = it.run; body.append(b); }
       }
-      hb.onclick = () => { const open = hb.getAttribute('aria-expanded') !== 'true'; hb.setAttribute('aria-expanded', String(open)); body.hidden = !open; hb.querySelector('.mg-chev').textContent = open ? '▴' : '▾'; };
+      hb.onclick = () => { const open = hb.getAttribute('aria-expanded') !== 'true'; if (open) openGroups.add(g.id); else openGroups.delete(g.id); hb.setAttribute('aria-expanded', String(open)); body.hidden = !open; hb.querySelector('.mg-chev').textContent = open ? '▴' : '▾'; };
       sec.append(hb, body); t.append(sec);
     }
     t.append(el('p', 'muted', 'Items marked “Planned” are not available yet.'));
@@ -293,5 +295,6 @@ export function initCollab(h) {
   return {
     attach(s) { s.on('notes-updated', remoteNotes); s.on('notes-editors', (m) => { N.editors = m.editors; const can = state.role === 'host' || m.editors.includes(state.participantId); if (can !== N.canEdit && !N.ended) { N.canEdit = can; renderAll(); announce(can ? 'You can now edit the notes' : 'Your edit access to the notes was removed'); } }); s.on('polls-changed', polls$); },
     load() { buildMore(); loadNotes(); loadPolls(); },
+    refreshMore() { buildMore(); },
   };
 }

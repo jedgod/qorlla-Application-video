@@ -70,7 +70,7 @@ export function tally(poll, ballots) {
 }
 const csvCell = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 
-export function registerCollab({ app, io, db, auth, fail, room, getName, audit, getRoster }) {
+export function registerCollab({ app, io, db, auth, fail, room, getName, audit, getRoster, toolOn = async () => true }) {
   const paths = (p) => ['/api/meetings/:id' + p, '/api/v1/meetings/:id' + p];
   // Any participant of the meeting, even after it ended (post-meeting review); `edit` routes use `live` as well.
   const participant = async (req, res, next) => {
@@ -182,6 +182,7 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
   const changed = (meetingId) => io.to(room(meetingId)).emit('polls-changed');
 
   app.get(paths('/polls'), auth, participant, guard(async (req, res) => {
+    if (!isHost(req) && !(await toolOn(req.params.id, req.user.participantId, req.user.role, 'polls'))) return res.set('Cache-Control', 'no-store').json({ polls: [], disabled: true });          // guests see nothing of polls until the host switches them on
     await expire(req.params.id);
     const { rows } = await db.query('SELECT * FROM meeting_polls WHERE meeting_id=$1 ' + (isHost(req) ? '' : "AND status<>'draft' ") + 'ORDER BY created_at DESC LIMIT 60', [req.params.id]);
     res.set('Cache-Control', 'no-store').json({ polls: await Promise.all(rows.map((p) => pollView(p, req))) });
@@ -217,6 +218,7 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
   }, 'Could not delete'));
 
   app.post(paths('/polls/:pid/votes'), auth, participant, live, guard(async (req, res) => {
+    if (!isHost(req) && !(await toolOn(req.params.id, req.user.participantId, req.user.role, 'polls'))) return fail(res, 403, 'Polls are not switched on by the host');
     await expire(req.params.id);
     const p = await getPoll(req); if (!p || p.status === 'draft') return fail(res, 404, 'No such poll'); if (p.status !== 'open') return fail(res, 409, 'This poll is closed');
     const b = cleanBallot(p, req.body?.choices); if (b.error) return fail(res, 400, b.error);
@@ -234,6 +236,7 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
   }, 'Could not record your vote'));
 
   app.get(paths('/polls/:pid/results'), auth, participant, guard(async (req, res) => {
+    if (!isHost(req) && !(await toolOn(req.params.id, req.user.participantId, req.user.role, 'polls'))) return fail(res, 404, 'No such poll');
     const p = await getPoll(req); if (!p || (p.status === 'draft' && !isHost(req))) return fail(res, 404, 'No such poll');
     if (!seeResults(p, isHost(req))) return fail(res, 403, 'Results have not been published');
     res.set('Cache-Control', 'no-store').json(await pollView(p, req));

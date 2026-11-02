@@ -84,7 +84,7 @@ test.describe('Qorlla Meet notes', () => {
 test.describe('Qorlla Meet polls', () => {
   test('host launches a poll from the UI; one vote each; results stay hidden until published; closing and publishing show everyone', async ({ browser }) => {
     test.setTimeout(120000);
-    const a = await open(browser, 'Alice'); const b = await open(browser, 'Bob', a.code); await tab(a.page, 'polls'); await tab(b.page, 'polls');
+    const a = await open(browser, 'Alice'); const b = await open(browser, 'Bob', a.code); expect((await call(a.page, '/tools', 'PATCH', { polls: true })).status).toBe(200); /* polls are a host tool: guests get them only once the host switches them on */ await tab(a.page, 'polls'); await tab(b.page, 'polls');
     await expect(b.page.locator('#pollNew')).toBeHidden(); await expect(a.page.locator('#pollNew')).toBeVisible();
     await a.page.click('#pollNew'); await a.page.fill('#pq', 'Which feature next?'); await a.page.fill('#po', 'Recording compliance\nAI meeting notes\nBreakout rooms'); await a.page.getByRole('button', { name: 'Launch now' }).click();
     await expect(a.page.locator('.pl-card')).toContainText('Which feature next?'); await expect(b.page.locator('.pl-card')).toContainText('Which feature next?'); await expect(b.page.locator('.pl-card .chip')).toHaveText('Open');
@@ -103,7 +103,7 @@ test.describe('Qorlla Meet polls', () => {
 
   test('every poll type validates on the server; anonymous ballots are not tied to names; quiz feedback; drafts are private; timed polls close by themselves; CSV export is host-only and safe', async ({ browser }) => {
     test.setTimeout(150000);
-    const a = await open(browser, 'Alice'); const b = await open(browser, 'Bob', a.code); const mk = async (o) => (await call(a.page, '/polls', 'POST', { launch: true, ...o })).body;
+    const a = await open(browser, 'Alice'); const b = await open(browser, 'Bob', a.code); expect((await call(a.page, '/tools', 'PATCH', { polls: true })).status).toBe(200); /* polls are a host tool: guests get them only once the host switches them on */ const mk = async (o) => (await call(a.page, '/polls', 'POST', { launch: true, ...o })).body;
     // bad definitions
     expect((await call(a.page, '/polls', 'POST', { question: '', kind: 'single', options: ['a', 'b'] })).status).toBe(400); expect((await call(a.page, '/polls', 'POST', { question: 'q', kind: 'single', options: ['a'] })).status).toBe(400); expect((await call(a.page, '/polls', 'POST', { question: 'q', kind: 'single', options: ['a', 'A'] })).status).toBe(400);
     expect((await call(a.page, '/polls', 'POST', { question: 'q', kind: 'rating', scale: 7 })).status).toBe(400); expect((await call(a.page, '/polls', 'POST', { question: 'q', kind: 'single', options: ['a', 'b'], quiz: true })).status).toBe(400);
@@ -140,7 +140,7 @@ test.describe('Qorlla Meet polls', () => {
 
 test.describe('Qorlla Meet More tab', () => {
   test('tools are grouped in expandable sections; unavailable tools are labelled, not faked; real tools work', async ({ browser }) => {
-    const a = await open(browser, 'Alice'); const b = await open(browser, 'Bob', a.code); await tab(a.page, 'more'); await tab(b.page, 'more');
+    const a = await open(browser, 'Alice'); const b = await open(browser, 'Bob', a.code); expect((await call(a.page, '/tools', 'PATCH', { polls: true })).status).toBe(200); /* polls are a host tool: guests get them only once the host switches them on */ await tab(a.page, 'more'); await tab(b.page, 'more');
     const heads = a.page.locator('.mg-h'); await expect(heads).toHaveText([/Collaboration/, /Meeting intelligence/, /Meeting management/, /Security and recording/, /Tools and settings/]);
     await expect(heads.first()).toHaveAttribute('aria-expanded', 'true'); await expect(a.page.locator('#mg-intel')).toBeHidden(); await heads.nth(1).click(); await expect(heads.nth(1)).toHaveAttribute('aria-expanded', 'true'); await expect(a.page.locator('#mg-intel')).toBeVisible(); await heads.first().click(); await expect(a.page.locator('#mg-collab')).toBeHidden();
     await heads.first().click(); await expect(a.page.locator('#mg-collab button:disabled')).toHaveCount(4); await expect(a.page.locator('#mg-collab')).toContainText('Planned for v4.1');
