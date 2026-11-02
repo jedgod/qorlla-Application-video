@@ -72,7 +72,11 @@ test('screen rules: numeric keyboard, no maxLength truncation, disabled until va
 });
 test('no remote assets or tracking on the welcome screen', () => { for (const src of [SCREEN, ICONS]) assert.doesNotMatch(src, /https?:\/\/|uri:|require\(['"]http/); });
 test('touch targets: every interactive style has a 48dp minimum height', () => {
-  for (const name of ['lang', 'feature', 'join', 'action', 'util', 'langItem']) { const m = SCREEN.match(new RegExp('\\b' + name + ': \\{[^}]*minHeight: (?:tap\\()?(\\d+)')); assert.ok(m && Number(m[1]) >= 48, name); }
+  for (const name of ['feature', 'join', 'action', 'util', 'langItem']) { const m = SCREEN.match(new RegExp('\\b' + name + ': \\{[^}]*minHeight: (?:tap\\()?(\\d+)')); assert.ok(m && Number(m[1]) >= 48, name); }
+});
+test('touch targets: the language pill is drawn compact (32dp) but keeps a 48dp touch area through hitSlop, at every page scale', () => {
+  assert.match(SCREEN, /testID="language-select" hitSlop=\{Math\.ceil\(Math\.max\(8, \(48 - HERO\.langHeight \* k\) \/ 2\)\)\}/);
+  for (const k of [0.66, 0.8, 1, 1.06]) { const slop = Math.ceil(Math.max(8, (48 - HERO.langHeight * k) / 2)); assert.ok(HERO.langHeight * k + 2 * slop >= 48, 'k=' + k); }
 });
 test('App wiring: joining is guarded against duplicates, the ID survives a failed join, sign in/guest/help go through the existing policy paths', () => {
   assert.match(APP, /joiningRef\.current\) return/); assert.match(APP, /finally \{ joiningRef\.current = false; setJoining\(false\); \}/); assert.match(APP, /policy\.pathUrl\(path\)/);
@@ -104,4 +108,5 @@ test('the decorative circle always fits inside the hero block, whatever the phon
     assert.ok(artW <= inner * 0.32 + 1 && artW >= 40, `${w}x${h}: a reasonable size`);
   }
   assert.ok(heroArtWidth(358, 1) < Math.round(358 * 0.38), 'smaller than the old 38% circle');
+  assert.ok(HERO.artTop > HERO.langHeight, 'the circle starts below the language pill, never behind it');
 });

@@ -49,7 +49,7 @@ export default function WelcomeScreen({ onJoin, joining, error, onOpen, onSettin
       <ScrollView ref={scroll} contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
         {/* HERO */}
         <View style={s.hero}>
-          <Pressable testID="language-select" accessibilityRole="button" accessibilityLabel={t('Language') + ': ' + lang.label + '. ' + t('Language')} onPress={() => setPicker(true)} style={({ pressed }) => [s.lang, pressed && s.pressed]}>
+          <Pressable testID="language-select" hitSlop={Math.ceil(Math.max(8, (48 - HERO.langHeight * k) / 2))} accessibilityRole="button" accessibilityLabel={t('Language') + ': ' + lang.label + '. ' + t('Language')} onPress={() => setPicker(true)} style={({ pressed }) => [s.lang, pressed && s.pressed]}>
             <GlobeIcon size={16 * k} color={C.text2} /><Fit style={s.langText}>{lang.label}</Fit><ChevronDown size={14 * k} color={C.text2} />
           </Pressable>
           <View style={s.heroText}>
@@ -148,7 +148,7 @@ function makeStyles(k, heroW, artW) {
     hero: { height: d(HERO.height) },
     heroText: { width: heroW, paddingTop: d(4) },
     art: { position: 'absolute', right: -d(4), top: d(HERO.artTop), width: artW },
-    lang: { position: 'absolute', right: 0, top: 0, zIndex: 2, flexDirection: 'row', alignItems: 'center', gap: d(6), minHeight: 48, maxWidth: '50%', paddingHorizontal: d(12), borderRadius: 24, borderWidth: 1, borderColor: C.border, backgroundColor: 'rgba(7,29,52,0.9)' },
+    lang: { position: 'absolute', right: 0, top: 0, zIndex: 2, flexDirection: 'row', alignItems: 'center', gap: d(4), height: d(HERO.langHeight), maxWidth: '50%', paddingHorizontal: d(9), borderRadius: d(HERO.langHeight / 2), borderWidth: 1, borderColor: C.border, backgroundColor: 'rgba(7,29,52,0.9)' },
     langText: { color: C.text, fontSize: f(13), fontWeight: '600', flexShrink: 1 },
     brandRow: { flexDirection: 'row', alignItems: 'center' },
     brand: { color: C.text, fontWeight: '800', fontSize: f(Math.round(heroW / k * 0.2)), letterSpacing: -1, marginLeft: -d(2) },

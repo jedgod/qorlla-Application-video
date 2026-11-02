@@ -49,7 +49,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 /** One scale for every size on the screen: limited by the window width and by the window height, so the page fits on one screen on any phone. */
 export const fitScale = (width, availHeight) => clamp(Math.min(width / BASE_WIDTH, availHeight > 0 ? availHeight / DESIGN_HEIGHT : 9), 0.66, 1.06);
 /** Hero block (design units, times the page scale k): its height, where the decorative circle starts, and the circle's height/width ratio. */
-export const HERO = { height: 150, artTop: 44, artRatio: 0.9, margin: 6 };
+export const HERO = { height: 150, langHeight: 32, artTop: 38, artRatio: 0.9, margin: 6 };          // the language pill is 32 high (touch area stays 48 through hitSlop); the circle starts just below it
 /** Width of the decorative circle: at most a third of the content width, and never so big that it reaches below the hero (it used to be 38% of the width only, so on a narrow or short phone it ran into the feature cards). */
 export const heroArtWidth = (inner, k) => Math.max(40, Math.min(Math.round(inner * 0.32), Math.floor(((HERO.height - HERO.artTop - HERO.margin) * k) / HERO.artRatio)));
 /** Columns for each block: the compact design keeps the two-column / three-column layout on every phone from 300dp up (text shrinks to fit); only a narrower window stacks them. */
