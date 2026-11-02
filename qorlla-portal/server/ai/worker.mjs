@@ -16,11 +16,13 @@ export function createAiWorker({ pool, llm, meet, citations, log, overage = null
     return CONSENT_SCOPES.every((s) => r.rows.some((x) => x.scope === s));
   }
   async function claim() {
+    // a job whose worker keeps dying is not taken over forever (it would re-send consented text to the gateway on every attempt): after maxAttempts it is failed, and a person decides
+    await pool.query(`UPDATE portal.meeting_ai_jobs SET status='failed', error_code='interrupted_too_often', error_message='The job was interrupted too many times', lease_until=NULL, lease_token=NULL, finished_at=now() WHERE status='running' AND lease_until<now() AND attempts>=$1`, [maxAttempts]);
     const token = crypto.randomUUID();
     const r = await pool.query(
       `UPDATE portal.meeting_ai_jobs j SET status='running', lease_token=$1, lease_until=now()+($2::float8 * interval '1 second'), attempts=j.attempts+1, started_at=COALESCE(j.started_at,now())
-       WHERE j.id = (SELECT id FROM portal.meeting_ai_jobs WHERE (status='queued' AND next_attempt_at<=now()) OR (status='running' AND lease_until<now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
-       RETURNING j.*`, [token, leaseSeconds]);
+       WHERE j.id = (SELECT id FROM portal.meeting_ai_jobs WHERE (status='queued' AND next_attempt_at<=now()) OR (status='running' AND lease_until<now() AND attempts<$3) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
+       RETURNING j.*`, [token, leaseSeconds, maxAttempts]);
     return r.rows[0] || null;
   }
   const finish = (job, status, code, message) => pool.query(
@@ -51,9 +53,8 @@ export function createAiWorker({ pool, llm, meet, citations, log, overage = null
   /** Meet's answer right now: is every person whose content is (or would be) used still agreeing, and is the host's AI request still open? Unreachable Meet = no answer = nothing proceeds. */
   async function participantCheck(job) {
     const consent = await meet.fetchConsent(job.meet_meeting_id);
-    if (job.source === 'transcript_import') return stillConsented({ consent, importRevision: job.consent_revision });
     const rows = (await pool.query('SELECT participant_id, transcription_seq, summary_seq FROM portal.meeting_ai_job_participants WHERE job_id=$1 AND included', [job.id])).rows;
-    return stillConsented({ consent, rows });
+    return stillConsented({ consent, rows, source: job.source });                     // an import is checked against EVERY person in the meeting, a chat job against the people whose words it holds
   }
   /** The numbers an included person's agreements had when their messages were taken (what every later read is checked against). */
   const snapshotRows = async (db, job) => (await db.query('SELECT participant_id, transcription_seq, summary_seq FROM portal.meeting_ai_job_participants WHERE job_id=$1 AND included ORDER BY participant_id', [job.id])).rows;
@@ -108,12 +109,13 @@ export function createAiWorker({ pool, llm, meet, citations, log, overage = null
       const res = await llm.summarize({ title: dir.title, transcript: t.full_text, ctx: { workspaceId: job.workspace_id, actorId: job.requested_by, feature: 'meeting_summary' } });
       // citations are made HERE, from the transcript we hold: each decision / action item points at the segments that really contain it (the model supplies no identifiers)
       const segs = Array.isArray(t.segments) ? t.segments : [];
-      const refsFor = (statement) => groundStatement(statement, segs).map((i) => ({ ref: citations.sign({ ws: job.workspace_id, kind: 'meet_transcript', id: t.id, loc: { t: 'segment', i }, h: sha(segs[i].text), label: `Meeting chat, message ${i + 1}` }), label: `Message ${i + 1}${clockLabel(segs[i]) ? ' at ' + clockLabel(segs[i]) : ''}` }));
+      const refsFor = (statement) => groundStatement(statement, segs).map((i) => ({ ref: citations.sign({ ws: job.workspace_id, kind: 'meet_transcript', id: t.id, loc: { t: 'segment', i }, h: citations.mac(segs[i].text), label: `Meeting chat, message ${i + 1}` }), label: `Message ${i + 1}${clockLabel(segs[i]) ? ' at ' + clockLabel(segs[i]) : ''}` }));
       const cites = { decisions: res.report.decisions.map(refsFor), action_items: res.report.action_items.map((a) => ({ title: a.title, refs: refsFor(a.title) })) };
       const basis = basisFor({ source: job.source === 'transcript_import' ? 'transcript_import' : 'meet_chat', rows: await snapshotRows(pool, job), revision: job.consent_revision });
+      const post = await participantCheck(job);                           // asked of Meet just before publishing, OUTSIDE any transaction (no lock is held while waiting on the network)
+      if (!post.ok) { await stopForConsent(job, post.reason, 'result_discarded', 'before_publish'); return; }       // a participant withdrew while the model was working: nothing is published
       const done = await fenced(job, async (c) => {
         if (!(await activeConsents(c, job))) return 'consent_revoked';  // revoked during inference: discard the model output
-        const post = await participantCheck(job); if (!post.ok) return 'pc:' + post.reason;      // a participant withdrew while the model was working: nothing is published
         const plan = (await c.query('SELECT plan_slug FROM portal.workspace_effective_plan WHERE workspace_id=$1', [job.workspace_id])).rows[0]?.plan_slug || 'basic';
         let rep = (await c.query(
           `INSERT INTO portal.meeting_reports(workspace_id,external_meeting_id,meet_meeting_id,job_id,transcript_id,title,summary,decisions,topics,generated_by,created_by,host_user_id,citations,consent_basis)
@@ -164,10 +166,13 @@ export function createAiWorker({ pool, llm, meet, citations, log, overage = null
   }
   /** Retention: transcript TEXT is deleted after `days` days (reports and their metadata stay). Returns how many were purged. */
   async function purgeExpired(days = retentionDays) {
-    if (!(days > 0)) return 0;
+    // transcripts of jobs that ended WITHOUT publishing (failed, cancelled, blocked) hold consented text for nothing: they go after a day, whatever the retention setting
+    const stale = await pool.query(`UPDATE portal.meeting_transcripts t SET segments='[]'::jsonb, full_text='', purged_at=now(), purge_reason='job_not_published' FROM portal.meeting_ai_jobs j
+      WHERE j.id=t.job_id AND j.status IN ('failed','cancelled','blocked') AND COALESCE(j.finished_at, j.created_at) < now() - interval '24 hours' AND t.purged_at IS NULL`);
+    if (!(days > 0)) return stale.rowCount;
     const r = await pool.query(`UPDATE portal.meeting_transcripts SET segments='[]'::jsonb, full_text='', purged_at=now(), purge_reason='retention' WHERE purged_at IS NULL AND created_at < now() - ($1::int * interval '1 day')`, [days]);
     if (r.rowCount) log?.info('transcripts purged by retention policy', { count: r.rowCount, days });
-    return r.rowCount;
+    return r.rowCount + stale.rowCount;
   }
   let timer = null, stopped = false, lastPurge = 0;
   function start(intervalMs = 2000) {

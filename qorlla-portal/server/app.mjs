@@ -17,6 +17,7 @@ import { registerAiGateway } from './ai-gateway.mjs';
 import { resolveAiConfig } from './ai/config.mjs';
 import { createMeetClient } from './ai/meet-client.mjs';
 import { createAiWorker } from './ai/worker.mjs';
+import { withWatermark } from './ai/consent-source.mjs';
 import { createCitations } from './ai/citations.mjs';
 import { registerPhone } from './phone.mjs';
 import { registerWorkspaceTools } from './workspace-tools.mjs';
@@ -65,7 +66,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     audit: (r) => pool.query('INSERT INTO portal.ai_gateway_audit(at,feature,actor_id,workspace_id,org_id,provider,tier,model,outcome,code,ms,input_chars,output_chars,input_tokens,output_tokens,prompt_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',
       [r.at, r.feature, r.actorId, r.workspaceId, r.orgId, r.provider, r.tier, r.model, r.outcome, r.code, r.ms, r.inputChars, r.outputChars, r.inputTokens, r.outputTokens, r.promptHash])
   });
-  const meet = aiOverride.meet || createMeetClient({ baseUrl: cfg.ai.meetBaseUrl, readSecret: cfg.ai.meetReadSecret, fetchImpl });
+  const meet = withWatermark(aiOverride.meet || createMeetClient({ baseUrl: cfg.ai.meetBaseUrl, readSecret: cfg.ai.meetReadSecret, fetchImpl }), pool);          // Meet's numbers must never go backwards (see consent-source.mjs)
   const phoneWorker = createPhoneWorker({ pool, llm, log, isEnabled: () => flags.enabled('ai'), ...(aiOverride.phoneWorker || {}) });
   const citations = createCitations({ secret: cfg.introspectionSecret });
   const aiWorker = createAiWorker({ pool, llm, meet, citations, log, overage, leaseSeconds: cfg.ai.leaseSeconds, isEnabled: async () => (await flags.enabled('ai')) && (await flags.enabled('meet_ai')), retentionDays: cfg.ai.transcriptRetentionDays, ...(aiOverride.worker || {}) });
@@ -224,7 +225,8 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     const p = z.object({ subject: z.string().trim().min(3).max(160), details: z.string().trim().min(5).max(10000) }).parse(req.body);
     res.status(201).json((await pool.query('INSERT INTO portal.support_tickets(workspace_id,author_id,subject,details) VALUES($1,$2,$3,$4) RETURNING id,subject,details,status,author_id,created_at', [req.workspace, req.actor, p.subject, p.details])).rows[0]);
   }));
-  app.get('/api/v1/reports', member, h(async (req, res) => res.json((await pool.query('SELECT id,external_meeting_id,title,summary,created_at FROM portal.meeting_reports WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 100', [req.workspace])).rows)));
+  // The v4.1 report list returned every report's summary to any member with no visibility, status or consent check. It is retired: reports are read ONLY through /api/v1/meeting-ai/reports, which applies the access rules and the consent fence.
+  app.get('/api/v1/reports', member, (req, res) => res.status(410).set('Cache-Control', 'no-store').json({ error: 'This endpoint was retired. Use /api/v1/meeting-ai/reports.', code: 'gone' }));
 
   // ---- billing (owner / admin / billing role) ----
   app.get('/api/v1/billing', member, h(async (req, res) => {
@@ -248,7 +250,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   }));
   app.post('/api/v1/billing/reconcile', member, roles(...MANAGE), h(async (req, res) => res.json(await billing.reconcile(req.workspace))));
 
-  registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage, flags, limiters });
+  registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage, flags, limiters, citations });
   registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags, limiters });
   registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags, limiters, citations });
   registerAiGateway(app, { pool, cfg, auth, h, llm, flags, limiters });

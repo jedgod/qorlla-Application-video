@@ -24,8 +24,10 @@ export function createMeetClient({ baseUrl, readSecret, fetchImpl = fetch, timeo
   async function fetchConsent(meetingUuid) {
     const j = await getJson('ai-consent', meetingUuid);
     if (!j || typeof j.requested !== 'boolean' || !Array.isArray(j.participants) || j.revision === undefined) { const e = new Error('Meet returned an unreadable consent answer'); e.code = 'meet_error'; e.retryable = true; throw e; }
-    const num = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : 0; };
-    const dec = (d) => ({ decision: typeof d?.decision === 'string' ? d.decision : 'pending', seq: num(d?.seq), objectionSeq: num(d?.objectionSeq) });
+    // Every number must be present and a non-negative integer: a missing or garbled objectionSeq must never read as "no objection" (that would fail OPEN).
+    const bad = () => { const e = new Error('Meet returned an unreadable consent answer'); e.code = 'meet_error'; e.retryable = true; return e; };
+    const num = (v) => { if (!/^\d{1,18}$/.test(String(v))) throw bad(); return Number(v); };
+    const dec = (d) => { if (!d || typeof d.decision !== 'string' || !d.decision) throw bad(); return { decision: d.decision, seq: num(d.seq), objectionSeq: num(d.objectionSeq) }; };
     // display names are deliberately NOT carried over: identity is the participantId, never typed text
     return { requested: j.requested, revision: num(j.revision), participants: j.participants.filter((p) => p && typeof p.participantId === 'string').map((p) => ({ participantId: p.participantId, role: p.role, decisions: Object.fromEntries(['transcription', 'summary'].map((k) => [k, dec(p.decisions?.[k])])) })) };
   }

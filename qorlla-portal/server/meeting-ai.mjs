@@ -12,7 +12,6 @@ import { exportModel, toPdf, toDocx } from './ai/export.mjs';
 import { UUID_RE } from './auth.mjs';
 import { importAllowed, checkFresh } from './ai/meet-consent.mjs';
 import { withdrawReport } from './ai/withdraw.mjs';
-import { sha } from './ai/citations.mjs';
 
 export const NOTICE = {
   version: 'v1',
@@ -24,7 +23,7 @@ const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const CONSENT_SCOPES = ['transcription', 'summary'];
 const httpErr = (status, error, code, extra = {}) => Object.assign(new Error(error), { http: { status, body: { error, code, ...extra } } });
 
-export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage = null, flags = null, limiters = {} }) {
+export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage = null, flags = null, limiters = {}, citations }) {
   const lim = (k) => limiters[k] || ((req, res, next) => next());
   const { member } = auth;
   const audit = (db, ws, actor, action, obj) => db.query('INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,$3,$4)', [ws, actor, action, String(obj ?? '')]);
@@ -111,7 +110,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     if (t.purged_at || (days > 0 && Date.now() - new Date(t.created_at).getTime() > days * 86400_000)) return refuse(410, 'source_expired', 'This source is no longer retained.');            // retention applies even before the sweeper has run
     const m = await meetingFor(pool, req, t.meet_meeting_id); if (!m) return refuse(403, 'citation_access_revoked', 'You no longer have access to this source.');
     const have = await activeConsents(pool, req.workspace, t.meet_meeting_id); if (!CONSENT_SCOPES.every((s) => have.some((x) => x.scope === s))) return refuse(403, 'consent_withdrawn', 'Consent for AI processing of this meeting was withdrawn.');
-    const seg = Array.isArray(t.segments) ? t.segments[ref.loc?.i] : null; if (!seg || sha(seg.text) !== ref.h) return refuse(409, 'source_changed', 'This source is no longer what the citation pointed to.');
+    const seg = Array.isArray(t.segments) ? t.segments[ref.loc?.i] : null; if (!seg || citations.mac(seg.text) !== ref.h) return refuse(409, 'source_changed', 'This source is no longer what the citation pointed to.');
     const rep = (await pool.query('SELECT id, workspace_id, meet_meeting_id, status, consent_basis FROM portal.meeting_reports WHERE transcript_id=$1 AND workspace_id=$2', [t.id, req.workspace])).rows[0];
     if (!rep || rep.status !== 'final') return refuse(403, 'consent_withdrawn', 'The report this source belongs to is no longer available.');
     const f = await freshness(rep);                                                         // the whole report rests on the same agreements: if any included person objected, none of it is shown
@@ -131,15 +130,15 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     const m = await meetingFor(pool, req, p.meet_meeting_id); if (!m) return res.status(404).json({ error: 'Meeting not found' });
     let parsed = null;
     if (p.transcript) { try { parsed = parseTranscript(p.transcript.format, p.transcript.text); } catch (e) { return res.status(400).json({ error: e.message, code: e.code || 'bad_transcript' }); } }
-    let importRevision = null;
+    let importRevision = null, importRows = [];
     if (p.source === 'transcript_import') {          // an imported transcript cannot be split by person, so it is stored only while Meet shows an open AI request and nobody who took part has declined or withdrawn
       let consent; try { consent = await meet.fetchConsent(m.meet_uuid); } catch { return res.status(503).json({ error: 'Participant consent could not be verified, so nothing was stored or processed. Try again shortly.', code: 'participant_consent_unverifiable' }); }
-      const ok = importAllowed(consent); importRevision = ok.revision ?? null;
+      const ok = importAllowed(consent); importRevision = ok.revision ?? null; importRows = ok.rows || [];
       if (!ok.allowed) { await cAudit(pool, req, m.meet_uuid, 'job_blocked', null, { reason: ok.reason, source: 'transcript_import' }); return res.status(403).json({ error: ok.reason === 'participant_declined' ? 'A participant declined or withdrew Qorlla AI consent, and an imported transcript cannot be separated by person, so it cannot be used.' : 'The host has not asked the participants for Qorlla AI consent in this meeting.', code: ok.reason }); }
     }
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const dup = (await c.query('SELECT * FROM portal.meeting_ai_jobs WHERE workspace_id=$1 AND idempotency_key=$2', [req.workspace, p.idempotency_key])).rows[0];
-      if (dup) { if (dup.meet_meeting_id !== m.meet_uuid || dup.source !== p.source) throw httpErr(409, 'Idempotency key was used for a different request', 'idempotency_conflict'); return { job: dup, duplicate: true }; }
+      if (dup) { if (dup.meet_meeting_id !== m.meet_uuid || dup.source !== p.source || (dup.requested_by !== req.actor && !isManager(req.role))) throw httpErr(409, 'Idempotency key was used for a different request', 'idempotency_conflict'); return { job: dup, duplicate: true }; }
       const have = await activeConsents(c, req.workspace, m.meet_uuid); const missing = CONSENT_SCOPES.filter((s) => !have.some((x) => x.scope === s));
       if (missing.length) throw httpErr(403, 'The meeting host has not given consent for AI processing', 'consent_required', { missing });
       const q = await quotaFor(c, req.workspace, 'ai.meeting_reports_per_month');
@@ -151,6 +150,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
         const t = (await c.query(`INSERT INTO portal.meeting_transcripts(workspace_id,meet_meeting_id,job_id,source,speaker_labels,segments,full_text,content_sha256,created_by) VALUES($1,$2,$3,'transcript_import',$4,$5,$6,$7,$8) RETURNING id`,
           [req.workspace, m.meet_uuid, job.id, parsed.speakerLabels, JSON.stringify(parsed.segments), parsed.fullText, sha256(parsed.fullText), req.actor])).rows[0];
         await c.query('UPDATE portal.meeting_ai_jobs SET transcript_id=$2 WHERE id=$1', [job.id, t.id]); job.transcript_id = t.id;
+        for (const r of importRows) await c.query(`INSERT INTO portal.meeting_ai_job_participants(job_id,participant_id,transcription,summary,included,reason,transcription_seq,summary_seq) VALUES($1,$2,'agree','agree',true,NULL,$3,$4)`, [job.id, r.participant_id, r.transcription_seq, r.summary_seq]);     // everyone's agreement numbers: what later checks compare against
       }
       await audit(c, req.workspace, req.actor, 'meeting_ai.job_created', job.id);
       return { job, duplicate: false };
@@ -169,9 +169,13 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
   app.get('/api/v1/meeting-ai/jobs/:id', member, h(async (req, res) => { const j = await jobFor(req); return j ? res.set('Cache-Control', 'no-store').json(jobView(j)) : res.status(404).json({ error: 'Job not found' }); }));
   app.post('/api/v1/meeting-ai/jobs/:id/cancel', member, h(async (req, res) => {
     const j = await jobFor(req); if (!j) return res.status(404).json({ error: 'Job not found' });
-    const r = await pool.query(`UPDATE portal.meeting_ai_jobs SET status='cancelled', error_code='cancelled_by_user', lease_until=NULL, lease_token=NULL, finished_at=now() WHERE id=$1 AND status IN ('queued','running','blocked','failed')`, [j.id]);          // a RUNNING job too: its worker will find the job is no longer running and publish nothing
-    if (!r.rowCount) return res.status(409).json({ error: 'This job can no longer be cancelled', code: 'not_cancellable' });
-    await pool.query(`UPDATE portal.meeting_transcripts SET segments='[]'::jsonb, full_text='', purged_at=now(), purge_reason='cancelled' WHERE job_id=$1 AND purged_at IS NULL`, [j.id]);   // same lock order as a revocation: job first, then transcript
+    // ONE transaction in the usual lock order (workspace, job, transcript): a crash between the two statements can no longer leave the cancelled job's text behind. A RUNNING job too: its worker finds it is no longer running and publishes nothing.
+    const done = await withWorkspaceLock(pool, req.workspace, async (c) => {
+      const r = await c.query(`UPDATE portal.meeting_ai_jobs SET status='cancelled', error_code='cancelled_by_user', lease_until=NULL, lease_token=NULL, finished_at=now() WHERE id=$1 AND status IN ('queued','running','blocked','failed')`, [j.id]);
+      if (!r.rowCount) return false;
+      await c.query(`UPDATE portal.meeting_transcripts SET segments='[]'::jsonb, full_text='', purged_at=now(), purge_reason='cancelled' WHERE job_id=$1 AND purged_at IS NULL`, [j.id]); return true;
+    });
+    if (!done) return res.status(409).json({ error: 'This job can no longer be cancelled', code: 'not_cancellable' });
     res.json({ cancelled: true });
   }));
   app.post('/api/v1/meeting-ai/jobs/:id/retry', member, h(async (req, res) => {

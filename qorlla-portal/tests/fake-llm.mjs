@@ -72,7 +72,7 @@ export async function startFakeMeet({ port = 0, host = '127.0.0.1' } = {}) {
     const mt = st.meetings.get(m[1]); if (!mt && m[2] === 'ai-consent') return send(200, { meetingId: m[1], requested: true, revision: String(SEQ), participants: [] });   // a meeting Meet knows nothing about yet: open request, nobody has answered
     if (!mt) return send(404, { error: 'Meeting unavailable' });
     if (m[2] === 'ai-consent') {          // st.onConsent(n, meeting) runs AFTER the n-th answer was sent: a test can change someone's consent at an exact moment of a job (no timing races)
-      st.consentReads = (st.consentReads || 0) + 1; const n = st.consentReads; const cs = JSON.parse(JSON.stringify(mt.consent || (mt.consent = consentFor(mt.messages)))); send(200, { meetingId: m[1], ...cs, revision: String(cs.revision ?? revisionOf(cs)) });
+      st.consentReads = (st.consentReads || 0) + 1; const n = st.consentReads; const cs = JSON.parse(JSON.stringify(mt.consent || (mt.consent = consentFor(mt.messages)))); mt.maxRev = Math.max(mt.maxRev || 0, Number(cs.revision ?? revisionOf(cs))); send(200, { meetingId: m[1], ...cs, revision: String(mt.maxRev) });          // like the real Meet, the revision never goes backwards (a test that REPLACES the consent object must not look like a restored backup)
       if (st.onConsent) await st.onConsent(n, mt); return;
     }
     send(200, { meetingId: m[1], title: mt.title, messages: mt.messages });

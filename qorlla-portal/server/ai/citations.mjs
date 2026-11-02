@@ -20,7 +20,9 @@ export function createCitations({ secret }) {
     if (ref.v !== 1 || (ref.exp && ref.exp < Date.now())) return null;
     return ref;
   };
-  return { sign, verify };
+  /** Keyed hash for transcript text inside citations: unlike a plain SHA-256 it cannot be brute-forced offline to recover a short withdrawn message. */
+  const hmac = (text) => crypto.createHmac('sha256', key).update('segment|' + String(text)).digest('hex');
+  return { sign, verify, mac: hmac };
 }
 
 // ---------------------------------------------------------------- locating text inside a source (used when creating AND when opening)
