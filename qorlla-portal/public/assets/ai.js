@@ -1,5 +1,6 @@
 // AI Meeting Intelligence UI (dashboard + report viewer). Plain DOM building, no innerHTML with user data except through esc().
 import { $, esc, api, notice, day, describe, heading, panel } from './core.js';
+import { citeChips, wireCitations } from './citations.js';
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
 const pill = (s) => `<span class="pill ${esc(s)}">${esc(s)}</span>`;
@@ -58,7 +59,8 @@ export async function renderReport(root, id) {
   const manage = r.permissions.manage; const label = (m) => m.display_name || `Member ${short(m.user_id)}`;
   const memberOptions = (sel) => `<option value="">Unassigned</option>` + (r.members || []).map((m) => `<option value="${esc(m.user_id)}" ${sel === m.user_id ? 'selected' : ''}>${esc(label(m))}</option>`).join('');
   const dueInput = (iso) => (iso ? new Date(iso).toISOString().slice(0, 10) : '');
-  const itemRow = (i) => `<tr data-item="${esc(i.id)}"><td><label class="check"><input type="checkbox" data-f="done" ${i.status === 'done' ? 'checked' : ''} aria-label="Done: ${esc(i.title)}"> ${esc(i.title)}</label>${i.owner_hint || i.due_hint ? `<br><span class="muted">AI suggestion: ${esc(i.owner_hint || '?')}${i.due_hint ? ' · ' + esc(i.due_hint) : ''}</span>` : ''}</td>
+  const cites = r.citations || {}; const itemCites = (i) => citeChips((cites.action_items || []).find((x) => x.title === i.title)?.refs);
+  const itemRow = (i) => `<tr data-item="${esc(i.id)}"><td><label class="check"><input type="checkbox" data-f="done" ${i.status === 'done' ? 'checked' : ''} aria-label="Done: ${esc(i.title)}"> ${esc(i.title)}</label> ${itemCites(i)}${i.owner_hint || i.due_hint ? `<br><span class="muted">AI suggestion: ${esc(i.owner_hint || '?')}${i.due_hint ? ' · ' + esc(i.due_hint) : ''}</span>` : ''}</td>
     <td>${manage ? `<select data-f="owner" aria-label="Assignee">${memberOptions(i.owner_id)}</select>` : esc(i.owner_label || (i.owner_id ? 'Assigned' : 'Unassigned'))}</td>
     <td>${manage ? `<input type="date" data-f="due" value="${esc(dueInput(i.due_at))}" aria-label="Due date">` : esc(i.due_at ? day(i.due_at) : '-')}</td></tr>`;
   root.innerHTML =
@@ -66,7 +68,7 @@ export async function renderReport(root, id) {
     `<div class="hero"><div><div class="eyebrow">AI-generated meeting report</div><h1>${esc(r.title)}</h1><p>${esc(when(r.created_at))} · ${esc(r.generated_by || 'AI')}${manage ? ` · visibility: ${esc(r.visibility)}` : ''}</p></div><div class="symbol" aria-hidden="true">🧠</div></div>` +
     '<p class="muted" role="note">AI can make mistakes. Speaker names are labels typed by participants, not verified identities. Check anything important before acting on it.</p>' +
     (r.summary_hidden ? '<p class="warn">You can see only the action items assigned to you.</p>' : panel('Summary', `<p style="white-space:pre-wrap">${esc(r.summary)}</p>`) +
-      (r.decisions.length ? panel('Decisions', `<ul>${r.decisions.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>`) : '') + (r.topics.length ? panel('Topics', `<p>${r.topics.map((t) => `<span class="pill">${esc(t)}</span>`).join(' ')}</p>`) : '')) +
+      (r.decisions.length ? panel('Decisions', `<ul>${r.decisions.map((d, n) => `<li>${esc(d)} ${citeChips((cites.decisions || [])[n])}</li>`).join('')}</ul>`) : '') + (r.topics.length ? panel('Topics', `<p>${r.topics.map((t) => `<span class="pill">${esc(t)}</span>`).join(' ')}</p>`) : '')) +
     panel('Action items', r.action_items.length ? `<table><thead><tr><th>Item</th><th>Assignee</th><th>Due</th></tr></thead><tbody>${r.action_items.map(itemRow).join('')}</tbody></table>` : '<div class="empty">No action items.</div>') +
     (manage ? panel('Add action item', `<form id="item-form" class="row"><input name="title" required maxlength="500" placeholder="What needs to happen?" aria-label="New action item"><select name="owner" aria-label="Assignee">${memberOptions('')}</select><input type="date" name="due" aria-label="Due date"><button>Add</button></form>`) : '') +
     (r.permissions.export ? panel('Export', `<div class="row"><a class="button" href="/api/v1/meeting-ai/reports/${esc(r.id)}/export.pdf" download>Download PDF</a><a class="button secondary" href="/api/v1/meeting-ai/reports/${esc(r.id)}/export.docx" download>Download DOCX</a>${r.permissions.transcript ? `<label class="check"><input type="checkbox" id="exp-tr"> include transcript</label>` : ''}</div>`) : '') +
@@ -76,6 +78,7 @@ export async function renderReport(root, id) {
       <label id="share-days" hidden>Expires in (days)<input type="number" name="days" min="1" max="90" value="14"></label><label id="share-tr" class="check" hidden><input type="checkbox" name="tr"> include transcript</label><button>Create share</button></div></form><div id="share-result"></div>` +
       `<div class="row"><label class="check"><input type="checkbox" id="vis" ${r.visibility === 'workspace' ? 'checked' : ''}> Everyone in this workspace can read this report (not the transcript)</label></div>` +
       '<div class="row"><button class="secondary" id="del-report">Delete report</button></div>') : '');
+  wireCitations(root);
   const reload = () => renderReport(root, id);
   root.querySelectorAll('tr[data-item]').forEach((tr) => {
     const iid = tr.dataset.item; const send = async (body) => { try { await api('/meeting-ai/action-items/' + iid, { method: 'PATCH', body: JSON.stringify(body) }); notice('Saved.'); } catch (e) { notice(describe(e)); await reload(); } };

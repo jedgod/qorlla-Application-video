@@ -105,7 +105,7 @@ export function createAiWorker({ pool, llm, meet, citations, log, overage = null
       // citations are made HERE, from the transcript we hold: each decision / action item points at the segments that really contain it (the model supplies no identifiers)
       const segs = Array.isArray(t.segments) ? t.segments : [];
       const refsFor = (statement) => groundStatement(statement, segs).map((i) => ({ ref: citations.sign({ ws: job.workspace_id, kind: 'meet_transcript', id: t.id, loc: { t: 'segment', i }, h: sha(segs[i].text), label: `Meeting chat, message ${i + 1}` }), label: `Message ${i + 1}${clockLabel(segs[i]) ? ' at ' + clockLabel(segs[i]) : ''}` }));
-      const cites = { decisions: res.report.decisions.map(refsFor), action_items: res.report.action_items.map((a) => refsFor(a.title)) };
+      const cites = { decisions: res.report.decisions.map(refsFor), action_items: res.report.action_items.map((a) => ({ title: a.title, refs: refsFor(a.title) })) };
       const done = await fenced(job, async (c) => {
         if (!(await activeConsents(c, job))) return 'consent_revoked';  // revoked during inference: discard the model output
         const post = await participantCheck(job); if (!post.ok) return 'pc:' + post.reason;      // a participant withdrew while the model was working: nothing is published
@@ -125,7 +125,7 @@ export function createAiWorker({ pool, llm, meet, citations, log, overage = null
           await c.query(`INSERT INTO portal.ai_usage_events(workspace_id,job_id,feature,units,idempotency_key,plan_slug) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (workspace_id, idempotency_key) DO NOTHING`, [job.workspace_id, job.id, feature, units, `job:${job.id}:${key}`, plan]);
         }
         await c.query(`UPDATE portal.meeting_ai_jobs SET status='completed', stage='done', report_id=$2, error_code=NULL, error_message=NULL, lease_until=NULL, lease_token=NULL, finished_at=now() WHERE id=$1`, [job.id, rep.id]);
-        await cAudit(c, job, 'result_published', { report_id: rep.id, cited_decisions: cites.decisions.filter((x) => x.length).length, cited_actions: cites.action_items.filter((x) => x.length).length });
+        await cAudit(c, job, 'result_published', { report_id: rep.id, cited_decisions: cites.decisions.filter((x) => x.length).length, cited_actions: cites.action_items.filter((x) => x.refs.length).length });
         return 'ok';
       });
       if (done.lost) return;

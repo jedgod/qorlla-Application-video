@@ -2,6 +2,7 @@
 // A suggestion is only ever PREVIEWED here. Nothing is saved until the person presses "Apply suggestion" and then confirms; the server re-checks permission and the document version at that moment.
 // All text is escaped. Vendor names never appear: the choices are the Qorlla profiles returned by /ai/models.
 import { $, esc, api, notice } from './core.js';
+import { citeChips, wireCitations } from './citations.js';
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
 
@@ -55,6 +56,7 @@ export async function mountAiPanel(host, opts) {
   taskSel?.addEventListener('change', syncNeeds); syncNeeds();
 
   const draw = () => {
+    host.querySelector('[data-cite-view]')?.remove();                  // a source opened for an earlier suggestion must not linger beside a new one
     const box = q('[data-ai-preview]');
     if (!result) { box.innerHTML = ''; return; }
     const r = result, canApply = !!r.apply, chat = opts.mode === 'chat';
@@ -65,7 +67,7 @@ export async function mountAiPanel(host, opts) {
       <pre class="ai-suggestion" data-ai-suggestion>${esc(chat ? r.reply : r.suggestion)}</pre>
       ${(r.notes || []).length ? `<ul class="muted">${r.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
       ${chat && r.proposed_actions?.length ? `<p class="muted">Proposed (nothing was created): ${r.proposed_actions.map((a) => esc(a.title || a.kind)).join(', ')}. To act on a proposal, send it in a QorllaMate conversation, where you can approve it.</p>` : ''}
-      ${chat && r.sources?.length ? `<p class="muted">Based on: ${r.sources.map(esc).join('; ')}</p>` : ''}
+      ${(r.citations || r.sources || []).length ? `<p class="muted" data-ai-sources>${chat ? 'Based on' : 'Sources'}: ${citeChips(r.citations || r.sources)}</p>` : ''}${r.citations_dropped ? `<p class="muted" data-ai-dropped>${esc(r.citations_dropped)} reference${r.citations_dropped === 1 ? '' : 's'} could not be verified and ${r.citations_dropped === 1 ? 'was' : 'were'} left out.</p>` : ''}
       ${changes}
       ${confirming ? `<div class="ai-confirm" role="alertdialog" aria-labelledby="${id}-c"><p id="${id}-c"><strong>Apply this suggestion?</strong> ${esc(opts.confirmText ? opts.confirmText(r) : 'It will be saved as an AI-assisted version. The previous version is kept in the history.')}</p><div class="row"><button type="button" data-ai-confirm>Confirm apply</button><button type="button" class="secondary" data-ai-cancel>Cancel</button></div></div>` : ''}
       <div class="row ai-actions">
@@ -99,6 +101,7 @@ export async function mountAiPanel(host, opts) {
     } catch (e) { confirming = false; notice(explain(e)); if (e.body?.code === 'version_conflict') { result.apply = null; result.stale = true; } }
     finally { running = false; draw(); }
   };
+  wireCitations(host);
   host.addEventListener('click', async (ev) => {
     const b = ev.target.closest('button'); if (!b || !host.contains(b)) return;
     if (b.matches('[data-ai-generate],[data-ai-regen]')) return generate();

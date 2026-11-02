@@ -85,6 +85,28 @@ test.describe('Qorlla AI Review Panel', () => {
     expect(dbq(`SELECT count(*) FROM portal.notes WHERE workspace_id='${me.workspaceId}'`)).toBe('0'); expect(dbq(`SELECT count(*) FROM portal.assistant_tasks WHERE workspace_id='${me.workspaceId}'`)).toBe('0');
   });
 
+  test('citations in the panel: only verified sources are shown, opening one shows the real passage, and once access is withdrawn the same button refuses with the reason', async ({ page, browser, context }) => {
+    needsAi(); const owner = await signUpWithWorkspace(context, 'panelcite'); const id = await newDoc(page, 'doc', 'Cited doc');
+    await page.fill('#doc-text', 'The pelican launch is planned for Monday morning.\nBudget approved by the board.'); await page.locator('#save-doc').click(); await expect(page.locator('#doc-version')).toHaveText('version 2');
+    const ctx2 = await browser.newContext({ ignoreHTTPSErrors: true, baseURL: BASE }); const p2 = await ctx2.newPage(); const viewer = await signUp(ctx2, 'panelciteview'); await addMember(context, owner, viewer.user.id);
+    await page.reload(); await page.locator('#share-form [data-user]').first().selectOption('viewer'); await page.getByRole('button', { name: 'Save sharing' }).click(); await expect(page.locator('#notice')).toContainText('Sharing updated');
+    await p2.goto(page.url()); const pp = panel(p2); await pp.locator('[data-ai-task]').selectOption('docs_summarize'); await pp.locator('[data-ai-instr]').fill('FABRICATE sources'); await pp.locator('[data-ai-generate]').click();
+    await expect(pp.locator('[data-ai-sources] .cite')).toHaveCount(1); await expect(pp.locator('[data-ai-dropped]')).toContainText('3 references could not be verified and were left out');
+    expect(await pp.innerText()).not.toMatch(/nowhere in the source|ZZ99/);
+    await pp.locator('[data-ai-sources] .cite').click(); await expect(p2.locator('[data-cite-passage]')).toContainText('The pelican launch'); await expect(p2.locator('[data-cite-meta]')).toContainText('version 2');
+    await page.reload(); await page.locator('#share-form [data-user]').first().selectOption(''); await page.getByRole('button', { name: 'Save sharing' }).click(); await expect(page.locator('#notice')).toContainText('Sharing updated');
+    await pp.locator('[data-ai-sources] .cite').click(); await expect(p2.locator('[data-cite-refused]')).toContainText('no longer have access'); await expect(p2.locator('[data-cite-passage]')).toHaveCount(0);
+    await ctx2.close();
+  });
+
+  test('QorllaMate preview names the sources it really used, and a source is re-checked when opened', async ({ page, context }) => {
+    needsAi(); const me = await signUpWithWorkspace(context, 'panelmate'); const csrf = (await context.cookies()).find((c) => c.name === 'qorlla_csrf').value; const h = headers(csrf, me.workspaceId);
+    const note = await (await context.request.post('/api/v1/notes', { data: { title: 'Okapi roadmap', body: 'okapi budget details for the quarter' }, headers: h })).json();
+    await page.goto('/app/mate'); const m = page.locator('#mate-ai-host [data-ai-panel]'); await m.locator('[data-ai-text]').fill('what is the okapi budget'); await m.locator('[data-ai-generate]').click();
+    await expect(m.locator('[data-ai-sources] .cite')).toContainText('Okapi roadmap'); await m.locator('[data-ai-sources] .cite').click(); await expect(page.locator('[data-cite-passage]')).toContainText('okapi budget details');
+    expect((await context.request.delete('/api/v1/notes/' + note.id, { headers: h })).status()).toBeLessThan(300); await m.locator('[data-ai-sources] .cite').click(); await expect(page.locator('[data-cite-refused]')).toContainText('was deleted');
+  });
+
   test('keyboard and screen-reader basics: labelled controls, a live region, focus moves to the result, and the confirmation is an alert dialog', async ({ page, context }) => {
     needsAi(); await signUpWithWorkspace(context, 'panela11y'); await newDoc(page, 'doc', 'A11y doc'); await page.fill('#doc-text', 'Some words'); await page.locator('#save-doc').click(); await expect(page.locator('#doc-version')).toHaveText('version 2');
     const p = panel(page); await expect(p).toHaveAttribute('aria-labelledby', /doc-ai-h/); await expect(p.locator('[data-ai-preview]')).toHaveAttribute('aria-live', 'polite');
