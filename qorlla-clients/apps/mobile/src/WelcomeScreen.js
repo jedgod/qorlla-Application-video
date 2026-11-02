@@ -7,7 +7,7 @@ import { digitsHint, tooLongHint, translate } from './i18n';
 // Design tokens from the Welcome / Join specification.
 export const C = { bg: '#030B16', hero: '#071D38', card: '#071D34', elevated: '#102642', blue: '#087BFA', cyan: '#00D7E8', purple: '#9258F5', green: '#00D9AD', orange: '#FFAB19', blue2: '#1A8EFF', text: '#F6F9FF', text2: '#A7C2E5', muted: '#A7C2E5', border: '#173C61', error: '#FF8A80' };
 const TOP = Platform.OS === 'android' ? (RNStatusBar.currentHeight || 24) : 0;
-const BOTTOM = 0; // the native layer (plugins/with-system-insets.cjs) pads the whole app by the system navigation bar, so no margin is needed here
+const BOTTOM = Platform.OS === 'android' ? 48 : 0; // the app draws edge-to-edge: keep the last row above the system navigation bar
 const MAXFONT = 1.15, DENSE = 1.0; // body copy may grow to 130% of the system text size; the small text inside cards to 108% (beyond that the cards stack into one column instead)
 // Body copy wraps and grows with the system font size (capped). One-line labels shrink to fit their space instead of clipping.
 const T = (props) => <Text maxFontSizeMultiplier={MAXFONT} {...props} />;
