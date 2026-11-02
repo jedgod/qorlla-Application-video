@@ -1,0 +1,93 @@
+{
+  "grep": "two browsers meet under",
+  "rounds": 3,
+  "order": "alternating",
+  "summary": {
+    "NEW": {
+      "runs": 3,
+      "passed": 0,
+      "failed": 3,
+      "meanHostLoadBefore": 100
+    },
+    "BASE": {
+      "runs": 3,
+      "passed": 0,
+      "failed": 3,
+      "meanHostLoadBefore": 100
+    }
+  },
+  "results": [
+    {
+      "round": 1,
+      "target": "NEW",
+      "spec": "meet-route.spec.js",
+      "grep": "two browsers meet under",
+      "status": "failed",
+      "ms": 55659,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m",
+      "evidence": "r01-NEW-meet_route_spec_js"
+    },
+    {
+      "round": 1,
+      "target": "BASE",
+      "spec": "meet-route.spec.js",
+      "grep": "two browsers meet under",
+      "status": "failed",
+      "ms": 49401,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m",
+      "evidence": "r01-BASE-meet_route_spec_js"
+    },
+    {
+      "round": 2,
+      "target": "BASE",
+      "spec": "meet-route.spec.js",
+      "grep": "two browsers meet under",
+      "status": "failed",
+      "ms": 51934,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m",
+      "evidence": "r02-BASE-meet_route_spec_js"
+    },
+    {
+      "round": 2,
+      "target": "NEW",
+      "spec": "meet-route.spec.js",
+      "grep": "two browsers meet under",
+      "status": "failed",
+      "ms": 51517,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m",
+      "evidence": "r02-NEW-meet_route_spec_js"
+    },
+    {
+      "round": 3,
+      "target": "NEW",
+      "spec": "meet-route.spec.js",
+      "grep": "two browsers meet under",
+      "status": "failed",
+      "ms": 55363,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m",
+      "evidence": "r03-NEW-meet_route_spec_js"
+    },
+    {
+      "round": 3,
+      "target": "BASE",
+      "spec": "meet-route.spec.js",
+      "grep": "two browsers meet under",
+      "status": "failed",
+      "ms": 89107,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m",
+      "evidence": "r03-BASE-meet_route_spec_js"
+    }
+  ]
+}

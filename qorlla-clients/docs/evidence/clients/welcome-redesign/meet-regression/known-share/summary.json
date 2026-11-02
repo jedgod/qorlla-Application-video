@@ -1,0 +1,93 @@
+{
+  "grep": "screen share never mirrors",
+  "rounds": 3,
+  "order": "alternating",
+  "summary": {
+    "NEW": {
+      "runs": 3,
+      "passed": 3,
+      "failed": 0,
+      "meanHostLoadBefore": 100
+    },
+    "BASE": {
+      "runs": 3,
+      "passed": 1,
+      "failed": 2,
+      "meanHostLoadBefore": 100
+    }
+  },
+  "results": [
+    {
+      "round": 1,
+      "target": "NEW",
+      "spec": "meet-controls.spec.js",
+      "grep": "screen share never mirrors",
+      "status": "passed",
+      "ms": 31818,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": null,
+      "evidence": null
+    },
+    {
+      "round": 1,
+      "target": "BASE",
+      "spec": "meet-controls.spec.js",
+      "grep": "screen share never mirrors",
+      "status": "failed",
+      "ms": 44297,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveCount\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('.tile.sharing-remote')\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\nTimeout:  15000ms",
+      "evidence": "r01-BASE-meet_controls_spec_js"
+    },
+    {
+      "round": 2,
+      "target": "BASE",
+      "spec": "meet-controls.spec.js",
+      "grep": "screen share never mirrors",
+      "status": "passed",
+      "ms": 26758,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": null,
+      "evidence": null
+    },
+    {
+      "round": 2,
+      "target": "NEW",
+      "spec": "meet-controls.spec.js",
+      "grep": "screen share never mirrors",
+      "status": "passed",
+      "ms": 26912,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": null,
+      "evidence": null
+    },
+    {
+      "round": 3,
+      "target": "NEW",
+      "spec": "meet-controls.spec.js",
+      "grep": "screen share never mirrors",
+      "status": "passed",
+      "ms": 27688,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": null,
+      "evidence": null
+    },
+    {
+      "round": 3,
+      "target": "BASE",
+      "spec": "meet-controls.spec.js",
+      "grep": "screen share never mirrors",
+      "status": "failed",
+      "ms": 42274,
+      "hostLoadBefore": 100,
+      "hostLoadAfter": 100,
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveCount\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('.tile.sharing-remote')\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\nTimeout:  15000ms",
+      "evidence": "r03-BASE-meet_controls_spec_js"
+    }
+  ]
+}
