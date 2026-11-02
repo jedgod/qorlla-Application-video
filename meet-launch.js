@@ -89,15 +89,21 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
         const base = await internalBase(); if (!base) throw unavailable('Qorlla Meet is not reachable');
         const r = await call(base, '/api/meetings/' + encodeURIComponent(link.meetUuid) + '/join', 'POST', { name: String(name || 'Guest').slice(0, 70), ...(accountId ? { accountId } : {}), ...(host ? { hostSecret: link.hostSecret } : { passcode: link.meetPass }) }, bridge());       // Meet takes an account id only from this trusted caller
         if (!r.ok) throw Object.assign(new Error(r.data.error || 'Meet refused the join'), { status: r.status, code: r.status === 403 || r.status === 404 ? 'REFUSED' : 'UNAVAILABLE' });
-        return { token: r.data.token, meetingId: r.data.meetingId, participantId: r.data.participantId, admission: r.data.admission };
+        // A one-time code, not the 8-hour session token, is what the browser gets. Only a Meet that predates the feature (404) falls back to the old fragment; any other failure stops the hand-off (never silently downgraded).
+        let handoff = null;
+        try { const h = await call(base, '/api/integrations/handoffs', 'POST', { meetingId: r.data.meetingId, participantId: r.data.participantId }, bridge()); if (h.ok && h.data.code) handoff = h.data.code; else if (h.status !== 404) throw unavailable('Meet could not prepare the hand-off (' + h.status + ')'); }
+        catch (e) { if (e.code === 'UNAVAILABLE' && /could not prepare/.test(e.message)) throw e; throw unavailable('Qorlla Meet did not answer the hand-off request'); }
+        return { token: handoff ? undefined : r.data.token, handoff, meetingId: r.data.meetingId, participantId: r.data.participantId, admission: r.data.admission };
     }
 
     /** Where to send the browser. The session travels in the fragment (never sent to any server, removed by Meet at once). */
     function url(publicBase, session, { mic = true, camera = true, returnUrl = '', prefs = null } = {}) {
         const q = new URLSearchParams({ mic: mic ? 'true' : 'false', camera: camera ? 'true' : 'false' });
         if (returnUrl) q.set('return', returnUrl);
+        const cleanPrefs = prefs && (prefs.camLabel || prefs.micLabel || prefs.spkLabel || prefs.res) ? { res: ['720', '480', '360'].includes(String(prefs.res)) ? String(prefs.res) : '', camLabel: String(prefs.camLabel || '').slice(0, 120), micLabel: String(prefs.micLabel || '').slice(0, 120), spkLabel: String(prefs.spkLabel || '').slice(0, 120) } : null;
+        if (session.handoff) return publicBase + '?' + q.toString() + '#qh=' + session.handoff + (cleanPrefs ? '&qp=' + Buffer.from(JSON.stringify(cleanPrefs)).toString('base64url') : '');      // a single-use code: no session token in the URL
         const payload = { token: session.token, meetingId: session.meetingId, participantId: session.participantId };
-        if (prefs && (prefs.camLabel || prefs.micLabel || prefs.spkLabel || prefs.res)) payload.prefs = { res: ['720', '480', '360'].includes(String(prefs.res)) ? String(prefs.res) : '', camLabel: String(prefs.camLabel || '').slice(0, 120), micLabel: String(prefs.micLabel || '').slice(0, 120), spkLabel: String(prefs.spkLabel || '').slice(0, 120) };
+        if (cleanPrefs) payload.prefs = cleanPrefs;
         return publicBase + '?' + q.toString() + '#qs=' + Buffer.from(JSON.stringify(payload)).toString('base64url');
     }
     /** Who was in the room and when, as Meet recorded it (names and times). null when this meeting is not registered with Meet or Meet cannot answer. */

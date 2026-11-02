@@ -1,0 +1,12 @@
+# DIRECT HAND-OFF TEST PROJECT. NEVER USE OUTSIDE AN ISOLATED TEST PROJECT.
+# Runs the main app in its single-node DIRECT mode (no DATABASE_URL), the only mode in which it launches Meet itself: it registers meetings with Meet over the bridge, joins the host/guest, and sends the
+# browser to Meet's own origin. This is the real user-facing launch path, which the PostgreSQL topology (sync worker) deliberately switches off.
+#   ISO_PROJECT=qlaunch ISO_STATE_DIR=.dev-stack-launch ISO_PROXY_PORT=4800 node scripts/iso-compose-env.mjs
+#   docker compose -p qlaunch --env-file .dev-stack-launch/compose.env -f docker-compose.yml -f deploy/docker-compose.isolated.yml -f deploy/docker-compose.isolated-launch.yml up -d --build
+# Meet is reached by the browser at its own port (PORT+1: the proxy's Meet listener), because the hand-off URL is that origin and path-less.
+services:
+  workspace-signaling-engine:
+    environment:
+      - DATABASE_URL=
+      - MEET_INTERNAL_URL=http://meet:3000
+      - MEET_PUBLIC_URL=http://localhost:${PROXY_MEET_PORT:-4801}

@@ -22,6 +22,7 @@ import { registerPhone } from './phone.mjs';
 import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
 import { registerAiConsent } from './ai-consent.mjs';
+import { registerHandoff } from './handoff.mjs';
 import { registerRecording } from './recording.mjs';
 import { createCarrier } from './telephony/provider.mjs';
 import { registerTelephony } from './telephony/routes.mjs';
@@ -401,6 +402,7 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
+registerHandoff({ app, db, sign, fail, bridgeAuth, audit });          // single-use hand-off codes (Workplace -> Meet page), see server/handoff.mjs
 const aiConsent = registerAiConsent({ app, io, db, auth, fail, audit: recAudit, room, readAuth, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });   // Qorlla AI consent: host request, late-joiner prompt, read-only export for the portal
 let limiter;
 const recording = registerRecording({ app, io, db, auth, member, fail, room, audit: recAudit, media: recMedia, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });

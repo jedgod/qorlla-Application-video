@@ -1,0 +1,51 @@
+{
+  "stack": "qlaunch",
+  "steps": {
+    "directMode": {
+      "configured": true,
+      "reachable": true
+    },
+    "authorization": {
+      "anonymous": "refused",
+      "otherSignedInUser": "refused"
+    },
+    "url": {
+      "origin": "http://localhost:4801",
+      "fragment": "single-use code only",
+      "containsJwt": false,
+      "containsBridgeSecret": false
+    },
+    "redeem": {
+      "role": "host",
+      "accountBound": true,
+      "issuer": "qorlla-meet",
+      "lifetimeSeconds": 28800,
+      "addressBarCleared": true
+    },
+    "replay": {
+      "reusedCode": 410,
+      "concurrentRedemptions": [
+        200,
+        410
+      ]
+    },
+    "expiry": {
+      "expiredCode": 410,
+      "malformedCodes": 7,
+      "distinctAnswers": 1
+    },
+    "bridge": {
+      "noSecret": 401,
+      "wrongSecret": 401,
+      "unknownParticipant": 404,
+      "directJoinWithoutMeetingSecret": 403
+    },
+    "token": {
+      "tampered": 401,
+      "algNone": 401,
+      "noToken": 401,
+      "otherMeeting": 403
+    }
+  },
+  "finishedAt": "2026-11-02T06:02:25.957Z"
+}

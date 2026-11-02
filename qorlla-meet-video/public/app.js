@@ -142,7 +142,15 @@ const originalLeave=leave;
 if(query.has('meeting'))$('meetingId').value=query.get('meeting');
 // Hand-off from Qorlla Workplace: the session arrives in the URL fragment (never sent to a server); take it and remove it from the address bar at once.
 {const m=/[#&]qs=([A-Za-z0-9_-]+)/.exec(location.hash||'');if(m){try{const p=JSON.parse(atob(m[1].replace(/-/g,'+').replace(/_/g,'/')));if(p&&p.token&&p.meetingId&&p.participantId){sessionStorage.setItem('qorlla-session',JSON.stringify({token:p.token,meetingId:p.meetingId,participantId:p.participantId}));if(p.prefs)sessionStorage.setItem('qorlla-prefs',JSON.stringify({camLabel:String(p.prefs.camLabel||'').slice(0,120),micLabel:String(p.prefs.micLabel||'').slice(0,120),spkLabel:String(p.prefs.spkLabel||'').slice(0,120),res:['720','480','360'].includes(String(p.prefs.res))?String(p.prefs.res):''}));}}catch(e){/* ignore a malformed hand-off */}try{history.replaceState(null,'',location.pathname+location.search);}catch(e){/* ignore */}}}
-const cached=sessionStorage.getItem('qorlla-session');if(cached){try{startMeeting(JSON.parse(cached)).catch(e=>{sessionStorage.removeItem('qorlla-session');if(e&&/did not let you in/.test(e.message))error(e);});}catch{sessionStorage.removeItem('qorlla-session');}}
+const bootSession=()=>{const cached=sessionStorage.getItem('qorlla-session');if(cached){try{startMeeting(JSON.parse(cached)).catch(e=>{sessionStorage.removeItem('qorlla-session');if(e&&/did not let you in/.test(e.message))error(e);});}catch{sessionStorage.removeItem('qorlla-session');}}};
+// One-time hand-off from Workplace: the URL carries only a short-lived single-use CODE (never a session token). It leaves the address bar at once and is redeemed exactly once; a reused or expired code gets a plain message.
+{const h=/[#&]qh=([A-Za-z0-9_-]{20,100})/.exec(location.hash||''),qp=/[#&]qp=([A-Za-z0-9_-]+)/.exec(location.hash||'');
+ if(h){try{history.replaceState(null,'',location.pathname+location.search);}catch(e){/* ignore */}
+  fetch(BASE+'api/handoffs/redeem',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:h[1]})}).then(async r=>{const p=await r.json().catch(()=>({}));if(!r.ok||!p.token)throw Error(r.status===429?'Too many attempts. Wait a minute and try again.':'This meeting link was already used or has expired. Go back and start or join the meeting again.');
+   sessionStorage.setItem('qorlla-session',JSON.stringify({token:p.token,meetingId:p.meetingId,participantId:p.participantId}));
+   if(qp){try{const pr=JSON.parse(atob(qp[1].replace(/-/g,'+').replace(/_/g,'/')));sessionStorage.setItem('qorlla-prefs',JSON.stringify({camLabel:String(pr.camLabel||'').slice(0,120),micLabel:String(pr.micLabel||'').slice(0,120),spkLabel:String(pr.spkLabel||'').slice(0,120),res:['720','480','360'].includes(String(pr.res))?String(pr.res):''}));}catch(e){/* ignore malformed preferences */}}
+   bootSession();}).catch(e=>error(e));}
+ else bootSession();}
 
 // Qorlla main-page integration: prefill fields and honor initial device preferences.
 const initialName=query.get('name')||query.get('displayName');
