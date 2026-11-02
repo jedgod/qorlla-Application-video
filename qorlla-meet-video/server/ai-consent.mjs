@@ -4,10 +4,11 @@
 //   * the portal can read who agreed to what (read-only secret), so content from people who have not agreed - or who withdrew - never reaches an AI provider;
 //   * recording consent is unrelated: agreeing to be recorded never implies any AI purpose, and these answers never start or change a recording.
 import { AI_PURPOSES } from './recording-store.mjs';
+import { withConsentLock } from './consent-lock.mjs';
 
 export const AI_NOTICE = {
-  version: 'qorlla-ai-consent-2026-11',
-  text: 'The host would like Qorlla AI to turn this meeting\'s chat into a summary, decisions and action items. Your messages are used only if you agree, separately for each purpose. Saying no, or changing your mind later, never removes you from the meeting; your messages are simply left out. This is separate from any recording request.',
+  version: 'qorlla-ai-consent-2026-11-b',
+  text: 'The host would like Qorlla AI to turn this meeting\'s chat into a summary, decisions and action items. Your messages are used only if you agree, separately for each purpose, and are sent to the AI service Qorlla uses to produce the result. Saying no, or changing your mind later, never removes you from the meeting; your messages are simply left out of anything created afterwards. If you change your mind after a summary that includes your messages was made, the whole summary is withdrawn from view; copies that someone already saw or downloaded cannot be taken back. You can only change your answer from the browser session you joined with. This is separate from any recording request.',
   purposes: { transcription: 'Turn my messages into text for processing', summary: 'Include my messages in an AI summary, decisions and action items' }
 };
 const CORE = ['transcription', 'summary'];
@@ -24,30 +25,38 @@ export function registerAiConsent({ app, io, db, auth, fail, audit, room, getNam
   const guard = (fn, msg) => async (req, res) => { try { await fn(req, res); } catch (e) { console.error('[ai-consent]', msg, e.message); if (!res.headersSent) fail(res, 500, msg); } };
   const requestedAt = async (meetingId) => (await db.query('SELECT ai_requested_at FROM meetings WHERE id=$1', [meetingId])).rows[0]?.ai_requested_at || null;
   // latest answer per person and purpose (by the monotonic seq), the number of that answer, and the number of the most recent objection (decline or withdraw): what the portal needs to order publication against revocation
-  const latest = async (meetingId) => (await db.query(`SELECT c.participant_id, c.purpose, c.decision, c.created_at, c.seq::text AS seq,
+  const latest = async (meetingId, q = db) => (await q.query(`SELECT c.participant_id, c.purpose, c.decision, c.created_at, c.seq::text AS seq,
       COALESCE((SELECT max(o.seq) FROM ai_consents o WHERE o.meeting_id=c.meeting_id AND o.participant_id=c.participant_id AND o.purpose=c.purpose AND o.decision IN ('decline','withdraw')), 0)::text AS objection_seq
     FROM (SELECT DISTINCT ON (participant_id, purpose) * FROM ai_consents WHERE meeting_id=$1 ORDER BY participant_id, purpose, seq DESC) c`, [meetingId])).rows;
-  const revisionOf = async (meetingId) => (await db.query('SELECT GREATEST(COALESCE((SELECT max(seq) FROM ai_consents WHERE meeting_id=$1), 0), COALESCE((SELECT ai_request_seq FROM meetings WHERE id=$1), 0))::text AS rev', [meetingId])).rows[0].rev;
+  const revisionOf = async (meetingId, q = db) => (await q.query('SELECT GREATEST(COALESCE((SELECT max(seq) FROM ai_consents WHERE meeting_id=$1), 0), COALESCE((SELECT ai_request_seq FROM meetings WHERE id=$1), 0))::text AS rev', [meetingId])).rows[0].rev;
 
   // the host asks; the host's own agreement is recorded like anybody else's, then everyone in the room is prompted
   app.post(paths('/ai-consent/request'), auth, member, hostOnly, guard(async (req, res) => {
-    const r = await db.query("UPDATE meetings SET ai_requested_at=now(), ai_requested_by=$2, ai_request_seq=nextval('ai_consent_seq') WHERE id=$1 AND ai_requested_at IS NULL AND ended_at IS NULL RETURNING ai_requested_at", [req.params.id, req.user.participantId]);
-    if (!r.rowCount) return fail(res, 409, 'An AI consent request is already open, or the meeting has ended');
-    const ref = await audit(req.params.id, null, req.user.participantId, 'host', 'ai_consent.requested', { purposes: CORE, noticeVersion: AI_NOTICE.version });
-    const name = getName(req.params.id, req.user.participantId); const last = new Map((await latest(req.params.id)).filter((x) => x.participant_id === req.user.participantId).map((x) => [x.purpose, x.decision]));
-    for (const p of CORE) if (last.get(p) !== 'agree') {
-      const hr = await audit(req.params.id, null, req.user.participantId, 'host', 'ai_consent.agree', { purpose: p, by: 'host_request' });
-      await db.query('INSERT INTO ai_consents(id,meeting_id,participant_id,participant_name,purpose,decision,policy_version,audit_ref) VALUES(gen_random_uuid(),$1,$2,$3,$4,\'agree\',$5,$6)', [req.params.id, req.user.participantId, name, p, AI_NOTICE.version, hr]);
-    }
+    const name = getName(req.params.id, req.user.participantId);
+    const ref = await withConsentLock(db, req.params.id, async (c) => {
+      const r = await c.query("UPDATE meetings SET ai_requested_at=now(), ai_requested_by=$2, ai_request_seq=nextval('ai_consent_seq') WHERE id=$1 AND ai_requested_at IS NULL AND ended_at IS NULL RETURNING ai_requested_at", [req.params.id, req.user.participantId]);
+      if (!r.rowCount) return null;
+      const a = await audit(req.params.id, null, req.user.participantId, 'host', 'ai_consent.requested', { purposes: CORE, noticeVersion: AI_NOTICE.version });
+      // the host's request counts as the host's OWN agreement only for a purpose they have not answered yet: it never overrides their earlier decline or withdrawal
+      const answered = new Set((await latest(req.params.id, c)).filter((x) => x.participant_id === req.user.participantId).map((x) => x.purpose));
+      for (const p of CORE) if (!answered.has(p)) {
+        const hr = await audit(req.params.id, null, req.user.participantId, 'host', 'ai_consent.agree', { purpose: p, by: 'host_request' });
+        await c.query('INSERT INTO ai_consents(id,meeting_id,participant_id,participant_name,purpose,decision,policy_version,audit_ref) VALUES(gen_random_uuid(),$1,$2,$3,$4,\'agree\',$5,$6)', [req.params.id, req.user.participantId, name, p, AI_NOTICE.version, hr]);
+      }
+      return a;
+    });
+    if (!ref) return fail(res, 409, 'An AI consent request is already open, or the meeting has ended');
     io.to(room(req.params.id)).emit('ai-consent-request', { notice: AI_NOTICE, by: name });
     res.status(201).json({ requested: true, auditRef: ref, notice: AI_NOTICE });
   }, 'Could not send the AI consent request'));
 
   // the host closes the request: the portal sees requested=false and processes nothing further for this meeting
   app.post(paths('/ai-consent/cancel'), auth, member, hostOnly, guard(async (req, res) => {
-    const r = await db.query("UPDATE meetings SET ai_requested_at=NULL, ai_request_seq=nextval('ai_consent_seq') WHERE id=$1 AND ai_requested_at IS NOT NULL RETURNING id", [req.params.id]);
-    if (!r.rowCount) return fail(res, 409, 'There is no open AI consent request');
-    const ref = await audit(req.params.id, null, req.user.participantId, 'host', 'ai_consent.request_cancelled', {});
+    const ref = await withConsentLock(db, req.params.id, async (c) => {
+      const r = await c.query("UPDATE meetings SET ai_requested_at=NULL, ai_request_seq=nextval('ai_consent_seq') WHERE id=$1 AND ai_requested_at IS NOT NULL RETURNING id", [req.params.id]);
+      return r.rowCount ? audit(req.params.id, null, req.user.participantId, 'host', 'ai_consent.request_cancelled', {}) : null;
+    });
+    if (!ref) return fail(res, 409, 'There is no open AI consent request');
     io.to(room(req.params.id)).emit('ai-consent-closed', {}); res.json({ requested: false, auditRef: ref });
   }, 'Could not close the AI consent request'));
 
@@ -62,9 +71,16 @@ export function registerAiConsent({ app, io, db, auth, fail, audit, room, getNam
   app.get('/api/integrations/meetings/:id/ai-consent', readAuth, guard(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return fail(res, 400, 'Invalid meeting id');
-    const m = await db.query('SELECT id, ai_requested_at FROM meetings WHERE id=$1', [req.params.id]); if (!m.rowCount) return fail(res, 404, 'Meeting unavailable');
-    const { rows: ps } = await db.query("SELECT id, display_name, role FROM participants WHERE meeting_id=$1 AND admission='admitted'", [req.params.id]); const dec = await latest(req.params.id);
-    res.json({ meetingId: m.rows[0].id, requested: !!m.rows[0].ai_requested_at, requestedAt: m.rows[0].ai_requested_at, noticeVersion: AI_NOTICE.version, revision: await revisionOf(req.params.id),
+    // ONE snapshot: the revision, the roster and every decision describe the same instant (separate statements could mix two moments and hide a withdrawal)
+    const c = await db.connect(); let m, ps, dec, revision;
+    try {
+      await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      m = await c.query('SELECT id, ai_requested_at FROM meetings WHERE id=$1', [req.params.id]);
+      if (m.rowCount) { ps = (await c.query("SELECT id, display_name, role FROM participants WHERE meeting_id=$1 AND admission='admitted'", [req.params.id])).rows; dec = await latest(req.params.id, c); revision = await revisionOf(req.params.id, c); }
+      await c.query('COMMIT');
+    } catch (e) { try { await c.query('ROLLBACK'); } catch { /* gone */ } throw e; } finally { c.release(); }
+    if (!m.rowCount) return fail(res, 404, 'Meeting unavailable');
+    res.json({ meetingId: m.rows[0].id, requested: !!m.rows[0].ai_requested_at, requestedAt: m.rows[0].ai_requested_at, noticeVersion: AI_NOTICE.version, revision,
       // identity here is the Meet SESSION (participantId); the display name is only what the person typed and is never a basis for anything
       participants: ps.map((p) => ({ participantId: p.id, name: p.display_name, role: p.role, decisions: Object.fromEntries(AI_PURPOSES.map((pp) => { const d = dec.find((x) => x.participant_id === p.id && x.purpose === pp); return [pp, d ? { decision: d.decision, at: d.created_at, seq: d.seq, objectionSeq: d.objection_seq } : { decision: 'pending', at: null, seq: '0', objectionSeq: '0' }]; })) })) });
   }, 'Unavailable'));

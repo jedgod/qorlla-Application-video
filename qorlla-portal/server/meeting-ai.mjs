@@ -233,7 +233,8 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     ) ORDER BY r.created_at DESC LIMIT 100`;
   app.get('/api/v1/meeting-ai/reports', member, h(async (req, res) => {
     const rows = (await pool.query(listVisibleSql, [req.workspace, isManager(req.role), req.actor])).rows, memo = new Map();
-    await Promise.all(rows.map(async (row) => {
+    // at most 10 meetings are asked of Meet at a time (one answer is shared per meeting through memo)
+    for (let i = 0; i < rows.length; i += 10) await Promise.all(rows.slice(i, i + 10).map(async (row) => {
       const f = await freshness({ id: row.id, workspace_id: req.workspace, meet_meeting_id: row.meet_meeting_id, status: row.status, consent_basis: row._basis }, memo);
       if (f.ok) return; row.excerpt = f.code === 'unverifiable' ? null : ''; if (f.code === 'unverifiable') row.consent_unverified = true; else row.status = 'withdrawn';
     }));
@@ -355,7 +356,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     res.json({ revoked: true, already: !r.rowCount });
   }));
 
-  // PUBLIC (no cookies): a bearer link. Read-only, rate limited, no-store, never indexed; access is counted; revocation is immediate.
+  // PUBLIC (no cookies): a bearer link. Read-only, rate limited, no-store, never indexed; access is counted; a revoked link stops opening at once (what was already viewed cannot be recalled).
   const shareLimiter = rateLimit({ windowMs: 60_000, limit: cfg.shareLimit ?? 60, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Too many requests' } });
   app.get('/api/v1/shared/reports/:token', shareLimiter, h(async (req, res) => {
     res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' });

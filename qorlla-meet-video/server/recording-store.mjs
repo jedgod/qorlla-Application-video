@@ -9,6 +9,7 @@
 // What it does NOT do: capture media itself. The browser of the person recording composes the picture and audio (leaving out anyone who has not consented) and
 // uploads chunks; a malicious or modified client could still send what it likes. Server-side (SFU) capture would be the stronger design.
 import crypto from 'node:crypto';
+import { withConsentLock } from './consent-lock.mjs';
 import express from 'express';
 import { loadKeyring, newDataKey, encryptChunk, decryptChunk } from './recording-crypto.mjs';
 import { createObjectStore } from './recording-objects.mjs';
@@ -197,11 +198,16 @@ export function registerRecordingStorage({ app, db, auth, fail, audit, getRoster
   app.post(paths('/ai-consent'), auth, participant, guard(async (req, res) => {
     const purpose = String(req.body?.purpose || ''), decision = String(req.body?.decision || '');
     if (!AI_PURPOSES.includes(purpose)) return fail(res, 400, 'Unknown purpose'); if (!['agree', 'decline', 'withdraw'].includes(decision)) return fail(res, 400, 'decision must be agree, decline or withdraw');
-    const { rows: [last] } = await db.query('SELECT decision FROM ai_consents WHERE meeting_id=$1 AND participant_id=$2 AND purpose=$3 ORDER BY seq DESC LIMIT 1', [req.params.id, req.user.participantId, purpose]);
-    if (decision === 'withdraw' && last?.decision !== 'agree') return fail(res, 409, 'There is no consent to withdraw');
-    const ref = await audit(req.params.id, null, req.user.participantId, req.user.role, 'ai_consent.' + decision, { purpose });
-    await db.query('INSERT INTO ai_consents(id,meeting_id,participant_id,participant_name,purpose,decision,policy_version,audit_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [crypto.randomUUID(), req.params.id, req.user.participantId, getName(req.params.id, req.user.participantId), purpose, decision, policyVersion, ref]);
-    res.status(201).json({ auditRef: ref, purpose, decision, note: 'Recorded. Your messages are processed by Qorlla AI only for the purposes you agreed to, and only while this meeting\'s host has an AI request open and has given the meeting\'s AI consent in Workplace. Recording consent is separate.' });
+    // check and insert in ONE transaction under the meeting's consent lock (see consent-lock.mjs): two quick requests from one person cannot both pass the check, and numbers match commit order
+    const ref = await withConsentLock(db, req.params.id, async (c) => {
+      const { rows: [last] } = await c.query('SELECT decision FROM ai_consents WHERE meeting_id=$1 AND participant_id=$2 AND purpose=$3 ORDER BY seq DESC LIMIT 1', [req.params.id, req.user.participantId, purpose]);
+      if (decision === 'withdraw' && last?.decision !== 'agree') return null;
+      const a = await audit(req.params.id, null, req.user.participantId, req.user.role, 'ai_consent.' + decision, { purpose });
+      await c.query('INSERT INTO ai_consents(id,meeting_id,participant_id,participant_name,purpose,decision,policy_version,audit_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [crypto.randomUUID(), req.params.id, req.user.participantId, getName(req.params.id, req.user.participantId), purpose, decision, policyVersion, a]);
+      return a;
+    });
+    if (!ref) return fail(res, 409, 'There is no consent to withdraw');
+    res.status(201).json({ auditRef: ref, purpose, decision, note: 'Recorded. From now on Qorlla AI will not use your messages for purposes you declined or withdrew, and the Workplace portal checks this record each time a report is read. Content already shown to someone before you changed your answer cannot be taken back. Recording consent is separate.' });
   }, 'Could not record your choice'));
 
   app.get(paths('/consent-status'), auth, participant, guard(async (req, res) => {
