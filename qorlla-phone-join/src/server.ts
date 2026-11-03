@@ -21,7 +21,7 @@ export function createPhoneJoinRouter(deps: {
       res.json({ telephoneJoin: ready, message: ready ? 'Telephone join enabled' : UNAVAILABLE_MESSAGE });
     } catch { res.status(503).json({ telephoneJoin: false, message: UNAVAILABLE_MESSAGE }); }
   });
-  const schema = z.object({ meetingId: z.string(), passcode: z.string(), callId: z.string(), dialedNumber: z.string() }).strict();
+  const schema = z.object({ meetingId: z.string(), passcode: z.string(), callId: z.string(), dialedNumber: z.string(), callerNumber: z.string().optional() }).strict();
   router.post('/inbound/admit', deps.verifyWebhook, deps.rateLimit, express.json({limit:'8kb'}), async (req, res) => {
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return void res.status(400).json({ code: 'INVALID_REQUEST' });
