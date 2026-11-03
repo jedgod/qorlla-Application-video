@@ -1,0 +1,13 @@
+# QORLLA VOICE FOR AN ISOLATED TEST PROJECT. NEVER USE OUTSIDE ONE. Switches Qorlla Voice on in the main app of a project so every signed-in account gets an internal number (extension).
+# The voice engine itself runs OUTSIDE compose (a host process, own throw-away schema); the main app reaches it at host.docker.internal and browsers at VOICE_URL. Off unless set in the project env file:
+#   QORLLA_VOICE_ENABLED=true  VOICE_ADMIN_SECRET=<40+ chars>  VOICE_INTERNAL_URL=http://host.docker.internal:4600  VOICE_URL=http://localhost:4600
+#   docker compose -p qlaunch --env-file .dev-stack-launch/compose.env -f docker-compose.yml -f deploy/docker-compose.isolated.yml -f deploy/docker-compose.isolated-launch.yml -f deploy/docker-compose.isolated-voice.yml up -d workspace-signaling-engine
+services:
+  workspace-signaling-engine:
+    environment:
+      - QORLLA_VOICE_ENABLED=${QORLLA_VOICE_ENABLED:-}
+      - VOICE_ADMIN_SECRET=${VOICE_ADMIN_SECRET:-}
+      - VOICE_INTERNAL_URL=${VOICE_INTERNAL_URL:-}
+      - VOICE_URL=${VOICE_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

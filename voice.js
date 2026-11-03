@@ -91,6 +91,13 @@ function createVoice({ dataDir, env = process.env }) {
             res.json({ names: Object.fromEntries(ids.filter((i) => by.has(i)).map((i) => [i, by.get(i).displayName])) });
         });
     }
-    return { register, signToken, enabled, loadKeys, identityFor, _engine: engine };
+    /** Give this account its internal Qorlla number now (idempotent: the engine returns the same extension every time). Never throws: it runs at sign-in and must not affect it.
+     *  An account that must verify its email first gets none until it has (same rule as the token endpoint). */
+    async function provision(user) {
+        if (!enabled() || !user || !user.id) return null;
+        if (needVerified() && !user.emailVerified) return null;
+        try { return await identityFor(user); } catch (e) { return null; }
+    }
+    return { register, signToken, enabled, loadKeys, identityFor, provision, _engine: engine };
 }
 module.exports = createVoice;

@@ -2451,6 +2451,8 @@
     var contactsCard = h('section', { class: 'qp-card', id: 'qpContacts', 'aria-labelledby': 'qpContH' }), contactDetail = h('section', { class: 'qp-card', id: 'qpContactDetail', 'aria-labelledby': 'qpCtDH', 'aria-live': 'polite' });
     var numberCard = h('section', { class: 'qp-card', id: 'qpNumber', 'aria-labelledby': 'qpNumH' }), plansCard = h('section', { class: 'qp-card', id: 'qpPlans', 'aria-labelledby': 'qpPlansH' });
     var recentCard = h('section', { class: 'qp-card', id: 'recent-calls', 'aria-labelledby': 'qpRecH' });
+    var rechargeInfo = null;
+    voiceOff.push(voiceOn(function () { if (ov) paintNumberCard(); }));      // the internal number appears on this card as soon as the voice client reports it
     var ov = null, psettings = null, planTab = 'numbers', contactsData = null, contactsErr = null, cFilter = 'all', cQuery = '', cSel = null, cMode = 'view', cAll = false;
     function dayWhen(iso) { if (!iso) return ['\u2014', '']; var d = new Date(iso), today = new Date().toDateString() === d.toDateString(); return [today ? I18n.t('Today') : d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }), d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })]; }
     function initials(n) { var p = String(n || '?').trim().split(/\s+/); return ((p[0] || '?').charAt(0) + (p.length > 1 ? p[p.length - 1].charAt(0) : '')).toUpperCase(); }
@@ -2659,13 +2661,15 @@
     plansCard.appendChild(h('div', { class: 'qp-jhead' }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '\uD83D\uDCCA' }), h('div', {}, [h('h2', { id: 'qpPlansH', text: I18n.t('Numbers & Plans') }), h('p', { class: 'muted qp-sub', text: I18n.t('Manage your phone numbers, plans and calling settings.') })]), reqBtn]));
     plansCard.appendChild(reqMsg); plansCard.appendChild(planBar); plansCard.appendChild(planBody);
     function setPlanTab(t) { planTab = t; Array.prototype.forEach.call(planBar.children, function (b) { b.setAttribute('aria-selected', String(b.dataset.t === t)); }); paintPlan(); }
-    function loadPlans() { ov = null; psettings = null; paintPlan(); paintNumberCard(); Promise.all([getOv(), settingsApi()]).then(function (r) { psettings = r[1]; paintPlan(); paintNumberCard(); }).catch(function (e) { planBody.textContent = ''; planBody.appendChild(h('p', { class: 'qp-bad', id: 'qpPlanErr', role: 'alert', text: phoneWhy(e) })); planBody.appendChild(h('button', { class: 'btn small', type: 'button', text: I18n.t('Retry'), onclick: loadPlans })); }); }
+    function loadPlans() { ov = null; psettings = null; rechargeInfo = null; paintPlan(); paintNumberCard(); phoneApi('/api/phone/recharge').then(function (r) { rechargeInfo = r; paintPlan(); }).catch(function () { rechargeInfo = { available: false, reasons: [] }; }); Promise.all([getOv(), settingsApi()]).then(function (r) { psettings = r[1]; paintPlan(); paintNumberCard(); }).catch(function (e) { planBody.textContent = ''; planBody.appendChild(h('p', { class: 'qp-bad', id: 'qpPlanErr', role: 'alert', text: phoneWhy(e) })); planBody.appendChild(h('button', { class: 'btn small', type: 'button', text: I18n.t('Retry'), onclick: loadPlans })); }); }
     function paintNumberCard() {
       var box = numberCard; box.textContent = '';
       var caller = psettings && psettings.callerIdName ? psettings.callerIdName : I18n.t('Not set');
       box.appendChild(h('div', { class: 'qp-jhead' }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '\u260E' }), h('div', {}, [h('h2', { id: 'qpNumH', text: I18n.t('Your Qorlla Number') }), h('p', { class: 'muted qp-sub', text: I18n.t('Your assigned business number for making and receiving calls.') })])]));
       var mine = ov && ov.assigned && ov.assigned[0];
       box.appendChild(mine ? badge(I18n.t('Active'), 'green') : badge(I18n.t('Unassigned'), 'grey')); box.appendChild(mine ? h('p', { class: 'qp-strong', id: 'qpMyNumber', text: mine.number }) : h('p', { class: 'qp-strong', id: 'qpNoNumber', text: I18n.t('No Qorlla number assigned') }));
+      // the internal number (extension) every signed-in person gets: free calls to colleagues inside Qorlla, independent of any carrier number
+      box.appendChild(h('p', { class: 'muted', id: 'qpInternalNumber', 'data-state': voice.ready && voice.ext ? 'assigned' : 'pending', text: voice.ready && voice.ext ? I18n.t('Your internal number') + ': ' + voice.ext + ' \u00B7 ' + I18n.t('colleagues call it for free inside Qorlla') : (voice.cfg && voice.cfg.enabled ? I18n.t('Your internal number is being assigned\u2026') : I18n.t('Internal numbers are assigned once Qorlla Voice is switched on for this server.')) }));
       box.appendChild(h('div', { class: 'qp-facts one' }, [field(I18n.t('Country'), mine ? mine.country : '\u2014'), field(I18n.t('Caller ID'), caller + (mine ? (mine.callerIdVerified ? ' (' + I18n.t('verified') + ')' : ' (' + I18n.t('not verified') + ')') : '')), field(I18n.t('Status'), mine ? I18n.t('Active') : I18n.t('Unassigned')), field(I18n.t('Plan'), ov ? ov.plan.name : '\u2026'), field(I18n.t('Assigned'), mine && mine.confirmedAt ? new Date(mine.confirmedAt).toLocaleDateString() : '\u2014')]));
       box.appendChild(h('div', { class: 'row qp-actions' }, [h('button', { class: 'btn small', type: 'button', id: 'qpManage', text: I18n.t('Manage number'), onclick: function () { setPlanTab('numbers'); } }), h('button', { class: 'btn small', type: 'button', id: 'qpChangePlan', text: I18n.t('Change plan'), onclick: function () { setPlanTab('plans'); } })]));
     }
@@ -2684,6 +2688,13 @@
         var cap = ov.capabilities, WORD = { active: 'Active', pending: 'Pending', not_connected: 'Not connected', off: 'Off', unassigned: 'Unassigned', not_built: 'Not built' };
         var capRow = function (label, c) { return h('li', { class: 'qp-cap', 'data-status': c.status }, [h('span', { class: 'ph-dot ' + (c.status === 'active' ? 'ok' : c.status === 'pending' ? 'warn' : 'bad'), 'aria-hidden': 'true', text: c.status === 'active' ? '\u2713' : c.status === 'pending' ? '\u2026' : '\u2715' }), h('span', {}, [h('strong', { text: label + ': ' }), I18n.t(WORD[c.status] || c.status) + ' \u2014 ' + c.detail, (c.proof || []).length ? h('small', { class: 'muted', text: ' (' + c.proof.join('; ') + ')' }) : null])]); };
         box.appendChild(h('ul', { class: 'ph-status', id: 'phStatus' }, [capRow(I18n.t('Telephony provider'), cap.provider), capRow(I18n.t('Dial-in numbers'), cap.dialin), capRow(I18n.t('Carrier calling'), cap.carrier), capRow(I18n.t('Your Qorlla number'), cap.number), capRow(I18n.t('Audio bridge for phone callers'), cap.bridge), capRow(I18n.t('Telephony billing'), cap.billing)]));
+        var WHY = { carrier_not_connected: 'a licensed telephony carrier is connected', billing_not_certified: 'telephony billing is certified', prepaid_calling_not_built: 'prepaid external calling is built and certified' };
+        var rs = (rechargeInfo && rechargeInfo.reasons) || [];
+        box.appendChild(h('section', { class: 'qp-card inner', id: 'qpRecharge', 'aria-labelledby': 'qpRechargeH' }, [
+          h('h3', { id: 'qpRechargeH', text: I18n.t('Recharge for external calls') }),
+          h('div', { class: 'qp-facts one' }, [field(I18n.t('Balance'), '\u2014')]),
+          h('button', { class: 'btn small', type: 'button', id: 'qpRechargeBtn', disabled: true, 'aria-describedby': 'qpRechargeWhy', text: I18n.t('Recharge') }),
+          h('p', { class: 'muted', id: 'qpRechargeWhy', role: 'status', text: I18n.t('Recharge is unavailable.') + ' ' + (rs.length ? I18n.t('It opens once') + ' ' + rs.map(function (r) { return I18n.t(WHY[r] || r); }).join('; ') + '. ' : '') + I18n.t('Calls between Qorlla numbers stay free and need no recharge.') })]));
         return box.appendChild(h('a', { class: 'btn small primary', id: 'qpUpgrade', href: BASE + '/pricing?reason=phone', text: I18n.t('See plans and upgrade') }));
       }
       if (planTab === 'admin') return adminPanel(box);

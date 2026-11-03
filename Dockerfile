@@ -18,6 +18,8 @@ COPY assets ./assets
 COPY seed ./seed
 COPY scripts ./scripts
 COPY meet-sync ./meet-sync
+# the browser SDK that voice.js serves at /voice-client.js (without it the page cannot connect to Qorlla Voice)
+COPY qorlla-voice-engine/web ./qorlla-voice-engine/web
 
 # Expose internal core signaling port mapping bounds out to bridge configurations
 ENV DATA_DIR=/usr/src/app/data

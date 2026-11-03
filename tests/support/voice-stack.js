@@ -9,8 +9,8 @@ const root = path.resolve(__dirname, '..', '..');
 const ADMIN = 'v'.repeat(40);
 
 async function startVoiceStack({ mainPort, voicePort, engineEnv = {}, mainEnv = {} }) {
-  const secrets = JSON.parse(fs.readFileSync(path.join(root, '.dev-stack', 'secrets.json'), 'utf8'));
-  const DB = 'postgres://qorlla:' + secrets.dbPassword + '@127.0.0.1:35432/qorlla_meet';
+  // QORLLA_TEST_VOICE_DB names any PostgreSQL the tests may create a throw-away schema in; by default it is the dev stack's database
+  const DB = process.env.QORLLA_TEST_VOICE_DB || (() => { const secrets = JSON.parse(fs.readFileSync(path.join(root, '.dev-stack', 'secrets.json'), 'utf8')); return 'postgres://qorlla:' + secrets.dbPassword + '@127.0.0.1:35432/qorlla_meet'; })();
   const schema = 'qe2e_' + Math.random().toString(36).slice(2, 9), admin = new Pool({ connectionString: DB }); await admin.query('CREATE SCHEMA ' + schema);
   const sp = new Pool({ connectionString: DB, options: '-c search_path=' + schema });
   const dir = path.join(root, 'qorlla-voice-engine'); for (const f of fs.readdirSync(path.join(dir, 'sql')).filter((x) => /^\d{3}_.+\.sql$/.test(x)).sort()) await sp.query(fs.readFileSync(path.join(dir, 'sql', f), 'utf8')); await sp.end();

@@ -24,7 +24,7 @@ const USERNAME_RE = /^[a-z0-9][a-z0-9_.-]{2,23}$/;
 const CODE_COUNT = 10;
 const HOUR = 60 * 60 * 1000;
 
-module.exports = function createAuth({ dataDir, mailer, onAccountChange }) {
+module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthenticated }) {
     // Tells the Security Shield / Numbers & Plans (through shield-bridge.js) who this account is now. Never throws into the request.
     const notify = (u) => { try { if (onAccountChange && u) onAccountChange({ id: u.id, verified: !!u.emailVerified, suspended: !!u.suspended }); } catch (e) { /* the bridge retries on its own */ } };
     const dir = path.join(dataDir, 'auth');
@@ -143,6 +143,8 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange }) {
         store.writeJson(sessionsFile, sessions);
         setCookie(req, res, token, SESSION_MS);
         issuePortalCookies(req, res, userId, sha(token));
+        // every authenticated person gets what the app assigns per account (their internal Qorlla number); this must never delay or fail a sign-in
+        if (onAuthenticated) { try { const u = loadUsers().find((x) => x.id === userId); if (u) onAuthenticated(u); } catch (e) { /* ignored on purpose */ } }
     }
     function dropSessions(userId, keepHash) {
         const sessions = loadSessions();

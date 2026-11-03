@@ -50,7 +50,8 @@ console.log('[Config] Email service: ' + (mailer.enabled ? 'ON (links use ' + ma
     : 'OFF (set SMTP_URL, SMTP_FROM and PUBLIC_URL to enable reset links and outside mail)'));
 // Security Shield bridge: reports every account's standing (verified / suspended) to the shield and to Numbers & Plans. Off unless SHIELD_SYNC_URL is set.
 const shieldBridge = require('./shield-bridge')({ dataDir: DATA_ROOT, listAccounts: () => auth.allAccounts() });
-const auth = require('./auth')({ dataDir: DATA_ROOT, mailer, onAccountChange: (a) => shieldBridge.queue(a) });
+let provisionInternalNumber = () => {};                                   // bound once Qorlla Voice is created below
+const auth = require('./auth')({ dataDir: DATA_ROOT, mailer, onAccountChange: (a) => shieldBridge.queue(a), onAuthenticated: (u) => provisionInternalNumber(u) });
 shieldBridge.register(app); shieldBridge.start();
 // Public keys the Workplace Portal uses to verify identity tokens issued by this server
 app.get('/.well-known/jwks.json', (req, res) => res.set('Cache-Control', 'public, max-age=300').json(auth.portalTokens.jwks()));
@@ -271,6 +272,7 @@ app.use('/api/guest', createGuestRouter({ express, sessions: guestSessions, getM
 // ---- Qorlla Voice (self-hosted internet calling between Qorlla accounts; no carrier). The engine is a separate service: qorlla-voice-engine/. This app signs its identity tokens and provisions extensions.
 const qvoice = require('./voice')({ dataDir: DATA_ROOT });
 qvoice.register(app, { requireUser: auth.requireUser, listUsers: auth.listUsers });
+provisionInternalNumber = (u) => { qvoice.provision(u); };               // each account gets its internal Qorlla number when it signs in or registers (idempotent; never blocks the sign-in)
 // ---- Qorlla Phone: dial-in numbers, phone PINs for meetings, calls. There is NO telephone carrier in this repository: numbers come only from configuration
 // (PHONE_DIAL_IN_NUMBERS, a JSON list of real provisioned numbers), outbound calling and number provisioning answer 503 until a provider is connected.
 // Regions the Join-by-phone page offers. Listing a country here does NOT mean a number exists there: "provisioned" is true only when a real number is configured for it.
@@ -340,6 +342,18 @@ app.get('/api/phone/overview', async (req, res) => {
         numbers: dj.numbers.map((n) => ({ ...n, status: n.confirmed ? 'active' : 'configured', use: 'Meeting dial-in' })), joinByPhoneEnabled: dj.joinEnabled, assigned: mine.ok ? mine.data : [],
         plan: { name: exempt ? 'Paid (no time limit)' : 'Free', exempt, limitMinutes: Math.round(cfg.limitMs / 60000), graceMinutes: Math.round(cfg.graceMs / 60000), billingConnected: caps.billing.status === 'active' }, usage: { days: 30, hostedMeetings: meetings, hostedMinutes: Math.round(ms / 60000) } });
 });
+// ---- Recharge for external calls: the STRUCTURE exists, the money path does NOT. A prepaid wallet needs a licensed carrier, certified telephony billing and the prepaid-calling milestone
+// (A3.8, which the voice engine refuses to start with while unbuilt). Until all three are true this answers "unavailable" with the reasons and touches no balance, takes no payment and
+// quotes no price. `available` is false by construction: turning on a carrier later does not enable recharge until the wallet itself is built and certified (see docs/PHONE_RECHARGE.md).
+async function rechargeState(u) {
+    const caps = await capsFor(u), reasons = [];
+    if (!caps.callingEnabled) reasons.push('carrier_not_connected');
+    if (!(caps.billing && caps.billing.status === 'active')) reasons.push('billing_not_certified');
+    reasons.push('prepaid_calling_not_built');
+    return { available: false, balance: null, currency: 'usd', packages: [], reasons };
+}
+app.get('/api/phone/recharge', async (req, res) => { const u = phoneUser(req, res); if (!u) return; res.set('Cache-Control', 'no-store').json(await rechargeState(u)); });
+app.post('/api/phone/recharge', async (req, res) => { const u = phoneUser(req, res); if (!u) return; res.set('Cache-Control', 'no-store').status(503).json({ error: 'recharge_unavailable', ...(await rechargeState(u)) }); });
 app.get('/api/phone/dial-in-numbers', async (req, res) => {
     const u = phoneUser(req, res); if (!u) return; const caps = await capsFor(u), dj = await dialInFor(u, caps), numbers = dj.numbers;
     res.set('Cache-Control', 'no-store').json({ configured: numbers.length > 0, numbers, joinEnabled: dj.joinEnabled, countries: PHONE_COUNTRIES.map(([code, name, dial]) => ({ code, name, dial, provisioned: numbers.some((n) => n.code === code) })), provider: caps.reachable && caps.carrierName && caps.carrierName !== 'unconfigured' ? caps.carrierName : (process.env.PHONE_PROVIDER || null), carrierCalling: !!caps.callingEnabled,
