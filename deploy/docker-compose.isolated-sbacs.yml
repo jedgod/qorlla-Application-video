@@ -20,6 +20,13 @@ services:
       - SBACS_STORAGE_PRIVATE_KEY_B64=${SBACS_STORAGE_PRIVATE_KEY_B64:-}
       - SBACS_GRACE_MIB=${SBACS_GRACE_MIB:-4}
       - SBACS_DRAIN_MS=${SBACS_DRAIN_MS:-3000}
+      # recording acceptance tests (R01-R18) need SHORT clocks (1 retention "day" = 4 s). Empty = Meet's normal defaults. Set these only for a test run, never in production.
+      - RECORDING_DAY_MS=${RECORDING_DAY_MS:-}
+      - RECORDING_SWEEP_MS=${RECORDING_SWEEP_MS:-}
+      - RECORDING_IDLE_MS=${RECORDING_IDLE_MS:-}
+      - RECORDING_FINALIZE_GRACE_MS=${RECORDING_FINALIZE_GRACE_MS:-}
+      - RECORDING_LATE_CHUNK_MS=${RECORDING_LATE_CHUNK_MS:-}
+      - RECORDING_LINK_SECONDS=${RECORDING_LINK_SECONDS:-}
   main-db:
     volumes:
       - ./qorlla-portal/sql/012_sbacs.sql:/docker-entrypoint-initdb.d/012i_portal_012_sbacs.sql:ro

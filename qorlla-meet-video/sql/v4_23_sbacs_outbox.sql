@@ -17,3 +17,7 @@ CREATE TABLE IF NOT EXISTS sbacs_outbox (
 );
 CREATE INDEX IF NOT EXISTS sbacs_outbox_open_idx ON sbacs_outbox (created_at) WHERE settled_at IS NULL;
 CREATE INDEX IF NOT EXISTS sbacs_outbox_recording_idx ON sbacs_outbox (recording_id) WHERE settled_at IS NULL AND kind = 'record';
+-- the application role (created by sql/005_app_role.sql in deployments) must be able to use it, like every other table
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'qorlla_meet_app') THEN GRANT SELECT, INSERT, UPDATE, DELETE ON sbacs_outbox TO qorlla_meet_app; END IF;
+END $$;
