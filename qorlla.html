@@ -60,6 +60,16 @@
   /* ---------- Main ---------- */
   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; gap: 14px; position: relative; }
   .topbar { display: flex; align-items: center; gap: 12px; height: 46px; }
+  /* Breadcrumbs: one trail under the top bar, above the page (see assets/breadcrumbs.js) */
+  .qorlla-breadcrumbs { width: 100%; padding: 12px 24px; background: #ffffff; border-bottom: 1px solid #e7ebf3; box-sizing: border-box; }
+  .qorlla-breadcrumbs.hidden, body.signed-out .qorlla-breadcrumbs { display: none; }
+  .breadcrumb-list { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+  .breadcrumb-list a { color: #64748b; text-decoration: none; border-radius: 4px; }
+  .breadcrumb-list a:hover { color: #2457f5; text-decoration: underline; }
+  .breadcrumb-list a:focus-visible { outline: 2px solid #2457f5; outline-offset: 3px; }
+  .breadcrumb-list .current { color: #14213d; font-weight: 600; }
+  .breadcrumb-separator { color: #94a3b8; user-select: none; }
+  @media (max-width: 640px) { .qorlla-breadcrumbs { padding: 10px 16px; } .breadcrumb-list { font-size: 12px; gap: 6px; } }
   .search {
     flex: 1; max-width: 460px; margin: 0 auto; height: 44px; border-radius: 22px;
     background: var(--panel); box-shadow: var(--shadow); display: flex; align-items: center; gap: 10px;
@@ -614,6 +624,7 @@
   <link rel="stylesheet" href="assets/product.css">
   <script src="assets/product.js" defer></script>
   <script src="assets/single-tab.js"></script>
+  <script src="assets/breadcrumbs.js"></script>
 </head>
 <body data-page="workspace">
 <a class="skip-link" href="#view"><span data-i18n="Skip to content">Skip to content</span></a>
@@ -700,6 +711,8 @@
         <button class="avatar" id="avatarBtn" aria-label="Profile and settings" type="button">Q</button>
       </div>
     </header>
+
+    <nav id="crumbs" class="qorlla-breadcrumbs hidden" aria-label="Breadcrumb"><ol class="breadcrumb-list"></ol></nav>
 
     <div class="content" id="content">
       <button class="overview-edge" id="aiEdge" type="button" aria-label="Show workspace overview" aria-controls="aiPanel" aria-expanded="false" title="Show workspace overview"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
@@ -1317,6 +1330,35 @@
   var cleanup = null; // per-view teardown (timers, listeners)
 
   var VIEWS = {};
+  // ---------- breadcrumbs: one trail for the whole shell, driven by the route (#view, #view/section, #view/section/subsection) ----------
+  var PHONE_TAB_SLUG = { dial: 'dial-pad', join: 'join-meeting', recent: 'recent-calls', contacts: 'contacts', settings: 'numbers-plans' };
+  var PHONE_SUB_TAB = { 'dial-pad': 'dial', 'join-meeting': 'join', 'recent-calls': 'recent', contacts: 'contacts', 'numbers-plans': 'settings' };
+  var SETTINGS_SECTION_ID = { calling: 'calling', audio: 'audio', 'meeting-dial-in': 'dialin', 'privacy-security': 'privacy', notifications: 'notify', 'call-history': 'history', 'plans-billing': 'plans', 'admin-controls': 'admin' };
+  var SETTINGS_ID_SLUG = {}; Object.keys(SETTINGS_SECTION_ID).forEach(function (k) { SETTINGS_ID_SLUG[SETTINGS_SECTION_ID[k]] = k; });
+  var KNOWN_SUBS = { phone: ['dial-pad', 'join-meeting', 'recent-calls', 'contacts', 'numbers-plans', 'call-settings', 'help'] };
+  function routeHash(view, sub, section) { return view + (sub ? '/' + sub + (section ? '/' + section : '') : ''); }
+  function parseHash(h) { var p = String(h || '').replace(/^#/, '').split('/'); return { view: p[0] || '', sub: p[1] || '', section: p[2] || '' }; }
+  /** Unknown sections are dropped (never invented into a trail), and a section only exists under the page that has it. */
+  function cleanRoute(view, sub, section) {
+    var ok = (KNOWN_SUBS[view] || []).indexOf(sub) >= 0; if (!ok) return { sub: '', section: '' };
+    if (!(view === 'phone' && sub === 'call-settings' && SETTINGS_SECTION_ID[section] && section !== 'calling')) section = '';
+    return { sub: sub, section: section };
+  }
+  function paintCrumbs() {
+    var nav = $('crumbs'); if (!nav || !window.QorllaCrumbs) return;
+    var visible = !!state.user && !document.body.classList.contains('signed-out');                      // signed-out visitors see the sign-in page, which has no trail
+    nav.classList.toggle('hidden', !visible); if (visible) QorllaCrumbs.render(nav, QorllaCrumbs.forRoute({ view: state.view, sub: state.sub, section: state.section }));
+  }
+  /** A section inside the current page changed (a Phone tab, a settings section): record it, keep the address bar in step with a NEW history entry (so Back and Forward walk through sections), repaint the trail.
+   *  While a route is being applied from the address bar (silentRoute) the route is already known, so nothing is pushed. */
+  function setRoute(sub, section) {
+    if (state.silentRoute) return;
+    state.sub = sub || ''; state.section = section || '';
+    var want = '#' + routeHash(state.view, state.sub, state.section); if (location.hash !== want) history.pushState(null, '', want);
+    paintCrumbs();
+  }
+  function quiet(fn) { var was = state.silentRoute; state.silentRoute = true; try { return fn(); } finally { state.silentRoute = was; } }
+
   function show(view, arg) {
     if (cleanup) { try { cleanup(); } catch (e) {} cleanup = null; }
     if (!VIEWS[view]) view = 'home';
@@ -1325,6 +1367,7 @@
       if (seen >= 0) state.stack.length = seen; else { state.stack.push(state.view); if (state.stack.length > 20) state.stack.shift(); }
     }
     state.view = view;
+    { var rc = cleanRoute(view, arg && typeof arg.sub === 'string' ? arg.sub : '', arg && typeof arg.section === 'string' ? arg.section : ''); state.sub = rc.sub; state.section = rc.section; }
     document.body.classList.toggle('page-open', view !== 'home');
     document.querySelectorAll('.nav-item[data-view]').forEach(function (n) {
       n.classList.toggle('active', n.dataset.view === view);
@@ -1337,7 +1380,8 @@
     viewEl.scrollTop = 0;
     var r = VIEWS[view](arg);
     if (r && r.then) r.catch(function (e) { viewEl.textContent = ''; viewEl.appendChild(errorBox(e, view)); });
-    if (location.hash.slice(1) !== view) history.replaceState(null, '', '#' + view);
+    { var want = routeHash(view, state.sub, state.section); if (location.hash.slice(1) !== want) history.replaceState(null, '', '#' + want); }
+    paintCrumbs();
   }
   function errorBox(e, view) {
     return h('div', { class: 'empty' }, [
@@ -2223,10 +2267,10 @@
   // a 404 with no JSON body means the route does not exist on the running server: it is an older build that was not restarted
   function phoneWhy(e) { return e && e.stale ? 'This Qorlla server is running an older version without this feature (the page got HTTP 404). Restart it (npm run dev:stack) and reload.' : ((e && e.message) || 'Something went wrong.') + (e && e.ref ? ' (ref ' + e.ref + ')' : ''); }
   function copyPlain(text, msg) { if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { toast(msg, 'ok'); }, function () { toast(text); }); else toast(text); }
-  VIEWS.phone = function () {
+  VIEWS.phone = function (arg) {
     if (!state.user) return gate(I18n.t('Phone'), 'calls and meeting dial-in');
     var voiceOff = [];
-    cleanup = function () { stopMicTest(); voiceOff.splice(0).forEach(function (f) { f(); }); };            // leaving the Phone view (or closing the page) always closes an open microphone and detaches its voice listeners
+    cleanup = function () { stopMicTest(); state.applyRoute = null; voiceOff.splice(0).forEach(function (f) { f(); }); };            // leaving the Phone view (or closing the page) always closes an open microphone and detaches its voice listeners
     var info = null, calls = null, cur = 'dial', filter = 'all', query = '', showAll = false, num = '';
     var COUNTRIES = [['US', '1', '🇺🇸', 'United States'], ['GB', '44', '🇬🇧', 'United Kingdom'], ['GH', '233', '🇬🇭', 'Ghana'], ['NG', '234', '🇳🇬', 'Nigeria'], ['CA', '1', '🇨🇦', 'Canada']];
     var tabs = [['dial', 'Dial Pad'], ['join', 'Join Meeting'], ['recent', 'Recent Calls'], ['contacts', 'Contacts'], ['settings', 'Numbers & Plans']];
@@ -2242,7 +2286,7 @@
     function getInfo() { return info ? Promise.resolve(info) : phoneApi('/api/phone/dial-in-numbers').then(function (d) { info = d; return d; }); }
     function getCalls() { return calls ? Promise.resolve(calls) : phoneApi('/api/phone/calls/history').then(function (d) { calls = d.calls || []; return calls; }); }
     function select(t) {
-      stopMicTest();
+      stopMicTest(); setRoute(PHONE_TAB_SLUG[t]);
       cur = t; Array.prototype.forEach.call(bar.children, function (b) { var on = b.dataset.tab === t; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       var pair = { dial: [dialCard, dialList], join: [joinCard, joinList], recent: [recentCard, recentDetail], contacts: [contactsCard, contactDetail], settings: [numberCard, plansCard] }[t];
       alt.classList.add('hidden'); grid.classList.remove('hidden');
@@ -2722,6 +2766,7 @@
     }
     // ===== Phone Settings and Help open in the wide panel (the tab row stays) =====
     function openAlt(fn, arg) {
+      if (fn === openSettings) setRoute('call-settings', arg && arg !== 'calling' ? SETTINGS_ID_SLUG[arg] : ''); else if (fn === openHelp) setRoute('help');
       stopMicTest(); grid.classList.add('hidden'); alt.classList.remove('hidden'); alt.classList.add('qp-wide'); alt.removeAttribute('aria-labelledby'); alt.setAttribute('role', 'region'); alt.textContent = '';
       Array.prototype.forEach.call(bar.children, function (b) { b.setAttribute('aria-selected', 'false'); b.tabIndex = b.dataset.tab === 'dial' ? 0 : -1; }); fn(arg);
     }
@@ -2746,11 +2791,11 @@
       var secs = [['calling', 'Calling & Caller ID', '\u260E'], ['audio', 'Audio & Devices', '\uD83C\uDF99'], ['dialin', 'Meeting Dial-in', '\uD83C\uDFA5'], ['privacy', 'Privacy & Security', '\uD83D\uDEE1'], ['notify', 'Notifications', '\uD83D\uDD14'], ['history', 'Call History', '\uD83D\uDD52'], ['plans', 'Plans & Billing', '\uD83D\uDCB3'], ['admin', 'Admin Controls', '\uD83C\uDFE2']];
       secs.forEach(function (x) { nav.appendChild(h('button', { type: 'button', role: 'tab', id: 'psNav-' + x[0], 'data-s': x[0], 'aria-selected': 'false', onclick: function () { go(x[0]); } }, [h('span', { 'aria-hidden': 'true', text: x[2] + ' ' }), I18n.t(x[1])])); });
       nav.addEventListener('keydown', function (e) { var bs = Array.prototype.slice.call(nav.children), i = bs.indexOf(document.activeElement); if (i < 0) return; var to = { ArrowDown: (i + 1) % bs.length, ArrowUp: (i + bs.length - 1) % bs.length }[e.key]; if (to === undefined) return; e.preventDefault(); bs[to].focus(); go(bs[to].dataset.s); });
-      function go(id) { if (!ps) return; stopMicTest(); Array.prototype.forEach.call(nav.children, function (b) { var on = b.dataset.s === id; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }); body.textContent = ''; body.setAttribute('aria-labelledby', 'psNav-' + id); build[id](body); }
+      function go(id) { if (!ps) return; stopMicTest(); setRoute('call-settings', id !== 'calling' ? SETTINGS_ID_SLUG[id] : ''); Array.prototype.forEach.call(nav.children, function (b) { var on = b.dataset.s === id; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }); body.textContent = ''; body.setAttribute('aria-labelledby', 'psNav-' + id); build[id](body); }
       var build = { calling: pCalling, audio: pAudio, dialin: pDialin, privacy: pPrivacy, notify: pNotify, history: pHistory, plans: pPlans, admin: pAdmin };
       body.textContent = I18n.t('Loading\u2026');
       phoneApi('/api/phone/features').then(function (d) { feats = d.features; refreshFeats(); }).catch(function () { feats = null; });
-      Promise.all([getOv(), settingsApi()]).then(function (r) { ps = r[1]; go(section); }).catch(function (e) { body.textContent = ''; body.appendChild(h('p', { class: 'qp-bad', id: 'psErr', role: 'alert', text: phoneWhy(e) })); body.appendChild(h('button', { class: 'btn small', type: 'button', text: I18n.t('Retry'), onclick: function () { alt.textContent = ''; openSettings(section); } })); });
+      Promise.all([getOv(), settingsApi()]).then(function (r) { ps = r[1]; quiet(function () { go(section); }); }).catch(function (e) { body.textContent = ''; body.appendChild(h('p', { class: 'qp-bad', id: 'psErr', role: 'alert', text: phoneWhy(e) })); body.appendChild(h('button', { class: 'btn small', type: 'button', text: I18n.t('Retry'), onclick: function () { alt.textContent = ''; openSettings(section); } })); });
     }
     function saveRow(id, collect, msgNote) { var msg = h('p', { class: 'muted', id: id + 'Msg', role: 'status' }), b = h('button', { class: 'btn small primary', type: 'button', id: id, text: I18n.t('Save'), onclick: function () { putPrefs(collect(), msg, b); } }); return h('div', {}, [h('div', { class: 'row qp-actions' }, [b]), msg]); }
     function pCalling(box) {
@@ -3045,7 +3090,16 @@
       load();
     }
     paintNumberCard();
-    [dialCard, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { grid.appendChild(c); }); select('dial');
+    [dialCard, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { grid.appendChild(c); }); quiet(function () { select('dial'); });
+    /** Applies a route that came from the address bar (deep link, refresh, Back/Forward) without adding history entries. */
+    function applyRoute(sub, section) {
+      quiet(function () {
+        if (sub === 'call-settings') openAlt(openSettings, SETTINGS_SECTION_ID[section] || 'calling');
+        else if (sub === 'help') openAlt(openHelp, 'center');
+        else select(PHONE_SUB_TAB[sub] || 'dial');
+      });
+    }
+    state.applyRoute = applyRoute; if (arg && arg.sub) applyRoute(arg.sub, arg.section);
   };
 
   VIEWS.notes = function (opts) {
@@ -3573,7 +3627,14 @@
   $('aiNew').addEventListener('click', function () { $('aiThread').textContent = ''; $('aiIntro').style.display = ''; });
 
   window.addEventListener('beforeunload', function () { if (cleanup) { try { cleanup(); } catch (e) {} } });
-  window.addEventListener('hashchange', function () { var v = location.hash.slice(1); if (v && v !== state.view && VIEWS[v]) show(v); });
+  window.addEventListener('hashchange', function () {                         // links, typed addresses, browser Back/Forward
+    var r = parseHash(location.hash); if (!r.view || !VIEWS[r.view]) return;
+    if (r.view !== state.view) { show(r.view, { sub: r.sub, section: r.section }); return; }
+    var c = cleanRoute(r.view, r.sub, r.section); state.sub = c.sub; state.section = c.section;
+    if (state.applyRoute) quiet(function () { state.applyRoute(c.sub, c.section); });
+    var want = routeHash(state.view, c.sub, c.section); if (location.hash.slice(1) !== want) history.replaceState(null, '', '#' + want);
+    paintCrumbs();
+  });
 
   // =====================================================================
   // Qorlla Voice: self-hosted internet calls between Qorlla accounts. The engine is a separate service; nothing here involves a carrier or a phone number.
@@ -3798,8 +3859,8 @@
   }
   state.userReady.then(function () {
     if (state.user) { api('/mail').then(paintMailBadge).catch(function () {}); connectLive(); }
-    var first = location.hash.slice(1);
-    show(VIEWS[first] ? first : 'home');
+    var first = parseHash(location.hash);
+    if (VIEWS[first.view]) show(first.view, { sub: first.sub, section: first.section }); else show('home');
   });
 })();
 </script>
