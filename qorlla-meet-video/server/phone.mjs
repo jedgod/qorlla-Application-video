@@ -237,7 +237,10 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
     const ev = cleanEvidence(j.evidence);
     if (TERM.includes(c.state)) {                                                                  // media for a call that is over
       const live = !!ev && ev.state !== 'closed' && ev.state !== 'terminating';
-      if (live && c.state !== 'TERMINATED' && c.state !== 'ORPHANED') { await move(c.id, 'ORPHANED', 'late_media'); audit(c.meeting_id, c.participant_id, 'phone.late_media', { call: c.id, was: c.state }); shield?.report?.('phone_late_media', c.id)?.catch?.(() => {}); }
+      if (live) {                                                                                  // audio that should not exist: refused, recorded, and reported (a call whose hang-up was already confirmed cannot change state, but it must not pass silently)
+        if (c.state !== 'TERMINATED' && c.state !== 'ORPHANED') await move(c.id, 'ORPHANED', 'late_media');
+        audit(c.meeting_id, c.participant_id, 'phone.late_media', { call: c.id, was: c.state }); shield?.report?.('phone_late_media', c.id)?.catch?.(() => {});
+      }
       return { result: 'terminate', action: 'terminate', state: c.state };
     }
     if (!tokenMatches(j.mediaToken, c.media_nonce_hash)) return { result: 'denied', action: 'none' };       // not the gateway Meet approved this call for
