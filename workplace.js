@@ -235,7 +235,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         forwardEnabled: false, forwardTo: '', voicemailEnabled: false, voicemailGreeting: '', ringtone: 'classic', echoCancellation: true, noiseSuppression: true, micLabel: '', speakerLabel: '', blockedNumbers: [], spamProtection: true, historyRetentionDays: 90 };
     const PHONE_BOOLS = ['callWaiting', 'doNotDisturb', 'missedAlerts', 'notifyIncoming', 'notifyVoicemail', 'notifyReminders', 'forwardEnabled', 'voicemailEnabled', 'echoCancellation', 'noiseSuppression', 'spamProtection'];
     const PHONE_TEXT = { callerIdName: 40, voicemailGreeting: 300, micLabel: 80, speakerLabel: 80 };
-    const PHONE_ENUMS = { ringtone: ['classic', 'soft', 'chime'], notifyChannel: ['browser', 'email', 'both'], historyRetentionDays: [0, 30, 90, 365] };
+    const PHONE_ENUMS = { ringtone: ['classic', 'soft', 'chime', 'marimba', 'pulse', 'rise', 'bell', 'lullaby'], notifyChannel: ['browser', 'email', 'both'], historyRetentionDays: [0, 30, 90, 365] };
     const PHONE_SENSITIVE = ['forwardEnabled', 'forwardTo', 'voicemailEnabled', 'blockedNumbers', 'spamProtection', 'doNotDisturb'];
     const readPhone = (user) => ({ ...PHONE_DEFAULTS, ...(store.readJson(file(userKey('phonesettings', user)), {}) || {}) });
     const tellCarrierSide = (user, settings) => { if (typeof phoneSettingsChanged === 'function') { try { Promise.resolve(phoneSettingsChanged(user, settings)).catch(() => {}); } catch (e) { /* the preference is saved either way */ } } };   // what you SAVED is passed on; Meet decides what is actually ENFORCED
