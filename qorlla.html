@@ -77,9 +77,11 @@
   }
   .icon-btn:hover { color: var(--brand); transform: translateY(-1px); }
   #aiToggle[aria-expanded="true"] { color: var(--brand); }
-  .overview-edge { display: none; position: fixed; right: 10px; top: 112px; z-index: 35; width: 44px; height: 44px; place-items: center; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); color: var(--brand); cursor: pointer; }
+  /* closed Workspace overview: a slim [ |] tab in its OWN gutter at the right end of the layout (not floating over the workspace); the centre column narrows to make room */
+  .overview-edge { display: none; order: 5; flex: 0 0 30px; width: 30px; height: 30px; margin-top: 4px; align-self: flex-start; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--brand); cursor: pointer; }
+  .overview-edge svg.i { width: 16px; height: 16px; }
   .overview-edge.show { display: grid; }
-  .overview-edge:hover { transform: translateY(-1px); }
+  .overview-edge:hover { background: var(--soft); }
   body:not(.on-home) #aiToggle, body:not(.on-home) #aiEdge { display: none !important; }
   @media (max-width: 1100px) { #aiToggle, #aiEdge { display: none !important; } }          /* the panel itself is not shown on narrow screens */
   .dot { position: absolute; top: 10px; right: 11px; width: 9px; height: 9px; background: #ff3b5c; border: 2px solid #fff; border-radius: 50%; }
