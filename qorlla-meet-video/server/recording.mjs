@@ -19,6 +19,7 @@
 // recorded consent, the host authorization gate, the visible status for everyone, the automatic stop on decline/withdrawal, and the audit trail. A future
 // server-side/cloud recorder MUST call authorize() before capturing anything.
 import { randomUUID } from 'node:crypto';
+import { createEnforcement } from './sbacs-enforce.mjs';
 
 export const POLICY_VERSION = 'qorlla-recording-consent-2026-10';
 export const LIVE = ['awaiting', 'blocked', 'ready', 'recording', 'paused'];
@@ -36,7 +37,7 @@ export function evaluate({ session, roster, latest }) {
 }
 
 const GRACE_MS = Number(process.env.HOST_RECONNECT_GRACE_MS || 30000), graceTimers = new Map();
-export function registerRecording({ app, io, db, auth, member, fail, room, getRoster, getName, audit, media }) {
+export function registerRecording({ app, io, db, auth, member, fail, room, getRoster, getName, audit, media, sbacs = createEnforcement({ mode: 'off' }) }) {
   const paths = (suffix) => [`/api/meetings/:id/recording${suffix}`, `/api/v1/meetings/:id/recording${suffix}`];
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
   // `audit` (hash-chained, see recording-audit.mjs) and `media` (storage lifecycle, see recording-store.mjs) are injected by the server
@@ -90,6 +91,7 @@ export function registerRecording({ app, io, db, auth, member, fail, room, getRo
     const retention = days + ' days, then deleted automatically' + (extra ? ' (' + extra + ')' : '');          // the disclosed text always matches the enforced number
     if (!purpose || !recipients || !retention || !privacyContact) return fail(res, 400, 'Purpose, recipients, retention period and a privacy contact must be disclosed before recording can be requested');
     if (!video && !audio) return fail(res, 400, 'Choose video, audio or both');
+    { const g = await sbacs.gateMeeting('meet.recording', req.params.id); if (!g.ok) return res.status(g.status).json(g.body); }      // subscription: necessary, never sufficient (the consent flow below is unchanged)
     try {
       const id = randomUUID();
       try { await db.query(`INSERT INTO recording_sessions(id,meeting_id,requested_by,status,purpose,recipients,retention,controller,privacy_contact,privacy_url,want_video,want_audio,policy_version,retention_days) VALUES($1,$2,$3,'awaiting',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, [id, req.params.id, req.user.participantId, purpose, recipients, retention, controller, privacyContact, privacyUrl || null, video, audio, POLICY_VERSION, days]); }
@@ -137,6 +139,7 @@ export function registerRecording({ app, io, db, auth, member, fail, room, getRo
 
   // 4. start: the authorization gate. Capture may only begin after this answers 200.
   app.post(paths('/start'), auth, member, hostOnly, async (req, res) => {
+    let tk = null;                                                  // the metered recording reservation, settled below
     try {
       let s = await active(req.params.id); if (!s) return fail(res, 409, 'Request recording and collect consent first');
       await reevaluate(req.params.id, 'start_check', req.user.participantId, 'host'); s = await active(req.params.id);
@@ -145,12 +148,15 @@ export function registerRecording({ app, io, db, auth, member, fail, room, getRo
         await audit(req.params.id, s?.id || null, req.user.participantId, 'host', 'recording.start_refused', { status: st.status, pending: st.pending, declined: st.declined });
         return res.status(409).json({ error: st.status === 'blocked' ? 'A participant declined, so recording cannot start' : 'Not everyone in the meeting has consented yet', ...st });
       }
-      let recId; try { recId = await media.onStart(s, req.user.participantId); } catch (e) { if (e.code === 'STORAGE_NOT_READY') return fail(res, 503, e.message); if (e.code === 'ALREADY_STARTED') return fail(res, 409, 'Recording has already started'); throw e; }   // no secure place to put the media = no recording
+      // consent is complete; now the subscription: the entitlement and one metered recording per STARTED session (key = the session id, so a retry is the same recording)
+      { const g = await sbacs.beginRecording(req.params.id, s.id); if (!g.ok) return res.status(g.status).json(g.body); tk = g.ticket; }
+      let recId; try { recId = await media.onStart(s, req.user.participantId); } catch (e) { await sbacs.endRecording(tk, false).catch(() => {}); tk = null; if (e.code === 'STORAGE_NOT_READY') return fail(res, 503, e.message); if (e.code === 'ALREADY_STARTED') return fail(res, 409, 'Recording has already started'); throw e; }   // no secure place to put the media = no recording
       await db.query(`UPDATE recording_sessions SET status='recording', started_at=now(), recorder_participant=$2 WHERE id=$1 AND status='ready'`, [s.id, req.user.participantId]);
+      await sbacs.endRecording(tk, true).catch((e) => console.error('[sbacs] finalize recording failed:', e.message)); tk = null;
       await audit(req.params.id, s.id, req.user.participantId, 'host', 'recording.started', { video: s.want_video, audio: s.want_audio });
       await broadcast(req.params.id);
       res.json({ ...(await publicState(req.params.id)), recordingId: recId, sessionId: s.id });
-    } catch (e) { console.error('[recording] start failed:', e.message); fail(res, 500, 'Could not start recording'); }
+    } catch (e) { await sbacs.endRecording(tk, false).catch(() => {}); console.error('[recording] start failed:', e.message); fail(res, 500, 'Could not start recording'); }
   });
 
   // 5. stop (or cancel a request that never started)

@@ -25,6 +25,7 @@ import { registerAiConsent } from './ai-consent.mjs';
 import { registerHandoff } from './handoff.mjs';
 import { registerHostControls } from './host-controls.mjs';
 import { registerRecording } from './recording.mjs';
+import { sbacsFromEnv } from './sbacs-enforce.mjs';
 import { createCarrier } from './telephony/provider.mjs';
 import { registerTelephony } from './telephony/routes.mjs';
 import { shieldConfig, createShieldClient, startSessionGuard } from './shield-client.mjs';
@@ -123,6 +124,9 @@ const isValidDate=v=>v===null||(typeof v==='string'&&Number.isFinite(Date.parse(
 const scheduleStates=new Set(['scheduled','cancelled']);
 // Main hashes scheduled-meeting passcodes (bcrypt) itself; Meet only ever receives the hash, never the passcode.
 const validPasscodeHash=v=>v===null||v===undefined||(typeof v==='string'&&/^\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}$/.test(v));
+// SBACS (subscription entitlements): off unless SBACS_MODE=shadow|enforce. See server/sbacs-enforce.mjs for the policy. A mis-configured shadow/enforce mode stops the server at start-up.
+const sbacs=sbacsFromEnv(process.env,db);
+if(sbacs.active)setInterval(()=>sbacs.drain().catch(e=>console.error('[sbacs] outbox drain failed:',e.message)),Number(process.env.SBACS_DRAIN_MS)||30_000).unref();
 app.post('/api/integrations/scheduled-meetings',bridgeAuth,async(req,res)=>{
  const sourceId=req.body?.sourceId, title=clean(req.body?.title,160),
        legacyCode=normalizeCode(req.body?.legacyCode), ownerName=clean(req.body?.ownerName,70),
@@ -131,6 +135,9 @@ app.post('/api/integrations/scheduled-meetings',bridgeAuth,async(req,res)=>{
     (legacyCode && !/^\d{10,12}$/.test(legacyCode)) ||
     !isValidDate(scheduledAt) || !validPasscodeHash(req.body?.passcodeHash))
    return fail(res,400,'Invalid scheduled meeting data');
+ // creating a NEW meeting needs the host's entitlement (a retry of an existing source id is just the same meeting and is never refused). Asked BEFORE the transaction: no network call under a lock.
+ if(sbacs.active){const ex=await db.query("SELECT 1 FROM external_meeting_links WHERE source_system='qorlla-main' AND source_id=$1",[sourceId]).catch(()=>null);
+  if(!(ex&&ex.rows.length)){const g=await sbacs.gate('meet.create',cleanAccount(req.body?.hostAccountId));if(!g.ok)return res.status(g.status).json(g.body);}}
  const client=await db.connect().catch(()=>null);
  if(!client)return fail(res,503,'Database unavailable');
  try{
@@ -406,11 +413,11 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
 const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
-const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
+const recMedia = registerRecordingStorage({ app, db, auth, fail, sbacs, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 registerHandoff({ app, db, sign, fail, bridgeAuth, audit });          // single-use hand-off codes (Workplace -> Meet page), see server/handoff.mjs
 const aiConsent = registerAiConsent({ app, io, db, auth, fail, audit: recAudit, room, readAuth, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });   // Qorlla AI consent: host request, late-joiner prompt, read-only export for the portal
 let limiter;
-const recording = registerRecording({ app, io, db, auth, member, fail, room, audit: recAudit, media: recMedia, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
+const recording = registerRecording({ app, io, db, auth, member, fail, room, sbacs, audit: recAudit, media: recMedia, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 limiter = makeLimit({ io, db, room, audit, upgradeUrl: process.env.UPGRADE_URL || '/pricing?reason=meeting-limit', onEnd: async (id) => { await recording.stopFor(id, 'meeting_ended'); await phone.endAll(id, 'time_limit'); } });
 const carrier = createCarrier(process.env);                 // a real telephone carrier only when PHONE_CARRIER and its credentials are set; otherwise inert
 const phone = registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas: (mid, pid) => !!active.get(mid)?.has(pid), phoneOnline, names, recording, carrier: carrier.configured ? carrier : null });

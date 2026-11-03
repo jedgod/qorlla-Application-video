@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { effectivePlan } from './entitlements.mjs';
+import { UUID_RE } from './auth.mjs';
 
 // Payment must never unlock these: PSTN needs an approved carrier + separate telephony certification; Private AI never leaves Qorlla.
 export const HARD_DENY = new Set(['phone.pstn', 'ai.private.external']);
@@ -102,6 +103,9 @@ export function createSbacs({ pool }) {
       if (prior) return prior.feature === featureKey && Number(prior.units) === units ? { ok: true, reservationId: prior.id, status: prior.status, replay: true } : { ok: false, reason: 'idempotency_conflict', feature: featureKey };
       await c.query(`INSERT INTO portal.subscription_usage(workspace_id, feature, period_start) VALUES($1,$2,${periodStart}) ON CONFLICT DO NOTHING`, [workspaceId, featureKey]);
       await c.query(`SELECT 1 FROM portal.subscription_usage WHERE workspace_id=$1 AND feature=$2 AND period_start=${periodStart} FOR UPDATE`, [workspaceId, featureKey]);
+      // look again UNDER the lock: a concurrent retry of the same key may have won while this one waited
+      const again = (await c.query('SELECT id, status, feature, units FROM portal.usage_reservations WHERE workspace_id=$1 AND idempotency_key=$2', [workspaceId, idempotencyKey])).rows[0];
+      if (again) return again.feature === featureKey && Number(again.units) === units ? { ok: true, reservationId: again.id, status: again.status, replay: true } : { ok: false, reason: 'idempotency_conflict', feature: featureKey };
       // give back reservations whose work never settled (crashed caller)
       const stale = await c.query(`UPDATE portal.usage_reservations SET status='expired', settled_at=now() WHERE workspace_id=$1 AND feature=$2 AND status='reserved' AND expires_at < now() AND period_start=${periodStart} RETURNING units`, [workspaceId, featureKey]);
       const back = stale.rows.reduce((n, r) => n + Number(r.units), 0);
@@ -198,8 +202,42 @@ export function createSbacs({ pool }) {
     });
   }
 
-  const reservationFeature = async (id) => (await pool.query('SELECT feature FROM portal.usage_reservations WHERE id=$1', [id])).rows[0]?.feature || null;
-  return { reservationFeature, check, effective, resolve, usageOf, reserve, finalize, release, reapExpired, metered, setOverride, setSuspended, event, requireEntitlement, wrapMember, suspended: (id) => suspended(pool, id) };
+  // ---- account -> workspace (for services that know an account, never a workspace) ----
+  const normAccount = (a) => { const s = String(a || '').replace(/^u_/, '').toLowerCase(); return UUID_RE.test(s) ? s : null; };
+  async function isMember(accountId, workspaceId) {
+    const uid = normAccount(accountId); if (!uid || !UUID_RE.test(String(workspaceId))) return false;
+    return (await pool.query('SELECT 1 FROM portal.members WHERE workspace_id=$1 AND user_id=$2', [workspaceId, uid])).rowCount > 0;
+  }
+  /** An explicit workspace must be one the account belongs to. Otherwise the account's primary workspace: the one it owns (earliest first), else its earliest membership. */
+  async function resolveWorkspace(accountId, workspaceId = null) {
+    const uid = normAccount(accountId); if (!uid) return { error: 'bad_account' };
+    if (workspaceId) return (await isMember(uid, workspaceId)) ? { workspaceId } : { error: 'not_a_member' };
+    const r = (await pool.query(`SELECT m.workspace_id FROM portal.members m JOIN portal.workspaces w ON w.id=m.workspace_id WHERE m.user_id=$1 ORDER BY (m.role='owner') DESC, w.created_at, w.id LIMIT 1`, [uid])).rows[0];
+    return r ? { workspaceId: r.workspace_id } : { error: 'no_workspace' };
+  }
+  const reservationInfo = async (id) => { if (!UUID_RE.test(String(id))) return null; const r = (await pool.query('SELECT feature, workspace_id FROM portal.usage_reservations WHERE id=$1', [id])).rows[0]; return r ? { feature: r.feature, workspaceId: r.workspace_id } : null; };
+  /** Record work that has ALREADY been done (idempotent per key). It never refuses on quota: delivered work cannot be un-delivered; the counter may exceed the ceiling. */
+  async function record({ workspaceId, featureKey, units = 1, idempotencyKey }) {
+    if (!idempotencyKey) throw new Error('idempotencyKey required');
+    if (HARD_DENY.has(featureKey)) return { ok: false, reason: 'not_available', feature: featureKey };
+    return withTx(async (c) => {
+      await c.query(`INSERT INTO portal.subscription_usage(workspace_id, feature, period_start) VALUES($1,$2,${periodStart}) ON CONFLICT DO NOTHING`, [workspaceId, featureKey]);
+      await c.query(`SELECT 1 FROM portal.subscription_usage WHERE workspace_id=$1 AND feature=$2 AND period_start=${periodStart} FOR UPDATE`, [workspaceId, featureKey]);
+      const again = (await c.query('SELECT id, feature, units, status, period_start FROM portal.usage_reservations WHERE workspace_id=$1 AND idempotency_key=$2', [workspaceId, idempotencyKey])).rows[0];
+      if (again) {
+        if (again.feature !== featureKey || Number(again.units) !== units) return { ok: false, reason: 'idempotency_conflict', feature: featureKey };
+        if (again.status === 'finalized') return { ok: true, replay: true };
+        // the same operation was reserved (or expired / released) earlier: delivered work completes it, exactly once
+        await c.query('UPDATE portal.subscription_usage SET reserved = GREATEST(reserved - $4, 0), used = used + $5 WHERE workspace_id=$1 AND feature=$2 AND period_start=$3', [workspaceId, featureKey, again.period_start, again.status === 'reserved' ? units : 0, units]);
+        await c.query("UPDATE portal.usage_reservations SET status='finalized', settled_at=now() WHERE id=$1", [again.id]);
+        return { ok: true, recorded: units, completed: again.status };
+      }
+      await c.query(`INSERT INTO portal.usage_reservations(workspace_id, feature, period_start, units, status, idempotency_key, expires_at, settled_at) VALUES($1,$2,${periodStart},$3,'finalized',$4, now(), now())`, [workspaceId, featureKey, units, idempotencyKey]);
+      await c.query(`UPDATE portal.subscription_usage SET used = used + $3 WHERE workspace_id=$1 AND feature=$2 AND period_start=${periodStart}`, [workspaceId, featureKey, units]);
+      return { ok: true, recorded: units };
+    });
+  }
+  return { reservationInfo, isMember, resolveWorkspace, record, check, effective, resolve, usageOf, reserve, finalize, release, reapExpired, metered, setOverride, setSuspended, event, requireEntitlement, wrapMember, suspended: (id) => suspended(pool, id) };
 }
 
 /** Read-only SBACS endpoints. Checkout / change / cancel / resume stay on the existing /api/v1/billing/* routes (CSRF, roles, idempotency, provider confirmation). */
@@ -228,57 +266,88 @@ export function registerSbacs(app, { pool, auth, h, sbacs, cfg = {}, flags = nul
   }));
 }
 
-// ---- service-to-service credentials -------------------------------------------------------------------------------------------------------------
-// Each calling service (meet, clips, storage ...) has ITS OWN key (SBACS_SERVICE_KEYS="meet=<key>,clips=<key>", each >= 32 characters) and mints a short-lived
-// token with it: qsv1.<base64url JSON {svc, iat, exp}>.<base64url HMAC-SHA256>. The portal accepts it only if the signature matches that service's key,
-// it has not expired (lifetime <= 5 minutes), and the feature asked about belongs to that service's scope. There is no shared static secret.
-export const SERVICE_SCOPES = { meet: ['meet.'], clips: ['clips.'], storage: ['storage.'], docs: ['docs.', 'sheets.', 'slides.'] };
+// ---- service-to-service identity (workload identity) ------------------------------------------------------------------------------------------------
+// Each calling service (meet, storage, clips, docs) holds its OWN Ed25519 private key; the portal holds only the matching PUBLIC keys (SBACS_SERVICE_PUBLIC_KEYS="meet=<base64 SPKI DER>,...").
+// There is no shared secret: compromising the portal cannot mint a service's credential. A service signs a short-lived token:
+//     qsv2.<base64url JSON {iss, sub, aud, iat, exp, jti}>.<base64url Ed25519 signature over "qsv2.<payload>">
+// and the portal accepts it only when ALL hold: the signature verifies under the key registered for `sub`; iss === "qorlla-<sub>"; aud === the configured audience;
+// exp is in the future and exp-iat <= 5 minutes; iat is not in the future (30 s skew); and the operation + feature asked about are inside that service's scope.
+// Any credential problem answers 404 (the interface is not discoverable); an out-of-scope request answers 403.
+export const AUDIENCE = 'qorlla-sbacs';
+const OPS = ['check', 'reserve', 'record', 'finalize', 'release'];
+export const SERVICE_SCOPES = {
+  meet: { features: ['meet.'], ops: OPS }, storage: { features: ['storage.'], ops: OPS },
+  clips: { features: ['clips.'], ops: OPS }, docs: { features: ['docs.', 'sheets.', 'slides.'], ops: OPS }
+};
 const b64 = (b) => Buffer.from(b).toString('base64url');
-export function mintServiceToken({ service, key, ttlSec = 120, now = Date.now() }) {
-  const body = b64(JSON.stringify({ svc: service, iat: Math.floor(now / 1000), exp: Math.floor(now / 1000) + ttlSec }));
-  return 'qsv1.' + body + '.' + crypto.createHmac('sha256', key).update('qsv1.' + body).digest('base64url');
+export function mintServiceToken({ service, privateKey, audience = AUDIENCE, issuer = 'qorlla-' + service, ttlSec = 120, now = Date.now(), jti = crypto.randomUUID() }) {
+  const iat = Math.floor(now / 1000), body = b64(JSON.stringify({ iss: issuer, sub: service, aud: audience, iat, exp: iat + ttlSec, jti }));
+  return 'qsv2.' + body + '.' + b64(crypto.sign(null, Buffer.from('qsv2.' + body), privateKey));
 }
-export function verifyServiceToken(token, keys = {}, now = Date.now()) {
-  const m = /^qsv1\.([A-Za-z0-9_-]{10,400})\.([A-Za-z0-9_-]{43})$/.exec(String(token || '')); if (!m) return null;
-  let claims; try { claims = JSON.parse(Buffer.from(m[1], 'base64url').toString()); } catch { return null; }
-  const key = claims && Object.hasOwn(keys, claims.svc) ? keys[claims.svc] : null; if (!key || key.length < 32 || !SERVICE_SCOPES[claims.svc]) return null;
-  const want = crypto.createHmac('sha256', key).update('qsv1.' + m[1]).digest(), got = Buffer.from(m[2], 'base64url');
-  if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return null;
-  const t = Math.floor(now / 1000);
-  if (!Number.isInteger(claims.exp) || !Number.isInteger(claims.iat) || claims.exp <= t || claims.exp - claims.iat > 300 || claims.iat > t + 30) return null;
-  return { service: claims.svc };
+/** publicKeys: { service: KeyObject }. Returns { service } or null. Never throws. */
+export function verifyServiceToken(token, { publicKeys = {}, audience = AUDIENCE, now = Date.now() } = {}) {
+  try {
+    const m = /^qsv2\.([A-Za-z0-9_-]{20,600})\.([A-Za-z0-9_-]{86})$/.exec(String(token || '')); if (!m) return null;
+    const c = JSON.parse(Buffer.from(m[1], 'base64url').toString());
+    if (!c || typeof c.sub !== 'string' || !Object.hasOwn(SERVICE_SCOPES, c.sub) || !Object.hasOwn(publicKeys, c.sub)) return null;
+    if (!crypto.verify(null, Buffer.from('qsv2.' + m[1]), publicKeys[c.sub], Buffer.from(m[2], 'base64url'))) return null;
+    const t = Math.floor(now / 1000);
+    if (c.iss !== 'qorlla-' + c.sub || c.aud !== audience || typeof c.jti !== 'string' || c.jti.length < 8) return null;
+    if (!Number.isInteger(c.exp) || !Number.isInteger(c.iat) || c.exp <= t || c.exp - c.iat > 300 || c.exp <= c.iat || c.iat > t + 30) return null;
+    return { service: c.sub };
+  } catch { return null; }
 }
 
-/** Service-to-service interface for modules that live outside the portal (Meet, Clips, storage). Off unless SBACS_SERVICE_KEYS is set. A caller must be a trusted
- *  backend service, never a browser. Anything wrong with the credential answers 404 so the endpoint is not discoverable; asking about a feature outside the
- *  caller's scope is 403. */
+/** Service-to-service interface for modules outside the portal (Meet, storage, Clips). Off unless SBACS_SERVICE_PUBLIC_KEYS registers at least one service.
+ *  The caller names the ACCOUNT (never a workspace on its own authority): the workspace is resolved server-side from membership, and an explicit workspaceId must be one the account belongs to. */
 export function registerSbacsInternal(app, { h, sbacs, cfg }) {
-  const gate = (req, res, next) => {
-    const svc = verifyServiceToken(String(req.get('authorization') || '').replace(/^Bearer /, ''), cfg.sbacsServiceKeys || {});
+  const gate = (op) => (req, res, next) => {
+    const svc = verifyServiceToken(String(req.get('authorization') || '').replace(/^Bearer /, ''), { publicKeys: cfg.sbacsServicePublicKeys || {}, audience: cfg.sbacsAudience || AUDIENCE });
     if (!svc) return res.status(404).type('text/plain').send('not found');
+    if (!SERVICE_SCOPES[svc.service].ops.includes(op)) return res.status(403).json({ error: 'out_of_scope', service: svc.service });
     req.service = svc.service; next();
   };
   const inScope = (req, res, feature) => {
-    if (SERVICE_SCOPES[req.service].some((pre) => feature.startsWith(pre))) return true;
+    if (SERVICE_SCOPES[req.service].features.some((pre) => feature.startsWith(pre))) return true;
     res.status(403).json({ error: 'out_of_scope', service: req.service }); return false;
   };
-  const ws = z.string().uuid(), feat = z.string().regex(/^[a-z][a-z0-9_.]{2,63}$/);
-  app.post('/internal/v1/entitlements/check', gate, h(async (req, res) => {
-    const p = z.object({ workspaceId: ws, feature: feat }).strict().parse(req.body); if (!inScope(req, res, p.feature)) return;
-    res.set('Cache-Control', 'no-store').json(await sbacs.check({ workspaceId: p.workspaceId, featureKey: p.feature }));
+  const account = z.string().regex(/^[A-Za-z0-9_.:@-]{1,128}$/), ws = z.string().uuid(), feat = z.string().regex(/^[a-z][a-z0-9_.]{2,63}$/), key = z.string().min(8).max(160);
+  const subject = { accountId: account, workspaceId: ws.optional() };
+  /** account -> workspace, or an explanatory refusal already written to `res` */
+  const workspaceOf = async (res, accountId, workspaceId) => {
+    const r = await sbacs.resolveWorkspace(accountId, workspaceId);
+    if (r.error) { res.status(r.error === 'bad_account' ? 400 : 403).json({ ok: false, allowed: false, reason: r.error }); return null; }
+    return r.workspaceId;
+  };
+  app.post('/internal/v1/entitlements/check', gate('check'), h(async (req, res) => {
+    const p = z.object({ ...subject, feature: feat }).strict().parse(req.body); if (!inScope(req, res, p.feature)) return;
+    const r = await sbacs.resolveWorkspace(p.accountId, p.workspaceId);
+    if (r.error === 'bad_account') return res.status(400).json({ allowed: false, reason: 'bad_account' });
+    if (r.error === 'not_a_member') return res.status(403).json({ allowed: false, reason: 'not_a_member' });
+    if (r.error) return res.set('Cache-Control', 'no-store').json(p.feature === 'meet.guest_join' ? { allowed: true, feature: p.feature } : { allowed: false, reason: 'no_workspace', feature: p.feature, upgradeAvailable: false });
+    res.set('Cache-Control', 'no-store').json(await sbacs.check({ workspaceId: r.workspaceId, featureKey: p.feature }));
   }));
-  app.post('/internal/v1/entitlements/reserve', gate, h(async (req, res) => {
-    const p = z.object({ workspaceId: ws, feature: feat, units: z.number().int().min(1).max(1_000_000).default(1), idempotencyKey: z.string().min(8).max(120), ttlMs: z.number().int().min(1000).max(86_400_000).optional() }).strict().parse(req.body);
+  app.post('/internal/v1/entitlements/reserve', gate('reserve'), h(async (req, res) => {
+    const p = z.object({ ...subject, feature: feat, units: z.number().int().min(1).max(1_000_000).default(1), idempotencyKey: key, ttlMs: z.number().int().min(1000).max(86_400_000).optional() }).strict().parse(req.body);
     if (!inScope(req, res, p.feature)) return;
-    const r = await sbacs.reserve({ workspaceId: p.workspaceId, featureKey: p.feature, units: p.units, idempotencyKey: p.idempotencyKey, ttlMs: p.ttlMs });
+    const w = await workspaceOf(res, p.accountId, p.workspaceId); if (!w) return;
+    const r = await sbacs.reserve({ workspaceId: w, featureKey: p.feature, units: p.units, idempotencyKey: p.idempotencyKey, ttlMs: p.ttlMs });
     res.set('Cache-Control', 'no-store').status(r.ok ? 200 : 403).json(r);
   }));
+  // work that ALREADY happened (e.g. media accepted while the entitlement service was unreachable) is recorded even beyond a quota: it cannot be un-delivered
+  app.post('/internal/v1/entitlements/record', gate('record'), h(async (req, res) => {
+    const p = z.object({ ...subject, feature: feat, units: z.number().int().min(1).max(1_000_000).default(1), idempotencyKey: key }).strict().parse(req.body);
+    if (!inScope(req, res, p.feature)) return;
+    const w = await workspaceOf(res, p.accountId, p.workspaceId); if (!w) return;
+    res.set('Cache-Control', 'no-store').json(await sbacs.record({ workspaceId: w, featureKey: p.feature, units: p.units, idempotencyKey: p.idempotencyKey }));
+  }));
   for (const action of ['finalize', 'release']) {
-    app.post('/internal/v1/entitlements/' + action, gate, h(async (req, res) => {
-      const p = z.object({ reservationId: z.string().uuid() }).strict().parse(req.body);
-      const feature = await sbacs.reservationFeature(p.reservationId);          // a service may settle only reservations for features in its own scope
-      if (!feature) return res.status(404).json({ error: 'unknown_reservation' });
-      if (!inScope(req, res, feature)) return;
+    app.post('/internal/v1/entitlements/' + action, gate(action), h(async (req, res) => {
+      const p = z.object({ accountId: account, reservationId: z.string().uuid() }).strict().parse(req.body);
+      const info = await sbacs.reservationInfo(p.reservationId);                          // a service settles only reservations in its own scope, for workspaces the named account belongs to
+      if (!info) return res.status(404).json({ error: 'unknown_reservation' });
+      if (!inScope(req, res, info.feature)) return;
+      if (!(await sbacs.isMember(p.accountId, info.workspaceId))) return res.status(403).json({ ok: false, reason: 'not_a_member' });
       res.set('Cache-Control', 'no-store').json(await sbacs[action](p.reservationId));
     }));
   }

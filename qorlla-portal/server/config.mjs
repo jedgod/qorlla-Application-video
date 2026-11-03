@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { resolveAiConfig } from './ai/config.mjs';
 
 // Environment parsing for the portal. Nothing here ever supplies a development identity: when authentication is not fully
@@ -60,8 +61,11 @@ export function loadConfig(env = process.env) {
   };
   cfg.platformAdmins = String(env.PLATFORM_ADMIN_USER_IDS || '').split(',').map((x) => x.trim().toLowerCase()).filter((x) => /^[0-9a-f-]{36}$/.test(x));
   cfg.metricsToken = trim(env.METRICS_TOKEN).length >= 24 ? trim(env.METRICS_TOKEN) : '';   // shorter tokens are ignored: the endpoint then stays off
-  // service-specific keys for the internal entitlement API ("meet=<key>,clips=<key>", each >= 32 chars); services mint short-lived tokens with them. Off when unset.
-  cfg.sbacsServiceKeys = Object.fromEntries(String(env.SBACS_SERVICE_KEYS || '').split(',').map((x) => x.trim().split('=')).filter(([k, v]) => /^[a-z]{2,16}$/.test(k || '') && (v || '').length >= 32));
+  // workload identity for the internal entitlement API: "meet=<base64 SPKI DER Ed25519 public key>,storage=<...>". Each service signs short-lived tokens with its own private key. Off when unset.
+  cfg.sbacsAudience = trim(env.SBACS_AUDIENCE) || 'qorlla-sbacs';
+  cfg.sbacsServicePublicKeys = Object.fromEntries(String(env.SBACS_SERVICE_PUBLIC_KEYS || '').split(',').map((x) => x.trim().split('=')).map(([k, v]) => {
+    try { const key = crypto.createPublicKey({ key: Buffer.from(v || '', 'base64'), format: 'der', type: 'spki' }); return key.asymmetricKeyType === 'ed25519' && /^[a-z]{2,16}$/.test(k || '') ? [k, key] : null; } catch { return null; }   // Ed25519 public keys only
+  }).filter(Boolean));
   cfg.authProblems = authProblems;
   cfg.authConfigured = authProblems.length === 0;
 

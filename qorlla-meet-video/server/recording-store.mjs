@@ -14,11 +14,12 @@ import express from 'express';
 import { loadKeyring, newDataKey, encryptChunk, decryptChunk } from './recording-crypto.mjs';
 import { createObjectStore } from './recording-objects.mjs';
 import { verifyChain } from './recording-audit.mjs';
+import { createEnforcement } from './sbacs-enforce.mjs';
 
 const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
 export const AI_PURPOSES = ['transcription', 'summary', 'translation', 'third_party'];
 
-export function registerRecordingStorage({ app, db, auth, fail, audit, getRoster, getName, env = process.env, ring = loadKeyring(env), store = createObjectStore(env), policyVersion = 'qorlla-recording-consent-2026-10' }) {
+export function registerRecordingStorage({ app, db, auth, fail, sbacs = createEnforcement({ mode: 'off' }), audit, getRoster, getName, env = process.env, ring = loadKeyring(env), store = createObjectStore(env), policyVersion = 'qorlla-recording-consent-2026-10' }) {
   const cfg = {
     dayMs: num(env.RECORDING_DAY_MS, 86400000), defaultDays: num(env.RECORDING_RETENTION_DEFAULT_DAYS, 30), maxChunk: num(env.RECORDING_MAX_CHUNK_BYTES, 8 * 1024 * 1024), maxTotal: num(env.RECORDING_MAX_BYTES, 4 * 1024 ** 3),
     lateMs: num(env.RECORDING_LATE_CHUNK_MS, 30000), idleMs: num(env.RECORDING_IDLE_MS, 120000), finalizeGraceMs: num(env.RECORDING_FINALIZE_GRACE_MS, 45000), sweepMs: num(env.RECORDING_SWEEP_MS, 30000), tokenSec: num(env.RECORDING_LINK_SECONDS, 300),
@@ -75,10 +76,17 @@ export function registerRecordingStorage({ app, db, auth, fail, audit, getRoster
     const { rows: [ex] } = await db.query('SELECT size FROM recording_chunks WHERE recording_id=$1 AND seq=$2', [rec.id, seq]);
     if (ex) return ex.size === body.length ? res.json({ seq, duplicate: true, ...(await nextSeq(rec.id)) }) : fail(res, 409, 'That chunk was already stored with different content');
     if (Number(rec.bytes) + body.length > cfg.maxTotal) return fail(res, 413, 'Recording size limit reached');
-    const dek = ring.unwrap(rec.key_id, rec.wrapped_key, rec.id), key = rec.id + '/' + String(seq).padStart(8, '0') + '.bin';
-    await store.put(key, encryptChunk(dek, rec.id, seq, body));
-    const ins = await db.query('INSERT INTO recording_chunks(recording_id,seq,size,object_key) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING', [rec.id, seq, body.length, key]);
-    if (ins.rowCount) await db.query('UPDATE recordings SET bytes=bytes+$2, last_chunk_at=now() WHERE id=$1', [rec.id, body.length]);
+    // SBACS storage: reserve BEFORE the bytes are accepted (stable key per recording+chunk), finalize once they are durable, release after a verified failure. Off unless SBACS_MODE is set.
+    const q = await sbacs.beforeChunk({ meetingId: rec.meeting_id, recordingId: rec.id, seq, bytesBefore: Number(rec.bytes), size: body.length });
+    if (!q.ok) return res.status(q.status).json(q.body);
+    let stored = false;
+    try {
+      const dek = ring.unwrap(rec.key_id, rec.wrapped_key, rec.id), key = rec.id + '/' + String(seq).padStart(8, '0') + '.bin';
+      await store.put(key, encryptChunk(dek, rec.id, seq, body));
+      const ins = await db.query('INSERT INTO recording_chunks(recording_id,seq,size,object_key) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING', [rec.id, seq, body.length, key]);
+      stored = ins.rowCount > 0;
+      if (stored) await db.query('UPDATE recordings SET bytes=bytes+$2, last_chunk_at=now() WHERE id=$1', [rec.id, body.length]);
+    } finally { await sbacs.afterChunk(q.ticket, stored).catch((e) => console.error('[sbacs] chunk settlement failed:', e.message)); }
     res.status(201).json({ seq, ...(await nextSeq(rec.id)) });
   }, 'Could not store the chunk'));
 

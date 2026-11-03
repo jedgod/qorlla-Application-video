@@ -8,6 +8,18 @@
 #   node qorlla-portal/tests/fake-stripe.mjs 19501            # the test double, on the host
 #   docker compose -p qsbacs --env-file .dev-stack-sbacs/compose.env -f docker-compose.yml -f deploy/docker-compose.isolated.yml -f deploy/docker-compose.isolated-ai.yml -f deploy/docker-compose.isolated-sbacs.yml up -d --build
 services:
+  meet-db:
+    volumes:
+      - ./qorlla-meet-video/sql/v4_23_sbacs_outbox.sql:/docker-entrypoint-initdb.d/005r_sbacs_outbox.sql:ro
+  # Meet enforces SBACS entitlements through the portal's internal API (workload identity: Ed25519, one key per service identity). Off unless SBACS_MODE is set in the project env file.
+  meet:
+    environment:
+      - SBACS_MODE=${SBACS_MODE:-off}
+      - SBACS_URL=${SBACS_URL:-}
+      - SBACS_MEET_PRIVATE_KEY_B64=${SBACS_MEET_PRIVATE_KEY_B64:-}
+      - SBACS_STORAGE_PRIVATE_KEY_B64=${SBACS_STORAGE_PRIVATE_KEY_B64:-}
+      - SBACS_GRACE_MIB=${SBACS_GRACE_MIB:-4}
+      - SBACS_DRAIN_MS=${SBACS_DRAIN_MS:-3000}
   main-db:
     volumes:
       - ./qorlla-portal/sql/012_sbacs.sql:/docker-entrypoint-initdb.d/012i_portal_012_sbacs.sql:ro
@@ -17,6 +29,8 @@ services:
     labels:
       qorlla.sbacs-test-billing: "test environment only: billing points at a local test double"
     environment:
+      - SBACS_SERVICE_PUBLIC_KEYS=${SBACS_SERVICE_PUBLIC_KEYS:-}
+      - PLATFORM_ADMIN_USER_IDS=${SBACS_E2E_ADMIN_ID:-}
       - BILLING_ENABLED=true
       - STRIPE_SECRET_KEY=sk_test_fake
       - STRIPE_WEBHOOK_SECRET=whsec_testtesttesttesttesttesttesttest
