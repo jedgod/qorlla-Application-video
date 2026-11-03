@@ -86,7 +86,61 @@
     });
   }
 
+  // ---------------------------------------------------------------- applications with their OWN routers (Documents, Chat, the Admin portal, ...)
+  // Each application hands in its own route definitions and its own authorization test; this file holds the logic once and never owns a router.
+  //   routes: [{ id, label, parent?, pattern?, href?, query?, whenQuery?, requires? }]
+  //     pattern    a path such as '/app/suite' or '/app/ai/reports/:id' (":x" segments match anything and are NEVER shown)
+  //     query      { tab: 'billing' }  the route applies only when these query parameters have exactly these values
+  //     whenQuery  ['doc']             the route applies only when these parameters are present (their values are never shown)
+  //     href       where an ANCESTOR crumb links (default: the pattern, when it has no ":x"); a route with neither is shown as text
+  //     requires   a label for the application's authorize() test (for example 'signedIn', 'platformAdmin')
+  //   authorize(route) -> boolean   is this destination accessible to the person looking at it? An inaccessible CURRENT page hides the trail; an inaccessible ANCESTOR is shown as text, never as a link.
+  // A path that matches no route shows NO trail (nothing is guessed, so no raw segment, id or token can leak into a label).
+  var normPath = function (p) { return String(p || '/').split(/[?#]/)[0].replace(/\/+$/, '') || '/'; };
+  function patternMatch(pattern, path) {
+    var a = normPath(pattern).split('/'), b = normPath(path).split('/'); if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) { if (a[i].charAt(0) === ':') { if (!b[i]) return false; continue; } if (a[i] !== b[i]) return false; }
+    return true;
+  }
+  function queryOf(q) {
+    if (!q) return {}; if (typeof q === 'string') { var o = {}; new URLSearchParams(q.charAt(0) === '?' ? q.slice(1) : q).forEach(function (v, k) { if (!(k in o)) o[k] = v; }); return o; }
+    if (typeof q.forEach === 'function' && typeof q.get === 'function') { var r = {}; q.forEach(function (v, k) { if (!(k in r)) r[k] = v; }); return r; }
+    return q;
+  }
+  function matchRoute(routes, path, query) {
+    var best = null, bestScore = -1, q = queryOf(query);
+    (routes || []).forEach(function (r) {
+      if (!r || !r.pattern || !patternMatch(r.pattern, path)) return; var score = 1, ok = true;
+      Object.keys(r.query || {}).forEach(function (k) { if (String(q[k] === undefined ? '' : q[k]) !== String(r.query[k])) ok = false; else score++; });
+      (r.whenQuery || []).forEach(function (k) { if (!q[k]) ok = false; else score++; });
+      if (ok && score > bestScore) { best = r; bestScore = score; }
+    });
+    return best;
+  }
+  var hrefOf = function (r) { return r.href || (r.pattern && r.pattern.indexOf(':') < 0 ? normPath(r.pattern) : undefined); };
+  /** -> { items, visible, route }. `visible` is false when the page matches no route, or the person may not see it. */
+  function build(o) {
+    var routes = o.routes || [], authorize = typeof o.authorize === 'function' ? o.authorize : function () { return true; }, byId = {};
+    routes.forEach(function (r) { if (r && r.id) byId[r.id] = r; });
+    var current = matchRoute(routes, o.path, o.query); if (!current) return { items: [], visible: false, route: null };
+    if (!authorize(current)) return { items: [], visible: false, route: current };
+    var chain = [], r = current, guard = 0; while (r && guard++ < 8) { chain.unshift(r); r = r.parent ? byId[r.parent] : null; }
+    var items = chain.map(function (c, i) { var it = { label: c.label }; if (i < chain.length - 1) { var h = hrefOf(c); if (h && authorize(c)) it.href = h; } return it; });
+    return { items: items, visible: true, route: current };
+  }
+  /** Paints a trail for an application with its own router. Hides the container when there is nothing (or nothing permitted) to show. */
+  function renderFor(o) {
+    var res = build(o), c = o.container; if (!c) return res;
+    if (!res.visible) { c.textContent = ''; var ol0 = c.querySelector('ol'); if (ol0) ol0.textContent = ''; c.hidden = true; c.classList && c.classList.add('hidden'); return res; }
+    c.hidden = false; c.classList && c.classList.remove('hidden'); if (c.tagName === 'NAV') c.setAttribute('aria-label', 'Breadcrumb');
+    render(c, res.items); res.duplicate = (document.querySelectorAll('nav[aria-label="Breadcrumb"]').length > 1); return res;
+  }
+  /** The stable interface for every application: render({ container, path, query, routes, authorize }). The older render(nav, items) form still works. */
+  function renderAny(a, b) { return a && typeof a === 'object' && 'container' in a && b === undefined ? renderFor(a) : render(a, b); }
+
   var api = { forRoute: forRoute, forPath: forPath, render: render, looksLikeId: looksLikeId, PHONE_SUBS: PHONE_SUBS, CALL_SETTINGS_SECTIONS: CALL_SETTINGS_SECTIONS, VIEW_LABELS: VIEW_LABELS };
-  root.QorllaCrumbs = api;
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  var apps = { build: build, matchRoute: matchRoute, renderFor: renderFor };
+  var both = {}; Object.keys(api).forEach(function (k) { both[k] = api[k]; }); Object.keys(apps).forEach(function (k) { both[k] = apps[k]; }); both.render = renderAny;
+  root.QorllaCrumbs = api; root.QorllaBreadcrumbs = both;                  // QorllaCrumbs: the original surface (kept); QorllaBreadcrumbs: the same plus the per-application interface
+  if (typeof module !== 'undefined' && module.exports) module.exports = Object.assign({}, both, { render: render, renderAny: renderAny });
 })(typeof window !== 'undefined' ? window : globalThis);

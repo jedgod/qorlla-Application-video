@@ -6,6 +6,7 @@
 <title>Qorlla Workplace</title>
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <link rel="stylesheet" href="/app/assets/styles.css">
+<link rel="stylesheet" href="/assets/breadcrumbs.css">
 </head>
 <body>
 <a class="skip" href="#page">Skip to content</a>
@@ -23,6 +24,7 @@
     <span id="who" class="who" aria-live="polite"></span>
   </div>
 </header>
+<nav id="crumbs" class="qorlla-breadcrumbs hidden" aria-label="Breadcrumb" hidden><ol class="breadcrumb-list"></ol></nav>
 <div class="layout">
   <aside aria-label="Workplace navigation">
     <div class="aside-label">WORKPLACE</div>
@@ -38,6 +40,7 @@
   </main>
 </div>
 <noscript><p style="padding:24px">The Qorlla Workplace portal needs JavaScript.</p></noscript>
+<script src="/assets/breadcrumbs.js"></script>
 <script type="module" src="/app/assets/app.js"></script>
 </body>
 </html>

@@ -60,16 +60,6 @@
   /* ---------- Main ---------- */
   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; gap: 14px; position: relative; }
   .topbar { display: flex; align-items: center; gap: 12px; height: 46px; }
-  /* Breadcrumbs: one trail under the top bar, above the page (see assets/breadcrumbs.js) */
-  .qorlla-breadcrumbs { width: 100%; padding: 12px 24px; background: #ffffff; border-bottom: 1px solid #e7ebf3; box-sizing: border-box; }
-  .qorlla-breadcrumbs.hidden, body.signed-out .qorlla-breadcrumbs { display: none; }
-  .breadcrumb-list { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
-  .breadcrumb-list a { color: #64748b; text-decoration: none; border-radius: 4px; }
-  .breadcrumb-list a:hover { color: #2457f5; text-decoration: underline; }
-  .breadcrumb-list a:focus-visible { outline: 2px solid #2457f5; outline-offset: 3px; }
-  .breadcrumb-list .current { color: #14213d; font-weight: 600; }
-  .breadcrumb-separator { color: #94a3b8; user-select: none; }
-  @media (max-width: 640px) { .qorlla-breadcrumbs { padding: 10px 16px; } .breadcrumb-list { font-size: 12px; gap: 6px; } }
   .search {
     flex: 1; max-width: 460px; margin: 0 auto; height: 44px; border-radius: 22px;
     background: var(--panel); box-shadow: var(--shadow); display: flex; align-items: center; gap: 10px;
@@ -624,6 +614,7 @@
   <link rel="stylesheet" href="assets/product.css">
   <script src="assets/product.js" defer></script>
   <script src="assets/single-tab.js"></script>
+  <link rel="stylesheet" href="assets/breadcrumbs.css">
   <script src="assets/breadcrumbs.js"></script>
 </head>
 <body data-page="workspace">

@@ -7,9 +7,9 @@
 <style>
   :root { --brand: #2563ff; --brand-2: #22b8ff; --line: #e4e9f2; --soft: #f5f8ff; --muted: #667189; --text: #131a2a; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif; height: 100vh; background: #fff; color: var(--text); overflow: hidden; }
+  body { font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif; height: 100vh; background: #fff; color: var(--text); overflow: hidden; display: flex; flex-direction: column; }
   button { font: inherit; color: inherit; }
-  .app { display: flex; height: 100vh; }
+  .app { display: flex; flex: 1; min-height: 0; }
 
   /* Sidebar */
   .sidebar { width: 300px; border-right: 1px solid var(--line); display: flex; flex-direction: column; background: #fafbfe; flex-shrink: 0; }
@@ -153,8 +153,11 @@
   <link rel="stylesheet" href="assets/product.css">
   <script src="assets/product.js" defer></script>
   <script src="assets/single-tab.js"></script>
+  <link rel="stylesheet" href="assets/breadcrumbs.css">
+  <script src="assets/breadcrumbs.js"></script>
 </head>
 <body data-page="chat">
+<nav id="crumbs" class="qorlla-breadcrumbs hidden" aria-label="Breadcrumb" hidden><ol class="breadcrumb-list"></ol></nav>
 <div class="app" id="app">
   <aside class="sidebar" data-language-host>
     <a class="back" href="qorlla.html" title="Back to Qorlla home">
@@ -495,6 +498,13 @@
     c.unread = 0; c.mentions = 0;
     api('/chat/' + c.id + '/read', { method: 'POST' }).catch(function () {});
   }
+  // Breadcrumbs: Chat supplies its own routes and its own authorization to the shared utility. The conversation id and name are never shown ("Conversation" only); signed out there is no trail.
+  var CHAT_ROUTES = [{ id: 'workspace', label: 'Workspace', href: 'qorlla.html#home' }, { id: 'chat', label: 'Chat', pattern: '/chat.html', parent: 'workspace', requires: 'signedIn' },
+    { id: 'chat-open', label: 'Conversation', pattern: '/chat.html', whenQuery: ['open'], parent: 'chat', requires: 'signedIn' }];
+  function paintCrumbs() {
+    var nav = $('crumbs'), B = window.QorllaBreadcrumbs; if (!nav || !B) return;
+    B.render({ container: nav, path: '/chat.html', query: state.active ? { open: '1' } : {}, routes: CHAT_ROUTES, authorize: function (r) { return !r.requires || !!state.me; } });
+  }
   function openChat(id) {
     state.active = id;
     var c = activeChat();
@@ -504,6 +514,7 @@
     $('app').classList.add('in-chat');
     paintHeader(c);
     history.replaceState(null, '', '#' + id);
+    paintCrumbs();
     renderedKey = null;
     renderMessages(true);
     markRead(c);
@@ -516,6 +527,7 @@
     $('emptyState').style.display = '';
     $('app').classList.remove('in-chat');
     history.replaceState(null, '', location.pathname);
+    paintCrumbs();
     renderList();
   }
 
@@ -527,6 +539,7 @@
       $('whoami').textContent = d.me.displayName + ' (@' + d.me.username + ')';
       try { localStorage.setItem('zw_name', d.me.displayName); } catch (e) {}
       sessionStorage.setItem('zw_uid', d.me.id);
+      paintCrumbs();
       var c = activeChat();
       if (state.active && !c) { closeChat(); }
       else if (c) { paintHeader(c); renderMessages(false); markRead(c); }

@@ -1,0 +1,7 @@
+# ISOLATED TEST PROJECT ONLY (never production). Lets the browser tests for Documents/Admin name a platform administrator (the portal reads PLATFORM_ADMIN_USER_IDS):
+#   ISO_PROJECT=qbc2 ISO_STATE_DIR=.dev-stack-bc2 ISO_PROXY_PORT=4900 node scripts/iso-compose-env.mjs
+#   docker compose -p qbc2 --env-file .dev-stack-bc2/compose.env -f docker-compose.yml -f deploy/docker-compose.isolated.yml -f deploy/docker-compose.isolated-breadcrumbs.yml up -d --build
+services:
+  qorlla-portal:
+    environment:
+      - PLATFORM_ADMIN_USER_IDS=${PLATFORM_ADMIN_USER_IDS:-}

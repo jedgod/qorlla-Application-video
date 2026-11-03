@@ -4,7 +4,8 @@ import { $, esc, api, notice, day, money, describe, panel } from './core.js';
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
 const when = (iso) => (iso ? new Date(iso).toLocaleString() : '-');
 const pill = (s) => `<span class="pill ${esc(s)}">${esc(String(s).replace('_', ' '))}</span>`;
-const SECTIONS = { overview: 'Overview', health: 'Health', subscriptions: 'Subscriptions', invoices: 'Invoices & refunds', events: 'Provider events', sales: 'Sales leads', prices: 'Usage prices', switches: 'Kill switches' };
+export const ADMIN_SECTIONS = { overview: 'Overview', health: 'Health', subscriptions: 'Subscriptions', invoices: 'Invoices & refunds', events: 'Provider events', sales: 'Sales leads', prices: 'Usage prices', switches: 'Kill switches' };
+const SECTIONS = ADMIN_SECTIONS;
 
 export async function renderAdmin(root) {
   const tab = new URLSearchParams(location.search).get('tab') || 'overview';

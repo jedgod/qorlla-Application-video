@@ -5,6 +5,7 @@ import { renderPhone, renderReceptionist } from './phone.js';
 import { renderNotes, renderMate, renderSuite } from './workspace.js';
 import { renderChangePlan, renderUsage } from './billing-ops.js';
 import { renderAdmin } from './admin.js';
+import { paintCrumbs } from './crumbs.js';
 const state = { me: null, workspace: null, role: null, signedIn: null };
 const modules = [
   ['products', '📦', 'Products', 'Explore all Qorlla applications and workplace tools.'],
@@ -96,7 +97,9 @@ async function renderTeam() {
   await draw();
 }
 
-async function boot() {
+/** One trail for the portal, painted once everything about the visitor is known (signed out, unauthorized and unavailable all end with no trail). */
+async function boot() { try { await bootPage(); } finally { try { paintCrumbs({ state, modules }); } catch (e) { /* the trail is a convenience: the page works without it */ } } }
+async function bootPage() {
   const parts = location.pathname.split('/'); const slug = parts[2] || 'products';
   $('#side').innerHTML = modules.filter((m) => !['products', 'ai', 'solutions', 'support', 'meet'].includes(m[0])).map((m) => `<a class="${slug === m[0] ? 'active' : ''}" ${slug === m[0] ? 'aria-current="page"' : ''} href="/app/${m[0]}"><span aria-hidden="true">${m[1]}</span> ${esc(m[2])}</a>`).join('');
   document.title = (modules.find((m) => m[0] === slug)?.[2] || { billing: 'Plans & Billing', team: 'Team', admin: 'Platform admin' }[slug] || 'Workplace') + ' | Qorlla';

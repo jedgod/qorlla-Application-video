@@ -1,0 +1,10 @@
+/* Breadcrumbs: one trail under the application's top bar and above its page. Shared by the workspace shell, Chat, Documents and the Admin portal (assets/breadcrumbs.js). */
+.qorlla-breadcrumbs { width: 100%; padding: 12px 24px; background: #ffffff; border-bottom: 1px solid #e7ebf3; box-sizing: border-box; }
+.qorlla-breadcrumbs.hidden, .qorlla-breadcrumbs[hidden], body.signed-out .qorlla-breadcrumbs { display: none; }
+.breadcrumb-list { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.breadcrumb-list a { color: #64748b; text-decoration: none; border-radius: 4px; }
+.breadcrumb-list a:hover { color: #2457f5; text-decoration: underline; }
+.breadcrumb-list a:focus-visible { outline: 2px solid #2457f5; outline-offset: 3px; }
+.breadcrumb-list .current { color: #14213d; font-weight: 600; }
+.breadcrumb-separator { color: #94a3b8; user-select: none; }
+@media (max-width: 640px) { .qorlla-breadcrumbs { padding: 10px 16px; } .breadcrumb-list { font-size: 12px; gap: 6px; } }
