@@ -68,14 +68,15 @@ async function renderBilling() {
         `<div class="row"><a class="button" href="/pricing/">View plans</a>${b.can_manage && sub && ['active', 'trialing', 'past_due'].includes(sub.status) && !sub.cancel_at_period_end ? '<button id="cancel" class="secondary">Cancel at period end</button>' : ''}${b.can_manage && sub ? '<button id="reconcile" class="secondary">Refresh from payment provider</button>' : ''}</div>` +
         (!b.checkout_available ? '<p class="muted">Online checkout is not enabled for this deployment yet.</p>' : '')) +
       panel('Invoices & receipts', b.can_manage ? (inv.length ? `<table><thead><tr><th>Date</th><th>Number</th><th>Status</th><th>Amount</th><th>Receipt</th></tr></thead><tbody>${inv.map((i) => `<tr><td>${esc(day(i.created_at))}</td><td>${esc(i.number || '-')}</td><td>${esc(i.status.replace('_', ' '))}</td><td>${esc(money(i.amount_paid_cents || i.amount_due_cents, i.currency))}${i.amount_refunded_cents ? ` <span class="muted">(refunded ${esc(money(i.amount_refunded_cents, i.currency))})</span>` : ''}</td><td>${i.hosted_invoice_url && /^https:\/\//.test(i.hosted_invoice_url) ? `<a class="link" href="${esc(i.hosted_invoice_url)}" rel="noopener noreferrer">View</a>` : '-'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No invoices yet.</div>') : '<p class="muted">Only owners, admins and billing contacts can see invoices.</p>');
+    // wire the buttons BEFORE the slower panels load, so an early click is never lost
+    const act = async (fn, msg) => { try { await fn(); notice(msg); await draw(); } catch (e) { notice(describe(e)); } };
+    $('#cancel')?.addEventListener('click', () => confirm('Cancel at the end of the current period? You keep your plan until then.') && act(() => api('/billing/cancel', { method: 'POST', body: '{}' }), 'Cancellation requested. Your plan stays active until the period ends.'));
+    $('#reconcile')?.addEventListener('click', () => act(() => api('/billing/reconcile', { method: 'POST', body: '{}' }), 'Refreshed from the payment provider.'));
     root.querySelector('section.panel')?.insertAdjacentHTML('afterend', '<div id="subscription"></div>');       // right after "Current plan"
     await renderSubscription($('#subscription'), { b, redraw: draw }).catch((e) => notice(describe(e)));
     root.insertAdjacentHTML('beforeend', '<div id="plan-change"></div><div id="usage-panel"></div>');
     await renderChangePlan($('#plan-change'), b, draw).catch((e) => notice(describe(e)));
     await renderUsage($('#usage-panel'), b, draw).catch((e) => notice(describe(e)));
-    const act = async (fn, msg) => { try { await fn(); notice(msg); await draw(); } catch (e) { notice(describe(e)); } };
-    $('#cancel')?.addEventListener('click', () => confirm('Cancel at the end of the current period? You keep your plan until then.') && act(() => api('/billing/cancel', { method: 'POST', body: '{}' }), 'Cancellation requested. Your plan stays active until the period ends.'));
-    $('#reconcile')?.addEventListener('click', () => act(() => api('/billing/reconcile', { method: 'POST', body: '{}' }), 'Refreshed from the payment provider.'));
     return b;
   };
   // coming back from the provider-hosted payment portal: nothing is trusted from the redirect, the page simply re-reads billing state from our backend

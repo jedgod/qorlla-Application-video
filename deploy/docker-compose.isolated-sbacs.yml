@@ -1,0 +1,25 @@
+# SBACS BROWSER-CERTIFICATION ENVIRONMENT. ISOLATED TEST PROJECTS ONLY: never qiso, qtls, qclk, or any production-default environment.
+# Adds to an isolated project (own name, volumes, database, ports):
+#   * the SBACS migrations 012-014 (a FRESH database applies them at initialisation, after 001-011 and before the role script)
+#   * billing switched on against the deterministic Stripe TEST DOUBLE (qorlla-portal/tests/fake-stripe.mjs) running on the host. No real payment provider, no real key:
+#     the key below is the double's fixed fake. 'billing_live' still ships OFF in the database; the browser suites turn it on per test and prove the OFF behaviour.
+# Use it as the fourth -f file next to the AI test-adapter overlay (the AI browser specs need it):
+#   ISO_PROJECT=qsbacs ISO_STATE_DIR=.dev-stack-sbacs ISO_PROXY_PORT=4100 node scripts/iso-compose-env.mjs
+#   node qorlla-portal/tests/fake-stripe.mjs 19501            # the test double, on the host
+#   docker compose -p qsbacs --env-file .dev-stack-sbacs/compose.env -f docker-compose.yml -f deploy/docker-compose.isolated.yml -f deploy/docker-compose.isolated-ai.yml -f deploy/docker-compose.isolated-sbacs.yml up -d --build
+services:
+  main-db:
+    volumes:
+      - ./qorlla-portal/sql/012_sbacs.sql:/docker-entrypoint-initdb.d/012i_portal_012_sbacs.sql:ro
+      - ./qorlla-portal/sql/013_sbacs_enforcement.sql:/docker-entrypoint-initdb.d/012j_portal_013_sbacs_enforcement.sql:ro
+      - ./qorlla-portal/sql/014_sbacs_billing.sql:/docker-entrypoint-initdb.d/012k_portal_014_sbacs_billing.sql:ro
+  qorlla-portal:
+    labels:
+      qorlla.sbacs-test-billing: "test environment only: billing points at a local test double"
+    environment:
+      - BILLING_ENABLED=true
+      - STRIPE_SECRET_KEY=sk_test_fake
+      - STRIPE_WEBHOOK_SECRET=whsec_testtesttesttesttesttesttesttest
+      - STRIPE_API_BASE=http://host.docker.internal:${FAKE_STRIPE_PORT:-19501}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -27,6 +27,8 @@ const heading = (title, sub, icon = '✦') => `<div class="hero"><div><div class
 const panel = (title, body) => `<section class="panel"><h2>${esc(title)}</h2>${body}</section>`;
 function describe(e) {
   if (e.status === 402) return `Your ${e.body.plan} plan allows ${e.body.limit} for this. Upgrade on the pricing page to add more.`;
+  if (e.status === 403 && e.body?.error === 'subscription_access_denied') return 'That is not included in your current plan.' + (e.body.upgradeAvailable ? ' See Subscription & Billing for the plans that include it.' : '');
+  if (e.status === 403 && e.body?.code === 'account_suspended') return 'This workspace is suspended.';
   if (e.status === 403) return 'You do not have permission to do that in this workspace.';
   return e.message;
 }
