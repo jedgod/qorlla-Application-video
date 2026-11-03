@@ -235,6 +235,9 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         forwardEnabled: false, forwardTo: '', voicemailEnabled: false, voicemailGreeting: '', ringtone: 'classic', echoCancellation: true, noiseSuppression: true, micLabel: '', speakerLabel: '', blockedNumbers: [], spamProtection: true, historyRetentionDays: 90 };
     const PHONE_BOOLS = ['callWaiting', 'doNotDisturb', 'missedAlerts', 'notifyIncoming', 'notifyVoicemail', 'notifyReminders', 'forwardEnabled', 'voicemailEnabled', 'echoCancellation', 'noiseSuppression', 'spamProtection'];
     const PHONE_TEXT = { callerIdName: 40, voicemailGreeting: 300, micLabel: 80, speakerLabel: 80 };
+    // Imported library ringtones (assets/ringtones/library/manifest.json, written by scripts/import-ringtone-library.mjs): only ids listed there are accepted.
+    let LIBRARY_TONES = new Set();
+    try { LIBRARY_TONES = new Set((JSON.parse(fs.readFileSync(path.join(__dirname, 'assets', 'ringtones', 'library', 'manifest.json'), 'utf8')).items || []).map((i) => i.id)); } catch (e) { /* no library imported */ }
     const PHONE_ENUMS = { ringtone: ['classic', 'soft', 'chime', 'marimba', 'pulse', 'rise', 'bell', 'lullaby'], notifyChannel: ['browser', 'email', 'both'], historyRetentionDays: [0, 30, 90, 365] };
     const PHONE_SENSITIVE = ['forwardEnabled', 'forwardTo', 'voicemailEnabled', 'blockedNumbers', 'spamProtection', 'doNotDisturb'];
     const readPhone = (user) => ({ ...PHONE_DEFAULTS, ...(store.readJson(file(userKey('phonesettings', user)), {}) || {}) });
@@ -245,7 +248,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         const b = req.body || {}, cur = readPhone(req.user), next = { ...cur };
         for (const k of PHONE_BOOLS) if (k in b) { if (typeof b[k] !== 'boolean') return bad(res, k + ' must be true or false.'); next[k] = b[k]; }
         for (const k of Object.keys(PHONE_TEXT)) if (k in b) next[k] = str(b[k], PHONE_TEXT[k]);
-        for (const k of Object.keys(PHONE_ENUMS)) if (k in b) { if (!PHONE_ENUMS[k].includes(b[k])) return bad(res, k + ' is not a valid choice.'); next[k] = b[k]; }
+        for (const k of Object.keys(PHONE_ENUMS)) if (k in b) { if (!PHONE_ENUMS[k].includes(b[k]) && !(k === 'ringtone' && LIBRARY_TONES.has(b[k]))) return bad(res, k + ' is not a valid choice.'); next[k] = b[k]; }
         if ('defaultCountry' in b) { if (!/^[A-Z]{2}$/.test(String(b.defaultCountry))) return bad(res, 'The country is not valid.'); next.defaultCountry = b.defaultCountry; }
         if ('forwardTo' in b) { next.forwardTo = normPhone(str(b.forwardTo, 30)); if (next.forwardTo && !E164.test(next.forwardTo)) return bad(res, 'The forwarding number must be international, such as +12025550100.'); }
         if (next.forwardEnabled && !next.forwardTo) return bad(res, 'Enter the number to forward calls to.');

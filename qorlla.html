@@ -2760,7 +2760,7 @@
     // --- audio: names come from the browser; nothing is captured until you press a test button
     function pAudio(box) {
       var msg = h('p', { class: 'muted', id: 'psAudioMsg', role: 'status' }), meter = h('div', { class: 'ps-meter', 'aria-hidden': 'true' }, [h('span', { id: 'psLevel' })]);
-      var mic = h('select', { id: 'psMic' }), spk = h('select', { id: 'psSpk' }), ring = psel('psRing', I18n.t('Ringtone'), Object.keys(RINGTONES).map(function (k) { return [k, RINGTONES[k].label]; }), ps.ringtone);
+      var mic = h('select', { id: 'psMic' }), spk = h('select', { id: 'psSpk' }), ring = (function () { var l = psel('psRing', I18n.t('Ringtone'), [], ps.ringtone); fillRing(l.querySelector('select'), ps.ringtone); libReady.then(function () { var s = document.getElementById('psRing'); if (s) fillRing(s, s.value || ps.ringtone); }); return l; })();
       box.appendChild(h('h3', { text: I18n.t('Audio & Devices') }));
       box.appendChild(h('label', { class: 'qp-fl2', for: 'psMic' }, [I18n.t('Microphone'), mic])); box.appendChild(h('label', { class: 'qp-fl2', for: 'psSpk' }, [I18n.t('Speaker'), spk]));
       function fill() {
@@ -2777,7 +2777,7 @@
       box.appendChild(h('div', { class: 'row qp-actions' }, [
         h('button', { class: 'btn small', type: 'button', id: 'psTestMic', text: I18n.t('Test microphone'), onclick: function () { testMic(meter, msg, mic.value); } }),
         h('button', { class: 'btn small', type: 'button', id: 'psTestSpk', text: I18n.t('Test speaker'), onclick: function () { tone([[660, 0.25], [880, 0.25]], spk.value, msg, I18n.t('Played a short tone on your speaker.')); } }),
-        h('button', { class: 'btn small', type: 'button', id: 'psPlayRing', text: I18n.t('Play ringtone'), onclick: function () { var r = sv('psRing').value; tone(RINGTONES[r].notes, spk.value, msg, I18n.t('Played the ringtone.'), RINGTONES[r]); } })]));
+        h('button', { class: 'btn small', type: 'button', id: 'psPlayRing', text: I18n.t('Play ringtone'), onclick: function () { var r = sv('psRing').value; var rt = toneById(r); if (rt.file) previewFile(rt, msg, I18n.t('Played the ringtone.')); else tone(rt.notes, spk.value, msg, I18n.t('Played the ringtone.'), rt); } })]));
       box.appendChild(meter);
       box.appendChild(pcheck('psEcho', I18n.t('Echo cancellation'), ps.echoCancellation)); box.appendChild(pcheck('psNoise', I18n.t('Noise suppression'), ps.noiseSuppression));
       box.appendChild(h('p', { class: 'muted qp-sub', text: I18n.t('These are preferences, not a guarantee that a device stays connected. Cameras and microphones need https or localhost.') }));
@@ -3620,18 +3620,36 @@
     bell: { label: 'Bell', wave: 'sine', gain: 0.16, notes: [[1319, 0.35], [0, 0.05], [1047, 0.5]] },
     lullaby: { label: 'Lullaby', wave: 'sine', gain: 0.12, notes: [[523, 0.3], [587, 0.3], [659, 0.3], [523, 0.5]] }
   };
-  function setRingtone(id) { if (Object.prototype.hasOwnProperty.call(RINGTONES, id)) voice.ringtone = id; }
-  function loadRingtone() { return fetch(BASE + '/api/workplace/phone-settings', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) { if (d) setRingtone(d.ringtone); }).catch(function () {}); }
+  // The imported LIBRARY (assets/ringtones/library, kept apart from the originals above): third-party material added at the owner's request, rights NOT verified - see docs/RINGTONES.md.
+  // 'notes' items play through the same synthesizer; 'audio' items are short MP3 files.
+  var LIBRARY = {}, LIB_DIR = BASE + '/assets/ringtones/library/';
+  var libReady = fetch(LIB_DIR + 'manifest.json', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (m) {
+    ((m && m.items) || []).forEach(function (i) { LIBRARY[i.id] = i.type === 'audio' ? { label: i.label, group: i.group, file: LIB_DIR + i.file } : { label: i.label, group: i.group, wave: i.wave, gain: i.gain, notes: i.notes }; });
+  }).catch(function () {});
+  function toneById(id) { return RINGTONES[id] || LIBRARY[id] || RINGTONES.classic; }
+  function fillRing(sel, cur) {
+    sel.textContent = ''; var groups = {};
+    function add(g, id, label) { if (!groups[g]) { groups[g] = document.createElement('optgroup'); groups[g].label = I18n.t(g); sel.appendChild(groups[g]); } var o = document.createElement('option'); o.value = id; o.textContent = label; o.selected = id === cur; groups[g].appendChild(o); }
+    Object.keys(RINGTONES).forEach(function (k) { add('Qorlla originals', k, RINGTONES[k].label); });
+    Object.keys(LIBRARY).forEach(function (k) { add(LIBRARY[k].group, k, LIBRARY[k].label); });
+  }
+  function previewFile(rt, msg, done) {
+    try { if (voice.preview) voice.preview.pause(); var a = new Audio(rt.file); voice.preview = a; a.play().then(function () { msg.className = 'muted'; msg.textContent = done; setTimeout(function () { if (voice.preview === a) a.pause(); }, 8000); }).catch(function () { msg.className = 'qp-bad'; msg.textContent = I18n.t('This browser cannot play sound here.'); }); }
+    catch (e) { msg.className = 'qp-bad'; msg.textContent = I18n.t('This browser cannot play sound here.'); }
+  }
+  function setRingtone(id) { if (Object.prototype.hasOwnProperty.call(RINGTONES, id) || Object.prototype.hasOwnProperty.call(LIBRARY, id)) voice.ringtone = id; else if (id) voice.ringtonePending = id; }
+  function loadRingtone() { return fetch(BASE + '/api/workplace/phone-settings', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) { return libReady.then(function () { if (d) setRingtone(d.ringtone); }); }).catch(function () {}); }
   function voiceTone(kind) {
     voiceToneStop(); var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; var ctx; try { ctx = new AC(); ctx.resume && ctx.resume().catch(function () {}); } catch (e) { return; }
-    var rt = RINGTONES[voice.ringtone] || RINGTONES.classic;
+    var rt = toneById(voice.ringtone);
+    if (kind === 'ring' && rt.file) { try { var au = new Audio(rt.file); au.loop = true; au.play().catch(function () {}); voice.tone = { ctx: ctx, audio: au }; return; } catch (e) { rt = RINGTONES.classic; } }
     var beep = function () { try {
       if (kind === 'ring') { var t = ctx.currentTime; rt.notes.forEach(function (n) { if (n[0]) { var o = ctx.createOscillator(), g = ctx.createGain(); o.type = rt.wave; o.frequency.value = n[0]; g.gain.value = rt.gain; o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + n[1]); } t += n[1] + 0.05; }); return; }
       var o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = 440; g.gain.value = 0.06; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 1);
     } catch (e) { /* closed */ } };
     beep(); voice.tone = { ctx: ctx, iv: setInterval(beep, kind === 'ring' ? 1800 : 3000) };
   }
-  function voiceToneStop() { if (!voice.tone) return; clearInterval(voice.tone.iv); try { voice.tone.ctx.close(); } catch (e) { /* closed */ } voice.tone = null; }
+  function voiceToneStop() { if (!voice.tone) return; clearInterval(voice.tone.iv); if (voice.tone.audio) { try { voice.tone.audio.pause(); } catch (e) { /* gone */ } } try { voice.tone.ctx.close(); } catch (e) { /* closed */ } voice.tone = null; }
   // ---- the call bar
   function voiceBar(show, o) {
     var bar = $('voiceBar'); if (!show) { bar.classList.add('hidden'); clearInterval(voice.bar && voice.bar.iv); voice.bar = null; return; }

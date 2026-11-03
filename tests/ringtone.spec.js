@@ -35,8 +35,8 @@ test.describe('ringtones: an original catalogue; the chosen tone is the one that
   });
 
   test('in Phone settings every tone is listed and its preview plays that tone\'s own notes and waveform; saving sticks', async ({ browser }) => {
-    const me = await person(browser, 'Preview'); await me.page.locator('#phSettingsBtn').click(); await me.page.locator('#psNav-audio').click();
-    await expect(me.page.locator('#psRing option')).toHaveCount(8); const labels = await me.page.locator('#psRing option').allTextContents(); expect(labels).toEqual(['Classic', 'Soft', 'Chime', 'Marimba', 'Pulse', 'Rise', 'Bell', 'Lullaby']);
+    const me = await person(browser, 'Preview'); await me.page.locator('#phSettingsBtn').click(); await expect(async () => { await me.page.locator('#psNav-audio').click(); await expect(me.page.locator('#psRing')).toBeAttached({ timeout: 1500 }); }).toPass({ timeout: 20000 });
+    await expect(me.page.locator('#psRing optgroup[label="Qorlla originals"] option')).toHaveCount(8); const labels = await me.page.locator('#psRing optgroup[label="Qorlla originals"] option').allTextContents(); expect(labels).toEqual(['Classic', 'Soft', 'Chime', 'Marimba', 'Pulse', 'Rise', 'Bell', 'Lullaby']);
     for (const id of ['marimba', 'pulse', 'bell']) {
       await me.page.evaluate(() => { window.__osc.length = 0; }); await me.page.selectOption('#psRing', id); await me.page.locator('#psPlayRing').click();
       await expect.poll(() => me.page.evaluate(() => window.__osc.length)).toBe(TONES[id].length); const got = await me.page.evaluate(() => window.__osc);
@@ -44,6 +44,25 @@ test.describe('ringtones: an original catalogue; the chosen tone is the one that
     }
     await me.page.selectOption('#psRing', 'marimba'); await me.page.locator('#psSaveAudio').click(); await expect(me.page.locator('#psSaveAudioMsg')).toContainText('Saved');
     expect((await (await me.ctx.request.get(stack.base + '/api/workplace/phone-settings')).json()).ringtone).toBe('marimba'); await me.ctx.close();
+  });
+
+  test('the imported library is a separate group; its ids are accepted, anything else is not; melodies play their own notes and file tones play their file', async ({ browser }) => {
+    const m = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '..', 'assets', 'ringtones', 'library', 'manifest.json'), 'utf8')), notes = m.items.find((i) => i.type === 'notes'), audio = m.items.find((i) => i.type === 'audio');
+    expect(m.rights, 'the manifest says plainly that rights are unverified').toBe('unverified'); expect(m.items.every((i) => i.source && i.source.sha256 && i.rights === 'unverified')).toBe(true);
+    const me = await person(browser, 'Library');
+    for (const ok of [notes.id, audio.id]) expect((await put(me, ok)).status(), ok).toBe(200);
+    for (const bad of ['lib-m9-99', 'lib-a-nope', 'lib-', '../library/manifest', notes.id + ' ']) expect((await put(me, bad)).status(), JSON.stringify(bad)).toBe(400);
+    await me.page.locator('#phSettingsBtn').click(); await expect(async () => { await me.page.locator('#psNav-audio').click(); await expect(me.page.locator('#psRing')).toBeAttached({ timeout: 1500 }); }).toPass({ timeout: 20000 });
+    await expect(me.page.locator('#psRing optgroup')).toHaveCount(3); await expect(me.page.locator('#psRing optgroup[label="Qorlla originals"] option')).toHaveCount(8);
+    await expect(me.page.locator('#psRing optgroup[label="Library melodies"] option')).toHaveCount(m.items.filter((i) => i.type === 'notes').length);
+    await expect(me.page.locator('#psRing optgroup[label="Library tones"] option')).toHaveCount(m.items.filter((i) => i.type === 'audio').length);
+    const want = notes.notes.filter((n) => n[0]).map((n) => Math.round(n[0]));
+    await me.page.evaluate(() => { window.__osc.length = 0; }); await me.page.selectOption('#psRing', notes.id); await me.page.locator('#psPlayRing').click();
+    await expect.poll(() => me.page.evaluate(() => window.__osc.length)).toBe(want.length); const got = await me.page.evaluate(() => window.__osc); expect(got.map((o) => o.f)).toEqual(want); expect(new Set(got.map((o) => o.type))).toEqual(new Set([notes.wave]));
+    await me.page.evaluate(() => { window.__played = []; const p = HTMLMediaElement.prototype.play; HTMLMediaElement.prototype.play = function () { window.__played.push(this.src); return p.apply(this, arguments).catch(() => {}); }; });
+    await me.page.selectOption('#psRing', audio.id); await me.page.locator('#psPlayRing').click();
+    await expect.poll(() => me.page.evaluate(() => window.__played.length)).toBe(1); expect((await me.page.evaluate(() => window.__played))[0]).toContain('/assets/ringtones/library/' + audio.file);
+    expect((await me.ctx.request.get(stack.base + '/assets/ringtones/library/' + audio.file)).headers()['content-type']).toContain('audio'); await me.ctx.close();
   });
 
   test('a real incoming call rings with the tone the person saved - not a fixed beep - and ringback for the caller is unchanged', async ({ browser }) => {
