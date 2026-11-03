@@ -9,7 +9,7 @@ export const WEBHOOK_SECRET = 'whsec_' + 'test'.repeat(8);
 const rid = (p) => p + crypto.randomBytes(8).toString('hex');
 
 export async function startFakeStripe({ port = 0, host = '127.0.0.1' } = {}) {
-  const st = { requests: [], subs: new Map(), down: false, failCreate: false, failChange: false, failRefund: false, failInvoiceItem: false, holdStatus: null, changes: [], refunds: [], invoiceItems: [], idem: new Map(), paymentIntents: new Set() };
+  const st = { requests: [], subs: new Map(), customers: new Set(), portalSessions: [], invoices: [], down: false, failCreate: false, failChange: false, failRefund: false, failInvoiceItem: false, holdStatus: null, changes: [], refunds: [], invoiceItems: [], idem: new Map(), paymentIntents: new Set() };
   const server = http.createServer(async (req, res) => {
     const chunks = []; for await (const c of req) chunks.push(c);
     const raw = Buffer.concat(chunks).toString(); const form = Object.fromEntries(new URLSearchParams(raw));
@@ -28,6 +28,11 @@ export async function startFakeStripe({ port = 0, host = '127.0.0.1' } = {}) {
     }
     if (st.down) return send(503, { error: { message: 'provider down' } });
     if (req.headers.authorization !== 'Bearer sk_test_fake') return send(401, { error: { message: 'bad key' } });
+    if (req.method === 'POST' && req.url === '/v1/billing_portal/sessions') {
+      if (!st.customers.has(form.customer)) return send(404, { error: { message: 'No such customer' } });
+      const id = rid('bps_'); st.portalSessions.push({ id, customer: form.customer, return_url: form.return_url }); return send(200, { id, object: 'billing_portal.session', customer: form.customer, url: `https://billing.stripe.test/session/${id}` });
+    }
+    if (req.method === 'GET' && req.url.startsWith('/v1/invoices?')) { const c = new URL(req.url, 'http://x').searchParams.get('customer'); return send(200, { object: 'list', data: st.invoices.filter((i) => i.customer === c) }); }
     if (req.method === 'POST' && req.url === '/v1/checkout/sessions') {
       if (st.failCreate) return send(402, { error: { message: 'card_declined' } });
       const id = rid('cs_test_'); return send(200, { id, object: 'checkout.session', url: `https://checkout.stripe.test/pay/${id}` });
@@ -69,12 +74,13 @@ export async function startFakeStripe({ port = 0, host = '127.0.0.1' } = {}) {
     subscription({ checkoutId, workspaceId, unitAmount, currency = 'usd', interval = 'month', quantity = 1, status = 'active', id = rid('sub_'), customer = rid('cus_'), start = Math.floor(Date.now() / 1000) }) {
       const sub = { id, object: 'subscription', customer, status, cancel_at_period_end: false, canceled_at: null, current_period_start: start, current_period_end: start + (interval === 'year' ? 365 : 30) * day,
         metadata: { checkout_id: checkoutId, workspace_id: workspaceId }, items: { data: [{ id: rid('si_'), quantity, price: { unit_amount: unitAmount, currency, recurring: { interval }, product: 'prod_test' } }] } };
-      st.subs.set(id, sub); return sub;
+      st.subs.set(id, sub); st.customers.add(customer); return sub;
     },
     invoice({ sub, id = rid('in_'), amountPaid, status = 'paid', currency = 'usd' }) {
       const pi = rid('pi_'); if (status === 'paid') st.paymentIntents.add(pi);
-      return { id, object: 'invoice', number: 'QRL-' + id.slice(-6), customer: sub.customer, subscription: sub.id, payment_intent: pi, charge: rid('ch_'), status, currency, amount_due: amountPaid, amount_paid: status === 'paid' ? amountPaid : 0,
+      const invObj = { id, object: 'invoice', number: 'QRL-' + id.slice(-6), customer: sub.customer, subscription: sub.id, payment_intent: pi, charge: rid('ch_'), status, currency, amount_due: amountPaid, amount_paid: status === 'paid' ? amountPaid : 0,
         hosted_invoice_url: `https://invoice.stripe.test/${id}`, invoice_pdf: `https://invoice.stripe.test/${id}.pdf`, period_start: sub.current_period_start, period_end: sub.current_period_end, attempt_count: 1, next_payment_attempt: null };
+      st.invoices.push(invObj); return invObj;
     },
     event(type, object, { id = rid('evt_'), created = Math.floor(Date.now() / 1000) } = {}) { return { id, object: 'event', type, created, data: { object } }; },
     /** POST a signed webhook (raw bytes exactly as signed). */

@@ -68,6 +68,9 @@ export function createStripe({ secretKey, webhookSecret, apiBase = 'https://api.
       }, { 'idempotency-key': `checkout-${checkoutId}` }),
     retrieveSubscription: (id) => api('GET', `/v1/subscriptions/${encodeURIComponent(id)}`),
     cancelAtPeriodEnd: (id) => api('POST', `/v1/subscriptions/${encodeURIComponent(id)}`, { cancel_at_period_end: 'true' }),
+    /** Stripe-hosted customer portal (payment methods, invoices). The returned URL is short-lived and single-purpose; card data never touches Qorlla. */
+    createPortalSession: ({ customer, returnUrl }) => api('POST', '/v1/billing_portal/sessions', { customer, return_url: returnUrl }),
+    listInvoices: (customer) => api('GET', `/v1/invoices?customer=${encodeURIComponent(customer)}&limit=100`),
     resumeSubscription: (id) => api('POST', `/v1/subscriptions/${encodeURIComponent(id)}`, { cancel_at_period_end: 'false' }),
     /** Change the price/quantity of the subscription's single item. prorationBehavior: 'always_invoice' (upgrade, charged now) or 'none' (downgrade at renewal). */
     changeSubscription: ({ id, itemId, product, currency, unitAmountCents, interval, quantity, prorationBehavior, changeId }) =>

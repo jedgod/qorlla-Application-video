@@ -67,9 +67,9 @@ export function testConfig(over = {}, main) {
   return Object.assign(cfg, { rateLimits: { ai: 100000, draft: 100000, job: 100000, call: 100000, refund: 100000, webhook: 1000000 } }, over.cfg || {});
 }
 
-export async function startApp({ pool, cfg, jwks, fetchImpl, stripe, ai }) {
+export async function startApp({ pool, cfg, jwks, fetchImpl, stripe, billingProvider, ai }) {
   const quiet = process.env.TEST_LOG ? createLogger() : createLogger(() => {});
-  const built = createApp({ pool, cfg, jwks, fetchImpl, log: quiet, stripe, ai });
+  const built = createApp({ pool, cfg, jwks, fetchImpl, log: quiet, stripe, billingProvider, ai });
   const { app, billing } = built;
   const server = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;

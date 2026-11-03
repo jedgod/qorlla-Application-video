@@ -218,7 +218,7 @@ export function registerSbacs(app, { pool, auth, h, sbacs, cfg = {}, flags = nul
     const s = (await pool.query('SELECT plan_slug, status, current_period_end, cancel_at_period_end FROM portal.subscriptions WHERE workspace_id=$1', [req.workspace])).rows[0];
     // `live` = the provider is configured AND the operators switched live billing on; clients show checkout / payment actions only then. canManage = owner, admin or billing contact.
     const live = !!(billing && billing.available() && flags && (await flags.enabled('billing_live')) && (await flags.enabled('checkout')));
-    noStore(res).json({ plan: e.plan, suspended: e.suspended, billing: { live, providerConfigured: !!(billing && billing.available()), canManage: ['owner', 'admin', 'billing'].includes(req.role) }, subscription: s ? { plan: s.plan_slug, status: s.status, renewsOrEndsAt: s.current_period_end, cancelAtPeriodEnd: s.cancel_at_period_end } : null });
+    noStore(res).json({ plan: e.plan, suspended: e.suspended, billing: { live, providerConfigured: !!(billing && billing.available()), hasBillingCustomer: !!(billing && billing.available() && (await billing.hasBillingCustomer(req.workspace))), canManage: ['owner', 'admin', 'billing'].includes(req.role) }, subscription: s ? { plan: s.plan_slug, status: s.status, renewsOrEndsAt: s.current_period_end, cancelAtPeriodEnd: s.cancel_at_period_end } : null });
   }));
   app.get('/api/v1/subscriptions/entitlements', member, h(async (req, res) => noStore(res).json(await sbacs.effective(req.workspace))));
   app.get('/api/v1/subscriptions/usage', member, h(async (req, res) => {

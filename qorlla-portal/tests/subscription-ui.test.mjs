@@ -53,7 +53,7 @@ describe('Settings -> Subscription & Billing (browser)', () => {
       assert.equal(await page.getByRole('button', { name: /^Upgrade$/ }).count(), 0, 'no Upgrade button while billing is off'); assert.equal(await page.locator('[data-choose]').count(), 0);
       assert.equal(await page.getByRole('button', { name: /Cancel at period end|Keep my subscription/ }).count(), 0);
       assert.equal(await page.locator('[data-plan="starter"]').count(), 0, 'the unlisted Starter plan is not offered'); assert.equal(await page.locator('[data-plan]').count(), 4);
-      const body = await page.locator('#billing').innerText(); assert.doesNotMatch(body, /\$\s?\d/, 'no prices are shown on this page'); assert.match(body, /No invoices yet/); assert.match(body, /Card details are entered and stored only by the payment provider/);
+      const body = await page.locator('#billing').innerText(); assert.doesNotMatch(body, /\$\s?\d/, 'no prices are shown on this page'); assert.match(body, /No invoices yet/); assert.match(body, /Card details are entered and stored only by the payment provider/); assert.match(await page.locator('#pm-unavailable').innerText(), /Payment management unavailable/); assert.equal(await page.locator('#manage-payment').count(), 0, 'no non-functional button');
       const row = page.locator('[data-usage-feature="clips.create"]'); assert.match(await row.innerText(), /No limit applied/, 'a provisional (unapproved) limit is not shown as a limit');
       assert.match(await page.locator('#billing').innerText(), /basic/i); assert.deepEqual(errors, []);
     } finally { await ctx.close(); }
@@ -99,6 +99,30 @@ describe('Settings -> Subscription & Billing (browser)', () => {
       await s.page.waitForSelector('#suspended-note'); assert.equal(await state(s.page, 'meet.recording'), 'suspended');
       assert.equal(await s.page.locator('[data-choose], button[data-upgrade], #resume').count(), 0);
     } finally { await s.ctx.close(); }
+  });
+
+  test('payment methods: a billing admin is sent to the provider-hosted portal and back; members, suspended and no-customer workspaces get an explanation, not a button', async () => {
+    await app.flags.set('billing_live', true, 'test', crypto.randomUUID());
+    const { u, ws } = await newWs('pro'); const sub = stripe.subscription({ checkoutId: crypto.randomUUID(), workspaceId: ws, unitAmount: 1699, interval: 'month', quantity: 1 });
+    await sql(`INSERT INTO portal.billing_customers(workspace_id,provider,provider_customer_id) VALUES($1,'stripe',$2)`, [ws, sub.customer]);
+    const m = await main.mint(); await addMember(db.pool, ws, m.sub, 'member');
+    const adm = await open(app, u, 'subscription-payment.png');
+    try {
+      await adm.page.waitForSelector('[data-feature]'); assert.equal(await adm.page.locator('#manage-payment').count(), 1); assert.equal(await adm.page.locator('#pm-unavailable').count(), 0);
+      await adm.page.route('https://billing.stripe.test/**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<html><body id="provider-portal">provider hosted portal (test double)</body></html>' }));
+      await Promise.all([adm.page.waitForURL(/billing\.stripe\.test\/session\//), adm.page.locator('#manage-payment').click()]);
+      assert.equal(stripe.st.portalSessions.at(-1).customer, sub.customer); assert.match(stripe.st.portalSessions.at(-1).return_url, /\/app\/billing\?portal=return$/);
+      // back from the provider: the page re-reads billing state from the backend and drops the query string
+      await adm.page.goto(app.base + '/app/billing?portal=return'); await adm.page.waitForSelector('#subscription .panel');
+      assert.match(await adm.page.locator('#notice').innerText(), /Welcome back/); assert.equal(new URL(adm.page.url()).search, '', 'the return marker is removed');
+    } finally { await adm.ctx.close(); }
+    const mem = await open(app, m, null);
+    try { await mem.page.waitForSelector('[data-feature]'); assert.match(await mem.page.locator('#pm-unavailable').innerText(), /unavailable to you/); assert.equal(await mem.page.locator('#manage-payment').count(), 0); } finally { await mem.ctx.close(); }
+    const fresh = await newWs('pro'); const nc = await open(app, fresh.u, null);
+    try { await nc.page.waitForSelector('[data-feature]'); assert.match(await nc.page.locator('#pm-unavailable').innerText(), /No payment method on file yet/); assert.equal(await nc.page.locator('#manage-payment').count(), 0); } finally { await nc.ctx.close(); }
+    await sbacs.setSuspended({ workspaceId: ws, suspended: true, reason: 'review', actorId: crypto.randomUUID() });
+    const sus = await open(app, u, null);
+    try { await sus.page.waitForSelector('#suspended-note'); assert.match(await sus.page.locator('#pm-unavailable').innerText(), /suspended/); assert.equal(await sus.page.locator('#manage-payment').count(), 0); } finally { await sus.ctx.close(); }
   });
 
   test('the page source is static, escapes server text, and never holds card data', async () => {

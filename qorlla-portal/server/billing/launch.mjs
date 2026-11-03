@@ -10,7 +10,11 @@ const iso = (s) => (s == null ? null : new Date(Number(s) * 1000).toISOString())
 
 export function createBillingLaunch({ pool, stripe, cfg, log, billing, flags, now = () => Date.now() }) {
   const { confirmChange } = billing.internals;
-  const needProvider = () => { if (!billing.available()) throw new BillingError(503, 'billing_unavailable', 'Billing is not enabled', { reasons: cfg.billing.unavailableReasons }); };
+  // plan changes, refunds and usage invoice items are provider EXTENSIONS (provider.extensions). A provider that does not implement them gets 501; the core contract is unaffected.
+  const needProvider = () => {
+    if (!billing.available()) throw new BillingError(503, 'billing_unavailable', 'Billing is not enabled', { reasons: cfg.billing.unavailableReasons });
+    if (!stripe) throw new BillingError(501, 'provider_unsupported', 'This billing provider does not support that action');
+  };
   const platformAudit = (db, actor, action, obj, detail) => db.query('INSERT INTO portal.platform_audit(actor_id,action,object_id,detail) VALUES($1,$2,$3,$4)', [actor, action, String(obj ?? ''), detail ? JSON.stringify(detail) : null]);
 
   // ------------------------------------------------------------------ plan changes
@@ -86,7 +90,7 @@ export function createBillingLaunch({ pool, stripe, cfg, log, billing, flags, no
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const applied = await confirmChange(client, pc, fresh, { eventAt: Math.floor(now() / 1000), force: true });
+      const applied = await confirmChange(client, pc, stripe.normalizeSubscription(fresh), { eventAt: Math.floor(now() / 1000), force: true });
       await client.query('COMMIT');
       return applied ? { status: 'applied' } : { status: 'pending_confirmation', note: 'The provider accepted the change; it will apply once payment is confirmed.' };
     } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }

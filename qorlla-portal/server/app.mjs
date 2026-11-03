@@ -10,6 +10,8 @@ import { createAuth, UUID_RE } from './auth.mjs';
 import { createLogger, requestLogger } from './log.mjs';
 import { createBillingService, BillingError } from './billing/service.mjs';
 import { createStripe } from './billing/stripe.mjs';
+import { createStripeProvider } from './billing/stripe-provider.mjs';
+import { assertBillingProvider } from './billing/provider.mjs';
 import { PlanLimitError, entitlementsFor, quotaFor, withWorkspaceLock } from './entitlements.mjs';
 import { registerMeetingAi } from './meeting-ai.mjs';
 import { createAiGateway } from './ai/gateway.mjs';
@@ -35,7 +37,7 @@ const ALL_ROLES = ['owner', 'admin', 'billing', 'member'];
 const MANAGE = ['owner', 'admin'];
 const BILLING = ['owner', 'admin', 'billing'];
 
-export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogger(), now = () => Date.now(), stripe: stripeOverride, ai: aiOverride = {} } = {}) {
+export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogger(), now = () => Date.now(), stripe: stripeOverride, billingProvider: providerOverride, ai: aiOverride = {} } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', cfg.trustProxyHops);
@@ -47,11 +49,13 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
   }));
 
-  const stripe = stripeOverride || (cfg.billing.available ? createStripe({ secretKey: cfg.billing.secretKey, webhookSecret: cfg.billing.webhookSecret, apiBase: cfg.billing.apiBase, fetchImpl, now }) : null);
-  const billing = createBillingService({ pool, stripe, cfg, log, now });
+  // the billing service depends only on the provider-neutral contract (server/billing/provider.mjs). Stripe is the first adapter; tests can inject any other.
+  const provider = providerOverride ? assertBillingProvider(providerOverride) : stripeOverride ? createStripeProvider(stripeOverride)
+    : (cfg.billing.available ? createStripeProvider(createStripe({ secretKey: cfg.billing.secretKey, webhookSecret: cfg.billing.webhookSecret, apiBase: cfg.billing.apiBase, fetchImpl, now })) : null);
+  const billing = createBillingService({ pool, provider, cfg, log, now });
   const flags = createFlags({ pool, now });
   const overage = createOverage({ flags });
-  const launch = createBillingLaunch({ pool, stripe, cfg, log, billing, flags, now });
+  const launch = createBillingLaunch({ pool, stripe: provider?.extensions || null, cfg, log, billing, flags, now });
   const auth = createAuth({ cfg, pool, jwks, fetchImpl, log, now });
   // SBACS: a suspended workspace is refused by every route that uses `member` (modules receive `auth`, so they pick this up too)
   const sbacs = createSbacs({ pool });
@@ -79,7 +83,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   app.post('/api/v1/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), h(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      const out = await billing.handleWebhook(req.body, req.get('stripe-signature'));
+      const out = await billing.handleWebhook(req.body, req.get(provider?.signatureHeader || 'stripe-signature'));
       res.json({ received: true, duplicate: !!out.duplicate });
     } catch (e) {
       if (e instanceof BillingError) return res.status(e.status).json({ error: e.code });
@@ -253,6 +257,12 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     const out = await billing.cancel(req.workspace);
     await pool.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'billing.cancel_requested',$3)`, [req.workspace, req.actor, req.workspace]);
     res.status(202).json(out);
+  }));
+  // Manage payment methods: authenticated + billing-admin only, the workspace's OWN billing customer, a short-lived provider-hosted session; only a URL goes to the browser.
+  app.post(['/api/v1/billing/portal', '/api/v1/subscriptions/payment-methods'], member, roles(...BILLING), flags.require('billing_live'), h(async (req, res) => {
+    const out = await billing.createPortalSession({ workspaceId: req.workspace, returnUrl: cfg.origin + '/app/billing?portal=return' });
+    await pool.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'billing.portal_opened',$3)`, [req.workspace, req.actor, req.workspace]);
+    res.set('Cache-Control', 'no-store').status(201).json(out);
   }));
   app.post(['/api/v1/billing/resume', '/api/v1/subscriptions/resume'], member, roles(...BILLING), flags.require('billing_live'), h(async (req, res) => {
     const out = await billing.resume(req.workspace);

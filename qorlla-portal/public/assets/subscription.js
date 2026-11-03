@@ -70,11 +70,23 @@ export async function renderSubscription(root, { b, redraw }) {
     return `<tr data-usage-feature="${esc(u.feature)}"><td>${esc(plain(u.description, u.feature))}</td><td>${esc(u.used)}</td><td>${u.limitStatus === 'enforced' ? `${esc(u.quota)} <span class="meter" aria-hidden="true"><i style="width:${pct}%"></i></span>` : '<span class="muted">No limit applied</span>'}</td></tr>`;
   }).join('')}</tbody></table>` : '<div class="empty">Nothing used yet this month.</div>');
 
-  // ---- payment methods: never stored here
-  html += panel('Payment methods', `<p class="muted">Card details are entered and stored only by the payment provider; Qorlla never sees or stores them.${live ? '' : ' Payment management is unavailable while live billing is off.'}</p>`);
+  // ---- payment methods: the provider's hosted portal. A button exists only when it can work; otherwise the page says why it is unavailable.
+  const hasCustomer = !!cur.billing?.hasBillingCustomer;
+  let pm;
+  if (!live) pm = '<p id="pm-unavailable" class="muted"><strong>Payment management unavailable.</strong> Live billing is not enabled for this deployment.</p>';
+  else if (!canManage) pm = '<p id="pm-unavailable" class="muted"><strong>Payment management unavailable to you.</strong> Only owners, admins and billing contacts can manage payment methods.</p>';
+  else if (cur.suspended) pm = '<p id="pm-unavailable" class="muted"><strong>Payment management unavailable</strong> while the workspace is suspended.</p>';
+  else if (!hasCustomer) pm = '<p id="pm-unavailable" class="muted"><strong>No payment method on file yet.</strong> A payment profile is created when you purchase a plan.</p>';
+  else pm = '<div class="row"><button type="button" id="manage-payment" class="secondary">Manage payment methods</button></div><p class="muted">You will be taken to the secure page of your payment provider and brought back here afterwards.</p>';
+  html += panel('Payment methods', `<p class="muted">Card details are entered and stored only by the payment provider; Qorlla never sees or stores them.</p>${pm}`);
 
   root.innerHTML = html;
   root.querySelector('#resume')?.addEventListener('click', async () => { try { await api('/subscriptions/resume', { method: 'POST', body: '{}' }); notice('Your subscription will continue to renew.'); await redraw(); } catch (e) { notice(describe(e)); } });
+  root.querySelector('#manage-payment')?.addEventListener('click', async (ev) => {
+    ev.target.disabled = true;
+    try { const r = await api('/subscriptions/payment-methods', { method: 'POST', body: '{}' }); if (/^https:\/\//.test(r.url || '')) location.href = r.url; else { notice('The payment portal could not be opened.'); ev.target.disabled = false; } }
+    catch (e) { notice(e.body?.code === 'no_billing_customer' ? 'There is no payment method on file yet.' : e.status === 503 ? 'Payment management is not available right now.' : describe(e)); ev.target.disabled = false; }
+  });
   root.querySelectorAll('[data-choose]').forEach((btn) => btn.addEventListener('click', () => checkout(btn.dataset.choose)));
   root.querySelectorAll('[data-upgrade]').forEach((btn) => btn.addEventListener('click', () => checkout(PURCHASABLE.find((s) => s !== mine) || 'pro')));
 }

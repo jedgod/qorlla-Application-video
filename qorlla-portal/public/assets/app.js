@@ -78,6 +78,12 @@ async function renderBilling() {
     $('#reconcile')?.addEventListener('click', () => act(() => api('/billing/reconcile', { method: 'POST', body: '{}' }), 'Refreshed from the payment provider.'));
     return b;
   };
+  // coming back from the provider-hosted payment portal: nothing is trusted from the redirect, the page simply re-reads billing state from our backend
+  if (new URLSearchParams(location.search).get('portal') === 'return') {
+    history.replaceState(null, '', location.pathname);
+    await api('/billing/reconcile', { method: 'POST', body: '{}' }).catch(() => {});           // owners/admins pull the provider's latest; others just see what the backend already has
+    notice('Welcome back. Your billing information was refreshed from your account.');
+  }
   let b = await draw();
   if (justPaid) {
     // Returning from the provider proves nothing. Show the truth and wait for the server-side confirmation (signed webhook).
