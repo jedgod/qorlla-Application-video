@@ -57,6 +57,8 @@ export class PostgresCallLedger implements CallLedger {
     const r = await this.pool.query("SELECT call_id, meeting_session_id FROM phone_join_calls WHERE state='connected' AND meeting_session_id IS NOT NULL ORDER BY updated_at LIMIT $1", [limit]);
     return r.rows.map((x) => ({ callId: x.call_id, meetingSessionId: x.meeting_session_id }));
   }
+  /** The meeting session recorded for a call (needed to end it in the meeting service when its gateway replica died). */
+  async sessionOf(callId: string): Promise<string | null> { const r = await this.pool.query('SELECT meeting_session_id FROM phone_join_calls WHERE call_id=$1', [callId]); return r.rows[0]?.meeting_session_id ?? null; }
   async stateOf(callId: string): Promise<CallState | null> {
     const r = await this.pool.query('SELECT state FROM phone_join_calls WHERE call_id=$1', [callId]); return r.rows[0]?.state ?? null;
   }

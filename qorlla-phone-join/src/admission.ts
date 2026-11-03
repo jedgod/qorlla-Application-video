@@ -11,14 +11,17 @@ export type Readiness = {
 export const READINESS_KEYS = ['carrierConnected', 'inboundNumberCertified', 'gatewayHealthy', 'mediaBridgeCertified', 'billingCertified', 'productionApproved'] as const;
 /** `callerNumber` is the caller's number as the carrier reports it (E.164). Meet keeps its per-caller attempt limits and bans on it, so a gateway that has it must send it. */
 export type JoinRequest = { meetingId: string; passcode: string; callId: string; dialedNumber: string; callerNumber?: string };
-export type MeetingDecision = { allowed: boolean; requiresHostApproval: boolean; meetingSessionId?: string };
+/** `mediaToken` is the one-time credential the meeting service issued for this call's media reports (see MeetPhoneAuthority); the bridge must present it, and nothing else may. */
+export type MeetingDecision = { allowed: boolean; requiresHostApproval: boolean; meetingSessionId?: string; mediaToken?: string };
+export type AttachOptions = StepOptions & { mediaToken?: string };
 /** Passed to every dependency call. When a step times out the signal is aborted: implementations should stop their work (cancel the fetch, close the socket, abort the SIP INVITE). */
 export type StepOptions = { signal: AbortSignal };
 /** What the meeting service needs to know about the call being admitted. */
 export type VerifyOptions = StepOptions & { callId: string; dialedNumber: string; callerNumber?: string };
 export interface MeetingAuthority {
   verifyPhoneJoin(meetingId: string, passcode: string, opts?: VerifyOptions): Promise<MeetingDecision>;
-  requestHostApproval(meetingSessionId: string, callId: string, opts?: StepOptions): Promise<boolean>;
+  /** true/false, or `{ approved, mediaToken }` when approval also hands over the call's media token. Only `true` / `approved: true` approves. */
+  requestHostApproval(meetingSessionId: string, callId: string, opts?: StepOptions): Promise<boolean | { approved: boolean; mediaToken?: string }>;
   /** Called when an admission that reached the meeting (a waiting caller, a pending approval) ends without connecting, so the meeting does not keep a ghost participant. Best effort; must be idempotent. */
   cancelAdmission?(meetingSessionId: string, callId: string): Promise<void>;
 }
@@ -27,7 +30,7 @@ export interface SipRtpBridge {
    * Must attach authenticated PSTN audio to the actual meeting SFU/mixer, not just signal success. `mediaEstablished: true` means AUDIO WAS VERIFIED in both directions (see media-contract.ts),
    * never merely that signalling succeeded. May be cancelled through `opts.signal`; a bridge that cannot cancel is still safe, because the gateway terminates any leg it creates late.
    */
-  attach(callId: string, meetingSessionId: string, opts?: StepOptions): Promise<{ mediaEstablished: boolean }>;
+  attach(callId: string, meetingSessionId: string, opts?: AttachOptions): Promise<{ mediaEstablished: boolean }>;
   /** Must be idempotent and safe to call for a call that never finished attaching, is attaching right now, or attaches later. */
   disconnect(callId: string): Promise<void>;
 }
@@ -111,13 +114,15 @@ export async function admitTelephoneCall(
   try { await mark('authorizing'); decision = await withDeadline('meeting', stepMs, (signal) => authority.verifyPhoneJoin(req.meetingId, req.passcode, { signal, callId: req.callId, dialedNumber: req.dialedNumber, callerNumber: req.callerNumber })).result; }
   catch { await giveUp('meeting_service_unavailable'); return { status: 503, code: 'MEETING_SERVICE_UNAVAILABLE', announcement: UNAVAILABLE_MESSAGE }; }
   if (!decision || decision.allowed !== true || typeof decision.meetingSessionId !== 'string' || !decision.meetingSessionId) { await giveUp('join_denied'); return { status: 403, code: 'JOIN_DENIED', announcement: DENIED }; }
-  sessionId = decision.meetingSessionId;
+  sessionId = decision.meetingSessionId; let mediaToken = typeof decision.mediaToken === 'string' ? decision.mediaToken : undefined;
 
   if (decision.requiresHostApproval !== false) {                                                       // approval is required unless the meeting says, explicitly, that it is not
     let approved = false, timedOut = false;
     try {
       await mark('awaiting_host', { meetingSessionId: sessionId });
-      approved = (await withDeadline('host approval', hostMs, (signal) => authority.requestHostApproval(sessionId!, req.callId, { signal })).result) === true;
+      const answer = await withDeadline('host approval', hostMs, (signal) => authority.requestHostApproval(sessionId!, req.callId, { signal })).result;
+      approved = answer === true || (typeof answer === 'object' && answer !== null && answer.approved === true);
+      if (approved && typeof answer === 'object' && answer && typeof answer.mediaToken === 'string') mediaToken = answer.mediaToken;
     } catch (e) { timedOut = e instanceof StepTimeout; if (!timedOut) { await giveUp('meeting_service_unavailable'); return { status: 503, code: 'MEETING_SERVICE_UNAVAILABLE', announcement: UNAVAILABLE_MESSAGE }; } }
     if (!approved) { await giveUp(timedOut ? 'host_approval_timeout' : 'host_approval_denied'); return timedOut ? { status: 403, code: 'HOST_APPROVAL_TIMEOUT', announcement: 'The meeting host did not respond.' } : { status: 403, code: 'HOST_APPROVAL_DENIED', announcement: 'The meeting host did not approve this request.' }; }
   }
@@ -126,7 +131,7 @@ export async function admitTelephoneCall(
   let attempt: ReturnType<typeof withDeadline<{ mediaEstablished: boolean }>> | undefined, attachSettled = false;
   try {
     await mark('attaching', { meetingSessionId: sessionId });
-    attempt = withDeadline('media bridge', stepMs, (signal) => bridge.attach(req.callId, sessionId!, { signal }));
+    attempt = withDeadline('media bridge', stepMs, (signal) => bridge.attach(req.callId, sessionId!, { signal, mediaToken }));
     void attempt.settled.then(() => { attachSettled = true; });
     const media = await attempt.result;
     if (!media || media.mediaEstablished !== true) throw new Error('Media not established');

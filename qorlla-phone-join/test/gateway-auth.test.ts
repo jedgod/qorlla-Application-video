@@ -10,6 +10,7 @@ import { PostgresReplayStore } from '../src/ledger-pg.js';
 import { keypair, memoryReplay, listen, closeAllServers } from './support.js';
 
 const kp = keypair(), other = keypair(), ISS = 'qorlla-gateway';
+const MEET_SIGNER = path.join(process.env.MEET_SERVER_DIR ?? 'C:/Users/cj_wo/qv-shield/qorlla-meet-video', 'server', 'telephony', 'number-sync.mjs');   // Meet's own signWorkloadJwt
 const cfg = (over: Partial<GatewayAuthConfig> = {}): GatewayAuthConfig => ({ keys: { [ISS]: { w1: kp.publicKeyPem } }, subjects: ['svc:phone-gateway'], replay: memoryReplay(), ...over });
 const mint = (o: Partial<Parameters<typeof signGatewayToken>[0]> = {}) => signGatewayToken({ privateKeyPem: kp.privateKeyPem, issuer: ISS, subject: 'svc:phone-gateway', ...o });
 const refused = async (token: string, c: GatewayAuthConfig, ctx = {}) => { try { await verifyWorkloadToken(token, c, ctx); return 'ACCEPTED'; } catch (e) { return e instanceof GatewayAuthError ? e.reason : 'other:' + (e as Error).message; } };
@@ -56,8 +57,8 @@ test('clock skew is bounded in both directions (injected clock)', async () => {
   assert.equal(await refused(mint({ now: now - 100, ttlSeconds: 60 }), c), 'expired');
 });
 
-test('format compatibility: a token minted by Meet\'s own signWorkloadJwt is verified (when the Meet source is available)', { skip: !fs.existsSync(process.env.MEET_SERVER_DIR ?? 'C:/Users/cj_wo/qv-shield/qorlla-meet-video/server/telephony/number-sync.mjs') ? 'Meet source not found (set MEET_SERVER_DIR to the path of number-sync.mjs)' : false }, async () => {
-  const file = process.env.MEET_SERVER_DIR ?? 'C:/Users/cj_wo/qv-shield/qorlla-meet-video/server/telephony/number-sync.mjs';
+test('format compatibility: a token minted by Meet\'s own signWorkloadJwt is verified (when the Meet source is available)', { skip: !fs.existsSync(MEET_SIGNER) ? 'Meet source not found (set MEET_SERVER_DIR to the qorlla-meet-video directory)' : false }, async () => {
+  const file = MEET_SIGNER;
   const meet: any = await import(/* @vite-ignore */ 'file:///' + file.replace(/\\/g, '/').replace(/^\/+/, ''));
   const token = meet.signWorkloadJwt({ privateKeyPem: kp.privateKeyPem, kid: 'w1', issuer: ISS, subject: 'svc:phone-gateway', audience: 'qorlla-phone-join' });
   const g = await verifyWorkloadToken(token, cfg()); assert.equal(g.subject, 'svc:phone-gateway');

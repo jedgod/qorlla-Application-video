@@ -59,10 +59,11 @@ export class ShieldedAuthority implements MeetingAuthority {
     try { await this.guard(d.meetingSessionId, opts?.callId ?? '', opts?.signal); } catch (e) { if (e instanceof ShieldRefusal) return { allowed: false, requiresHostApproval: false }; throw e; }
     return d;
   }
-  async requestHostApproval(session: string, callId: string, opts?: StepOptions): Promise<boolean> {
-    if (!(await this.inner.requestHostApproval(session, callId, opts))) return false;                // host rejection: nothing further to do
+  async requestHostApproval(session: string, callId: string, opts?: StepOptions): Promise<boolean | { approved: boolean; mediaToken?: string }> {
+    const answer = await this.inner.requestHostApproval(session, callId, opts);
+    if (!(answer === true || (typeof answer === 'object' && answer !== null && answer.approved === true))) return false;       // host rejection: nothing further to do
     try { await this.guard(session, callId, opts?.signal); } catch (e) { if (e instanceof ShieldRefusal) return false; throw e; }
-    return true;
+    return answer;                                                                                    // keeps the media token the approval carried
   }
   cancelAdmission(session: string, callId: string): Promise<void> { return this.inner.cancelAdmission ? this.inner.cancelAdmission(session, callId) : Promise.resolve(); }
 }

@@ -1,64 +1,92 @@
-# Telephone admission and Qorlla Meet: integration findings
+# Telephone admission and Qorlla Meet: integration (milestone A3)
 
-Status: **integration components and tests only. Telephone dial-in is BLOCKED.** No carrier, no media gateway, no public number, no production flag. Everything below was read from the Meet source
-(`qorlla-meet-video/server`) and the Shield source (`qorlla-voice-engine/src/shield.mjs`, `app.mjs`); nothing here invents an endpoint.
+Status: **telephone dial-in is BLOCKED.** No carrier, no SIP/RTP media gateway, no public number, no production flag, no deployment. This milestone closes the Meet-side authorization, state and readiness gaps found in the
+first integration pass; the gateway itself is a separate, separately gated piece of work.
 
-## What Meet already has (and this package builds on rather than replaces)
+Two branches carry this work (same repository, two worktrees):
 
-| Area | Meet today | Where |
+| Branch | Holds | Why separate |
 |---|---|---|
-| Phone PIN | per-meeting, 4-12 digits, scrypt verifier, shown once, revocable, separate from the web passcode | `phone.mjs` `setPin`, `verifyPin` |
-| Meeting number | 11 digits, resolved by `GET /api/resolve/:code` -> `{ meetingId }` (404 = unavailable or ended) | `index.js` |
-| Verification | `POST /api/phone/ivr/verify` (signed) -> `connected \| waiting \| denied \| locked`, `callRef` | `phone.mjs` `verifyCall` |
-| Replay / idempotency | signature with 300 s skew, event ids stored in `phone_webhook_events` (a repeat gets the stored answer), `phone_calls` unique on `(provider, provider_call_id)` | `phone.mjs` `signed` |
-| Brute force | per-caller and per-meeting counters and lockouts in PostgreSQL (`phone_attempts`), generic failure text | `phone.mjs` |
-| Waiting room / host | callers are participants (`kind='phone'`), listed for the host, admitted or denied through the existing waiting-room routes; host can mute/remove (a removed caller is banned from that meeting) | `phone.mjs` `onAdmission`, `/phone/:cid/remove` |
-| Ending | meeting end and PIN revocation hang every call up | `phone.mjs` `endAll` |
-| Server-to-server auth | (1) bridge secret header `x-qorlla-bridge-secret` (32+ chars, constant-time) and (2) short-lived ES256 workload JWT `{iss, sub, aud, iat, exp, jti, cnf?}` with a `kid`, optionally bound to an mTLS client certificate (`cnf['x5t#S256']`) | `index.js` `bridgeAuth`; `telephony/number-sync.mjs` `signWorkloadJwt`; `telephony/workload-transport.mjs` |
-| Security Shield | `POST /v1/shield/meet/{register,authorize,recheck,end}` and `/v1/shield/report` with the workload JWT (`aud` `qorlla-shield`, scope `meet.signal`); every failure is a denial | `shield-client.mjs`; engine `app.mjs`, `shield.mjs` |
-| Media bridge | **interface only**: `UnconfiguredBridge` (`ready` false, `join()` throws); IVR answers "not available yet" unless `bridge.ready` and the `qphone_gates` evidence is certified | `telephony/provider.mjs`, `ivr.mjs`, `service.mjs` |
+| `feature/qorlla-meet-telephone-admission` | this package: admission, ledger, gateway auth, rate limit, Meet/Shield clients, readiness client, media contract, reaper, tests | where the starter was committed |
+| `feature/qorlla-meet-telephone-admission-meet` | the Meet-side changes (`qorlla-meet-video`: lifecycle, gateway identity, readiness, directory, sweeper, tests) | this branch only holds an **old, non-runnable Meet snapshot** (`shield-main-app-meet-integration/`); the current Meet (shield client, workload signing, host controls) lives in the other worktree's tree, branched from the pushed `495c21e` |
 
-## How the pieces map
+## What changed in Meet
 
-| Requirement | Component | Notes |
+1. **A PIN is not a connection (release-critical).** `verifyCall` used to mark the caller connected (participant online, room told, recording counting them) as soon as the PIN was right. Now
+   `REQUESTED -> VERIFIED -> AWAITING_HOST -> APPROVED -> MEDIA_CONNECTING -> MEDIA_CONNECTED -> TERMINATED`, plus `REFUSED`, `TIMED_OUT`, `CANCELLED`, `ORPHANED`
+   (`server/phone-lifecycle.mjs`, `sql/v4_24_phone_lifecycle.sql`). `verify` answers `approved` or `waiting`, never `connected`. Only a media report that passes **Meet's own** judgement connects a caller: live, fresh,
+   encrypted, packets in **both** directions for long enough, an allowed codec, the one-time media token, the meeting still open, and the Security Shield still allowing. The database enforces it
+   (`status='connected'` requires `state='MEDIA_CONNECTED'`; `MEDIA_CONNECTED` requires `media_verified_at`). Existing `connected` rows are ended (`legacy_unverified_media`): they never had verified audio.
+2. **Security Shield for telephone callers.** Meet asked the Shield only for signalling sessions. It now asks before approval, again before connecting, and on a timer for every open call
+   (`shieldSweep`); a revocation hangs the call up immediately; an unreachable Shield refuses new calls and, past the grace period, ends open ones. In gateway mode the Shield is mandatory even if `SHIELD_MEET_ENFORCE` is off.
+3. **The gateway's own identity** (`server/phone-gateway-auth.mjs`): the ES256 workload token Meet already uses, but with its **own audience** (`qorlla-phone-gateway`), **subjects mapped server-side to scopes**
+   (`phone.verify|consent|media|end|decision|health|readiness`: a token valid for another operation does not authorise this one), per-issuer keys with **kid rotation**, single-use `jti` and a **request budget in PostgreSQL**
+   (shared by every replica), a body hash on POST, and mTLS binding (`cnf x5t#S256`) on by default. Gateway mode is off unless configured *and* `PHONE_GATEWAY_ENABLED=true`; admission then needs all six readiness conditions.
+4. **Readiness from authority** (`TelephonyService.phoneReadiness`, `GET /api/phone/ivr/readiness`): each condition is computed from stored, **fresh** evidence (carrier health and signed webhook, certified dial-in
+   numbers, a gateway heartbeat, an installed and certified bridge, reconciled billing, an explicit `production` gate). Missing, stale or malformed is false. A fifth release gate (`production`) was added.
+5. **Durable, bounded host decision** (`GET /api/phone/ivr/calls/:ref/decision?waitMs=`, `POST /api/phone/ivr/status`): state in PostgreSQL, long-poll capped at 20 s and 200 waiters, silence becomes `TIMED_OUT`, the media token is handed
+   over once. **Directory** (`GET /api/integrations/phone/meetings/:number`, bridge secret): number -> meeting + scheduled-meeting id, one-to-one by construction (`external_meeting_links`: `meeting_id UNIQUE`, `PRIMARY KEY (source_system, source_id)`).
+6. **Timeouts and recovery in Meet**: approval, media and stale-media timeouts, late media for an ended call (`ORPHANED`, audit, Shield report; audio after a *confirmed* hang-up is audited too), unconfirmed hang-ups retried and
+   escalated to `ORPHANED`, an append-only `phone_call_events` history, and a sweeper timer. All ages are computed by the database (the application and database clocks need not agree).
+
+## What changed in this package
+
+`MeetPhoneAuthority` now speaks the new contract (workload identity or the provider HMAC), never accepts `connected` from a PIN step, uses the durable decision, and reports media; `meetConfirmedBridge` makes `MEDIA_CONNECTED`
+require **two agreeing judges** (this gateway's check and Meet's); `startMediaKeepAlive` keeps calls proven; `MeetReadiness` reads the six conditions from Meet and fails closed (stale, malformed, slow, failing: all false);
+`MeetDirectoryClient`; `startReaper` + `PostgresCallLedger.sessionOf` for crash recovery; a leg that finishes starting after its admission gave up is stopped **and reported to Meet**; `AbortSignal` cancellation and the PostgreSQL call ledger
+from the previous milestone are unchanged.
+
+## Test evidence
+
+| Where | Count | Against |
 |---|---|---|
-| Meeting authority | `MeetPhoneAuthority` (`src/meet-authority.ts`) | resolve -> signed verify -> (host wait by polling the bridge-secret `phone-calls` list) -> signed disconnect on any failure. Uses Meet's exact signature (known-answer test against Meet's own `createProvider().sign`). Session id = `<meetingUuid>.<callRef>`, so any replica can finish what another started. |
-| Shared call ledger | `PostgresCallLedger` + `sql/001_phone_join.sql` | `call_id` PRIMARY KEY (one INSERT wins across replicas), validated transition table, append-only history (trigger), `reapStale` for crashed replicas (`FOR UPDATE SKIP LOCKED`), `listConnected`. A failed id is released; connected, terminating and orphaned ids never are. |
-| Gateway authentication | `gatewayAuth` (`src/gateway-auth.ts`) | verifies Meet's workload-JWT format (tested against Meet's real `signWorkloadJwt`); adds audience `qorlla-phone-join`, known issuer/kid/subject, 300 s max lifetime, single-use `jti` in `PostgresReplayStore`, optional mTLS binding, and `bsh` (SHA-256 of the exact request body) on the admission POST. Real refusal reasons go to `onReject`; clients only see 401. |
-| Rate limiting | `createRedisRateLimiter` (`src/rate-limit-redis.ts`) | atomic Lua window counter shared by all replicas; Redis down, slow, or odd -> 503 (never allowed); over limit -> 429 + `Retry-After`. |
-| Media contract | `src/media-contract.ts` | lifecycle states, evidence (packets both ways, duration, SRTP, codec, freshness), `verifiedBridge()` turns a gateway into a `SipRtpBridge` whose `mediaEstablished` is true only when the evidence passes. |
-| Shield | `ShieldClient`, `ShieldedAuthority`, `startPhoneSessionGuard` (`src/shield.ts`) | telephone callers are guests: the Shield is asked after the host has decided (and at once when no approval is needed); refusal or an unreachable Shield ends the call in Meet and is never an admission; a periodic re-check ends calls whose meeting ended, and ends all calls if the Shield stays unreachable past the grace period. |
-| Cancellation | `admitTelephoneCall` | every dependency gets an `AbortSignal`; a timed-out attach is aborted, the leg is disconnected immediately, the call id stays claimed (`terminating`) while the attach may still be running, and when it finally ends any leg it created is disconnected (3 tries) - `failed` + released, or `orphaned` + `onLateMedia(..., false)` for an operator. |
+| Meet `tests/phone-lifecycle.pg.test.mjs` | 36 | the real `phone.mjs` and gateway auth on real PostgreSQL, real ES256 tokens, real mutual TLS (OpenSSL certificates) |
+| Meet `tests/phone-server.pg.test.mjs` | 2 | the real Meet **server process** (`server/index.js`): routes, bridge auth, directory, readiness, the sweeper timer, gateway mode failing closed |
+| this package | 104 (29 original + 75) | PostgreSQL, Redis, a **killed** gateway process, and the **real Meet server** (`real-meet.e2e.test.ts`) |
+| Meet `tests/phone.spec.js` | updated, **not run here** | needs the dev stack; its dial-in block already failed in this environment before the change (main's `/start` returns no Meet URL) |
 
-## Gaps found in Meet (not fixed here: Meet is out of scope for this branch)
+Not exercised: the real Security Shield server (it is tested through its documented contract with a double that follows the engine's routes and token rules), the Twilio/IVR path (no bridge exists), any real carrier or phone.
 
-1. **Meet connects the caller before media exists.** `verifyCall` marks the phone participant `connected` (room told, recording counts them) as soon as the PIN is right and no waiting room applies. This package attaches
-   media afterwards and ends the call in Meet if that fails, but until Meet has a "media pending" state the participant can briefly appear connected without audio.
-2. **The signed verify route only exists for the test double.** `/api/phone/ivr/verify` answers 503 unless `PHONE_PROVIDER=test`; the real carrier path is the Twilio webhook -> TwiML -> `verifyCall`. A SIP gateway needs a
-   provider adapter in Meet with its own signature verification; the adapter here uses the test double's scheme, so it is correct for tests and must be re-pointed at the production scheme.
-3. **No endpoint maps a Meet meeting id to the main app's scheduled-meeting id**, and the call list is keyed by the latter. The deployment must supply `MeetingDirectory`.
-4. **Host approval has no event or long-poll**; polling `phone-calls` with the bridge secret works but is not push.
-5. **Meet does not ask the Shield about telephone callers** (it does for signalling sessions). This package does, but Meet's own Twilio/IVR path still does not.
-6. **Readiness is not wired to Meet's authority.** The six flags are enforced, but the provider that fills them from `qphone_gates`, the carrier status and billing certification is not written.
+## Readiness matrix
+
+| Condition | Authoritative source in Meet | Evidence that must be fresh | Today |
+|---|---|---|---|
+| carrierConnected | `qphone_provider_status` + a configured carrier | API health <= 15 min, signed webhook <= 30 days | **false** (no carrier) |
+| inboundNumberCertified | active `dialin` numbers + `dialin` gate + `PHONE_FEATURES` flag | gate <= 90 days | **false** |
+| gatewayHealthy | `phone_gateway_health` heartbeat (gateway-signed) | <= 60 s | **false** (no gateway) |
+| mediaBridgeCertified | an installed bridge (`bridge.ready`) + `bridge` gate + flag | gate <= 90 days | **false** (`UnconfiguredBridge`) |
+| billingCertified | `billing` gate + flag + reconciled usage | gate <= 90 days | **false** |
+| productionApproved | `production` gate (operator, with evidence) + flag | gate <= 90 days | **false** |
+
+## Findings that remain open
+
+1. **Meet's own rate limiter is per process.** The global `express-rate-limit` counters use the default in-memory store. The new gateway endpoints are protected by a PostgreSQL budget shared by all replicas; the older
+   limiters were not changed. PIN-attempt lockouts were already in PostgreSQL.
+2. **Inbound mTLS needs a TLS-terminating deployment that exposes the client certificate.** Meet's server does not terminate TLS itself. `PHONE_GATEWAY_REQUIRE_MTLS` defaults to true, so behind a plain proxy gateway
+   authentication fails closed until TLS (or a proxy that forwards the verified certificate in a form Meet is changed to trust) is arranged.
+3. **The signed `verify` route for a real gateway.** In gateway mode it is authenticated by the gateway token; the carrier (Twilio) path still goes through the IVR/TwiML and needs a bridge that does not exist.
+4. **Host approval is still not push.** It is a durable, bounded long-poll, which is the bounded notification mechanism; there is no event stream.
+5. `ivr.mjs` was adapted to the `approved` semantics but cannot be executed (no bridge).
 
 ## Still BLOCKED (infrastructure and certification)
 
-- an authorised inbound carrier / SIP trunk, certified inbound numbers, and the SIP ingress (TLS/SRTP, DTMF/IVR);
-- the SIP/RTP-to-WebRTC media gateway that implements `MediaGateway` (audio verified both ways, teardown, hold, recording consent);
-- the Meet changes above (1-6) and a production signature scheme for the gateway path;
-- production secrets, the gateway key registry (`TrustedKeys`) and mTLS certificates; Redis with TLS and a password; a PostgreSQL role limited to the `phone_join_*` tables; scheduling of `reapStale`;
+- an authorised carrier / SIP trunk, certified inbound numbers, SIP ingress (TLS/SRTP, DTMF/IVR);
+- the SIP/RTP-to-WebRTC media gateway implementing `MediaGateway`: nothing in this repository produces real audio evidence;
+- production secrets, the gateway key registry and mTLS certificates, Redis with TLS and a password, restricted database roles for the `phone_join_*` and `phone_gateway_*` tables;
+- scheduling and alert routing for the reaper (`startReaper`), the Meet sweeper and orphan alerts in a real deployment;
 - billing certification, regulatory/anti-fraud/emergency-number handling, accessibility and privacy review;
-- end-to-end tests with physical phones across networks, failure injection and load.
+- end-to-end tests with physical phones, failure injection and load.
 
-Public numbers, PSTN and carrier calling stay OFF. This package never advertises a reference number as dial-in and never reports `MEDIA_CONNECTED` without verified audio.
+Public numbers, PSTN, carrier calling and telephony billing stay OFF. Nothing here advertises a reference number as dial-in, reports `MEDIA_CONNECTED` without verified audio, or admits when a dependency is unavailable.
 
-## Running the integration tests
+## Running the tests
 
 ```bash
 docker run -d --name pj-pg -e POSTGRES_PASSWORD=pj -p 35439:5432 postgres:16-alpine
 docker run -d --name pj-redis -p 36379:6379 redis:7-alpine
 export PHONE_JOIN_TEST_DATABASE_URL=postgres://postgres:pj@127.0.0.1:35439/postgres
 export PHONE_JOIN_TEST_REDIS_URL=redis://127.0.0.1:36379
-npm test          # 80 tests; without the two variables the 18 that need PostgreSQL or Redis are skipped (and reported as skipped)
+export MEET_SERVER_DIR=<path to qorlla-meet-video on feature/qorlla-meet-telephone-admission-meet>
+npm test        # 104 tests; without the variables the 28 that need PostgreSQL, Redis or Meet are skipped, and reported as skipped
+# in the Meet tree:  PHONE_TEST_DATABASE_URL=...  node --test tests/phone-lifecycle.pg.test.mjs tests/phone-server.pg.test.mjs
 ```
-The tests create and drop their own throw-away schema and Redis key prefix. `MEET_SERVER_DIR` (path of Meet's `telephony/number-sync.mjs`) enables the compatibility test against Meet's real token signer.

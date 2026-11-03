@@ -51,35 +51,40 @@ The example is intentionally nonfunctional (it answers 401 to everything): capab
 - **Replay protection:** pass a durable `CallLedger` (atomic `claim`, `release` after a failed admission) in `admission`; a call id is admitted at most once. Without a ledger the contract is not replay-safe: production must supply one.
 - Responses are `Cache-Control: no-store`.
 
-## Production components (integration milestone)
+## Production components (integration milestones)
 
-Beyond the admission core, this package now has the adapters a deployment needs. All are fail-closed and none enables telephony: see `docs/MEET_INTEGRATION.md` for how each maps onto the real Qorlla Meet and Security Shield,
-the gaps found in Meet, and what is still BLOCKED.
+All adapters are fail-closed and none enables telephony. `docs/MEET_INTEGRATION.md` has the Meet-side changes (a separate branch: `feature/qorlla-meet-telephone-admission-meet`), the readiness matrix, the findings
+that remain open and what is still BLOCKED.
 
 | Module | Purpose |
 |---|---|
 | `src/ledger-pg.ts` + `sql/001_phone_join.sql` | PostgreSQL call ledger (primary-key ownership across replicas, validated transitions, append-only history, crash reaper) and the gateway-token replay store |
 | `src/gateway-auth.ts` | verifies the workload token Qorlla already uses (ES256 JWT, optional mTLS binding), single-use, body-bound |
 | `src/rate-limit-redis.ts` | Redis rate limit shared by all replicas; refuses when Redis is unavailable |
-| `src/meet-authority.ts` | `MeetingAuthority` over Meet's real endpoints (resolve, signed verify/disconnect, host decision by polling) |
-| `src/shield.ts` | Security Shield authorization, re-check loop and fail-closed termination |
-| `src/media-contract.ts` | the SIP/RTP-to-WebRTC contract and the audio-evidence rule behind `MEDIA_CONNECTED` |
-| `src/compose.ts` | `terminateCall`: media, then Meet, then the record |
+| `src/meet-authority.ts` | `MeetingAuthority` over Meet's phone gateway routes (workload identity or provider HMAC): `approved`/`waiting` (never `connected`), durable host decision, media reports, heartbeat |
+| `src/meet-media.ts` | `meetConfirmedBridge`: `MEDIA_CONNECTED` needs this gateway's check AND Meet's own acceptance; `startMediaKeepAlive` keeps calls proven |
+| `src/readiness-meet.ts` | `MeetReadiness` (the six conditions from Meet, all false on any doubt) and `MeetDirectoryClient` |
+| `src/shield.ts` | Security Shield authorization, re-check loop and fail-closed termination (defence in depth: Meet asks the Shield too) |
+| `src/media-contract.ts` | the SIP/RTP-to-WebRTC contract and the audio-evidence rule |
+| `src/compose.ts` | `terminateCall` (media, then Meet, then the record) and `startReaper` (crash recovery) |
 
-A timed-out dependency is **cancelled** (every call receives an `AbortSignal`), not merely abandoned: a media leg that is created after its step timed out is found and terminated, the call id stays claimed until that is settled, and a leg that cannot be terminated is marked `orphaned` and reported (`onLateMedia`).
+A timed-out dependency is **cancelled** (every call receives an `AbortSignal`), not merely abandoned: a media leg created after its step timed out is stopped and **reported to Meet**, the call id stays claimed until that is
+settled, and a leg that cannot be terminated is marked `orphaned` and reported (`onLateMedia`, `onOrphan`).
 
 ## Tests
 
-`npm test` builds and runs 80 tests. The first 29 (`admission.test.ts`, `server.test.ts`) need nothing; 18 more need PostgreSQL or Redis and are skipped, and reported as skipped, unless these are set:
+`npm test` builds and runs 104 tests. The first 29 (`admission.test.ts`, `server.test.ts`) need nothing; 28 more need PostgreSQL, Redis or the real Meet server and are skipped, and reported as skipped, unless these are set:
 
 ```bash
 export PHONE_JOIN_TEST_DATABASE_URL=postgres://...   # any database the tests may create a throw-away schema in
 export PHONE_JOIN_TEST_REDIS_URL=redis://...
+export MEET_SERVER_DIR=<qorlla-meet-video of the Meet-side branch>   # real Meet server, real signer
 ```
 
-They cover: disabled-by-default and the six gates (including missing/partial/malformed readiness); request validation; wrong meeting or passcode; host refusal and silence; unavailable and hanging services; media that is not established / throws / hangs;
-late media legs and orphans; replay and concurrent duplicates across replicas (real PostgreSQL); stale-claim reaping; the transition table and append-only history; gateway tokens (algorithm, issuer/kid/subject/audience, expiry, replay, body and certificate binding, compatibility with Meet's real signer);
-the Redis limiter under concurrency and when Redis is down; the media-evidence rule; Meet (signature known answer, PIN/lockout, waiting room, timeouts, ghost-caller cleanup); the Shield (refusal, unreachable, re-check, grace period); and one full pipeline over HTTP.
+They cover: the six gates (including missing/partial/malformed readiness); validation; wrong meeting or passcode; host refusal and silence; unavailable and hanging services; media that is not established / throws / hangs; late legs and
+orphans; replay and concurrent duplicates across replicas (real PostgreSQL); a **killed gateway process** recovered by another replica; gateway tokens (algorithm, issuer/kid/subject/audience, expiry, replay, body and certificate binding, compatibility with
+Meet's real signer); the Redis limiter under concurrency and when Redis is down; the media-evidence rule; Meet's lifecycle (a PIN never connects; two judges must agree; keep-alive; Meet refusing or terminating); readiness failing closed; the directory;
+the Shield (refusal, unreachable, re-check, grace period); and this package end to end against the **real Meet server process**.
 
 ## UI copy while unavailable
 
