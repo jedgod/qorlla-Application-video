@@ -63,7 +63,7 @@ export function createStore(db = pool) {
     return (await db.query('SELECT account_id, extension, enabled FROM voice_identities ORDER BY extension LIMIT $1', [Math.min(500, Math.max(1, limit))])).rows;
   }
 
-  const rooms = createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts, validDevice, extensionOf, LEASE_SECONDS });
+  const rooms = createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts, validDevice, extensionOf, LEASE_SECONDS, CALL_COLS });
 
   /** Disabling an identity also ends its live calls and removes it from rooms, so a suspended account cannot stay in a call it was already in. */
   async function setEnabled(accountId, enabled) {

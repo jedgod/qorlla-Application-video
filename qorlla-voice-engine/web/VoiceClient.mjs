@@ -138,6 +138,7 @@ export class QorllaVoiceClient {
     this.emit(m);
     switch (m.type) {
       case 'incoming': if (m.call) this.ringing.add(m.call.id); break;
+      case 'room_invite': if (m.upgrade && m.room && m.upgrade.callId) await this.autoJoinUpgrade(m); break;
       case 'offer': case 'answer': case 'ice': return this.onSignal(m);
       case 'g_offer': case 'g_answer': case 'g_ice': return this.onGroupSignal(m);
       case 'device_claimed': return this.onPeerDevice(m);
@@ -151,7 +152,7 @@ export class QorllaVoiceClient {
     if (Number.isFinite(c.version)) { const seen = this.callVersions.get(c.id); if (seen !== undefined && c.version < seen) return; this.callVersions.set(c.id, c.version); if (this.callVersions.size > 200) this.callVersions.delete(this.callVersions.keys().next().value); }   // events can be delivered out of order (several workers, retries): an older state never overwrites a newer one
     if (c.status === 'active' && c.id === this.callId && this.role === 'caller') { this.emit({ type: 'call_accepted', call: c }); if (this.autoStart && !this.pc) await this.startAcceptedCall(c.id); }
     if (c.status === 'active' && c.id !== this.callId && this.ringing.has(c.id)) { this.ringing.delete(c.id); this.emit({ type: 'taken_elsewhere', call: c }); }          // another of my devices answered
-    if (TERMINAL.includes(c.status)) { this.ringing.delete(c.id); if (c.id === this.callId) { const reason = c.end_reason || c.status; this.cleanup(); this.emit({ type: 'call_ended', callId: c.id, status: c.status, reason }); } }
+    if (TERMINAL.includes(c.status)) { this.ringing.delete(c.id); if (c.id === this.callId) { const reason = c.end_reason || c.status; this.cleanup(); if (reason !== 'upgraded') this.emit({ type: 'call_ended', callId: c.id, status: c.status, reason }); } }   // 'upgraded' = the call became a group call, not an ending
   }
   /** My seat was taken by another device: stop media NOW and stop signaling, but do not end the call; the other device carries it on. */
   onRevoked(m) {
@@ -243,8 +244,10 @@ export class QorllaVoiceClient {
   async continueHere(call, role) { return this.resumeCall(call, role); }
 
   async dial(extension) {
-    if (this.callId || this.room) throw Error('already_in_call');
-    const r = await this.post('/calls', { extension: String(extension), idempotencyKey: uuid(), deviceId: this.deviceId });
+    if (this.callId || this.room || this.dialing) throw Error('already_in_call');
+    this.dialCancelled = false; const req = this.post('/calls', { extension: String(extension), idempotencyKey: uuid(), deviceId: this.deviceId }); this.dialing = req;
+    let r; try { r = await req; } finally { this.dialing = null; }
+    if (this.dialCancelled) { this.dialCancelled = false; await this.endById(r.call.id); throw Object.assign(Error('cancelled'), { code: 'cancelled' }); }   // End was pressed before the server answered: the call it just created is ended, so nobody rings
     this.callId = r.call.id; this.role = 'caller'; this.generation = r.generation || 1; this.startLease(); return r.call;
   }
   /** Prepares the microphone first, then tells the server: if the microphone is refused the call is never answered. */
@@ -255,7 +258,28 @@ export class QorllaVoiceClient {
     await this.acceptPendingOffer(callId);
   }
   async reject(callId) { await this.post(`/calls/${callId}/reject`); this.ringing.delete(callId); if (this.callId === callId) this.cleanup(); }
-  async hangup() { const id = this.callId; this.cleanup(); if (id) await this.post(`/calls/${id}/end`).catch(() => {}); }
+  /** Ends a call on the server. One retry, because a single failed request would leave the other side ringing until the ring timeout. */
+  async endById(id) { for (let i = 0; i < 2; i++) { try { await this.post(`/calls/${id}/end`); return true; } catch (e) { if (e && (e.status === 404 || e.status === 409)) return true; await new Promise((r) => setTimeout(r, 800)); } } return false; }
+  async hangup() { const id = this.callId; if (!id && this.dialing) this.dialCancelled = true; this.cleanup(); if (id) await this.endById(id); }
+  /**
+   * Add a person to the call you are in. In a group call that is an invitation; in an answered one-to-one call the call becomes a group call (the server ends the pair and opens a room in one step;
+   * the other person's client joins it by itself). Returns the room.
+   */
+  async addParticipant(extension) {
+    if (this.room) { const r = await this.inviteToRoom(String(extension)); return r.room; }
+    const id = this.callId; if (!id) throw Error('not_in_call');
+    await this.openRoomMic();
+    let r; try { r = await this.post(`/calls/${id}/add`, { extension: String(extension), deviceId: this.deviceId }); }
+    catch (e) { this.roomStream?.getTracks().forEach((t) => t.stop()); this.roomStream = null; throw e; }                      // the call itself carries on
+    if (this.callId === id) this.cleanup();
+    await this.enterRoom(r.room, r.generation); this.emit({ type: 'call_upgraded', room: r.room }); return r.room;
+  }
+  /** The other party of a one-to-one call was upgraded to a group call: leave the pair and join the room, no prompt. */
+  async autoJoinUpgrade(m) {
+    if (this.callId === m.upgrade.callId) this.cleanup();
+    try { const room = await this.joinRoom(m.room.id); this.emit({ type: 'call_upgraded', room }); }
+    catch (e) { this.emit({ type: 'upgrade_failed', roomId: m.room.id, error: String(e && e.message || e) }); }
+  }
   setMuted(muted) {
     this.muted = !!muted;
     for (const s of [this.stream, this.roomStream]) s?.getAudioTracks().forEach((t) => { t.enabled = !this.muted; });

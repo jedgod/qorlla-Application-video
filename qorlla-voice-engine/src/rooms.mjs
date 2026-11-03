@@ -1,13 +1,13 @@
 // Group calls (v1.5): voice rooms with a host, invitations and a roster. Media is a full mesh of one-to-one WebRTC connections (so a room is capped at max_members, default 6), which means the
 // server relays signaling only and never carries or records audio. Every change is one transaction that also writes the durable room events, exactly like one-to-one calls.
 import { randomUUID } from 'node:crypto';
-import { validExtension, validCallId } from './core.mjs';
+import { validExtension, validCallId, publicCall, allowedTransition } from './core.mjs';
 
 const fail = (code) => Object.assign(new Error(code), { code });
 const ROOM_COLS = 'id, host_id, title, meeting_ref, status, max_members, created_at, ended_at, end_reason, version';
 export const validRoomId = validCallId;
 
-export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts, validDevice, extensionOf, LEASE_SECONDS }) {
+export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts, validDevice, extensionOf, LEASE_SECONDS, CALL_COLS }) {
   const leaseSql = `now() + make_interval(secs => ${LEASE_SECONDS})`;
 
   async function snapshot(c, roomId) {
@@ -151,6 +151,39 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
       return { room: snap, reused: false };
     });
   }
+  /**
+   * Add a person to a one-to-one call that is already answered. A one-to-one call is a single pair of connections, so it is upgraded into a group room in ONE transaction: the call ends with the
+   * reason 'upgraded', the person who added becomes the host and is already joined, and the other party and the newcomer are invited (the other party's invitation says which call it replaces, so
+   * their client joins at once, without a prompt). Nobody is ever in the call and the room at the same time.
+   */
+  async function upgradeCall(callId, actor, extension, deviceId, guard = null) {
+    if (!validCallId(callId) || !validExtension(extension) || !validDevice(deviceId)) throw fail('invalid_input');
+    return tx(async (c) => {
+      const call = (await c.query(`SELECT ${CALL_COLS} FROM voice_calls WHERE id=$1 FOR UPDATE`, [callId])).rows[0];
+      if (!call || ![call.caller_id, call.callee_id].includes(actor)) throw fail('not_found');            // a non-participant learns nothing
+      if (call.status !== 'active' || !allowedTransition(call.status, 'ended')) throw fail('call_not_active');
+      const peer = actor === call.caller_id ? call.callee_id : call.caller_id;
+      const target = (await c.query('SELECT account_id FROM voice_identities WHERE extension=$1 AND enabled=true', [extension])).rows[0]?.account_id;
+      if (!target || target === actor || target === peer) throw fail('invalid_recipient');
+      await lockAccounts(c, [actor, peer, target]);
+      if (guard) await guard(c, actor, target);                                                           // same eligibility as any invitee: verified, not suspended, same tenant
+      if ((await c.query('SELECT 1 FROM voice_blocks WHERE (owner_id = ANY($1::text[]) AND blocked_id=$2) OR (blocked_id = ANY($1::text[]) AND owner_id=$2)', [[actor, peer], target])).rowCount) throw fail('blocked');
+      if (await busyAccounts(c, [target])) throw fail('busy');
+      const ended = (await c.query(`UPDATE voice_calls SET status='ended', ended_at=now(), end_reason='upgraded', version=version+1 WHERE id=$1 RETURNING ${CALL_COLS}`, [callId])).rows[0];
+      await c.query("INSERT INTO voice_call_events(call_id, actor_id, kind) VALUES($1,$2,'ended')", [callId, actor]);
+      const id = randomUUID();
+      await c.query("INSERT INTO voice_rooms(id, host_id, title, status, max_members) VALUES($1,$2,'','live',6)", [id, actor]);
+      await c.query(`INSERT INTO voice_room_members(room_id, account_id, role, status, device_id, lease_token, generation, lease_expires_at, joined_at) VALUES($1,$2,'host','joined',$3,$4,1,${leaseSql},now())`, [id, actor, deviceId, randomUUID()]);
+      for (const a of [peer, target]) await c.query("INSERT INTO voice_room_members(room_id, account_id, role, status, invited_by) VALUES($1,$2,'member','invited',$3)", [id, a, actor]);
+      await openSeg(c, id, actor); await note(c, id, actor, 'joined'); for (const a of [peer, target]) await note(c, id, a, 'invited', actor);
+      const snap = await snapshot(c, id), from = { extension: await extensionOf(c, actor), account_id: actor }; await lockEvents(c, [actor, peer, target]);
+      const state = { type: 'state', call: publicCall(ended) }; for (const a of [actor, peer]) await ev(c, a, 'state', state, callId);
+      await ev(c, peer, 'room_invite', { type: 'room_invite', room: snap, from, upgrade: { callId } }, null);
+      await ev(c, target, 'room_invite', { type: 'room_invite', room: snap, from }, null);
+      await ev(c, actor, 'room_state', { type: 'room_state', room: snap }, null);
+      return { room: snap, lease: { generation: 1, device_id: deviceId }, call: ended };
+    });
+  }
   /** The same generation fencing as one-to-one calls: a new device that claims the member's seat replaces the old one, and the old one is told to stop. */
   async function claimDevice(roomId, account, deviceId) {
     if (!validDevice(deviceId)) throw fail('invalid_input');
@@ -220,5 +253,5 @@ export function createRooms({ db, tx, lockAccounts, ev, lockEvents, busyAccounts
     });
     return n;
   }
-  return { createRoom, join, leave, end, kick, invite, claimDevice, refreshLease, signalContext, get, liveFor, seat, removeAccountTx, expireInvites, expireStaleMembers, snapshot };
+  return { createRoom, upgradeCall, join, leave, end, kick, invite, claimDevice, refreshLease, signalContext, get, liveFor, seat, removeAccountTx, expireInvites, expireStaleMembers, snapshot };
 }

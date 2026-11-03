@@ -40,7 +40,7 @@ export class QorllaVoiceClient {
   dial(extension: string): Promise<VoiceCall>; answer(callId: string): Promise<void>; reject(callId: string): Promise<void>; hangup(): Promise<void>; setMuted(muted: boolean): void;
   continueHere(call: VoiceCall, role: 'caller' | 'callee'): Promise<void>; resumeCall(call: VoiceCall, role: 'caller' | 'callee'): Promise<void>;
   createRoom(extensions: string[], title?: string): Promise<VoiceRoom>; joinRoom(roomId: string): Promise<VoiceRoom>; resumeRoom(room: VoiceRoom): Promise<VoiceRoom>; declineRoom(roomId: string): Promise<void>;
-  inviteToRoom(extension: string): Promise<any>; kickFromRoom(accountId: string): Promise<any>; leaveRoom(): Promise<void>; endRoom(): Promise<void>;
+  addParticipant(extension: string): Promise<VoiceRoom>; inviteToRoom(extension: string): Promise<any>; kickFromRoom(accountId: string): Promise<any>; leaveRoom(): Promise<void>; endRoom(): Promise<void>;
   groupHistory(o?: { limit?: number; cursor?: string }): Promise<{ items: GroupHistoryItem[]; nextCursor: string | null }>; groupHistoryDetail(callId: string): Promise<GroupHistoryDetail>;
   deleteGroupHistory(callId: string): Promise<{ deleted: number; retained: number }>; clearGroupHistory(): Promise<{ deleted: number; retained: number; remaining: number; skippedLive: number }>; historyPolicy(): Promise<{ retentionDays: number; retentionEnabled: boolean; deletable: string }>;
   stats(): Promise<VoiceStats | null>; roomStats(): Promise<Record<string, VoiceStats | null>>;

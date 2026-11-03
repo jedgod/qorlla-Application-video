@@ -158,6 +158,14 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     if (!(await store.refreshLease(req.params.id, req.account, deviceId, generation))) return res.status(409).json({ error: 'lease_lost' });
     res.json({ ok: true, expiresIn: 90 });
   }));
+  // Add a person to an answered one-to-one call: it becomes a group call (see rooms.upgradeCall). Same gate and eligibility checks as creating a group call.
+  app.post('/v1/voice/calls/:id/add', auth, gate('internal_calls'), route(async (req, res) => {
+    const { deviceId, extension } = req.body || {};
+    if (!validCallId(req.params.id) || !store.validDevice(deviceId) || !validExtension(extension)) return res.status(400).json({ error: 'invalid_input' });
+    if (!(await guardCapacity(res))) return;
+    const r = await store.rooms.upgradeCall(req.params.id, req.account, extension, deviceId, enforce ? shield.callGuard : null); kick();
+    res.set('Cache-Control', 'no-store').json({ room: r.room, generation: r.lease.generation, expiresIn: 90 });
+  }));
   app.post('/v1/voice/calls/:id/:action', auth, route(async (req, res) => {
     const { id, action } = req.params, mapping = { answer: 'active', reject: 'rejected', end: 'ended', fail: 'failed' }, body = req.body || {};
     if (!validCallId(id) || !mapping[action]) return res.status(400).json({ error: 'invalid_input' });

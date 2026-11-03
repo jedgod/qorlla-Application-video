@@ -790,10 +790,18 @@
   <p class="muted vi-sub">Internet call: no phone number is involved, and your microphone stays off until you answer.</p>
   <div class="vi-actions"><button type="button" class="btn danger" id="viDecline">Decline</button><button type="button" class="btn primary" id="viAnswer">Answer</button></div>
 </dialog>
+<dialog id="voiceAdd" class="vi" aria-labelledby="vaTitle">
+  <h2 id="vaTitle">Add someone to this call</h2>
+  <label class="qp-fl2" for="vaPick">Colleague<select id="vaPick"></select></label>
+  <label class="qp-fl2" for="vaExt">or an extension<input id="vaExt" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="Extension"></label>
+  <p class="muted vi-sub" id="vaMsg" role="status"></p>
+  <div class="vi-actions"><button type="button" class="btn" id="vaCancel">Cancel</button><button type="button" class="btn primary" id="vaDo">Add</button></div>
+</dialog>
 <div id="voiceBar" class="vb hidden" role="region" aria-label="Active Qorlla call">
   <span class="vb-dot" aria-hidden="true"></span>
   <span class="vb-text"><strong id="vbPeer"></strong><small id="vbStatus" role="status" aria-live="polite"></small></span>
   <button type="button" class="btn small" id="vbMute" aria-pressed="false">Mute</button>
+  <button type="button" class="btn small hidden" id="vbAdd">Add person</button>
   <button type="button" class="btn small danger" id="vbEnd">End call</button>
   <button type="button" class="btn small danger hidden" id="vbEndAll">End for everyone</button>
 </div>
@@ -3652,7 +3660,8 @@
   function voiceToneStop() { if (!voice.tone) return; clearInterval(voice.tone.iv); if (voice.tone.audio) { try { voice.tone.audio.pause(); } catch (e) { /* gone */ } } try { voice.tone.ctx.close(); } catch (e) { /* closed */ } voice.tone = null; }
   // ---- the call bar
   function voiceBar(show, o) {
-    var bar = $('voiceBar'); if (!show) { bar.classList.add('hidden'); clearInterval(voice.bar && voice.bar.iv); voice.bar = null; return; }
+    var bar = $('voiceBar'); if (!show) { bar.classList.add('hidden'); $('vbAdd').classList.add('hidden'); var vd = $('voiceAdd'); if (vd.open) vd.close(); clearInterval(voice.bar && voice.bar.iv); voice.bar = null; return; }
+    $('vbAdd').classList.toggle('hidden', !(o.since || o.addable));
     bar.classList.remove('hidden'); if (o.peer) $('vbPeer').textContent = o.peer; $('vbStatus').textContent = o.text; $('vbMute').setAttribute('aria-pressed', String(!!(voice.client && voice.client.muted))); $('vbMute').textContent = voice.client && voice.client.muted ? 'Unmute' : 'Mute';
     bar.querySelector('.vb-dot').classList.toggle('ring', !!o.ringing);
     clearInterval(voice.bar && voice.bar.iv); voice.bar = { iv: null };
@@ -3664,7 +3673,7 @@
     if (!voice.ready || !voice.client) { toast(I18n.t('Qorlla Voice is not connected yet.'), 'err'); return Promise.resolve(); }
     if (ext === voice.ext) { toast(I18n.t('That is your own extension.'), 'err'); return Promise.resolve(); }
     voice.peerExt = ext; voiceBar(true, { peer: voicePeerLabel(ext), text: I18n.t('Calling\u2026'), ringing: true }); voiceTone('ringback');
-    return voice.client.dial(ext).catch(function (e) { voiceToneStop(); voiceBar(false); toast(I18n.t(VOICE_ERR[e.code] || 'The call could not be placed.'), 'err'); });
+    return voice.client.dial(ext).catch(function (e) { voiceToneStop(); voiceBar(false); if (e && e.code === 'cancelled') return; toast(I18n.t(VOICE_ERR[e.code] || 'The call could not be placed.'), 'err'); });
   }
   function voiceIncomingShow(e) {
     var isRoom = !!e.room, id = isRoom ? e.room.id : e.call.id; voice.incoming = { id: id, room: isRoom, ext: e.from && e.from.extension }; var who = voice.incoming.ext ? voicePeerLabel(voice.incoming.ext) : I18n.t('A colleague');
@@ -3676,7 +3685,9 @@
   function voiceEvent(e) {
     if (e.type === 'ready') { voice.ext = e.extension; voiceChanged(); }
     else if (e.type === 'incoming') { if (!(voice.client && (voice.client.callId || voice.client.room))) voiceIncomingShow(e); }
-    else if (e.type === 'room_invite') { if (!(voice.client && (voice.client.callId || voice.client.room))) voiceIncomingShow(e); }
+    else if (e.type === 'room_invite') { if (!e.upgrade && !(voice.client && (voice.client.callId || voice.client.room))) voiceIncomingShow(e); }
+    else if (e.type === 'upgrade_failed') { voiceBar(false); voice.connected = {}; toast(I18n.t('You could not be moved into the group call.'), 'err'); }
+    else if (e.type === 'call_upgraded') { voiceHistoryDirty(); }
     else if (e.type === 'room_joined') { voiceIncomingHide(); voice.connected = {}; voiceRoomBar(); }
     else if (e.type === 'room_state') { if (e.room.status !== 'live' || !(e.room.members || []).some(function (m) { return voice.client && m.account_id === voice.client.me && m.status === 'joined'; })) voiceHistoryDirty(); if (voice.incoming && voice.incoming.room && voice.incoming.id === e.room.id && e.room.status !== 'live') { voiceIncomingHide(); toast(I18n.t('The group call ended before you joined.')); } if (voice.client && voice.client.room && voice.client.room.id === e.room.id) voiceRoomBar(); }
     else if (e.type === 'peer_connected') { voice.connected[e.account] = true; voiceToneStop(); voiceRoomBar(); }
@@ -3709,9 +3720,26 @@
   function voiceRoomBar() {
     var c = voice.client, r = c && c.room; if (!r) return; var joined = r.members.filter(function (m) { return m.status === 'joined'; }), others = joined.filter(function (m) { return m.account_id !== c.me; });
     var up = others.filter(function (m) { return voice.connected[m.account_id]; }).length, names = others.map(voiceNameOf).join(', ') || I18n.t('waiting for others');
-    voiceBar(true, { peer: I18n.t('Group call') + ' \u00B7 ' + joined.length + ' ' + I18n.t(joined.length === 1 ? 'person' : 'people') + ' \u00B7 ' + names, text: others.length ? (up === others.length ? I18n.t('Connected') : I18n.t('Connecting\u2026') + ' ' + up + '/' + others.length) : I18n.t('Waiting for others to join\u2026'), ringing: others.length > 0 && up < others.length });
+    voiceBar(true, { peer: I18n.t('Group call') + ' \u00B7 ' + joined.length + ' ' + I18n.t(joined.length === 1 ? 'person' : 'people') + ' \u00B7 ' + names, text: others.length ? (up === others.length ? I18n.t('Connected') : I18n.t('Connecting\u2026') + ' ' + up + '/' + others.length) : I18n.t('Waiting for others to join\u2026'), ringing: others.length > 0 && up < others.length, addable: true });
     $('vbEnd').textContent = I18n.t('Leave'); $('vbEndAll').classList.toggle('hidden', r.host_id !== c.me);
   }
+  // Add a person to the call you are in (a one-to-one call becomes a group call; in a group call it is an invitation)
+  var VOICE_ADD_ERR = { call_not_active: 'The call is no longer active.', room_full: 'The group call is full.', not_in_call: 'You are not in a call.', invalid_input: 'Enter a valid extension.' };
+  function voiceAddOpen() {
+    var c = voice.client; if (!c || !(c.callId || c.room)) return; var inCall = {}; if (voice.peerExt) inCall[voice.peerExt] = true; if (c.room) c.room.members.forEach(function (m) { if (m.status !== 'left') inCall[m.extension] = true; });
+    var pick = $('vaPick'); pick.textContent = ''; var none = document.createElement('option'); none.value = ''; none.textContent = I18n.t('Choose a colleague\u2026'); pick.appendChild(none);
+    voice.people.filter(function (p) { return !p.self && p.extension && !inCall[p.extension]; }).forEach(function (p) { var o = document.createElement('option'); o.value = p.extension; o.textContent = p.displayName + ' (ext ' + p.extension + ')'; pick.appendChild(o); });
+    $('vaExt').value = ''; $('vaMsg').textContent = ''; $('vaDo').disabled = false; var d = $('voiceAdd'); if (!d.open) d.showModal();
+  }
+  $('vbAdd').addEventListener('click', voiceAddOpen);
+  $('vaCancel').addEventListener('click', function () { $('voiceAdd').close(); });
+  $('vaDo').addEventListener('click', function () {
+    var ext = ($('vaExt').value || '').trim() || $('vaPick').value, c = voice.client; if (!c) return;
+    if (!/^\d{3,8}$/.test(ext)) { $('vaMsg').textContent = I18n.t('Choose a colleague or enter an extension.'); return; }
+    $('vaDo').disabled = true; $('vaMsg').textContent = I18n.t('Adding\u2026');
+    c.addParticipant(ext).then(function () { $('voiceAdd').close(); toast(I18n.t('Calling') + ' ' + voicePeerLabel(ext) + '\u2026'); voiceHistoryDirty(); })
+      .catch(function (e) { $('vaDo').disabled = false; $('vaMsg').textContent = I18n.t(VOICE_ADD_ERR[e && e.code] || VOICE_ERR[e && e.code] || (e && e.name === 'NotAllowedError' ? 'Microphone access was blocked. Allow it in the browser to take calls.' : 'That person could not be added.')); });
+  });
   function voiceMoveShow(a) { voice.avail = a; $('vmText').textContent = a.kind === 'room' ? I18n.t('A group call is in progress on another device.') : I18n.t('A call is in progress on another device.') + (a.ext ? ' (' + voicePeerLabel(a.ext) + ')' : ''); $('voiceMove').classList.remove('hidden'); }
   function voiceMoveHide() { voice.avail = null; $('voiceMove').classList.add('hidden'); }
   function voiceGroupStart(exts) {
