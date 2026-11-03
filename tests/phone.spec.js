@@ -34,10 +34,14 @@ test.describe('dial-in against the real Meet server', () => {
   async function meeting(browser, { waitingRoom = false, joinBeforeHost = true, title = 'Phone meeting' } = {}) {
     const ctx = await browser.newContext(); const { item } = await organiser(ctx, B(), { name: 'Hostess', title });
     const st = await ctx.request.post(B() + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/start', { data: { waitingRoom, joinBeforeHost, name: 'Hostess' } }); expect(st.status()).toBe(200);
-    const startUrl = (await st.json()).url; const q = JSON.parse(Buffer.from(new URL(startUrl).hash.replace('#qs=', ''), 'base64url').toString());
+    // Meet hands the browser a ONE-TIME code (#qh=...), redeemed at /api/handoffs/redeem for the participant token. (This used to be a #qs= fragment carrying the token itself; the helper had gone stale.)
+    const redeem = async (url) => { const h = new URL(url).hash; if (!h.startsWith('#qh=')) return JSON.parse(Buffer.from(h.replace('#qs=', ''), 'base64url').toString()); const r = await fetch(MEET + '/api/handoffs/redeem', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: h.slice(4) }) }); expect(r.status).toBe(200); return r.json(); };
+    const startUrl = (await st.json()).url; const q = await redeem(startUrl);
+    // a one-time code is spent by redeeming it, so a test that needs a browser to open the meeting asks for a fresh start
+    const freshStart = async () => { const again = await ctx.request.post(B() + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/start', { data: { waitingRoom, joinBeforeHost, name: 'Hostess' } }); expect(again.status()).toBe(200); return (await again.json()).url; };
     const pinRes = await ctx.request.post(B() + '/api/meetings/' + encodeURIComponent(item.meetingId) + '/phone-access', { data: {} }); expect(pinRes.status()).toBe(201);
     const pin = (await pinRes.json()).pin; const host = (p, method = 'GET', body) => fetch(MEET + '/api/meetings/' + q.meetingId + p, { method, headers: { Authorization: 'Bearer ' + q.token, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
-    return { ctx, item, startUrl, digits: item.meetingId.replace(/\D/g, ''), uuid: q.meetingId, token: q.token, pin, host };
+    return { ctx, item, startUrl, freshStart, digits: item.meetingId.replace(/\D/g, ''), uuid: q.meetingId, token: q.token, pin, host };
   }
   const dial = (m, from, o = {}) => ivr('/api/phone/ivr/verify', { eventId: eid(), callId: o.callId || 'call-' + crypto.randomBytes(5).toString('hex'), from, meetingId: o.meetingId || m.digits, pin: o.pin || m.pin });
   const attendance = async (m) => (await (await m.ctx.request.get(B() + '/api/meetings/' + encodeURIComponent(m.item.meetingId) + '/phone-attendance')).json()).calls;
@@ -113,7 +117,7 @@ test.describe('dial-in against the real Meet server', () => {
     const calls = await attendance(m); expect(calls.find((c) => c.name.endsWith('4567')).status).toBe('connected'); expect(calls.find((c) => c.name.endsWith('4321')).status).toBe('denied'); expect((await m.host('/')).body.online.length).toBe(1);
     await m.ctx.close();
     const h = await meeting(browser, { joinBeforeHost: false, title: 'Host absent' }); const w = await dial(h, FROM3, { callId: ('ha-1' + RUN) }); expect(w.body.result).toBe('waiting');
-    const hp = await h.ctx.newPage(); await hp.goto(h.startUrl); await expect(hp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });   // the host connects: callers that waited for the host are let in
+    const hp = await h.ctx.newPage(); await hp.goto(await h.freshStart()); await expect(hp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });   // the host connects: callers that waited for the host are let in
     await expect.poll(async () => (await attendance(h))[0].status, { timeout: 20000, intervals: [1000] }).toBe('connected');
     await h.ctx.close();
   });
