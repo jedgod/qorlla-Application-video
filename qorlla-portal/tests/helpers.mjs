@@ -27,7 +27,7 @@ export async function freshDatabase({ migrate = true, ai = true } = {}) {
   await pool.query(meetSyncSql('001.sql')); await pool.query(meetSyncSql('006_meeting_directory.sql'));
   await pool.query(sql('001_portal.sql'));
   if (migrate) await pool.query(sql('002_billing.sql'));
-  if (migrate && ai) { await pool.query(sql('004_meeting_ai.sql')); await pool.query(sql('005_phone.sql')); await pool.query(sql('006_workspace_tools.sql')); await pool.query(sql('007_billing_launch.sql')); await pool.query(sql('008_ai_gateway.sql')); await pool.query(sql('009_meet_ai_consent.sql')); await pool.query(sql('010_consent_fence.sql')); await pool.query(sql('011_consent_hardening.sql')); await pool.query(sql('012_sbacs.sql')); }
+  if (migrate && ai) { await pool.query(sql('004_meeting_ai.sql')); await pool.query(sql('005_phone.sql')); await pool.query(sql('006_workspace_tools.sql')); await pool.query(sql('007_billing_launch.sql')); await pool.query(sql('008_ai_gateway.sql')); await pool.query(sql('009_meet_ai_consent.sql')); await pool.query(sql('010_consent_fence.sql')); await pool.query(sql('011_consent_hardening.sql')); await pool.query(sql('012_sbacs.sql')); await pool.query(sql('013_sbacs_enforcement.sql')); }
   return { pool, name, url, sql,
     async drop() { await pool.end(); const a = new pg.Client({ connectionString: ADMIN_URL }); await a.connect(); await a.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`); await a.end(); } };
 }

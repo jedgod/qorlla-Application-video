@@ -23,9 +23,10 @@ const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const CONSENT_SCOPES = ['transcription', 'summary'];
 const httpErr = (status, error, code, extra = {}) => Object.assign(new Error(error), { http: { status, body: { error, code, ...extra } } });
 
-export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage = null, flags = null, limiters = {}, citations }) {
+export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage = null, flags = null, limiters = {}, citations, sbacs = null }) {
   const lim = (k) => limiters[k] || ((req, res, next) => next());
   const { member } = auth;
+  const gate = (key) => (sbacs ? sbacs.requireEntitlement(key) : (req, res, next) => next());
   const audit = (db, ws, actor, action, obj) => db.query('INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,$3,$4)', [ws, actor, action, String(obj ?? '')]);
 
   // append-only consent evidence: who, what, when, which scope; reason codes and counts only
@@ -121,7 +122,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
 
   // ---------------------------------------------------------------- jobs
   const jobView = (j) => ({ id: j.id, meet_meeting_id: j.meet_meeting_id, source: j.source, status: j.status, stage: j.stage, attempts: j.attempts, error_code: j.error_code, error_message: j.error_message, report_id: j.report_id, created_at: j.created_at, finished_at: j.finished_at, requested_by: j.requested_by });
-  app.post('/api/v1/meeting-ai/jobs', member, (flags ? flags.require('ai') : (req, res, next) => next()), (flags ? flags.require('meet_ai') : (req, res, next) => next()), lim('job'), h(async (req, res) => {
+  app.post('/api/v1/meeting-ai/jobs', member, gate('ai.meeting.report'), (flags ? flags.require('ai') : (req, res, next) => next()), (flags ? flags.require('meet_ai') : (req, res, next) => next()), lim('job'), h(async (req, res) => {
     const p = z.object({
       meet_meeting_id: uuid, source: z.enum(['meet_chat', 'transcript_import']), idempotency_key: z.string().min(8).max(100),
       transcript: z.object({ format: z.enum(['txt', 'vtt', 'srt']), text: z.string().min(1).max(500_000) }).optional()

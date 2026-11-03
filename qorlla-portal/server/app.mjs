@@ -27,7 +27,7 @@ import { createBillingLaunch } from './billing/launch.mjs';
 import { registerBillingLaunch } from './billing/routes.mjs';
 import { createPhoneWorker } from './telephony/worker.mjs';
 import { createDirectory } from './directory.mjs';
-import { createSbacs, registerSbacs } from './sbacs.mjs';
+import { createSbacs, registerSbacs, registerSbacsInternal, EntitlementError } from './sbacs.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
 const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -53,6 +53,9 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   const overage = createOverage({ flags });
   const launch = createBillingLaunch({ pool, stripe, cfg, log, billing, flags, now });
   const auth = createAuth({ cfg, pool, jwks, fetchImpl, log, now });
+  // SBACS: a suspended workspace is refused by every route that uses `member` (modules receive `auth`, so they pick this up too)
+  const sbacs = createSbacs({ pool });
+  auth.member = sbacs.wrapMember(auth.member);
   const { identity, member, roles } = auth;
   // limits are per signed-in user (these run after `member`), so one noisy or compromised account cannot burn the model budget or the phone bill
   const perUser = (name, limit) => rateLimit({ windowMs: 60_000, limit: cfg.rateLimits?.[name] ?? limit, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: (req) => `${name}:${req.actor}`, message: { error: 'Too many requests. Please slow down.', code: 'rate_limited' } });
@@ -251,13 +254,13 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   }));
   app.post('/api/v1/billing/reconcile', member, roles(...MANAGE), h(async (req, res) => res.json(await billing.reconcile(req.workspace))));
 
-  registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage, flags, limiters, citations });
+  registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage, flags, limiters, citations, sbacs });
   registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags, limiters });
-  const sbacs = createSbacs({ pool });
-  registerSbacs(app, { pool, auth, h, sbacs });
-  registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags, limiters, citations });
+  registerSbacs(app, { pool, auth, h, sbacs, cfg });
+  registerSbacsInternal(app, { h, sbacs, cfg });
+  registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags, limiters, citations, sbacs });
   registerAiGateway(app, { pool, cfg, auth, h, llm, flags, limiters });
-  registerPhone(app, { pool, cfg, auth, h, log, llm, limiters, ...(aiOverride.phone || {}) });
+  registerPhone(app, { pool, cfg, auth, h, log, llm, limiters, sbacs, ...(aiOverride.phone || {}) });
   app.get('/shared/report/:token', (req, res) => { res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' }); res.sendFile(path.join(root, 'shared.html')); });
 
   app.get('/api/v1/:module/status', member, (req, res) => {
@@ -273,6 +276,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   app.use((err, req, res, next) => {
     if (err.http) return res.status(err.http.status).json(err.http.body);
     if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input', issues: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) });
+    if (err instanceof EntitlementError) return res.status(403).json({ error: 'subscription_access_denied', reason: err.result.reason, feature: err.result.feature, upgradeAvailable: !!err.result.upgradeAvailable });
     if (err instanceof PlanLimitError) return res.status(402).json({ error: err.message, code: 'plan_limit', feature: err.feature, limit: err.limit, plan: err.plan, ...err.extra });
     if (err instanceof BillingError) return res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });
     if (err.status && err.code === 'last_owner') return res.status(409).json({ error: 'A workspace needs at least one owner', code: 'last_owner' });
@@ -281,5 +285,5 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     log.error('unhandled error', { req_id: req.id, err: err.message });
     res.status(500).json({ error: 'Server error' });
   });
-  return { app, billing, launch, flags, auth, ai: { phoneWorker, worker: aiWorker, llm, meet, directory } };
+  return { app, billing, launch, flags, auth, sbacs, ai: { phoneWorker, worker: aiWorker, llm, meet, directory } };
 }

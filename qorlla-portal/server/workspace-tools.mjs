@@ -57,10 +57,17 @@ const draftSchema = (kind) => z.object({ title: z.string().trim().min(1).max(200
   if (!parsed.success) { ctx.addIssue({ code: 'custom', message: 'invalid content' }); return z.NEVER; } return { title, content: parsed.data };
 });
 
-export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage = null, flags = null, limiters = {}, citations }) {
+export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage = null, flags = null, limiters = {}, citations, sbacs = null }) {
   const lim = (k) => limiters[k] || ((req, res, next) => next());
   const aiOn = flags ? flags.require('ai') : (req, res, next) => next();
   const { member } = auth;
+  // SBACS feature gates (a valid subscription is necessary, never sufficient: `member`, document rights, AI flags and the gateway still apply)
+  const gate = (key, opts) => (sbacs ? sbacs.requireEntitlement(key, opts) : (req, res, next) => next());
+  const KIND_KEY = { doc: 'docs.create', sheet: 'sheets.create', slides: 'slides.create' };
+  const AI_KIND_KEY = { doc: 'ai.docs.draft', sheet: 'ai.sheets.analyze', slides: 'ai.slides.generate' };
+  const createKey = (req) => KIND_KEY[req.body?.kind] || 'docs.create';
+  const aiDraftKey = (req) => AI_KIND_KEY[req.body?.kind] || 'ai.docs.draft';
+  const aiTaskKey = (req) => { const k = AI_TASKS[req.body?.task]?.kind; return k === undefined ? 'ai.docs.draft' : (k === null ? 'clips.create' : AI_KIND_KEY[k]); };
   const audit = (db, ws, actor, action, obj) => db.query('INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,$3,$4)', [ws, actor, action, String(obj ?? '')]);
   const monthUsed = async (db, ws, feature) => Number((await db.query(`SELECT COALESCE(sum(units),0) s FROM portal.ai_usage_events WHERE workspace_id=$1 AND feature=$2 AND created_at >= date_trunc('month', now())`, [ws, feature])).rows[0].s);
   const meter = (db, ws, feature, key) => (overage ? overage.meter(db, ws, feature, key) : db.query(`INSERT INTO portal.ai_usage_events(workspace_id,feature,units,idempotency_key) VALUES($1,$2,1,$3) ON CONFLICT (workspace_id, idempotency_key) DO NOTHING`, [ws, feature, key]));
@@ -171,18 +178,20 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     await c.query(`INSERT INTO portal.document_versions(document_id,version_no,content,source,note,created_by) VALUES($1,1,$2,$3,$4,$5)`, [d.id, JSON.stringify(content), source, note, actor]);
     return { ...d, my_role: 'owner' };
   }
-  app.post('/api/v1/documents', member, h(async (req, res) => {
+  app.post('/api/v1/documents', member, gate(createKey, { quota: false }), h(async (req, res) => {
     const p = z.object({ kind: z.enum(['doc', 'sheet', 'slides']), title: z.string().trim().min(1).max(200), content: z.unknown().optional(), idempotency_key: z.string().min(8).max(100).optional() }).parse(req.body);
     const content = ContentSchemas[p.kind].parse(p.content ?? emptyContent(p.kind));
-    const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
+    const run = () => withWorkspaceLock(pool, req.workspace, async (c) => {
       if (p.idempotency_key) { const dup = (await c.query(`SELECT d.*, ${docRightSql} AS my_role FROM portal.documents d WHERE d.workspace_id=$3 AND d.creation_key=$1 AND d.owner_id=$2`, ['doc:' + p.idempotency_key, req.actor, req.workspace])).rows[0]; if (dup) return { d: dup, dup: true }; }
       const d = await createDocument(c, { ws: req.workspace, actor: req.actor, kind: p.kind, title: p.title, content, key: p.idempotency_key ? 'doc:' + p.idempotency_key : null });
       await audit(c, req.workspace, req.actor, 'document.created', d.id); return { d, dup: false };
     });
+    // metered: reserve one creation (idempotent per request key), keep it only if a NEW document was made; a replay or a failure gives it back
+    const out = sbacs ? await sbacs.metered({ workspaceId: req.workspace, featureKey: createKey(req), idempotencyKey: 'create:' + req.actor + ':' + (p.idempotency_key || crypto.randomUUID()) }, async () => { const o = await run(); return o.dup ? { __noCharge: true, value: o } : o; }) : await run();
     res.status(out.dup ? 200 : 201).json(docMeta(out.d));
   }));
 
-  app.post('/api/v1/documents/ai-draft', member, aiOn, lim('draft'), h(async (req, res) => {
+  app.post('/api/v1/documents/ai-draft', member, gate(aiDraftKey), aiOn, lim('draft'), h(async (req, res) => {
     const p = z.object({ kind: z.enum(['doc', 'sheet', 'slides']), prompt: z.string().trim().min(3).max(4000), idempotency_key: z.string().min(8).max(100) }).parse(req.body);
     const key = 'aidoc:' + p.idempotency_key;
     const existing = async (db) => (await db.query(`SELECT d.*, ${docRightSql} AS my_role FROM portal.documents d WHERE d.workspace_id=$3 AND d.creation_key=$1 AND d.owner_id=$2`, [key, req.actor, req.workspace])).rows[0];
@@ -231,7 +240,7 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     return want.length === got.length && crypto.timingSafeEqual(want, got);
   };
   const RunSchema = z.object({ suggestion: z.string().max(40000), notes: z.array(z.string().max(500)).max(20).default([]), evidence: z.array(z.object({ quote: z.string().max(500).optional(), range: z.string().max(20).optional(), slide: z.number().int().min(1).max(100).optional() })).max(10).default([]) });
-  const aiRun = [member, aiOn, lim('ai'), h(async (req, res) => {
+  const aiRun = [member, gate(aiTaskKey), aiOn, lim('ai'), h(async (req, res) => {
     const p = z.object({ task: z.enum(Object.keys(AI_TASKS)), document_id: z.string().regex(UUID_RE).optional(), text: z.string().max(30000).optional(), instruction: z.string().trim().max(1000).optional(), target_language: z.string().trim().min(2).max(40).optional(), model: z.enum(['qorlla-ai', 'qorlla-ai-private']).optional(), idempotency_key: z.string().min(8).max(100) }).strict().parse(req.body);
     const t = AI_TASKS[p.task];
     if (!p.document_id && !p.text) return res.status(400).json({ error: 'Provide document_id or text', code: 'input_required' });
@@ -346,16 +355,16 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     });
     res.json(out);
   }));
-  app.get('/api/v1/documents/:id/versions', member, h(async (req, res) => {
+  app.get('/api/v1/documents/:id/versions', member, gate('docs.advanced'), h(async (req, res) => {
     const d = await loadDoc(pool, req, req.params.id); if (!d) return res.status(404).json({ error: 'Document not found' });
     res.json((await pool.query('SELECT version_no, source, note, created_by, created_at FROM portal.document_versions WHERE document_id=$1 ORDER BY version_no DESC LIMIT 200', [d.id])).rows);
   }));
-  app.get('/api/v1/documents/:id/versions/:n', member, h(async (req, res) => {
+  app.get('/api/v1/documents/:id/versions/:n', member, gate('docs.advanced'), h(async (req, res) => {
     const d = await loadDoc(pool, req, req.params.id); if (!d || !/^\d+$/.test(req.params.n)) return res.status(404).json({ error: 'Version not found' });
     const v = (await pool.query('SELECT version_no, content, source, note, created_by, created_at FROM portal.document_versions WHERE document_id=$1 AND version_no=$2', [d.id, Number(req.params.n)])).rows[0];
     v ? res.json(v) : res.status(404).json({ error: 'Version not found' });
   }));
-  app.post('/api/v1/documents/:id/restore', member, h(async (req, res) => {
+  app.post('/api/v1/documents/:id/restore', member, gate('docs.advanced'), h(async (req, res) => {
     const p = z.object({ version_no: z.number().int().min(1), base_version: z.number().int().min(1) }).parse(req.body);
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id, { forUpdate: true }); if (!d) throw err(404, 'Document not found');
@@ -436,7 +445,7 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     : a.kind === 'create_document' ? { kind: 'doc', title: a.title, text: a.body || '' }
     : { to: a.to || '', subject: (a.subject || a.title).slice(0, 200), body: a.body || '' });
 
-  app.post('/api/v1/ai/qorllamate/chat', member, aiOn, lim('ai'), h(async (req, res) => {
+  app.post('/api/v1/ai/qorllamate/chat', member, gate('ai.assistant.message'), gate((req) => (req.body?.model === 'qorlla-ai-private' ? 'ai.private' : 'ai.assistant.message')), aiOn, lim('ai'), h(async (req, res) => {
     const p = z.object({ content: z.string().trim().min(1).max(4000), model: z.enum(['qorlla-ai', 'qorlla-ai-private']).optional(), idempotency_key: z.string().min(8).max(100) }).strict().parse(req.body);
     if (!llm.available) return res.status(503).json({ error: 'Qorlla AI is not available on this server', code: 'no_ai_provider' });
     await assertAiQuota(pool, req.workspace, 'ai.assistant_messages_per_month', 'assistant_message');
@@ -447,7 +456,7 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     res.set('Cache-Control', 'no-store').json({ reply: r.data.reply, proposed_actions: r.data.actions.map((a) => ({ kind: a.kind, title: a.title, external: a.kind === 'send_email' })), sources: sourcesOf(req, ctx), review_required: true, applied: false, assistant: 'Qorlla AI', model: 'qorlla-ai',
       notice: 'Nothing has been created or sent. Use a QorllaMate conversation to approve a proposed action.' });
   }));
-  app.post('/api/v1/assistant/threads/:id/messages', member, aiOn, lim('ai'), h(async (req, res) => {
+  app.post('/api/v1/assistant/threads/:id/messages', member, gate('ai.assistant.message'), aiOn, lim('ai'), h(async (req, res) => {
     const p = z.object({ content: z.string().trim().min(1).max(4000), idempotency_key: z.string().min(8).max(100) }).parse(req.body);
     const t = await myThread(pool, req, req.params.id); if (!t) return res.status(404).json({ error: 'Conversation not found' });
     const replay = async (db) => {

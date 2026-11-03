@@ -60,6 +60,7 @@ export function loadConfig(env = process.env) {
   };
   cfg.platformAdmins = String(env.PLATFORM_ADMIN_USER_IDS || '').split(',').map((x) => x.trim().toLowerCase()).filter((x) => /^[0-9a-f-]{36}$/.test(x));
   cfg.metricsToken = trim(env.METRICS_TOKEN).length >= 24 ? trim(env.METRICS_TOKEN) : '';   // shorter tokens are ignored: the endpoint then stays off
+  cfg.sbacsInternalToken = trim(env.SBACS_INTERNAL_TOKEN).length >= 24 ? trim(env.SBACS_INTERNAL_TOKEN) : '';   // lets Meet/other services ask "may this workspace use X?"; off when unset
   cfg.authProblems = authProblems;
   cfg.authConfigured = authProblems.length === 0;
 

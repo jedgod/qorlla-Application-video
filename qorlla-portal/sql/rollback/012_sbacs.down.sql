@@ -1,7 +1,18 @@
--- Reverses sql/012_sbacs.sql. Drops overrides, the entitlement event log and metered usage (take a backup first). Subscriptions, invoices and plans other than 'starter' are kept.
+-- Reverses sql/012_sbacs.sql WITHOUT discarding subscription history or usage records.
+--  * refuses to run while any subscription is on the Starter plan or 'suspended', or any workspace is suspended: rewriting those rows would erase history
+--    or silently lift a suspension. Resolve them first.
+--  * the usage, reservation, override and event tables are RENAMED to *_archived_<yyyymmdd> (the event table stays append-only), never dropped.
+-- Run 013's rollback first if 013 was applied (this script also removes 013's constraints, which depend on the columns dropped here).
 BEGIN;
-UPDATE portal.subscriptions SET status = 'expired' WHERE status = 'suspended';
-UPDATE portal.subscriptions SET plan_slug = 'basic' WHERE plan_slug = 'starter';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM portal.subscriptions WHERE plan_slug = 'starter' OR status = 'suspended') THEN
+    RAISE EXCEPTION 'Rollback refused: subscriptions on the Starter plan or in the suspended state exist; moving them would rewrite billing history. Resolve them first.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM portal.workspaces WHERE suspended_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'Rollback refused: suspended workspaces exist; dropping the suspension columns would silently lift the suspension. Lift or record them first.';
+  END IF;
+END $$;
+ALTER TABLE portal.entitlements DROP CONSTRAINT IF EXISTS entitlements_not_hard_denied;
 CREATE OR REPLACE VIEW portal.workspace_effective_plan AS
 SELECT w.id AS workspace_id,
        CASE
@@ -11,13 +22,11 @@ SELECT w.id AS workspace_id,
          THEN s.plan_slug ELSE 'basic'
        END AS plan_slug
 FROM portal.workspaces w LEFT JOIN portal.subscriptions s ON s.workspace_id = w.id;
-DROP TABLE IF EXISTS portal.usage_reservations;
-DROP TABLE IF EXISTS portal.subscription_usage;
-DROP TRIGGER IF EXISTS entitlement_events_guard_truncate ON portal.entitlement_events;
-DROP TRIGGER IF EXISTS entitlement_events_guard ON portal.entitlement_events;
-DROP TABLE IF EXISTS portal.entitlement_events;
-DROP FUNCTION IF EXISTS portal.entitlement_events_append_only();
-DROP TABLE IF EXISTS portal.entitlement_overrides;
+DO $$ DECLARE sfx text := to_char(now(), 'YYYYMMDD'); t text; BEGIN
+  FOREACH t IN ARRAY ARRAY['usage_reservations','subscription_usage','entitlement_overrides','entitlement_events'] LOOP
+    IF to_regclass('portal.' || t) IS NOT NULL THEN EXECUTE format('ALTER TABLE portal.%I RENAME TO %I', t, t || '_archived_' || sfx); END IF;
+  END LOOP;
+END $$;
 DELETE FROM portal.entitlements WHERE feature IN ('meet.guest_join','meet.create','meet.recording','docs.create','docs.advanced','clips.create','ai.docs.draft','ai.private','analytics.advanced','org.admin','org.sso','voice.internal','phone.pstn') OR plan_slug = 'starter';
 DELETE FROM portal.plans WHERE slug = 'starter';
 ALTER TABLE portal.subscriptions DROP CONSTRAINT IF EXISTS subscriptions_status_check;

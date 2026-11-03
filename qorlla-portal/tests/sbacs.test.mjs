@@ -38,8 +38,9 @@ describe('SBACS entitlement engine', () => {
     for (const w of [biz.ws, ent.ws]) { assert.equal((await can(w, 'phone.pstn')).allowed, false); assert.equal((await can(w, 'phone.pstn')).reason, 'not_available'); assert.equal((await can(w, 'ai.private.external')).allowed, false); }
     assert.equal((await sql(`SELECT count(*)::int n FROM portal.entitlements WHERE feature='phone.pstn' AND enabled`)).rows[0].n, 0, 'no plan row enables PSTN');
     await assert.rejects(sbacs.setOverride({ workspaceId: ent.ws, feature: 'phone.pstn', enabled: true, reason: 'sales promised it', actorId: crypto.randomUUID() }), /cannot be enabled/);
-    await sql(`INSERT INTO portal.entitlement_overrides(workspace_id,feature,enabled,reason,created_by) VALUES($1,'phone.pstn',true,'direct insert',$2)`, [ent.ws, crypto.randomUUID()]);
-    assert.equal((await can(ent.ws, 'phone.pstn')).allowed, false, 'even a row written behind the API cannot unlock it');
+    await assert.rejects(sql(`INSERT INTO portal.entitlement_overrides(workspace_id,feature,enabled,reason,created_by) VALUES($1,'phone.pstn',true,'direct insert',$2)`, [ent.ws, crypto.randomUUID()]), /overrides_not_hard_denied/, 'the database refuses it too');
+    await assert.rejects(sql(`UPDATE portal.entitlements SET enabled=true WHERE feature='phone.pstn' AND plan_slug='enterprise'`), /entitlements_not_hard_denied/);
+    assert.equal((await can(ent.ws, 'phone.pstn')).allowed, false);
   });
 
   test('cancellation keeps access to the paid period end; an ended or lapsed subscription falls back to Free; content is untouched', async () => {
@@ -63,24 +64,25 @@ describe('SBACS entitlement engine', () => {
   });
 
   test('quota: 40 concurrent reservations against a limit of 20 admit exactly 20; release frees a slot; finalize consumes it; replays are idempotent', async () => {
-    const { ws } = await newWs();                                   // Free: ai.docs.draft = 20 / month
-    const rs = await Promise.all(Array.from({ length: 40 }, (_, i) => sbacs.reserve({ workspaceId: ws, featureKey: 'ai.docs.draft', idempotencyKey: 'c' + i })));
+    const { ws } = await newWs();                                   // Free: docs.create = 25 / month
+    await sql(`INSERT INTO portal.entitlement_overrides(workspace_id,feature,enabled,quota,reason,created_by) VALUES($1,'docs.create',true,20,'test ceiling',$2)`, [ws, crypto.randomUUID()]);
+    const rs = await Promise.all(Array.from({ length: 40 }, (_, i) => sbacs.reserve({ workspaceId: ws, featureKey: 'docs.create', idempotencyKey: 'c' + i })));
     assert.equal(rs.filter((r) => r.ok).length, 20); assert.equal(rs.filter((r) => r.reason === 'quota_exhausted').length, 20);
-    assert.equal((await can(ws, 'ai.docs.draft')).reason, 'quota_exhausted');
+    assert.equal((await can(ws, 'docs.create')).reason, 'quota_exhausted');
     const ok = rs.filter((r) => r.ok);
     assert.equal((await sbacs.release(ok[0].reservationId)).ok, true); assert.equal((await sbacs.release(ok[0].reservationId)).ok, true, 'releasing twice is a no-op');
     assert.equal((await sbacs.finalize(ok[0].reservationId)).ok, false, 'a released reservation cannot be finalized');
-    const again = await sbacs.reserve({ workspaceId: ws, featureKey: 'ai.docs.draft', idempotencyKey: 'again' }); assert.equal(again.ok, true);
-    assert.equal((await sbacs.reserve({ workspaceId: ws, featureKey: 'ai.docs.draft', idempotencyKey: 'again' })).replay, true, 'same key = same reservation');
-    assert.equal((await sbacs.reserve({ workspaceId: ws, featureKey: 'ai.docs.draft', idempotencyKey: 'nope' })).ok, false);
+    const again = await sbacs.reserve({ workspaceId: ws, featureKey: 'docs.create', idempotencyKey: 'again' }); assert.equal(again.ok, true);
+    assert.equal((await sbacs.reserve({ workspaceId: ws, featureKey: 'docs.create', idempotencyKey: 'again' })).replay, true, 'same key = same reservation');
+    assert.equal((await sbacs.reserve({ workspaceId: ws, featureKey: 'docs.create', idempotencyKey: 'nope' })).ok, false);
     for (const r of ok.slice(1)) await sbacs.finalize(r.reservationId); await sbacs.finalize(again.reservationId);
-    const u = (await sql(`SELECT used::int, reserved::int FROM portal.subscription_usage WHERE workspace_id=$1 AND feature='ai.docs.draft'`, [ws])).rows[0]; assert.deepEqual(u, { used: 20, reserved: 0 });
+    const u = (await sql(`SELECT used::int, reserved::int FROM portal.subscription_usage WHERE workspace_id=$1 AND feature='docs.create'`, [ws])).rows[0]; assert.deepEqual(u, { used: 20, reserved: 0 });
   });
 
   test('an abandoned reservation is given back after it expires; a pro workspace has a higher ceiling than a free one', async () => {
     const { ws } = await newWs(); assert.equal((await sbacs.reserve({ workspaceId: ws, featureKey: 'clips.create', units: 10, idempotencyKey: 'a', ttlMs: 1 })).ok, true);
     assert.equal((await sbacs.reserve({ workspaceId: ws, featureKey: 'clips.create', idempotencyKey: 'b', ttlMs: 60000 })).ok, true, 'the crashed caller\'s units were reclaimed');
-    const pro = await newWs('pro'); assert.equal((await sbacs.resolve(db.pool, pro.ws, 'ai.docs.draft')).quota, 1000);
+    const pro = await newWs('pro'); assert.equal((await sbacs.resolve(db.pool, pro.ws, 'clips.create')).quota, null); assert.equal((await sbacs.resolve(db.pool, (await newWs()).ws, 'clips.create')).quota, 10);
   });
 
   test('overrides apply until they expire, change nothing for other workspaces, and every change is in the append-only event log', async () => {

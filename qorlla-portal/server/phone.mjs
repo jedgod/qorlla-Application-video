@@ -28,8 +28,9 @@ export function destinationAllowed(e164, { allowInternational = false } = {}) {
   return { ok: true };
 }
 
-export function registerPhone(app, { pool, cfg, auth, h, log, llm, limiters = {}, fetchImpl = fetch, now = () => Date.now(), twilio: twilioOverride }) {
+export function registerPhone(app, { pool, cfg, auth, h, log, llm, limiters = {}, sbacs = null, fetchImpl = fetch, now = () => Date.now(), twilio: twilioOverride }) {
   const { member } = auth;
+  const gate = (key) => (sbacs ? sbacs.requireEntitlement(key) : (req, res, next) => next());
   const t = cfg.telephony;
   const reasons = [];
   if (!t.enabled) reasons.push('telephony_disabled');
@@ -357,7 +358,7 @@ export function registerPhone(app, { pool, cfg, auth, h, log, llm, limiters = {}
   }));
 
   // ---- analytics and usage
-  app.get('/api/v1/phone/analytics', member, h(async (req, res) => {
+  app.get('/api/v1/phone/analytics', member, gate('analytics.advanced'), h(async (req, res) => {
     if (!mgr(req, res)) return; const days = [7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
     const [tot, perDay, outcomes, vm, esc, mins] = await Promise.all([
       pool.query(`SELECT direction, count(*)::int AS calls, count(*) FILTER (WHERE status='completed' AND COALESCE(duration_seconds,0)>0)::int AS answered, count(*) FILTER (WHERE status IN ('no_answer','busy','failed','canceled'))::int AS missed, COALESCE(round(avg(duration_seconds) FILTER (WHERE duration_seconds>0)),0)::int AS avg_seconds

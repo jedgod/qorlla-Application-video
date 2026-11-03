@@ -381,6 +381,8 @@ describe('AI receptionist and phone (API + webhooks against PostgreSQL)', () => 
 
   describe('history and analytics', () => {
     test('call history is manager-wide, personal for members, and analytics aggregate the real rows only', async () => {
+      // call analytics is a Professional-plan feature (SBACS analytics.advanced): this test's two workspaces are paid; the plan-limit tests elsewhere stay on Free
+      await db.pool.query(`UPDATE portal.subscriptions SET plan_slug='pro', status='active', billing_interval='month', current_period_end=now()+interval '20 days'`);
       const all = (await host().get('/api/v1/phone/calls')).body; assert.ok(all.length > 3);
       const mine = (await member().get('/api/v1/phone/calls')).body; assert.ok(mine.every((c) => c.initiated_by === M.sub)); assert.ok(mine.length < all.length);
       assert.equal((await member().get('/api/v1/phone/analytics')).status, 403);
