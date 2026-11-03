@@ -224,7 +224,7 @@ export function registerSbacs(app, { pool, auth, h, sbacs, cfg = {}, flags = nul
   app.get('/api/v1/subscriptions/usage', member, h(async (req, res) => {
     const e = await sbacs.effective(req.workspace);
     // enforced limits are shown as limits; provisional (unapproved) ones are NOT shown as a limit, only the amount used
-    noStore(res).json({ period: 'month', usage: Object.entries(e.features).filter(([, f]) => f.enabled && ((f.quota !== null && f.quota !== undefined) || f.used > 0 || f.provisionalQuota)).map(([feature, f]) => ({ feature, used: f.used || 0, quota: f.quota ?? null, limitStatus: f.quota !== null && f.quota !== undefined ? 'enforced' : (f.provisionalQuota ? 'provisional' : 'none'), description: f.description })) });
+    noStore(res).json({ period: 'month', usage: Object.entries(e.features).filter(([, f]) => f.enabled && ((f.quota !== null && f.quota !== undefined) || f.used > 0)).map(([feature, f]) => ({ feature, used: f.used || 0, quota: f.quota ?? null, limitStatus: f.quota !== null && f.quota !== undefined ? 'enforced' : (f.provisionalQuota ? 'provisional' : 'none'), description: f.description })) });
   }));
 }
 

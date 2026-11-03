@@ -5,6 +5,7 @@ import { renderPhone, renderReceptionist } from './phone.js';
 import { renderNotes, renderMate, renderSuite } from './workspace.js';
 import { renderChangePlan, renderUsage } from './billing-ops.js';
 import { renderAdmin } from './admin.js';
+import { renderSubscription } from './subscription.js';
 const state = { me: null, workspace: null, role: null, signedIn: null };
 const modules = [
   ['products', '📦', 'Products', 'Explore all Qorlla applications and workplace tools.'],
@@ -37,7 +38,7 @@ const routes = {
   support: () => heading('Support Center', 'Get help, report problems and track requests.', '🛟') + `<div class="cards">${[['Help Center', 'Documentation and troubleshooting'], ['Technical Diagnostics', 'Browser, connection and meeting checks'], ['Billing Support', 'Plan, invoice and payment questions']].map(([a, b]) => `<article class="card"><h3>${a}</h3><p>${b}</p></article>`).join('')}</div>` +
     panel('Create support ticket', '<form id="ticket-form"><label>Subject<input name="subject" required minlength="3" maxlength="160"></label><label>Describe the issue<textarea name="details" required minlength="5"></textarea></label><button>Submit Ticket</button></form>') + panel('Your tickets', '<div id="tickets" class="empty">Loading…</div>'),
   notes: () => heading('My Notes', 'Capture ideas, meeting takeaways and workplace knowledge.', '📝') + '<div id="notes-root"></div>',
-  billing: () => heading('Plans & Billing', 'Your plan, subscription status, invoices and receipts.', '💳') + '<div id="billing" class="empty">Loading…</div>',
+  billing: () => heading('Subscription & Billing', 'Manage your Qorlla Workspace plan, see what it includes, usage, renewal and invoices.', '💳') + '<div id="billing" class="empty">Loading…</div>',
   admin: () => heading('Platform admin', 'Billing operations, sales leads and launch controls.', '🛡️') + '<div id="admin-root"></div>',
   team: () => heading('Team', 'People in this workspace and what they can do.', '👥') + '<div id="team" class="empty">Loading…</div>'
 };
@@ -67,6 +68,8 @@ async function renderBilling() {
         `<div class="row"><a class="button" href="/pricing/">View plans</a>${b.can_manage && sub && ['active', 'trialing', 'past_due'].includes(sub.status) && !sub.cancel_at_period_end ? '<button id="cancel" class="secondary">Cancel at period end</button>' : ''}${b.can_manage && sub ? '<button id="reconcile" class="secondary">Refresh from payment provider</button>' : ''}</div>` +
         (!b.checkout_available ? '<p class="muted">Online checkout is not enabled for this deployment yet.</p>' : '')) +
       panel('Invoices & receipts', b.can_manage ? (inv.length ? `<table><thead><tr><th>Date</th><th>Number</th><th>Status</th><th>Amount</th><th>Receipt</th></tr></thead><tbody>${inv.map((i) => `<tr><td>${esc(day(i.created_at))}</td><td>${esc(i.number || '-')}</td><td>${esc(i.status.replace('_', ' '))}</td><td>${esc(money(i.amount_paid_cents || i.amount_due_cents, i.currency))}${i.amount_refunded_cents ? ` <span class="muted">(refunded ${esc(money(i.amount_refunded_cents, i.currency))})</span>` : ''}</td><td>${i.hosted_invoice_url && /^https:\/\//.test(i.hosted_invoice_url) ? `<a class="link" href="${esc(i.hosted_invoice_url)}" rel="noopener noreferrer">View</a>` : '-'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No invoices yet.</div>') : '<p class="muted">Only owners, admins and billing contacts can see invoices.</p>');
+    root.querySelector('section.panel')?.insertAdjacentHTML('afterend', '<div id="subscription"></div>');       // right after "Current plan"
+    await renderSubscription($('#subscription'), { b, redraw: draw }).catch((e) => notice(describe(e)));
     root.insertAdjacentHTML('beforeend', '<div id="plan-change"></div><div id="usage-panel"></div>');
     await renderChangePlan($('#plan-change'), b, draw).catch((e) => notice(describe(e)));
     await renderUsage($('#usage-panel'), b, draw).catch((e) => notice(describe(e)));
@@ -99,7 +102,7 @@ async function renderTeam() {
 async function boot() {
   const parts = location.pathname.split('/'); const slug = parts[2] || 'products';
   $('#side').innerHTML = modules.filter((m) => !['products', 'ai', 'solutions', 'support', 'meet'].includes(m[0])).map((m) => `<a class="${slug === m[0] ? 'active' : ''}" ${slug === m[0] ? 'aria-current="page"' : ''} href="/app/${m[0]}"><span aria-hidden="true">${m[1]}</span> ${esc(m[2])}</a>`).join('');
-  document.title = (modules.find((m) => m[0] === slug)?.[2] || { billing: 'Plans & Billing', team: 'Team', admin: 'Platform admin' }[slug] || 'Workplace') + ' | Qorlla';
+  document.title = (modules.find((m) => m[0] === slug)?.[2] || { billing: 'Subscription & Billing', team: 'Team', admin: 'Platform admin' }[slug] || 'Workplace') + ' | Qorlla';
   $('#page').innerHTML = (routes[slug] || routes.products)();
 
   // who am I?
