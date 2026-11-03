@@ -28,10 +28,12 @@ export function createSbacs({ pool }) {
   /** plan row + non-expired override, merged. source says where the answer came from. */
   async function resolve(db, workspaceId, feature) {
     const plan = await effectivePlan(db, workspaceId);
-    const base = (await db.query('SELECT enabled, quota FROM portal.entitlements WHERE plan_slug=$1 AND feature=$2', [plan, feature])).rows[0];
+    const base = (await db.query('SELECT enabled, quota, quota_approved FROM portal.entitlements WHERE plan_slug=$1 AND feature=$2', [plan, feature])).rows[0];
     const ov = (await db.query('SELECT enabled, quota FROM portal.entitlement_overrides WHERE workspace_id=$1 AND feature=$2 AND (expires_at IS NULL OR expires_at > now())', [workspaceId, feature])).rows[0];
     const row = ov || base;
-    return { plan, enabled: !!row?.enabled, quota: row && row.quota !== null ? Number(row.quota) : null, source: ov ? 'override' : (base ? 'plan' : 'none') };
+    // a plan quota that Qorlla has not approved is shown (provisionalQuota) but never enforced; an explicit override is a deliberate decision, so it is
+    const enforced = ov ? ov.quota : (base && base.quota_approved ? base.quota : null);
+    return { plan, enabled: !!row?.enabled, quota: enforced !== null && enforced !== undefined ? Number(enforced) : null, provisionalQuota: !ov && base && !base.quota_approved && base.quota !== null ? Number(base.quota) : null, source: ov ? 'override' : (base ? 'plan' : 'none') };
   }
   async function usageOf(db, workspaceId, feature) {
     const r = (await db.query(`SELECT used, reserved FROM portal.subscription_usage WHERE workspace_id=$1 AND feature=$2 AND period_start=${periodStart}`, [workspaceId, feature])).rows[0];
@@ -43,6 +45,9 @@ export function createSbacs({ pool }) {
     return r.rowCount > 0;
   }
 
+  async function anyPlanGrants(db, feature) {
+    return (await db.query('SELECT 1 FROM portal.entitlements e JOIN portal.plans p ON p.slug=e.plan_slug WHERE e.feature=$1 AND e.enabled AND p.listed LIMIT 1', [feature])).rowCount > 0;
+  }
   /** The feature gate. Pure read; metered operations must still reserve(). */
   async function check({ workspaceId, featureKey, db = pool, quota = true }) {
     const deny = (reason, extra = {}) => ({ allowed: false, reason, feature: featureKey, upgradeAvailable: false, ...extra });
@@ -63,12 +68,16 @@ export function createSbacs({ pool }) {
   async function effective(workspaceId, db = pool) {
     const blocked = await suspended(db, workspaceId), plan = await effectivePlan(db, workspaceId);
     const keys = (await db.query(`SELECT DISTINCT feature, description FROM portal.entitlements WHERE description IS NOT NULL ORDER BY feature`)).rows;
+    const usedBy = new Map((await db.query(`SELECT feature, used FROM portal.subscription_usage WHERE workspace_id=$1 AND period_start=${periodStart}`, [workspaceId])).rows.map((r) => [r.feature, Number(r.used)]));
     const features = {};
     for (const k of keys) {
-      if (HARD_DENY.has(k.feature)) { features[k.feature] = { enabled: false, reason: 'not_available', description: k.description }; continue; }
-      if (blocked && !ALWAYS.has(k.feature)) { features[k.feature] = { enabled: false, reason: 'account_suspended', description: k.description }; continue; }
-      const r = await resolve(db, workspaceId, k.feature), u = r.quota === null ? null : await usageOf(db, workspaceId, k.feature);
-      features[k.feature] = { enabled: r.enabled, quota: r.enabled ? r.quota : null, unlimited: r.enabled && r.quota === null, used: u ? u.used : undefined, source: r.source, description: k.description };
+      // state is what a client should show: enabled | restricted (this plan lacks it; `upgrade` says whether a plan offers it) | unavailable (no plan can grant it) | suspended
+      if (HARD_DENY.has(k.feature)) { features[k.feature] = { enabled: false, state: 'unavailable', reason: 'not_available', upgrade: false, description: k.description }; continue; }
+      if (blocked && !ALWAYS.has(k.feature)) { features[k.feature] = { enabled: false, state: 'suspended', reason: 'account_suspended', upgrade: false, description: k.description }; continue; }
+      const r = await resolve(db, workspaceId, k.feature), u = usedBy.has(k.feature) ? { used: usedBy.get(k.feature) } : null;
+      let state = 'enabled', upgrade = false;
+      if (!r.enabled) { upgrade = await upgradeAvailable(db, r.plan, k.feature); state = upgrade || (await anyPlanGrants(db, k.feature)) ? 'restricted' : 'unavailable'; }
+      features[k.feature] = { enabled: r.enabled, state, upgrade, quota: r.enabled ? r.quota : null, provisionalQuota: r.enabled ? r.provisionalQuota : null, unlimited: r.enabled && r.quota === null && r.provisionalQuota === null, used: u ? u.used : undefined, source: r.source, description: k.description };
     }
     return { plan, suspended: blocked, features };
   }
@@ -189,11 +198,12 @@ export function createSbacs({ pool }) {
     });
   }
 
-  return { check, effective, resolve, usageOf, reserve, finalize, release, reapExpired, metered, setOverride, setSuspended, event, requireEntitlement, wrapMember, suspended: (id) => suspended(pool, id) };
+  const reservationFeature = async (id) => (await pool.query('SELECT feature FROM portal.usage_reservations WHERE id=$1', [id])).rows[0]?.feature || null;
+  return { reservationFeature, check, effective, resolve, usageOf, reserve, finalize, release, reapExpired, metered, setOverride, setSuspended, event, requireEntitlement, wrapMember, suspended: (id) => suspended(pool, id) };
 }
 
 /** Read-only SBACS endpoints. Checkout / change / cancel / resume stay on the existing /api/v1/billing/* routes (CSRF, roles, idempotency, provider confirmation). */
-export function registerSbacs(app, { pool, auth, h, sbacs, cfg = {} }) {
+export function registerSbacs(app, { pool, auth, h, sbacs, cfg = {}, flags = null, billing = null }) {
   const { member } = auth;
   const noStore = (res) => res.set('Cache-Control', 'no-store');
   app.get('/api/v1/subscriptions/plans', h(async (req, res) => {
@@ -206,35 +216,70 @@ export function registerSbacs(app, { pool, auth, h, sbacs, cfg = {} }) {
   app.get('/api/v1/subscriptions/current', member, h(async (req, res) => {
     const e = await sbacs.effective(req.workspace);
     const s = (await pool.query('SELECT plan_slug, status, current_period_end, cancel_at_period_end FROM portal.subscriptions WHERE workspace_id=$1', [req.workspace])).rows[0];
-    noStore(res).json({ plan: e.plan, suspended: e.suspended, subscription: s ? { plan: s.plan_slug, status: s.status, renewsOrEndsAt: s.current_period_end, cancelAtPeriodEnd: s.cancel_at_period_end } : null });
+    // `live` = the provider is configured AND the operators switched live billing on; clients show checkout / payment actions only then. canManage = owner, admin or billing contact.
+    const live = !!(billing && billing.available() && flags && (await flags.enabled('billing_live')) && (await flags.enabled('checkout')));
+    noStore(res).json({ plan: e.plan, suspended: e.suspended, billing: { live, providerConfigured: !!(billing && billing.available()), canManage: ['owner', 'admin', 'billing'].includes(req.role) }, subscription: s ? { plan: s.plan_slug, status: s.status, renewsOrEndsAt: s.current_period_end, cancelAtPeriodEnd: s.cancel_at_period_end } : null });
   }));
   app.get('/api/v1/subscriptions/entitlements', member, h(async (req, res) => noStore(res).json(await sbacs.effective(req.workspace))));
   app.get('/api/v1/subscriptions/usage', member, h(async (req, res) => {
     const e = await sbacs.effective(req.workspace);
-    noStore(res).json({ period: 'month', usage: Object.entries(e.features).filter(([, f]) => f.enabled && f.quota !== null && f.quota !== undefined).map(([feature, f]) => ({ feature, used: f.used || 0, quota: f.quota, description: f.description })) });
+    // enforced limits are shown as limits; provisional (unapproved) ones are NOT shown as a limit, only the amount used
+    noStore(res).json({ period: 'month', usage: Object.entries(e.features).filter(([, f]) => f.enabled && ((f.quota !== null && f.quota !== undefined) || f.used > 0 || f.provisionalQuota)).map(([feature, f]) => ({ feature, used: f.used || 0, quota: f.quota ?? null, limitStatus: f.quota !== null && f.quota !== undefined ? 'enforced' : (f.provisionalQuota ? 'provisional' : 'none'), description: f.description })) });
   }));
 }
 
-/** Service-to-service interface for modules that live outside the portal (Meet, Clips, storage). Off unless SBACS_INTERNAL_TOKEN is set (>= 24 chars);
- *  the caller names the workspace, so it must be a trusted backend service, never a browser. A 404 is returned for a wrong token so the endpoint is not discoverable. */
+// ---- service-to-service credentials -------------------------------------------------------------------------------------------------------------
+// Each calling service (meet, clips, storage ...) has ITS OWN key (SBACS_SERVICE_KEYS="meet=<key>,clips=<key>", each >= 32 characters) and mints a short-lived
+// token with it: qsv1.<base64url JSON {svc, iat, exp}>.<base64url HMAC-SHA256>. The portal accepts it only if the signature matches that service's key,
+// it has not expired (lifetime <= 5 minutes), and the feature asked about belongs to that service's scope. There is no shared static secret.
+export const SERVICE_SCOPES = { meet: ['meet.'], clips: ['clips.'], storage: ['storage.'], docs: ['docs.', 'sheets.', 'slides.'] };
+const b64 = (b) => Buffer.from(b).toString('base64url');
+export function mintServiceToken({ service, key, ttlSec = 120, now = Date.now() }) {
+  const body = b64(JSON.stringify({ svc: service, iat: Math.floor(now / 1000), exp: Math.floor(now / 1000) + ttlSec }));
+  return 'qsv1.' + body + '.' + crypto.createHmac('sha256', key).update('qsv1.' + body).digest('base64url');
+}
+export function verifyServiceToken(token, keys = {}, now = Date.now()) {
+  const m = /^qsv1\.([A-Za-z0-9_-]{10,400})\.([A-Za-z0-9_-]{43})$/.exec(String(token || '')); if (!m) return null;
+  let claims; try { claims = JSON.parse(Buffer.from(m[1], 'base64url').toString()); } catch { return null; }
+  const key = claims && Object.hasOwn(keys, claims.svc) ? keys[claims.svc] : null; if (!key || key.length < 32 || !SERVICE_SCOPES[claims.svc]) return null;
+  const want = crypto.createHmac('sha256', key).update('qsv1.' + m[1]).digest(), got = Buffer.from(m[2], 'base64url');
+  if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return null;
+  const t = Math.floor(now / 1000);
+  if (!Number.isInteger(claims.exp) || !Number.isInteger(claims.iat) || claims.exp <= t || claims.exp - claims.iat > 300 || claims.iat > t + 30) return null;
+  return { service: claims.svc };
+}
+
+/** Service-to-service interface for modules that live outside the portal (Meet, Clips, storage). Off unless SBACS_SERVICE_KEYS is set. A caller must be a trusted
+ *  backend service, never a browser. Anything wrong with the credential answers 404 so the endpoint is not discoverable; asking about a feature outside the
+ *  caller's scope is 403. */
 export function registerSbacsInternal(app, { h, sbacs, cfg }) {
   const gate = (req, res, next) => {
-    const token = cfg.sbacsInternalToken || '', given = String(req.get('authorization') || '').replace(/^Bearer /, '');
-    if (!token || given.length !== token.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(token))) return res.status(404).type('text/plain').send('not found');
-    next();
+    const svc = verifyServiceToken(String(req.get('authorization') || '').replace(/^Bearer /, ''), cfg.sbacsServiceKeys || {});
+    if (!svc) return res.status(404).type('text/plain').send('not found');
+    req.service = svc.service; next();
+  };
+  const inScope = (req, res, feature) => {
+    if (SERVICE_SCOPES[req.service].some((pre) => feature.startsWith(pre))) return true;
+    res.status(403).json({ error: 'out_of_scope', service: req.service }); return false;
   };
   const ws = z.string().uuid(), feat = z.string().regex(/^[a-z][a-z0-9_.]{2,63}$/);
   app.post('/internal/v1/entitlements/check', gate, h(async (req, res) => {
-    const p = z.object({ workspaceId: ws, feature: feat }).strict().parse(req.body);
+    const p = z.object({ workspaceId: ws, feature: feat }).strict().parse(req.body); if (!inScope(req, res, p.feature)) return;
     res.set('Cache-Control', 'no-store').json(await sbacs.check({ workspaceId: p.workspaceId, featureKey: p.feature }));
   }));
   app.post('/internal/v1/entitlements/reserve', gate, h(async (req, res) => {
     const p = z.object({ workspaceId: ws, feature: feat, units: z.number().int().min(1).max(1_000_000).default(1), idempotencyKey: z.string().min(8).max(120), ttlMs: z.number().int().min(1000).max(86_400_000).optional() }).strict().parse(req.body);
+    if (!inScope(req, res, p.feature)) return;
     const r = await sbacs.reserve({ workspaceId: p.workspaceId, featureKey: p.feature, units: p.units, idempotencyKey: p.idempotencyKey, ttlMs: p.ttlMs });
     res.set('Cache-Control', 'no-store').status(r.ok ? 200 : 403).json(r);
   }));
-  for (const action of ['finalize', 'release']) app.post('/internal/v1/entitlements/' + action, gate, h(async (req, res) => {
-    const p = z.object({ reservationId: z.string().uuid() }).strict().parse(req.body);
-    res.set('Cache-Control', 'no-store').json(await sbacs[action](p.reservationId));
-  }));
+  for (const action of ['finalize', 'release']) {
+    app.post('/internal/v1/entitlements/' + action, gate, h(async (req, res) => {
+      const p = z.object({ reservationId: z.string().uuid() }).strict().parse(req.body);
+      const feature = await sbacs.reservationFeature(p.reservationId);          // a service may settle only reservations for features in its own scope
+      if (!feature) return res.status(404).json({ error: 'unknown_reservation' });
+      if (!inScope(req, res, feature)) return;
+      res.set('Cache-Control', 'no-store').json(await sbacs[action](p.reservationId));
+    }));
+  }
 }

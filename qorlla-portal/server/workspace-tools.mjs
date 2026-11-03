@@ -355,16 +355,16 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     });
     res.json(out);
   }));
-  app.get('/api/v1/documents/:id/versions', member, gate('docs.advanced'), h(async (req, res) => {
+  app.get('/api/v1/documents/:id/versions', member, gate('docs.history.read'), h(async (req, res) => {
     const d = await loadDoc(pool, req, req.params.id); if (!d) return res.status(404).json({ error: 'Document not found' });
-    res.json((await pool.query('SELECT version_no, source, note, created_by, created_at FROM portal.document_versions WHERE document_id=$1 ORDER BY version_no DESC LIMIT 200', [d.id])).rows);
+    res.json((await pool.query('SELECT version_no, source, note, created_by, created_at FROM portal.document_versions WHERE document_id=$1 ORDER BY version_no DESC LIMIT $2', [d.id, Math.min(200, req.entitlement?.quota ?? 200)])).rows);       // quota = recent revisions shown (only once Qorlla approves a number)
   }));
-  app.get('/api/v1/documents/:id/versions/:n', member, gate('docs.advanced'), h(async (req, res) => {
+  app.get('/api/v1/documents/:id/versions/:n', member, gate('docs.history.read'), h(async (req, res) => {
     const d = await loadDoc(pool, req, req.params.id); if (!d || !/^\d+$/.test(req.params.n)) return res.status(404).json({ error: 'Version not found' });
     const v = (await pool.query('SELECT version_no, content, source, note, created_by, created_at FROM portal.document_versions WHERE document_id=$1 AND version_no=$2', [d.id, Number(req.params.n)])).rows[0];
     v ? res.json(v) : res.status(404).json({ error: 'Version not found' });
   }));
-  app.post('/api/v1/documents/:id/restore', member, gate('docs.advanced'), h(async (req, res) => {
+  app.post('/api/v1/documents/:id/restore', member, gate('docs.history.restore'), h(async (req, res) => {
     const p = z.object({ version_no: z.number().int().min(1), base_version: z.number().int().min(1) }).parse(req.body);
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id, { forUpdate: true }); if (!d) throw err(404, 'Document not found');

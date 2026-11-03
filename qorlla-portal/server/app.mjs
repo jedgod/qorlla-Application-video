@@ -240,23 +240,30 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
         plan: s.plan_slug, status: s.status, interval: s.billing_interval, seats: s.seats, current_period_start: s.current_period_start, current_period_end: s.current_period_end, cancel_at_period_end: s.cancel_at_period_end } : null,
       checkout_available: billing.available(), unavailable_reasons: billing.available() ? [] : cfg.billing.unavailableReasons, can_manage: BILLING.includes(req.role) });
   }));
-  app.get('/api/v1/billing/invoices', member, roles(...BILLING), h(async (req, res) => res.set('Cache-Control', 'no-store').json(await billing.invoices(req.workspace))));
-  app.post('/api/v1/billing/checkout', member, roles(...BILLING), flags.require('checkout'), h(async (req, res) => {
+  app.get(['/api/v1/billing/invoices', '/api/v1/subscriptions/invoices'], member, roles(...BILLING), h(async (req, res) => res.set('Cache-Control', 'no-store').json(await billing.invoices(req.workspace))));
+  // Live billing is OFF by default (flag 'billing_live'); checkout, plan changes and resume need it, and the provider must be configured. Cancel stays available whenever the provider is
+  // reachable: stopping a renewal must never be harder than starting one.
+  app.post(['/api/v1/billing/checkout', '/api/v1/subscriptions/checkout'], member, roles(...BILLING), flags.require('billing_live'), flags.require('checkout'), h(async (req, res) => {
     const p = z.object({ plan: z.enum(['pro', 'business']), interval: z.enum(['month', 'year']), seats: z.number().int().min(1).max(cfg.billing.maxSeats).default(1) }).parse(req.body);
     const out = await billing.createCheckout({ workspaceId: req.workspace, userId: req.actor, plan: p.plan, interval: p.interval, seats: p.seats, publicOrigin: cfg.origin });
     await pool.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'billing.checkout_started',$3)`, [req.workspace, req.actor, out.checkout_id]);
     res.status(201).json(out);
   }));
-  app.post('/api/v1/billing/cancel', member, roles(...BILLING), h(async (req, res) => {
+  app.post(['/api/v1/billing/cancel', '/api/v1/subscriptions/cancel'], member, roles(...BILLING), h(async (req, res) => {
     const out = await billing.cancel(req.workspace);
     await pool.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'billing.cancel_requested',$3)`, [req.workspace, req.actor, req.workspace]);
+    res.status(202).json(out);
+  }));
+  app.post(['/api/v1/billing/resume', '/api/v1/subscriptions/resume'], member, roles(...BILLING), flags.require('billing_live'), h(async (req, res) => {
+    const out = await billing.resume(req.workspace);
+    await pool.query(`INSERT INTO portal.audit_events(workspace_id,actor_id,action,object_id) VALUES($1,$2,'billing.resume_requested',$3)`, [req.workspace, req.actor, req.workspace]);
     res.status(202).json(out);
   }));
   app.post('/api/v1/billing/reconcile', member, roles(...MANAGE), h(async (req, res) => res.json(await billing.reconcile(req.workspace))));
 
   registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm, meet, overage, flags, limiters, citations, sbacs });
   registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, launch, flags, limiters });
-  registerSbacs(app, { pool, auth, h, sbacs, cfg });
+  registerSbacs(app, { pool, auth, h, sbacs, cfg, flags, billing });
   registerSbacsInternal(app, { h, sbacs, cfg });
   registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags, limiters, citations, sbacs });
   registerAiGateway(app, { pool, cfg, auth, h, llm, flags, limiters });

@@ -237,7 +237,7 @@ describe('billing launch: plan changes, refunds, usage billing, admin console', 
       const h = (await admin().get('/api/v1/admin/health')).body; const codes = h.alerts.map((a) => a.code); assert.equal(h.status, 'critical');
       for (const k of ['billing_events_stuck', 'billing_events_rejected', 'sales_inquiries_overdue', 'flag_off_ai']) assert.ok(codes.includes(k), k);
       assert.equal(h.alerts.find((a) => a.code === 'billing_events_stuck').severity, 'critical');
-      await sql(db, `DELETE FROM portal.billing_events WHERE event_id IN ('evt_stuck_1','evt_rej_1')`);
+      await sql(db, `UPDATE portal.billing_events SET outcome='processed', processed_at=now(), received_at=now() - interval '3 days' WHERE event_id IN ('evt_stuck_1','evt_rej_1')`);   // provider events are append-only evidence (migration 014): settle them instead of deleting
     });
     test('kill switch for AI: endpoints answer 503 and the queue pauses (jobs stay queued) until switched back on; switching off needs a reason and is audited', async () => {
       await subscribe(owner, 'pro', 'month', 1);

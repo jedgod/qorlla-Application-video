@@ -13,6 +13,8 @@ DO $$ BEGIN
   END IF;
 END $$;
 ALTER TABLE portal.entitlements DROP CONSTRAINT IF EXISTS entitlements_not_hard_denied;
+DROP TRIGGER IF EXISTS subscription_audit ON portal.subscriptions;      -- 014's trigger writes to the event table renamed below
+DROP FUNCTION IF EXISTS portal.subscription_audit();
 CREATE OR REPLACE VIEW portal.workspace_effective_plan AS
 SELECT w.id AS workspace_id,
        CASE
@@ -27,6 +29,7 @@ DO $$ DECLARE sfx text := to_char(now(), 'YYYYMMDD'); t text; BEGIN
     IF to_regclass('portal.' || t) IS NOT NULL THEN EXECUTE format('ALTER TABLE portal.%I RENAME TO %I', t, t || '_archived_' || sfx); END IF;
   END LOOP;
 END $$;
+DELETE FROM portal.entitlements WHERE NOT enabled;       -- a row means "granted" once the enabled column is gone, so "not granted" rows must go with it
 DELETE FROM portal.entitlements WHERE feature IN ('meet.guest_join','meet.create','meet.recording','docs.create','docs.advanced','clips.create','ai.docs.draft','ai.private','analytics.advanced','org.admin','org.sso','voice.internal','phone.pstn') OR plan_slug = 'starter';
 DELETE FROM portal.plans WHERE slug = 'starter';
 ALTER TABLE portal.subscriptions DROP CONSTRAINT IF EXISTS subscriptions_status_check;

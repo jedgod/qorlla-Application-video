@@ -22,7 +22,7 @@ export function registerBillingLaunch(app, { pool, cfg, auth, h, log, billing, l
   app.post('/api/v1/billing/change-plan/preview', member, billingRoles, handle(async (req, res) => {
     const p = changeBody.parse(req.body); res.set('Cache-Control', 'no-store').json(await launch.previewChange({ workspaceId: req.workspace, plan: p.plan, interval: p.interval, seats: p.seats }));
   }));
-  app.post('/api/v1/billing/change-plan', member, billingRoles, handle(async (req, res) => {
+  app.post(['/api/v1/billing/change-plan', '/api/v1/subscriptions/change'], member, billingRoles, flags.require('billing_live'), handle(async (req, res) => {
     const p = changeBody.parse(req.body); const out = await launch.changePlan({ workspaceId: req.workspace, userId: req.actor, plan: p.plan, interval: p.interval, seats: p.seats, idempotencyKey: p.idempotency_key });
     res.status(out.duplicate ? 200 : 202).json(out);
   }));

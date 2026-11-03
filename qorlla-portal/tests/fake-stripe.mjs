@@ -37,6 +37,7 @@ export async function startFakeStripe({ port = 0, host = '127.0.0.1' } = {}) {
     if (m && req.method === 'POST') {
       const s = st.subs.get(m[1]); if (!s) return send(404, { error: { message: 'No such subscription' } });
       if (form.cancel_at_period_end === 'true') s.cancel_at_period_end = true;
+      if (form.cancel_at_period_end === 'false') s.cancel_at_period_end = false;
       if (form['items[0][price_data][unit_amount]'] !== undefined) {   // plan change
         if (st.failChange) return send(402, { error: { message: 'Your card was declined.' } });
         const it = s.items.data[0]; if (form['items[0][id]'] !== it.id) return send(400, { error: { message: 'No such subscription item' } });

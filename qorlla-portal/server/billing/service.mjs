@@ -253,6 +253,16 @@ export function createBillingService({ pool, stripe, cfg, log, now = () => Date.
     await applyProviderSubscription(workspaceId, sub);
     return { cancel_at_period_end: true, current_period_end: iso(periodOf(sub).end) };
   }
+  /** Undo "cancel at period end" while the paid period is still running. Local state changes only from the provider's answer. */
+  async function resume(workspaceId) {
+    if (!available()) throw new BillingError(503, 'billing_unavailable', 'Billing is not enabled');
+    const s = await subscriptionFor(workspaceId);
+    if (!s?.provider_subscription_id || !s.cancel_at_period_end || !['active', 'trialing', 'past_due'].includes(s.status) || !(new Date(s.current_period_end) > new Date(now()))) throw new BillingError(409, 'nothing_to_resume', 'There is no pending cancellation to undo');
+    let sub;
+    try { sub = await stripe.resumeSubscription(s.provider_subscription_id); } catch (e) { throw new BillingError(502, 'provider_error', 'Payment provider unavailable'); }
+    await applyProviderSubscription(workspaceId, sub);
+    return { cancel_at_period_end: !!sub.cancel_at_period_end, current_period_end: iso(periodOf(sub).end) };
+  }
   async function reconcile(workspaceId) {
     if (!available()) throw new BillingError(503, 'billing_unavailable', 'Billing is not enabled');
     const s = await subscriptionFor(workspaceId);
@@ -273,5 +283,5 @@ export function createBillingService({ pool, stripe, cfg, log, now = () => Date.
     return (await pool.query(`SELECT id,provider_invoice_id,number,status,currency,amount_due_cents,amount_paid_cents,amount_refunded_cents,hosted_invoice_url,receipt_url,period_start,period_end,attempt_count,next_payment_attempt,created_at,paid_at
       FROM portal.invoices WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT $2`, [workspaceId, limit])).rows;
   }
-  return { catalog, createCheckout, handleWebhook, processEvent, subscriptionFor, cancel, reconcile, expireLapsed, invoices, available, internals: { confirmChange } };
+  return { catalog, createCheckout, handleWebhook, processEvent, subscriptionFor, cancel, resume, reconcile, expireLapsed, invoices, available, internals: { confirmChange } };
 }

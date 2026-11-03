@@ -4,14 +4,15 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { freshDatabase, startMainStandIn, testConfig, startApp, seedWorkspace, here } from './helpers.mjs';
-import { createSbacs } from '../server/sbacs.mjs';
+import { createSbacs, mintServiceToken } from '../server/sbacs.mjs';
 
 // SBACS Phase 2: the engine is connected to real endpoints. A subscription is necessary, never sufficient: membership, roles, document rights, AI flags
 // and the AI gateway still apply (their own suites run in the same `npm test`). Subscription state is written to PostgreSQL directly, as after a verified webhook.
-const TOKEN = 'internal-token-' + 'x'.repeat(20);
+const KEYS = { meet: 'm'.repeat(40), clips: 'c'.repeat(40), storage: 's'.repeat(40), docs: 'd'.repeat(40) };
+const tok = (service = 'meet', o = {}) => mintServiceToken({ service, key: KEYS[service], ...o });
 describe('SBACS enforcement on real endpoints', () => {
   let db, main, app, sbacs;
-  before(async () => { db = await freshDatabase(); main = await startMainStandIn(); sbacs = createSbacs({ pool: db.pool }); app = await startApp({ pool: db.pool, cfg: testConfig({ cfg: { sbacsInternalToken: TOKEN } }, main), jwks: main.jwks }); });
+  before(async () => { db = await freshDatabase(); main = await startMainStandIn(); sbacs = createSbacs({ pool: db.pool }); app = await startApp({ pool: db.pool, cfg: testConfig({ cfg: { sbacsServiceKeys: KEYS } }, main), jwks: main.jwks }); });
   after(async () => { await app.close(); await main.close(); await db.drop(); });
   const sql = (q, a) => db.pool.query(q, a);
   const newWs = async (plan = 'basic', status = 'active') => {
@@ -22,10 +23,12 @@ describe('SBACS enforcement on real endpoints', () => {
   const mkDoc = (c, extra = {}) => c.post('/api/v1/documents', { kind: 'doc', title: 'D', ...extra });
   const usage = async (ws, f) => (await sql(`SELECT used::int, reserved::int FROM portal.subscription_usage WHERE workspace_id=$1 AND feature=$2`, [ws, f])).rows[0] || { used: 0, reserved: 0 };
 
-  test('Free users cannot invoke Professional operations directly (version history, restore, call analytics); Professional can', async () => {
+  test('Free keeps basic version history but cannot invoke restore or call analytics directly; Professional can', async () => {
     const free = await newWs(), pro = await newWs('pro');
     for (const w of [free, pro]) w.doc = (await mkDoc(w.c)).body;
-    for (const [m, p, b] of [['get', `/api/v1/documents/${free.doc.id}/versions`], ['get', `/api/v1/documents/${free.doc.id}/versions/1`], ['post', `/api/v1/documents/${free.doc.id}/restore`, { version_no: 1, base_version: 1 }], ['get', '/api/v1/phone/analytics']]) {
+    assert.equal((await free.c.get(`/api/v1/documents/${free.doc.id}/versions`)).status, 200, 'basic history stays free'); assert.equal((await free.c.get(`/api/v1/documents/${free.doc.id}/versions/1`)).status, 200);
+    assert.equal((await free.c.get(`/api/v1/documents/${pro.doc.id}/versions`)).status, 404, 'history still needs access to THAT document');
+    for (const [m, p, b] of [['post', `/api/v1/documents/${free.doc.id}/restore`, { version_no: 1, base_version: 1 }], ['get', '/api/v1/phone/analytics']]) {
       const r = await free.c[m](p, b); assert.equal(r.status, 403, p); assert.deepEqual({ e: r.body.error, reason: r.body.reason }, { e: 'subscription_access_denied', reason: 'not_in_plan' }); assert.equal(r.body.upgradeAvailable, true);
     }
     assert.equal((await pro.c.get(`/api/v1/documents/${pro.doc.id}/versions`)).status, 200);
@@ -61,7 +64,7 @@ describe('SBACS enforcement on real endpoints', () => {
     const cur = await a.c.get('/api/v1/subscriptions/current'); assert.equal(cur.status, 200); assert.equal(cur.body.suspended, true, 'the owner can still see why');
     assert.equal((await a.c.get('/api/v1/workspace')).status, 200);
     assert.equal((await mkDoc(b.c)).status, 201, 'another workspace is unaffected');
-    const internal = await fetch(app.base + '/internal/v1/entitlements/check', { method: 'POST', headers: { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceId: a.ws, feature: 'docs.create' }) });
+    const internal = await fetch(app.base + '/internal/v1/entitlements/check', { method: 'POST', headers: { authorization: 'Bearer ' + tok('docs'), 'content-type': 'application/json' }, body: JSON.stringify({ workspaceId: a.ws, feature: 'docs.create' }) });
     assert.equal((await internal.json()).reason, 'account_suspended', 'the cross-service interface agrees');
     await sbacs.setSuspended({ workspaceId: a.ws, suspended: false, actorId: admin }); assert.equal((await mkDoc(a.c)).status, 201, 'lifting it restores access at once (nothing is cached)');
   });
@@ -75,16 +78,25 @@ describe('SBACS enforcement on real endpoints', () => {
     assert.equal((await sql(`SELECT plan_slug FROM portal.subscriptions WHERE workspace_id=$1`, [b.ws])).rows[0].plan_slug, 'basic');
   });
 
-  test('the internal interface is invisible without the service token and works with it; PSTN and external Private-AI routing can never be granted', async () => {
-    const { ws } = await newWs('enterprise'); const call = (p, body, token = TOKEN) => fetch(app.base + '/internal/v1/entitlements/' + p, { method: 'POST', headers: { ...(token ? { authorization: 'Bearer ' + token } : {}), 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    assert.equal((await call('check', { workspaceId: ws, feature: 'org.sso' }, null)).status, 404); assert.equal((await call('check', { workspaceId: ws, feature: 'org.sso' }, 'wrong-token-wrong-token-wrong')).status, 404);
-    assert.equal((await (await call('check', { workspaceId: ws, feature: 'org.sso' })).json()).allowed, true);
-    for (const f of ['phone.pstn', 'ai.private.external']) assert.equal((await (await call('check', { workspaceId: ws, feature: f })).json()).reason, 'not_available');
-    const r = await (await call('reserve', { workspaceId: ws, feature: 'storage.mb', units: 500, idempotencyKey: 'upload-0001' })).json(); assert.equal(r.ok, true);
-    assert.equal((await (await call('reserve', { workspaceId: ws, feature: 'storage.mb', units: 500, idempotencyKey: 'upload-0001' })).json()).replay, true);
-    assert.equal((await (await call('finalize', { reservationId: r.reservationId })).json()).ok, true); assert.deepEqual(await usage(ws, 'storage.mb'), { used: 500, reserved: 0 });
-    const free = await newWs(); const big = await call('reserve', { workspaceId: free.ws, feature: 'storage.mb', units: 2000, idempotencyKey: 'upload-0002' }); assert.equal(big.status, 403); assert.equal((await big.json()).reason, 'quota_exhausted');
-    assert.equal((await call('check', { workspaceId: 'not-a-uuid', feature: 'x' })).status, 400);
+  test('the internal interface refuses a missing, malformed, wrong-key, forged, expired or out-of-scope credential; with a valid service token it works within that service scope', async () => {
+    const { ws } = await newWs('enterprise'); const call = (p, body, token) => fetch(app.base + '/internal/v1/entitlements/' + p, { method: 'POST', headers: { ...(token ? { authorization: 'Bearer ' + token } : {}), 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const q = { workspaceId: ws, feature: 'meet.recording' }; const good = tok('meet');
+    const bad = { missing: null, garbage: 'wrong-token-wrong-token-wrong', 'wrong key': mintServiceToken({ service: 'meet', key: 'x'.repeat(40) }),
+      'unknown service': mintServiceToken({ service: 'billing', key: 'b'.repeat(40) }), expired: tok('meet', { now: Date.now() - 10 * 60_000 }), 'long-lived (1 h)': tok('meet', { ttlSec: 3600 }),
+      'from the future': tok('meet', { now: Date.now() + 10 * 60_000 }), 'tampered claims': (() => { const [a, b, c] = good.split('.'); const j = JSON.parse(Buffer.from(b, 'base64url')); j.svc = 'storage'; return [a, Buffer.from(JSON.stringify(j)).toString('base64url'), c].join('.'); })() };
+    for (const [why, t] of Object.entries(bad)) assert.equal((await call('check', q, t)).status, 404, why);
+    assert.equal((await (await call('check', q, good)).json()).allowed, true);
+    assert.equal((await call('check', { workspaceId: ws, feature: 'storage.mb' }, good)).status, 403, 'the meet credential cannot ask about storage');
+    assert.equal((await call('check', { workspaceId: ws, feature: 'phone.pstn' }, good)).status, 403, 'nor about telephony');
+    await sql(`INSERT INTO portal.entitlement_overrides(workspace_id,feature,enabled,quota,reason,created_by) VALUES($1,'storage.mb',true,1000,'test ceiling',$2)`, [ws, crypto.randomUUID()]);
+    const st = tok('storage'), r = await (await call('reserve', { workspaceId: ws, feature: 'storage.mb', units: 500, idempotencyKey: 'upload-0001' }, st)).json(); assert.equal(r.ok, true);
+    assert.equal((await (await call('reserve', { workspaceId: ws, feature: 'storage.mb', units: 500, idempotencyKey: 'upload-0001' }, st)).json()).replay, true);
+    assert.equal((await call('finalize', { reservationId: r.reservationId }, good)).status, 403, 'another service cannot settle storage reservations');
+    assert.equal((await (await call('finalize', { reservationId: r.reservationId }, st)).json()).ok, true); assert.deepEqual(await usage(ws, 'storage.mb'), { used: 500, reserved: 0 });
+    const over = await call('reserve', { workspaceId: ws, feature: 'storage.mb', units: 600, idempotencyKey: 'upload-0002' }, st); assert.equal(over.status, 403); assert.equal((await over.json()).reason, 'quota_exhausted');
+    assert.equal((await call('check', { workspaceId: 'not-a-uuid', feature: 'meet.x' }, good)).status, 400);
+    const off = await startApp({ pool: db.pool, cfg: testConfig({}, main), jwks: main.jwks });                     // no SBACS_SERVICE_KEYS configured: the interface does not exist
+    try { assert.equal((await fetch(off.base + '/internal/v1/entitlements/check', { method: 'POST', headers: { authorization: 'Bearer ' + good, 'content-type': 'application/json' }, body: JSON.stringify(q) })).status, 404); } finally { await off.close(); }
   });
 
   test('worker restarts: reservations a crashed worker left behind are given back, a late finalize is still recorded, and state survives an application restart', async () => {
@@ -96,7 +108,7 @@ describe('SBACS enforcement on real endpoints', () => {
     assert.equal((await restarted.reserve({ workspaceId: ws, featureKey: 'clips.create', units: 10, idempotencyKey: 'after-0001' })).ok, true, 'the whole allowance is available again');
     const late = await restarted.finalize(r.reservationId); assert.equal(late.late, true); assert.equal((await usage(ws, 'clips.create')).used, 9, 'work that did happen is not lost');
     assert.equal((await restarted.release(r.reservationId)).ok, false, 'a finalized reservation cannot be released afterwards');
-    const before = await restarted.effective(ws); await app.close(); app = await startApp({ pool: db.pool, cfg: testConfig({ cfg: { sbacsInternalToken: TOKEN } }, main), jwks: main.jwks });
+    const before = await restarted.effective(ws); await app.close(); app = await startApp({ pool: db.pool, cfg: testConfig({ cfg: { sbacsServiceKeys: KEYS } }, main), jwks: main.jwks });
     const w = await newWs('pro'); assert.equal((await w.c.get('/api/v1/subscriptions/current')).body.plan, 'pro'); assert.deepEqual((await restarted.effective(ws)).features['clips.create'].used, before.features['clips.create'].used);
   });
 
@@ -104,9 +116,11 @@ describe('SBACS enforcement on real endpoints', () => {
     const w = await newWs('pro'); const ids = [];
     for (let i = 0; i < 27; i++) { const r = await mkDoc(w.c, { title: 'd' + i, idempotency_key: 'bulk-key-' + i }); assert.equal(r.status, 201); ids.push(r.body.id); }
     assert.equal((await w.c.get(`/api/v1/documents/${ids[0]}/versions`)).status, 200);
+    await sql(`UPDATE portal.entitlements SET quota_approved=true WHERE plan_slug='basic' AND feature='docs.create'`);     // Qorlla approves the Free ceiling (it is provisional until then)
     await sql(`UPDATE portal.subscriptions SET status='canceled' WHERE workspace_id=$1`, [w.ws]);                  // period ended: back to Free (27 used > 25 allowed)
     const blocked = await mkDoc(w.c, { idempotency_key: 'bulk-key-after' }); assert.equal(blocked.status, 403); assert.equal(blocked.body.reason, 'quota_exhausted');
-    assert.equal((await w.c.get(`/api/v1/documents/${ids[0]}/versions`)).status, 403);
+    assert.equal((await w.c.get(`/api/v1/documents/${ids[0]}/versions`)).status, 200, 'basic history is still readable');
+    assert.equal((await w.c.post(`/api/v1/documents/${ids[0]}/restore`, { version_no: 1, base_version: 1 })).status, 403, 'restore is a paid tool');
     const list = (await w.c.get('/api/v1/documents')).body; assert.equal((Array.isArray(list) ? list : list.documents).length, 27, 'every document is still there');
     assert.equal((await w.c.get(`/api/v1/documents/${ids[26]}`)).status, 200);
     assert.equal((await sql(`SELECT count(*)::int n FROM portal.documents WHERE workspace_id=$1 AND deleted_at IS NULL`, [w.ws])).rows[0].n, 27);

@@ -1,6 +1,8 @@
 // Platform kill switches. Stored in PostgreSQL so every replica agrees; cached for a few seconds so a hot path costs no query.
 // A switched-off feature answers 503 {code:'feature_disabled'} and background workers pause (jobs stay queued and resume when re-enabled).
-export const FLAG_KEYS = ['checkout', 'plan_changes', 'ai', 'overage_billing', 'meet_ai'];   // meet_ai: Meet transcript analysis, separately from the other AI features
+export const FLAG_KEYS = ['checkout', 'plan_changes', 'ai', 'overage_billing', 'meet_ai', 'billing_live'];
+// A flag with no row is ON (a kill switch nobody has pulled) EXCEPT these, which are OFF until an operator turns them on.
+const DEFAULT_OFF = new Set(['billing_live']);   // meet_ai: Meet transcript analysis, separately from the other AI features
 
 export function createFlags({ pool, ttlMs = 3000, now = () => Date.now() }) {
   let cache = null, at = 0;
@@ -10,7 +12,7 @@ export function createFlags({ pool, ttlMs = 3000, now = () => Date.now() }) {
     catch (e) { if (!cache) throw e; }                       // keep serving the last known state if the database blips
     return cache;
   }
-  const enabled = async (key) => { const f = (await load())[key]; return f ? f.enabled : true; };
+  const enabled = async (key) => { const f = (await load())[key]; return f ? f.enabled : !DEFAULT_OFF.has(key); };
   async function list() { cache = null; return Object.values(await load()).sort((a, b) => a.key.localeCompare(b.key)); }
   async function set(key, on, reason, actor) {
     if (!FLAG_KEYS.includes(key)) throw Object.assign(new Error('Unknown flag'), { http: { status: 400, body: { error: 'Unknown flag' } } });

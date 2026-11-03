@@ -68,6 +68,7 @@ export function createStripe({ secretKey, webhookSecret, apiBase = 'https://api.
       }, { 'idempotency-key': `checkout-${checkoutId}` }),
     retrieveSubscription: (id) => api('GET', `/v1/subscriptions/${encodeURIComponent(id)}`),
     cancelAtPeriodEnd: (id) => api('POST', `/v1/subscriptions/${encodeURIComponent(id)}`, { cancel_at_period_end: 'true' }),
+    resumeSubscription: (id) => api('POST', `/v1/subscriptions/${encodeURIComponent(id)}`, { cancel_at_period_end: 'false' }),
     /** Change the price/quantity of the subscription's single item. prorationBehavior: 'always_invoice' (upgrade, charged now) or 'none' (downgrade at renewal). */
     changeSubscription: ({ id, itemId, product, currency, unitAmountCents, interval, quantity, prorationBehavior, changeId }) =>
       api('POST', `/v1/subscriptions/${encodeURIComponent(id)}`, {

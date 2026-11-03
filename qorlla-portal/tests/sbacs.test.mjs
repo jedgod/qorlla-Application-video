@@ -82,7 +82,7 @@ describe('SBACS entitlement engine', () => {
   test('an abandoned reservation is given back after it expires; a pro workspace has a higher ceiling than a free one', async () => {
     const { ws } = await newWs(); assert.equal((await sbacs.reserve({ workspaceId: ws, featureKey: 'clips.create', units: 10, idempotencyKey: 'a', ttlMs: 1 })).ok, true);
     assert.equal((await sbacs.reserve({ workspaceId: ws, featureKey: 'clips.create', idempotencyKey: 'b', ttlMs: 60000 })).ok, true, 'the crashed caller\'s units were reclaimed');
-    const pro = await newWs('pro'); assert.equal((await sbacs.resolve(db.pool, pro.ws, 'clips.create')).quota, null); assert.equal((await sbacs.resolve(db.pool, (await newWs()).ws, 'clips.create')).quota, 10);
+    const pro = await newWs('pro'); assert.equal((await sbacs.resolve(db.pool, pro.ws, 'clips.create')).quota, null); assert.deepEqual([(await sbacs.resolve(db.pool, (await newWs()).ws, 'clips.create')).quota, (await sbacs.resolve(db.pool, (await newWs()).ws, 'clips.create')).provisionalQuota], [null, 10], 'Free clips ceiling is provisional: shown, not enforced');
   });
 
   test('overrides apply until they expire, change nothing for other workspaces, and every change is in the append-only event log', async () => {
@@ -90,7 +90,7 @@ describe('SBACS entitlement engine', () => {
     await sbacs.setOverride({ workspaceId: a.ws, feature: 'meet.recording', enabled: true, quota: 5, reason: 'pilot customer', actorId: admin });
     assert.equal((await can(a.ws, 'meet.recording')).allowed, true); assert.equal((await can(a.ws, 'meet.recording')).source, 'override'); assert.equal((await can(b.ws, 'meet.recording')).allowed, false);
     await sql(`UPDATE portal.entitlement_overrides SET expires_at = now() - interval '1 second' WHERE workspace_id=$1`, [a.ws]); assert.equal((await can(a.ws, 'meet.recording')).allowed, false);
-    const ev = (await sql(`SELECT id, kind, detail FROM portal.entitlement_events WHERE workspace_id=$1`, [a.ws])).rows; assert.equal(ev.length, 1); assert.equal(ev[0].kind, 'override.set'); assert.equal(ev[0].detail.reason, 'pilot customer');
+    const ev = (await sql(`SELECT id, kind, detail FROM portal.entitlement_events WHERE workspace_id=$1 AND kind LIKE 'override.%'`, [a.ws])).rows; assert.equal(ev.length, 1); assert.equal(ev[0].kind, 'override.set'); assert.equal(ev[0].detail.reason, 'pilot customer');
     await assert.rejects(sql(`UPDATE portal.entitlement_events SET kind='x'`), /append-only/); await assert.rejects(sql(`DELETE FROM portal.entitlement_events`), /append-only/); await assert.rejects(sql(`TRUNCATE portal.entitlement_events`), /append-only/);
   });
 
@@ -103,7 +103,7 @@ describe('SBACS entitlement engine', () => {
     const ea = (await a.c.get('/api/v1/subscriptions/entitlements')).body; assert.equal(ea.features['meet.recording'].enabled, true); assert.equal(ea.features['phone.pstn'].enabled, false);
     const eb = (await b.c.get('/api/v1/subscriptions/entitlements')).body; assert.equal(eb.features['meet.recording'].enabled, false);
     await sbacs.reserve({ workspaceId: b.ws, featureKey: 'clips.create', idempotencyKey: 'u1' }); const rid = (await sql(`SELECT id FROM portal.usage_reservations WHERE workspace_id=$1`, [b.ws])).rows[0].id; await sbacs.finalize(rid);
-    const ub = (await b.c.get('/api/v1/subscriptions/usage')).body.usage.find((x) => x.feature === 'clips.create'); assert.deepEqual([ub.used, ub.quota], [1, 10]);
+    const ub = (await b.c.get('/api/v1/subscriptions/usage')).body.usage.find((x) => x.feature === 'clips.create'); assert.deepEqual([ub.used, ub.quota, ub.limitStatus], [1, null, 'provisional']);
     assert.equal((await a.c.get('/api/v1/subscriptions/usage')).body.usage.find((x) => x.feature === 'clips.create'), undefined, 'pro clips are unlimited, so there is no meter');
     const other = await main.mint(); assert.equal((await app.client(other).get('/api/v1/subscriptions/current')).status, 403, 'no membership, no data');
     assert.equal((await fetch(app.base + '/api/v1/subscriptions/current')).status, 401);
