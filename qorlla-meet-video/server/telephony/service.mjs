@@ -34,6 +34,27 @@ export class TelephonyService {
       flagsOff, bridgeReady: !!this.bridge.ready, reconciledUsage: await one("SELECT count(*)::int AS n FROM qphone_usage WHERE state='reconciled'") });
     return { ...caps, carrierName: this.carrier.name, webhookConfigured: !!this.carrier.webhookConfigured, flags: [...flags] };
   }
+  /**
+   * AUTHORITATIVE readiness for telephone join: the six conditions, each computed from stored evidence that must also be FRESH. Missing, stale or malformed evidence is false; no static flag turns anything on by itself
+   * (a release gate needs its PHONE_FEATURES flag AND an operator-certified, unexpired gate row with evidence). The telephone admission gateway reads this and refuses unless all six are exactly true.
+   */
+  async phoneReadiness() {
+    const nowMs = Date.now(), at = (t) => (t ? new Date(t).getTime() : NaN), fresh = (t, max) => Number.isFinite(at(t)) && nowMs - at(t) <= max && at(t) <= nowMs + 5000;
+    const maxGate = num(this.env.PHONE_GATE_MAX_AGE_DAYS, 90) * 864e5, maxHealth = num(this.env.PHONE_PROVIDER_HEALTH_MAX_AGE_S, 900) * 1000, maxHook = num(this.env.PHONE_WEBHOOK_MAX_AGE_DAYS, 30) * 864e5, maxBeat = num(this.env.PHONE_GATEWAY_HEARTBEAT_MAX_AGE_S, 60) * 1000;
+    const st = await this.providerStatus(), flags = this.flags(), gates = {};
+    for (const r of (await this.db.query('SELECT gate, certified_at, evidence_sha256 FROM qphone_gates')).rows) gates[r.gate] = r;
+    const gateOk = (name) => flags.has(name) && !!gates[name] && !!gates[name].evidence_sha256 && fresh(gates[name].certified_at, maxGate);
+    const one = async (sql, p = []) => Number((await this.db.query(sql, p)).rows[0].n);
+    const beats = await one("SELECT count(*)::int AS n FROM phone_gateway_health WHERE healthy AND observed_at > now() - ($1::int * interval '1 second')", [Math.round(maxBeat / 1000)]);
+    const dialIn = await one("SELECT count(*)::int AS n FROM qphone_numbers WHERE kind='dialin' AND state='active'"), usage = await one("SELECT count(*)::int AS n FROM qphone_usage WHERE state='reconciled'");
+    const carrierConnected = !!(this.carrier.configured && st && st.health_ok && fresh(st.health_checked_at, maxHealth) && fresh(st.webhook_verified_at, maxHook));
+    const readiness = { carrierConnected, inboundNumberCertified: carrierConnected && dialIn > 0 && gateOk('dialin'), gatewayHealthy: beats > 0, mediaBridgeCertified: !!this.bridge.ready && gateOk('bridge'),
+      billingCertified: gateOk('billing') && usage > 0, productionApproved: gateOk('production') };
+    const why = { carrierConnected: carrierConnected ? 'carrier health and signed webhook are fresh' : 'no verified carrier connection', inboundNumberCertified: readiness.inboundNumberCertified ? dialIn + ' certified dial-in number(s)' : 'dial-in numbers or the dialin gate are not certified',
+      gatewayHealthy: beats > 0 ? beats + ' gateway heartbeat(s) in the last ' + Math.round(maxBeat / 1000) + ' s' : 'no fresh gateway heartbeat', mediaBridgeCertified: readiness.mediaBridgeCertified ? 'bridge installed and certified' : 'no installed, certified media bridge',
+      billingCertified: readiness.billingCertified ? usage + ' reconciled usage record(s)' : 'billing gate or reconciled usage missing', productionApproved: readiness.productionApproved ? 'production gate certified' : 'no production approval' };
+    return { readiness, why, generatedAt: new Date(nowMs).toISOString(), maxAgeMs: 5000 };
+  }
   async testConnection(actor) {
     assertAdmin(actor);
     const h = await this.carrier.healthCheck(); const name = this.carrier.name;

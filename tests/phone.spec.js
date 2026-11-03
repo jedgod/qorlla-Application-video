@@ -39,7 +39,18 @@ test.describe('dial-in against the real Meet server', () => {
     const pin = (await pinRes.json()).pin; const host = (p, method = 'GET', body) => fetch(MEET + '/api/meetings/' + q.meetingId + p, { method, headers: { Authorization: 'Bearer ' + q.token, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
     return { ctx, item, startUrl, digits: item.meetingId.replace(/\D/g, ''), uuid: q.meetingId, token: q.token, pin, host };
   }
-  const dial = (m, from, o = {}) => ivr('/api/phone/ivr/verify', { eventId: eid(), callId: o.callId || 'call-' + crypto.randomBytes(5).toString('hex'), from, meetingId: o.meetingId || m.digits, pin: o.pin || m.pin });
+  // A correct PIN only gets a caller APPROVED. 'Connected' needs verified audio, which the media gateway reports (see /api/phone/ivr/media). The TEST DOUBLE plays that gateway: after an approval it reports SYNTHETIC audio, which Meet
+  // accepts only for provider 'test-double' (never for a real gateway, and never as certification evidence). dialRaw is the PIN step alone.
+  const synthetic = (over = {}) => ({ state: 'audio_flowing', inboundPackets: 120, outboundPackets: 118, observedMs: 2400, codec: 'opus', encrypted: true, measuredAt: Date.now(), source: 'synthetic', ...over });
+  // A caller the HOST approved (waiting room / host absent) is APPROVED, not connected: it learns that from the status route (which hands over its media token once) and then the gateway reports audio.
+  async function settle(callId) { const st = await ivr('/api/phone/ivr/status', { callId }); if (st.body.decision !== 'approved' || !st.body.mediaToken) return st; return ivr('/api/phone/ivr/media', { eventId: eid(), callId, mediaToken: st.body.mediaToken, evidence: synthetic() }); }
+  const dialRaw = (m, from, o = {}) => ivr('/api/phone/ivr/verify', { eventId: eid(), callId: o.callId || 'call-' + crypto.randomBytes(5).toString('hex'), from, meetingId: o.meetingId || m.digits, pin: o.pin || m.pin });
+  async function dial(m, from, o = {}) {
+    const callId = o.callId || 'call-' + crypto.randomBytes(5).toString('hex'), v = await dialRaw(m, from, { ...o, callId });
+    if (v.body.result !== 'approved') return v;
+    const r = await ivr('/api/phone/ivr/media', { eventId: eid(), callId, mediaToken: v.body.mediaToken, evidence: synthetic() });
+    return { ...r, body: { ...r.body, callRef: v.body.callRef } };
+  }
   const attendance = async (m) => (await (await m.ctx.request.get(B() + '/api/meetings/' + encodeURIComponent(m.item.meetingId) + '/phone-attendance')).json()).calls;
 
   test('MAIN API: dial-in numbers are only the real configured ones; the PIN is shown once; only the host; carrier calling is refused and provisioning needs an administrator', async ({ browser }) => {
@@ -65,7 +76,7 @@ test.describe('dial-in against the real Meet server', () => {
     expect((await ivr('/api/phone/ivr/verify', body, { t: Math.floor(Date.now() / 1000) - 3600 })).status).toBe(401);                      // stale
     expect((await fetch(MEET + '/api/phone/ivr/verify', { method: 'POST', body: raw })).status).toBe(401);
     expect((await ivr('/api/phone/ivr/verify', { callId: 'x', from: FROM1, meetingId: m.digits, pin: m.pin })).status).toBe(400);           // no event id
-    const first = await ivr('/api/phone/ivr/verify', body); expect(first.body.result).toBe('connected'); const again = await ivr('/api/phone/ivr/verify', body); expect(again.body).toMatchObject({ result: 'connected', duplicate: true, callRef: first.body.callRef });
+    const first = await ivr('/api/phone/ivr/verify', body); expect(first.body.result).toBe('approved'); expect(first.body.result).not.toBe('connected'); const again = await ivr('/api/phone/ivr/verify', body); expect(again.body).toMatchObject({ result: 'approved', duplicate: true, callRef: first.body.callRef });
     expect((await attendance(m)).length).toBe(1);                                                                                           // the replay changed nothing
     const reuse = await dial(m, FROM1, { callId: ('call-sig-1' + RUN) }); expect(reuse.body.result).toBe('denied');                                 // same call id, new event id
     const people = await m.host('/'); expect(people.body.online).toContain; await m.ctx.close();
@@ -110,11 +121,14 @@ test.describe('dial-in against the real Meet server', () => {
     const wl = (await m.host('/waiting')).body.waiting; expect(wl.map((x) => x.name).sort()).toEqual(['Phone ••••4321', 'Phone ••••4567']); expect((await m.host('/')).body.online.length).toBe(0);      // not in the room yet
     const first = wl.find((x) => x.name.endsWith('4567')), second = wl.find((x) => x.name.endsWith('4321'));
     expect((await m.host('/admit', 'POST', { participantId: first.participantId, allow: true })).status).toBe(200); expect((await m.host('/admit', 'POST', { participantId: second.participantId, allow: false })).status).toBe(200);
+    const approved = await attendance(m); expect(approved.find((c) => c.name.endsWith('4567')).status).toBe('waiting'); expect(approved.find((c) => c.name.endsWith('4567')).state).toBe('APPROVED'); expect((await m.host('/')).body.online.length).toBe(0);       // approved is not connected
+    expect((await settle('w-1' + RUN)).body.result).toBe('connected');
     const calls = await attendance(m); expect(calls.find((c) => c.name.endsWith('4567')).status).toBe('connected'); expect(calls.find((c) => c.name.endsWith('4321')).status).toBe('denied'); expect((await m.host('/')).body.online.length).toBe(1);
     await m.ctx.close();
     const h = await meeting(browser, { joinBeforeHost: false, title: 'Host absent' }); const w = await dial(h, FROM3, { callId: ('ha-1' + RUN) }); expect(w.body.result).toBe('waiting');
     const hp = await h.ctx.newPage(); await hp.goto(h.startUrl); await expect(hp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });   // the host connects: callers that waited for the host are let in
-    await expect.poll(async () => (await attendance(h))[0].status, { timeout: 20000, intervals: [1000] }).toBe('connected');
+    await expect.poll(async () => (await attendance(h))[0].state, { timeout: 20000, intervals: [1000] }).toBe('APPROVED');                 // the host arrived: the caller is approved...
+    expect((await settle('ha-1' + RUN)).body.result).toBe('connected'); expect((await attendance(h))[0].status).toBe('connected');     // ...and connected only once audio is verified
     await h.ctx.close();
   });
 

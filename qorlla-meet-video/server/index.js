@@ -19,6 +19,7 @@ import { recoveryService } from './recovery-service.mjs';
 import { registerCollab } from './collab.mjs';
 import { makeLimit } from './limit.mjs';
 import { registerPhone } from './phone.mjs';
+import { createGatewayAuth } from './phone-gateway-auth.mjs';
 import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
 import { registerAiConsent } from './ai-consent.mjs';
@@ -413,8 +414,34 @@ let limiter;
 const recording = registerRecording({ app, io, db, auth, member, fail, room, audit: recAudit, media: recMedia, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 limiter = makeLimit({ io, db, room, audit, upgradeUrl: process.env.UPGRADE_URL || '/pricing?reason=meeting-limit', onEnd: async (id) => { await recording.stopFor(id, 'meeting_ended'); await phone.endAll(id, 'time_limit'); } });
 const carrier = createCarrier(process.env);                 // a real telephone carrier only when PHONE_CARRIER and its credentials are set; otherwise inert
-const phone = registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas: (mid, pid) => !!active.get(mid)?.has(pid), phoneOnline, names, recording, carrier: carrier.configured ? carrier : null });
+// Telephone callers have no signalling session, so the Security Shield is asked about them here: before approval, before they count as connected, and on a timer for every open call (phone.shieldSweep).
+const phoneShield = { enforce: shieldCfg.enforce, configured: !!shield,
+  authorize: async (meetingId, participantId) => {
+    if (!shield) return { allow: false, reason: 'SHIELD_UNAVAILABLE' };
+    const { rows: [m] } = await db.query('SELECT id, org_id, host_account_id, guest_enabled FROM meetings WHERE id=$1', [meetingId]); if (!m) return { allow: false, reason: 'MEETING_UNKNOWN_OR_ENDED' };
+    if (!(await shield.register({ id: m.id, org_id: m.org_id, host_account_id: m.host_account_id, guest_enabled: m.guest_enabled }))) return { allow: false, reason: 'SHIELD_UNAVAILABLE' };
+    return shield.authorize({ meetingId, participantId, role: 'guest', admission: 'admitted' });
+  },
+  recheck: (list) => (shield ? shield.recheck(list) : Promise.resolve(null)), report: (kind, ref) => (shield ? shield.report(kind, ref) : Promise.resolve(false)) };
+const phoneGateway = createGatewayAuth({ db, env: process.env });                // the telephone gateway's own identity (audience, subjects, scopes, keys); inert unless PHONE_GATEWAY_KEYS_JSON and PHONE_GATEWAY_SUBJECTS_JSON are set
+if (phoneGateway.problems.length && (process.env.PHONE_GATEWAY_KEYS_JSON || process.env.PHONE_GATEWAY_SUBJECTS_JSON)) console.error('[phone-gateway] incomplete configuration, gateway mode stays off:', phoneGateway.problems.join(', '));
+const phone = registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas: (mid, pid) => !!active.get(mid)?.has(pid), phoneOnline, names, recording, carrier: carrier.configured ? carrier : null,
+  shield: phoneShield, gateway: phoneGateway, readiness: () => telephony.svc.phoneReadiness() });
 const telephony = registerTelephony({ app, db, bridgeAuth, phone, carrier });
+// Telephone lifecycle timers: approval and media timeouts, lost media, unconfirmed hang-ups (phone.sweep); Shield re-check of open calls. Safe on every replica: each move is atomic and checked against the current state.
+{ const t1 = setInterval(() => { phone.sweep().catch((e) => console.error('[phone] sweep failed:', e.message)); }, Number(process.env.PHONE_SWEEP_MS || 5000)); t1.unref();
+  if (phone.gatewayMode || (shield && shieldCfg.enforce)) { const t2 = setInterval(() => { phone.shieldSweep().catch((e) => console.error('[phone] shield sweep failed:', e.message)); }, shieldCfg.recheckMs); t2.unref(); } }
+// Meeting directory for the telephone gateway (bridge secret): a meeting number -> the Meet meeting and, when it was scheduled by the main app, that scheduled-meeting id. One-to-one by construction
+// (external_meeting_links: meeting_id UNIQUE, PRIMARY KEY (source_system, source_id)); an unexpected duplicate is refused rather than guessed.
+app.get('/api/integrations/phone/meetings/:digits', bridgeAuth, async (req, res) => {
+  try {
+    const digits = String(req.params.digits || '').replace(/\D/g, ''); if (!/^\d{11}$/.test(digits)) return fail(res, 400, 'Invalid meeting number');
+    const id = await resolveMeeting(digits); if (!id) return fail(res, 404, 'Not available');
+    const { rows: [m] } = await db.query('SELECT id, ended_at, locked, waiting_room FROM meetings WHERE id=$1', [id]); if (!m || m.ended_at) return fail(res, 404, 'Not available');
+    const { rows } = await db.query("SELECT source_id FROM external_meeting_links WHERE meeting_id=$1 AND source_system='qorlla-main'", [m.id]); if (rows.length > 1) return fail(res, 409, 'Ambiguous meeting');
+    res.set('Cache-Control', 'no-store').json({ meetingId: m.id, sourceId: rows[0] ? rows[0].source_id : null, locked: !!m.locked, waitingRoom: !!m.waiting_room });
+  } catch (e) { console.error('[phone] directory failed:', e.message); fail(res, 503, 'Unavailable'); }
+});
 app.get('/api/health',async(_req,res)=>{try{await db.query('SELECT 1');res.json({ok:true});}catch{res.status(503).json({ok:false});}});
 const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:message});
 io.use(async(socket,next)=>{
