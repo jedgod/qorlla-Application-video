@@ -226,7 +226,7 @@ test('terminateCall: media first, then Meet, then the record; a bridge that cann
 const DB = process.env.PHONE_JOIN_TEST_DATABASE_URL, REDIS = process.env.PHONE_JOIN_TEST_REDIS_URL;
 test('FULL PIPELINE over HTTP: signed gateway token + body hash, Redis limit, PostgreSQL ledger, Meet (lifecycle), Shield, verified media confirmed by Meet', { skip: DB && REDIS ? false : 'PHONE_JOIN_TEST_DATABASE_URL and PHONE_JOIN_TEST_REDIS_URL are required' }, async () => {
   const schema = 'pj_e2e_' + Math.random().toString(36).slice(2, 8), admin = new pg.Pool({ connectionString: DB }); await admin.query('CREATE SCHEMA ' + schema);
-  const c0 = await admin.connect(); try { await c0.query('SET search_path=' + schema); await c0.query(fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'sql', '001_phone_join.sql'), 'utf8')); } finally { c0.release(); }
+  const c0 = await admin.connect(); try { await c0.query('SET search_path=' + schema); for (const f of ['001_phone_join.sql', '002_phone_join_lease.sql']) await c0.query(fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'sql', f), 'utf8')); } finally { c0.release(); }
   const pool = new pg.Pool({ connectionString: DB, options: '-c search_path=' + schema }), redis = new Redis(REDIS!), prefix = 'pje2e:' + Math.random().toString(36).slice(2, 8);
   const t = await setup(); const auth = gatewayAuth({ keys: { [ISS]: { w1: kp.publicKeyPem } }, subjects: ['svc:phone-gateway'], replay: new PostgresReplayStore(pool) });
   const limit = createRedisRateLimiter({ redis: redis as unknown as RedisLike, windowMs: 60_000, max: 4, prefix, keyOf: (r) => (r as any).gateway?.issuer ?? null });

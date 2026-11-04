@@ -58,7 +58,7 @@ that remain open and what is still BLOCKED.
 
 | Module | Purpose |
 |---|---|
-| `src/ledger-pg.ts` + `sql/001_phone_join.sql` | PostgreSQL call ledger (primary-key ownership across replicas, validated transitions, append-only history, crash reaper) and the gateway-token replay store |
+| `src/ledger-pg.ts` + `sql/001_phone_join.sql` + `sql/002_phone_join_lease.sql` | PostgreSQL call ledger (primary-key ownership across replicas, ownership lease with generation fencing, validated transitions, append-only history, per-state crash reaper) and the gateway-token replay store |
 | `src/gateway-auth.ts` | verifies the workload token Qorlla already uses (ES256 JWT, optional mTLS binding), single-use, body-bound |
 | `src/rate-limit-redis.ts` | Redis rate limit shared by all replicas; refuses when Redis is unavailable |
 | `src/meet-authority.ts` | `MeetingAuthority` over Meet's phone gateway routes (workload identity or provider HMAC): `approved`/`waiting` (never `connected`), durable host decision, media reports, heartbeat |
@@ -66,7 +66,7 @@ that remain open and what is still BLOCKED.
 | `src/readiness-meet.ts` | `MeetReadiness` (the six conditions from Meet, all false on any doubt) and `MeetDirectoryClient` |
 | `src/shield.ts` | Security Shield authorization, re-check loop and fail-closed termination (defence in depth: Meet asks the Shield too) |
 | `src/media-contract.ts` | the SIP/RTP-to-WebRTC contract and the audio-evidence rule |
-| `src/compose.ts` | `terminateCall` (media, then Meet, then the record) and `startReaper` (crash recovery) |
+| `src/compose.ts` | `terminateCall` (media, then Meet, then the record), `startLeaseKeeper` (renews owned leases, stops a leg whose ownership is lost) and `startReaper` (crash recovery: challenge, grace, fenced takeover) |
 
 A timed-out dependency is **cancelled** (every call receives an `AbortSignal`), not merely abandoned: a media leg created after its step timed out is stopped and **reported to Meet**, the call id stays claimed until that is
 settled, and a leg that cannot be terminated is marked `orphaned` and reported (`onLateMedia`, `onOrphan`).

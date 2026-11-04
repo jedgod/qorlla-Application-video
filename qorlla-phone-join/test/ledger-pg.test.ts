@@ -16,11 +16,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const eventually = async (cond: () => Promise<boolean>, ms = 5000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await cond()) return true; await sleep(20); } return cond(); };
 const migration = fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'sql', '001_phone_join.sql'), 'utf8');
 const rollback = fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'sql', '001_phone_join.rollback.sql'), 'utf8');
+const lease = fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'sql', '002_phone_join_lease.sql'), 'utf8');
+const leaseRollback = fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'sql', '002_phone_join_lease.rollback.sql'), 'utf8');
 
 let schema = '', admin: pg.Pool; const pools: pg.Pool[] = [];
 /** A pool that behaves like one gateway replica: its own connections, its own instance name. */
 const replica = (name: string) => { const p = new pg.Pool({ connectionString: URL, options: '-c search_path=' + schema, max: 8 }); pools.push(p); return { pool: p, ledger: new PostgresCallLedger(p, name) }; };
-test.before(async () => { if (!URL) return; schema = 'pj_' + Math.random().toString(36).slice(2, 9); admin = new pg.Pool({ connectionString: URL }); await admin.query('CREATE SCHEMA ' + schema); const c = await admin.connect(); try { await c.query('SET search_path=' + schema); await c.query(migration); await c.query(migration); } finally { c.release(); } });   // applied twice: idempotent
+test.before(async () => { if (!URL) return; schema = 'pj_' + Math.random().toString(36).slice(2, 9); admin = new pg.Pool({ connectionString: URL }); await admin.query('CREATE SCHEMA ' + schema); const c = await admin.connect(); try { await c.query('SET search_path=' + schema); await c.query(migration); await c.query(migration); await c.query(lease); await c.query(lease); } finally { c.release(); } });   // each applied twice: idempotent
 test.after(async () => { if (!URL) return; for (const p of pools) await p.end(); await admin.query('DROP SCHEMA ' + schema + ' CASCADE'); await admin.end(); });
 
 test('PostgreSQL ledger: with four gateway replicas racing, exactly one claims each call id', { skip }, async () => {
@@ -115,15 +117,18 @@ test('host silence: the waiting caller is cancelled in the meeting and the id is
 });
 
 test('crash recovery: stale open claims are reaped by exactly one reaper, their media is disconnected, and connected calls are untouched', { skip }, async () => {
+  await admin.query(`DELETE FROM ${schema}.phone_join_calls`);      // a reaper scans the whole table: earlier tests' rows (which grow old while the suite runs) are not part of this one
   const a = replica('reaper-a'), b = replica('reaper-b');
   for (const id of ['stale_00000001', 'stale_00000002', 'live_000000001']) await a.ledger.claim(id);
   await a.ledger.transition('live_000000001', 'authorizing'); await a.ledger.transition('live_000000001', 'attaching'); await a.ledger.transition('live_000000001', 'connected');
-  await admin.query(`UPDATE ${schema}.phone_join_calls SET updated_at = now() - interval '10 minutes' WHERE call_id IN ('stale_00000001','stale_00000002','live_000000001')`);
-  const got = (await Promise.all([a.ledger.reapStale(60_000), b.ledger.reapStale(60_000)])).flat().sort(); assert.deepEqual(got, ['stale_00000001', 'stale_00000002'], 'each stale claim goes to one reaper');
+  await admin.query(`UPDATE ${schema}.phone_join_calls SET updated_at = now() - interval '10 minutes', lease_expires_at = now() - interval '9 minutes' WHERE call_id IN ('stale_00000001','stale_00000002','live_000000001')`);   // their owner stopped renewing
+  assert.deepEqual((await Promise.all([a.ledger.reapStale(), b.ledger.reapStale()])).flat(), [], 'first sight of a lapsed lease only CHALLENGES it');
+  await admin.query(`UPDATE ${schema}.phone_join_calls SET lease_challenged_at = now() - interval '5 minutes' WHERE lease_challenged_at IS NOT NULL`);        // the grace period passed with no renewal
+  const got = (await Promise.all([a.ledger.reapStale(), b.ledger.reapStale()])).flat().sort(); assert.deepEqual(got, ['stale_00000001', 'stale_00000002'], 'each stale claim goes to one reaper');
   assert.equal(await a.ledger.stateOf('live_000000001'), 'connected');
   await a.ledger.finishReap('stale_00000001', true); await a.ledger.finishReap('stale_00000002', false);
   assert.equal(await a.ledger.stateOf('stale_00000001'), null); assert.equal(await a.ledger.stateOf('stale_00000002'), 'orphaned');
-  assert.deepEqual(await a.ledger.reapStale(60_000), [], 'nothing left to reap');
+  assert.deepEqual(await a.ledger.reapStale(), [], 'nothing left to reap');
 });
 
 test('replay store: a token id is accepted once, even when replicas race with it; expired entries are cleaned up', { skip }, async () => {
@@ -135,5 +140,5 @@ test('replay store: a token id is accepted once, even when replicas race with it
 
 test('the migration rolls back cleanly', { skip }, async () => {
   const s2 = 'pj_rb_' + Math.random().toString(36).slice(2, 7); await admin.query('CREATE SCHEMA ' + s2); const c = await admin.connect();
-  try { await c.query('SET search_path=' + s2); await c.query(migration); await c.query(rollback); const left = (await c.query('SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema=$1', [s2])).rows[0].n; assert.equal(left, 0); } finally { c.release(); await admin.query('DROP SCHEMA ' + s2 + ' CASCADE'); }
+  try { await c.query('SET search_path=' + s2); await c.query(migration); await c.query(lease); await c.query(leaseRollback); const cols = (await c.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE table_schema=$1 AND column_name LIKE 'lease_%'", [s2])).rows[0].n; assert.equal(cols, 0, '002 rolls back on its own and leaves 001 in place'); await c.query(lease); await c.query(leaseRollback); await c.query(rollback); const left = (await c.query('SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema=$1', [s2])).rows[0].n; assert.equal(left, 0); } finally { c.release(); await admin.query('DROP SCHEMA ' + s2 + ' CASCADE'); }
 });

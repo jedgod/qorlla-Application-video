@@ -141,8 +141,26 @@ occurred twice early on and has NOT recurred in the last ~50 runs; it is explain
 ### Findings and open hardening items
 
 1. **Meet's own UI creates 12-digit meeting codes; dial-in assumes 11** (Meet's phone docs, its directory route, this gateway's keypad rules). Meetings for dial-in come from the main app with 11-digit codes. Decide whether to support 12.
-2. **Reaper threshold.** `reapStale` re-checks age under the row lock (a stale observation cannot reap a refreshed row), but it uses ONE threshold for every open state measured from `updated_at`, and a live admission does not renew it: a live attach that outlasts the threshold is reaped (seen at 1.5 s; the admission then fails safe).
+2. **Reaper threshold (addressed by Gate A5.1, below; text kept as the original finding).** `reapStale` re-checks age under the row lock (a stale observation cannot reap a refreshed row), but it uses ONE threshold for every open state measured from `updated_at`, and a live admission does not renew it: a live attach that outlasts the threshold is reaped (seen at 1.5 s; the admission then fails safe).
    Required hardening, not yet done: a lease renewed by the admitting gateway, per-state deadlines (awaiting_host, attaching), and a deterministic regression (an attach paused just under the threshold must survive a reaper scan; an abandoned one must be released). The default (60 s) is not proven safe.
 3. **Early-failure window.** A browser whose connection to the gateway fails after it formed but BEFORE `participant-online` arrives does not request recovery (the app's `recoverPeer` ignores peers that are not in its roster). Not covered by a test; needs a product decision (recover that peer when it joins, or end the telephone leg).
 4. **Lab-only readiness stub.** The runner says "ready" only with `A5_LAB_READINESS=1` and loopback binds; it proves nothing about the six production readiness conditions.
 5. **Not covered:** the real Security Shield server, RTCP/media-quality monitoring, the Zod advisory, carrier interoperability, real telephones. The Shield is a separate mandatory gate.
+
+## Gate A5.1: ownership lease, fencing and per-state reaping
+
+Migration `sql/002_phone_join_lease.sql` (idempotent; rollback `002_phone_join_lease.rollback.sql` removes only these columns; apply AFTER 001). It adds `lease_owner`, `lease_generation`, `lease_expires_at` and `lease_challenged_at` to `phone_join_calls`. Rows written before it become generation 1, owned by their claimant, already lapsed.
+
+Invariants (each one is a test in `test/ledger-lease.test.ts`):
+
+1. **One owner, one generation.** A claim creates generation 1. Every ownership transfer adds exactly 1, in the same conditional write that changes the owner.
+2. **Fenced writes.** The owner presents the generation it holds. The row accepts a state change or a renewal only while owner AND generation still match. An old gateway that resumes after a takeover changes nothing, writes no history, and is told (`onLost`).
+3. **A lapse is a question, not a verdict.** A reaper that finds a lapsed lease CHALLENGES it (marks the row, changes nothing else). The owner's next renewal clears the mark. Only a lease still lapsed a whole grace period after the challenge is taken over (generation + 1, state `terminating`, owner = the reaper), by exactly one reaper (`FOR UPDATE SKIP LOCKED`, conditions re-checked under the lock, conditional update on the generation read).
+4. **Per-state deadlines** (`DEFAULT_DEADLINES`, overridable): claimed 30 s, authorizing 30 s, awaiting_host 300 s (a person is answering), attaching 60 s, terminating 120 s (a stuck teardown is taken over as `stale_terminating`), released 600 s (a `failed` row whose id was never freed is purged). `connected` has NO deadline: a lapsed lease on a connected call is never grounds to reap it; Meet's media verification governs it.
+5. **Fail closed.** `startLeaseKeeper` renews every call the instance owns. A call it lost (renewal rejected, or a write fenced) has its local leg disconnected at once. If the database cannot be reached nothing is assumed and ownership is untouched; once a whole lease period passes without a confirmed renewal (the earliest a reaper could lawfully take the call) a not-yet-connected leg is stopped locally. A reaper that loses the database mid-reap changes nothing and believes it owns nothing.
+6. **Administrative end.** A replica that never owned a call may only end a CONNECTED one (`terminating`, the Shield path); that takes the call over under a new generation and fences the original owner.
+7. **Idempotent cleanup.** `finishReap`, `release` and `purgeReleased` can be repeated: one terminal event, nothing released twice.
+
+Defaults: lease 15 s, grace 15 s, renewal every 5 s (`startLeaseKeeper`). The lab runner takes `A5_LEASE_MS`, `A5_LEASE_GRACE_MS`, and `A5_REAPER=1` (the lease keeper always runs).
+
+Not covered: a CONNECTED call whose gateway died is not resolved by this reaper (it needs a Meet-side liveness check of the session, which Meet's own media verification currently provides); lease timing across gateways with badly skewed clocks is not an issue for the database side (the database clock is the authority) but the owner's local fail-closed timer uses its own monotonic clock.
