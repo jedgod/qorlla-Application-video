@@ -100,9 +100,19 @@ export class MeetPhoneAuthority implements MeetingAuthority {
   }
 
   /** Reports what the media is doing. Meet decides; only `result: 'connected'` means a person can be heard. `action: 'terminate'` means Meet does not want this leg: tear it down. */
-  async reportMedia(callId: string, mediaToken: string, evidence: AudioEvidence | null, opts?: StepOptions): Promise<MediaReply> {
-    const { status, data } = await this.post('/api/phone/ivr/media', { eventId: 'ev-' + crypto.randomUUID(), callId, mediaToken, evidence: evidence ? { ...evidence, source: 'rtp' } : null }, opts);
+  async reportMedia(callId: string, mediaToken: string, evidence: AudioEvidence | null, opts?: StepOptions & { peerJti?: string }): Promise<MediaReply> {
+    const { status, data } = await this.post('/api/phone/ivr/media', { eventId: 'ev-' + crypto.randomUUID(), callId, mediaToken, ...(opts?.peerJti ? { peerJti: opts.peerJti } : {}), evidence: evidence ? { ...evidence, source: 'rtp' } : null }, opts);
     if (status !== 200 || typeof data?.result !== 'string') throw new Error('meet refused the media report (' + status + ')'); return data as MediaReply;
+  }
+
+  /**
+   * The restricted verification-phase credential: a short-lived (<= 60 s), SINGLE-USE token Meet issues only after the PIN, the host and the Security Shield have said yes, and only to the gateway that holds the call's
+   * one-time media token. It lets this gateway's WebRTC peer negotiate media over Meet's signalling and NOTHING else. Anything but an explicit `issued` answer is a refusal.
+   */
+  async requestPeerCredential(callId: string, mediaToken: string, opts?: StepOptions): Promise<{ credential: string; jti: string; expiresAt: number; ttlSeconds: number }> {
+    const { status, data } = await this.post('/api/phone/ivr/peer-credential', { callId, mediaToken }, opts);
+    if (status !== 200 || data?.result !== 'issued' || typeof data.credential !== 'string' || typeof data.jti !== 'string') throw new Error('meet did not issue a verification credential (' + status + (typeof data?.result === 'string' ? ' ' + data.result : '') + ')');
+    return { credential: data.credential, jti: data.jti, expiresAt: Number(data.expiresAt) || 0, ttlSeconds: Number(data.ttlSeconds) || 0 };
   }
 
   /** Ends the call in Meet (removes the participant, frees the waiting-room slot). Idempotent: Meet answers a repeat with the stored result. */

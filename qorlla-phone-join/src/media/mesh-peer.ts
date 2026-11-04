@@ -19,6 +19,8 @@ export type SignalData =
   | { type: 'restart' | 'rebuild'; epoch?: string };
 export interface SignalingPort {
   readonly selfId: string;
+  /** The Meet verification credential id behind this signalling session (when the binding used one). */
+  readonly credentialJti?: string;
   /** Participants already in the meeting when we joined. New participants arrive through onPeerJoined; they offer to us (the joiner always offers). */
   roster(): string[];
   send(to: string, data: SignalData): void;
@@ -44,6 +46,7 @@ export class MeshPeerAudio implements MeetingAudio {
 }
 
 class MeshSession implements MeetingAudioSession {
+  get sessionId() { return this.port.credentialJti; }
   readonly encrypted = true;                                                     // DTLS-SRTP is the only transport werift offers; a peer that is not connected carries nothing
   private readonly peers = new Map<string, Peer>(); private closedFlag = false; private listeners: ((r: string) => void)[] = [];
   private fromMeeting = 0; private toMeeting = 0; private lastFrom = 0;

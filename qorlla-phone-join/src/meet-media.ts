@@ -3,7 +3,7 @@ import { audioVerified, type AudioEvidence, type EvidencePolicy, type MediaGatew
 import type { MediaReply } from './meet-authority.js';
 
 /** What the media layer needs from the meeting service: report evidence, learn what Meet decided. */
-export interface MediaReporter { reportMedia(callId: string, mediaToken: string, evidence: AudioEvidence | null, opts?: { signal: AbortSignal }): Promise<MediaReply> }
+export interface MediaReporter { reportMedia(callId: string, mediaToken: string, evidence: AudioEvidence | null, opts?: { signal?: AbortSignal; peerJti?: string }): Promise<MediaReply> }
 
 /**
  * The bridge the admission uses with the real Meet. `mediaEstablished` is true only when TWO independent judges agree: this gateway's own evidence check (audioVerified) AND Meet's (it re-evaluates the
@@ -18,12 +18,12 @@ export function meetConfirmedBridge(o: { gateway: MediaGateway; meet: MediaRepor
       const evidence = await o.gateway.start(callId, meetingSessionId, opts ?? { signal: new AbortController().signal });
       if (opts?.signal.aborted) {                                                                                 // the admission gave up (timeout) while the gateway was still setting this leg up: it exists NOW
         await o.gateway.stop(callId, 'late_media').catch(() => undefined);                                       // end it,
-        if (opts.mediaToken && evidence) await o.meet.reportMedia(callId, opts.mediaToken, evidence).catch(() => undefined);   // and tell Meet it appeared (not cancelled: Meet records late media for a call it has already ended)
+        if (opts.mediaToken && evidence) await o.meet.reportMedia(callId, opts.mediaToken, evidence, { peerJti: o.gateway.peerJti?.(callId) }).catch(() => undefined);   // and tell Meet it appeared (not cancelled: Meet records late media for a call it has already ended)
         return { mediaEstablished: false };
       }
       if (!audioVerified(evidence, o.policy)) return { mediaEstablished: false };
       const token = opts?.mediaToken; if (!token) return { mediaEstablished: false };                                  // no token: Meet cannot accept the report, so there is nothing to connect
-      const reply = await o.meet.reportMedia(callId, token, evidence, opts && { signal: opts.signal });
+      const reply = await o.meet.reportMedia(callId, token, evidence, { signal: opts?.signal, peerJti: o.gateway.peerJti?.(callId) });
       if (reply.action === 'terminate' || reply.result !== 'connected') return { mediaEstablished: false };
       legs.set(callId, token); return { mediaEstablished: true };
     },

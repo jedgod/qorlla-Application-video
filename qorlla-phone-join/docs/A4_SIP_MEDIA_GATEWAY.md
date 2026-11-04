@@ -75,11 +75,10 @@ and Meet's double) accept it. What is **simulated**: the telephone (a test progr
 
 ## Findings and open decisions
 
-1. **A3 vs the mesh (needs your decision, Meet side).** Meet admits a socket only for an `admitted` participant row, but A3 says a telephone caller is not a participant until audio is verified, and audio can only be verified after the
-   gateway peer has negotiated with the browsers over that same socket. Options: (a) Meet issues a restricted *verification-phase* participant (visible as "Phone, connecting" or hidden) that becomes a normal participant at
-   `MEDIA_CONNECTED`; (b) verify the telephone leg first, join the mesh, and re-judge once the mesh peers are connected, removing the participant if that fails. Until chosen, `meet-signaling.ts` takes whatever token it is given.
-2. **Meet's relay rejects `restart` and `rebuild`.** `public/app.js` sends them but `server/index.js` allows only `offer|answer|candidate`, so the answering side's recovery request never arrives (ICE restarts by the offerer still work).
-   The gateway mirrors the browser behaviour; the mismatch is pre-existing.
+1. **A3 vs the mesh: RESOLVED in A5 (option a, restricted verification-phase peer).** Meet now issues a short-lived (<= 60 s), single-use credential after the PIN, the host and the Shield have said yes; the gateway connects with it as
+   `kind: 'verification-peer'`, may only negotiate media with browsers of its own meeting, and is promoted only on verified media from a negotiated peer of the same session. See `docs/A5_VERIFICATION_PEER.md` in the Meet branch.
+   Gateway side: `MeetPhoneAuthority.requestPeerCredential`, `verificationPeerSignaling` (waits for Meet's `roster` readiness signal), `peerJti` carried on every media report.
+2. **Meet's relay rejected `restart` and `rebuild`** (the browsers' recovery requests). Fixed on the Meet branch in A5: the relay and the peer now carry them (they hold only the pair's epoch).
 3. **SIP is development-grade.** Own minimal UDP implementation; production needs SIP/TLS (and ideally an SBC) behind `SipIngress`. No SIP-level retransmission timers for non-INVITE client transactions beyond a few BYE repeats.
 4. **RTCP is not processed** (no receiver reports, no bandwidth estimation); SRTP replay protection is whatever `werift-rtp` provides. Both need review before certification.
 5. **Mesh scaling.** Every browser connects to the gateway peer, and the mesh itself is O(n^2); this adds one peer per caller. Large meetings with many callers will need an SFU decision later.
@@ -111,3 +110,9 @@ and Meet's double) accept it. What is **simulated**: the telephone (a test progr
 ```bash
 npm install && npm test          # builds, runs all suites; the 28 PostgreSQL/Redis/Meet tests are skipped without their environment variables (see MEET_INTEGRATION.md)
 ```
+
+## A5 update (gateway side)
+
+* New: `test/a5-consumer.test.ts` (6 tests): credential request, refusals, connection as `verification-peer`, the credential id on the media report.
+* Whole package with PostgreSQL, Redis and the **real Meet A5 tree** wired in (`PHONE_JOIN_TEST_DATABASE_URL`, `PHONE_JOIN_TEST_REDIS_URL`, `MEET_SERVER_DIR`): **164 tests, 164 passed, 0 skipped**, including the 28 that need those services.
+* Still not covered: real Chrome browsers, the real Security Shield server, RTCP/media-quality monitoring, and any real telephone or carrier. The Zod advisory is tracked separately.

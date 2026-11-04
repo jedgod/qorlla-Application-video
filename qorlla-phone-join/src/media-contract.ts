@@ -33,6 +33,8 @@ export interface MediaGateway {
   start(callId: string, meetingSessionId: string, opts: StepOptions): Promise<AudioEvidence>;
   stop(callId: string, reason: string): Promise<void>;
   onEnded(listener: (callId: string, reason: string) => void): void;
+  /** The id of the Meet verification credential this leg's meeting session was admitted with; Meet requires it with the media report (it ties the evidence to the signalling session it observed). */
+  peerJti?(callId: string): string | undefined;
 }
 export type EvidencePolicy = { minPackets: number; minObservedMs: number; maxAgeMs: number; codecs: readonly string[]; now: () => number };
 export const DEFAULT_POLICY: EvidencePolicy = { minPackets: 25, minObservedMs: 500, maxAgeMs: 5_000, codecs: ['opus', 'PCMU', 'PCMA'], now: Date.now };

@@ -8,6 +8,7 @@ import type { Logger } from '../sip/adapter.js';
  * (see mesh-peer.ts). It converts everything the meeting says into ONE 20 ms mono frame for the telephone and takes the telephone's frames into the meeting.
  */
 export interface MeetingAudioSession {
+  readonly sessionId?: string;                                   // the Meet verification credential id this session was admitted with (sent with the media report)
   readonly encrypted: boolean;                                   // true only for DTLS-SRTP media; a simulated / in-memory path is false and can therefore never be verified
   isConnected(): boolean;                                        // at least one meeting peer has an established media path
   pullFrame(): Int16Array | null;                                // meeting -> telephone: the mix of what arrived since the last pull, or null when no meeting RTP arrived
@@ -36,6 +37,7 @@ export class SipMediaGateway implements MediaGateway {
     leg.once('closed', (reason: string) => { void this.finish(callId, 'leg_' + reason, false); });
     if (!this.dog) { this.dog = setInterval(() => this.watch(), this.o.watchdogMs ?? 1000); this.dog.unref?.(); }
   }
+  peerJti(callId: string): string | undefined { return this.legs.get(callId)?.session?.sessionId; }
   hasLeg(callId: string) { const e = this.legs.get(callId); return !!e && !e.ended; }
   onEnded(listener: (callId: string, reason: string) => void) { this.listeners.push(listener); }
   /** The telephone hung up (BYE / CANCEL): tear everything down; the SIP side needs no BYE of ours. */
