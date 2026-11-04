@@ -18,7 +18,7 @@ export class SyntheticPhone {
   sipCallId = crypto.randomBytes(8).toString('hex') + '@phone'; fromTag = crypto.randomBytes(5).toString('hex'); toTag?: string; cseq = 1; answerSdp = ''; target?: { address: string; port: number };
   private localKey: Buffer = crypto.randomBytes(30); private remoteKey?: Buffer; private out?: SrtpSession; private inn?: SrtpSession;
   private seq = crypto.randomInt(0, 60000); private ts = crypto.randomInt(0, 1_000_000); private ssrc = crypto.randomInt(1, 1e9); private pt = 0; private codec: 'PCMU' | 'PCMA' = 'PCMU'; private dtmfPt = 101; private sender?: NodeJS.Timeout;
-  lastAuth = ''; received: Int16Array[] = []; receivedPackets = 0; dtmfSent = 0; rawRtp: Buffer[] = [];
+  lastAuth = ''; digitLog: { d: string; at: number }[] = []; received: Int16Array[] = []; receivedPackets = 0; dtmfSent = 0; rawRtp: Buffer[] = [];
   constructor(readonly o: PhoneOptions) {}
   static async create(o: PhoneOptions) { const p = new SyntheticPhone(o); await p.bind(); return p; }
   private async bind() {
@@ -93,6 +93,7 @@ export class SyntheticPhone {
   stopTone() { clearInterval(this.sender); this.sender = undefined; }
   /** RFC 4733 digit: start packets, then three end packets (as phones send them), all with the same RTP timestamp. */
   async digit(d: string) {
+    this.digitLog.push({ d, at: Date.now() });
     const ts = this.ts; for (let i = 0; i < 3; i++) { this.rtpOut(dtmfPayload(d, 160 * (i + 1), false), { pt: this.dtmfPt, ts, seq: this.seq++ & 0xffff, marker: i === 0 }); await sleep(20); }
     for (let i = 0; i < 3; i++) this.rtpOut(dtmfPayload(d, 640, true), { pt: this.dtmfPt, ts, seq: this.seq++ & 0xffff }); this.ts = (this.ts + 960) >>> 0; this.dtmfSent++; await sleep(60);
   }

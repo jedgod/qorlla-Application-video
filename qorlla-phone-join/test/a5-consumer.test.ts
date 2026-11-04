@@ -73,3 +73,9 @@ test('the credential id travels with the media report: SipMediaGateway.peerJti r
   const g = new SipMediaGateway({ meeting: { open: async () => { throw new Error('unused'); } } }); assert.equal(g.peerJti('nobody'), undefined, 'no leg, no id');
   void eventually; void crypto;
 });
+
+test('the keep-alive path carries the credential id too, so Meet can keep tying the evidence to the signalling session', async () => {
+  const { startMediaKeepAlive } = await import('../src/meet-media.js'); const seen: (string | undefined)[] = [], legs = new Map([['sip_abc12345', 'tok']]);
+  const ka = startMediaKeepAlive({ legs, measure: async () => goodEv(), meet: { reportMedia: async (_i, _t, _e, o) => { seen.push(o?.peerJti); return { result: 'connected', action: 'none' }; } }, terminate: async () => {}, peerJti: (id) => (id === 'sip_abc12345' ? 'j'.repeat(40) : undefined), intervalMs: 3_600_000 });
+  await ka.tick(); ka.stop(); assert.deepEqual(seen, ['j'.repeat(40)]);
+});

@@ -35,14 +35,14 @@ export function meetConfirmedBridge(o: { gateway: MediaGateway; meet: MediaRepor
  * Keeps connected calls proven: every interval each live leg is measured and reported to Meet. Meet ends a call whose audio stops being verified (and the sweeper ends one that stops being reported), so this is what
  * keeps a call alive - and what notices, from Meet's answer, that a call must end now (`terminate`, a refusal, a revoked authorization).
  */
-export function startMediaKeepAlive(o: { legs: Map<string, string>; measure: (callId: string) => Promise<AudioEvidence | null>; meet: MediaReporter; terminate: (callId: string, reason: string) => Promise<void>; intervalMs?: number; log?: Pick<Console, 'error'> }) {
+export function startMediaKeepAlive(o: { legs: Map<string, string>; measure: (callId: string) => Promise<AudioEvidence | null>; meet: MediaReporter; terminate: (callId: string, reason: string) => Promise<void>; peerJti?: (callId: string) => string | undefined; intervalMs?: number; log?: Pick<Console, 'error'> }) {
   let running = false; const log = o.log ?? console;
   const tick = async () => {
     if (running) return; running = true;
     try {
       for (const [callId, token] of [...o.legs]) {
         try {
-          const evidence = await o.measure(callId).catch(() => null), reply = await o.meet.reportMedia(callId, token, evidence);
+          const evidence = await o.measure(callId).catch(() => null), reply = await o.meet.reportMedia(callId, token, evidence, { peerJti: o.peerJti?.(callId) });
           if (reply.action === 'terminate' || reply.result !== 'connected') { o.legs.delete(callId); await o.terminate(callId, reply.action === 'terminate' ? 'meet_terminated' : 'meet_not_connected'); }
         } catch (e) { log.error('[phone-join] media report failed for ' + callId + ': ' + (e as Error).message); }                  // Meet unreachable: the leg stays, and Meet's own stale-media sweeper ends the call if reports do not resume
       }

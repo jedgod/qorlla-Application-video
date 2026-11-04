@@ -95,7 +95,7 @@ class MeshSession implements MeetingAudioSession {
     return peer;
   }
   private async offer(peer: Peer, iceRestart: boolean) {
-    try { const o = await peer.pc.createOffer(); await peer.pc.setLocalDescription(o); void iceRestart; this.port.send(peer.id, { type: 'offer', sdp: toInit(peer.pc.localDescription), epoch: peer.epoch! }); } catch { this.drop(peer.id); }
+    try { const o = await peer.pc.createOffer(iceRestart ? { iceRestart: true } : undefined); await peer.pc.setLocalDescription(o); this.port.send(peer.id, { type: 'offer', sdp: toInit(peer.pc.localDescription), epoch: peer.epoch! }); } catch { this.drop(peer.id); }
   }
   /** A connection that is down: the offering side re-offers, the answering side asks (browsers do the same); after repeated failures the pair is rebuilt from scratch. */
   private recover(peer: Peer) {

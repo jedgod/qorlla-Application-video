@@ -116,3 +116,33 @@ npm install && npm test          # builds, runs all suites; the 28 PostgreSQL/Re
 * New: `test/a5-consumer.test.ts` (6 tests): credential request, refusals, connection as `verification-peer`, the credential id on the media report.
 * Whole package with PostgreSQL, Redis and the **real Meet A5 tree** wired in (`PHONE_JOIN_TEST_DATABASE_URL`, `PHONE_JOIN_TEST_REDIS_URL`, `MEET_SERVER_DIR`): **164 tests, 164 passed, 0 skipped**, including the 28 that need those services.
 * Still not covered: real Chrome browsers, the real Security Shield server, RTCP/media-quality monitoring, and any real telephone or carrier. The Zod advisory is tracked separately.
+
+## A5 laboratory integration (real Meet, real Chromium, gateway process, synthetic SIP phone)
+
+Status: **laboratory integration validated for the scenarios below; NOT production certified.** Telephone dial-in stays BLOCKED. Public numbers, PSTN, carrier calling and billing are disabled.
+
+What runs (`test/e2e-chrome.test.ts`, off unless `A5_E2E=1`; needs `MEET_SERVER_DIR`, `PHONE_JOIN_TEST_DATABASE_URL` and a Chromium for `playwright-core`):
+the actual Meet server process on PostgreSQL; the gateway as its OWN process (`scripts/a5-gateway-runner.mjs`); two or three real Chromium browsers whose fake microphones play KNOWN tones from WAV files (Alice 1000 Hz, Bob 1500 Hz, Carol in another meeting 2000 Hz);
+a synthetic SIP/SRTP phone (440 Hz). The gateway gets its restricted credential through Meet's real flow (PIN, approval, media token, verification credential). Audio is judged by DECODED samples (Goertzel at the phone, an AnalyserNode in each browser);
+`getStats()` is supporting evidence for ICE/DTLS/SRTP/codec only.
+
+| Scenario | What is asserted |
+|---|---|
+| Happy path | credential consumed BEFORE the call connected, then promoted; Meet's own evidence (PCMU, encrypted, packets both ways); ICE pair succeeded, DTLS connected, SRTP cipher, PCMU in both browsers; the phone hears Alice and Bob (about 7e5x the noise floor) and NOT its own audio or Carol's; both browsers hear the phone's tone and none of the others; hang-up: `TERMINATED`, credential revoked, the RTP port held during the call and released after; Alice and Bob stay connected to each other with audio still flowing; no process survives |
+| FAULT 1 real ICE restart | the app's own recovery runs; the gateway re-offers with NEW ICE credentials; audio is back in about 510 ms; the call stays connected |
+| FAULT 2 gateway killed | Meet ends the call (`gateway_signaling_lost`), revokes the credential; the browsers stay connected to each other; a restarted gateway admits a new call with exactly one phone participant; the dead gateway's ledger claim is reaped |
+| FAULT 3 Meet-side revocation | the PIN is revoked: call `pin_revoked`, credential revoked, the caller is hung up, the browsers drop the gateway, no audio reaches the phone |
+| FAULT 4 keep-alive rejection | the phone stops sending: Meet rejects the keep-alive evidence (`media_unverified`) before the gateway's own 8 s inactivity timeout |
+
+Result on the frozen implementation: three consecutive full-file runs, 5 of 5 scenarios each. Earlier runs failed intermittently; every failure found so far was explained and was a test-harness problem
+(ICE-pair measurement, fault injected before the browser had received `participant-online`, Meet's 12-digit codes vs the 11-digit contract, a keypad pressed before the prompt tone). The setup flake "the gateway hangs up after repeated keypad-entry failures"
+occurred twice early on and has NOT recurred in the last ~50 runs; it is explained only as far as the evidence allows and stays open.
+
+### Findings and open hardening items
+
+1. **Meet's own UI creates 12-digit meeting codes; dial-in assumes 11** (Meet's phone docs, its directory route, this gateway's keypad rules). Meetings for dial-in come from the main app with 11-digit codes. Decide whether to support 12.
+2. **Reaper threshold.** `reapStale` re-checks age under the row lock (a stale observation cannot reap a refreshed row), but it uses ONE threshold for every open state measured from `updated_at`, and a live admission does not renew it: a live attach that outlasts the threshold is reaped (seen at 1.5 s; the admission then fails safe).
+   Required hardening, not yet done: a lease renewed by the admitting gateway, per-state deadlines (awaiting_host, attaching), and a deterministic regression (an attach paused just under the threshold must survive a reaper scan; an abandoned one must be released). The default (60 s) is not proven safe.
+3. **Early-failure window.** A browser whose connection to the gateway fails after it formed but BEFORE `participant-online` arrives does not request recovery (the app's `recoverPeer` ignores peers that are not in its roster). Not covered by a test; needs a product decision (recover that peer when it joins, or end the telephone leg).
+4. **Lab-only readiness stub.** The runner says "ready" only with `A5_LAB_READINESS=1` and loopback binds; it proves nothing about the six production readiness conditions.
+5. **Not covered:** the real Security Shield server, RTCP/media-quality monitoring, the Zod advisory, carrier interoperability, real telephones. The Shield is a separate mandatory gate.

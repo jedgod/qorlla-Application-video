@@ -53,3 +53,12 @@ test('close: every peer connection is closed, the signalling is released, listen
   await eventually(() => session.isConnected(), 15000); await session.close('test'); await session.close('again'); assert.equal(closed, 1); assert.equal(session.isConnected(), false); assert.equal(session.pullFrame(), null); assert.equal(relay.members.has('g-phone'), false);
   const before = a.heard.length; session.pushFrame(new Int16Array(160).fill(9000)); await sleep(150); assert.ok(a.heard.length - before < 12, 'at most the frames already in flight'); assert.equal(relay.rejected.length, 0, 'the gateway sent only message types the real server relays');
 });
+
+test('ICE restart: when a browser asks (restart), the gateway re-offers with NEW ICE credentials (a real restart, not a repeat offer), the connection comes back, and audio keeps flowing both ways', async () => {
+  const relay = new MeetingRelay(), a = new Browser('b-aaa', relay, 1000).join(); live.push(() => a.leave()); const session = await gatewayPeer(relay, 'g-phone'); live.push(() => session.close()); const heardByPhone = pump(session, 440);
+  await eventually(() => session.isConnected() && a.connectedTo('g-phone'), 15000); await eventually(() => power(a.heard.slice(-25), 440) > 0.01 && power(heardByPhone.slice(-25), 1000) > 0.003, 15000); const first = a.offerUfrags.length;
+  a.restart('g-phone'); await eventually(() => a.offerUfrags.length > first, 10000); assert.ok(a.offerUfrags.length > first, 'the gateway sent a new offer');
+  const known = new Set(a.offerUfrags.slice(0, first)); assert.ok(a.offerUfrags.slice(first).some((u) => u && !known.has(u)), 'the new offer carries new ICE credentials: ' + a.offerUfrags.join(','));
+  await eventually(() => session.isConnected() && a.connectedTo('g-phone'), 15000); const nA = a.heard.length, nP = heardByPhone.length; await sleep(800);
+  assert.ok(a.heard.length > nA + 10 && heardByPhone.length > nP + 10, 'audio flows both ways after the restart'); assert.ok(power(a.heard.slice(-25), 440) > 0.01); assert.equal(relay.rejected.length, 0, 'the relay carried the restart request');
+});

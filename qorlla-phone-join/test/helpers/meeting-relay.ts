@@ -8,7 +8,7 @@ import type { SignalingPort, SignalData } from '../../src/media/mesh-peer.js';
  * lower id yields on glare) so the gateway's mesh peer is exercised against the same protocol logic the browsers run. A real-browser run against the real Meet is the next integration step.
  */
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
-const ALLOWED = ['offer', 'answer', 'candidate'];
+const ALLOWED = ['offer', 'answer', 'candidate', 'restart', 'rebuild'];       // the real server's list since A5: restart / rebuild are the browsers' recovery requests
 export class MeetingRelay {
   readonly members = new Map<string, { deliver: (from: string, data: SignalData) => void; left: (id: string) => void }>(); rejected: string[] = []; relayed = 0;
   join(id: string, deliver: (from: string, data: SignalData) => void, left: (id: string) => void) { const roster = [...this.members.keys()]; this.members.set(id, { deliver, left }); return roster; }
@@ -28,7 +28,7 @@ export class MeetingRelay {
 
 type BPeer = { pc: RTCPeerConnection; track: MediaStreamTrack; epoch?: string; remoteEpoch?: string; queue: unknown[]; seq: number; ts: number; connected: boolean };
 export class Browser {
-  readonly peers = new Map<string, BPeer>(); heard: Int16Array[] = []; private timer?: NodeJS.Timeout; private n = 0; closed = false; opusOffered = 0;
+  readonly peers = new Map<string, BPeer>(); offerUfrags: string[] = []; heard: Int16Array[] = []; private timer?: NodeJS.Timeout; private n = 0; closed = false; opusOffered = 0;
   constructor(readonly id: string, private readonly relay: MeetingRelay, private readonly hz: number | null) {}
   join() { const roster = this.relay.join(this.id, (f, d) => { void this.onSignal(f, d).catch(() => undefined); }, (id) => this.drop(id)); for (const id of roster) this.create(id, true); this.timer = setInterval(() => this.speak(), 20); this.timer.unref?.(); return this; }
   private send(to: string, d: SignalData) { if (!this.closed) this.relay.signal(this.id, to, d); }
@@ -45,7 +45,7 @@ export class Browser {
     let p = this.peers.get(id);
     if (data.type === 'offer') {
       if (p?.epoch) { if (this.id < id) { this.drop(id); p = undefined; } else return; } else if (p?.remoteEpoch && p.remoteEpoch !== data.epoch) { this.drop(id); p = undefined; }
-      p ??= this.create(id, false); p.remoteEpoch = data.epoch; await p.pc.setRemoteDescription(data.sdp as never); for (const c of p.queue.splice(0)) await p.pc.addIceCandidate(c as never).catch(() => undefined);
+      p ??= this.create(id, false); p.remoteEpoch = data.epoch; this.offerUfrags.push(/a=ice-ufrag:(\S+)/.exec(data.sdp.sdp)?.[1] ?? ''); await p.pc.setRemoteDescription(data.sdp as never); for (const c of p.queue.splice(0)) await p.pc.addIceCandidate(c as never).catch(() => undefined);
       const a = await p.pc.createAnswer(); await p.pc.setLocalDescription(a); this.send(id, { type: 'answer', sdp: { type: 'answer', sdp: p.pc.localDescription!.sdp }, epoch: data.epoch }); return;
     }
     if (!p || ('epoch' in data && data.epoch && data.epoch !== (p.epoch ?? p.remoteEpoch))) return;
@@ -59,6 +59,8 @@ export class Browser {
   private drop(id: string) { const p = this.peers.get(id); if (!p) return; this.peers.delete(id); void p.pc.close().catch(() => undefined); }
   /** Starts an offer toward `id` as if it had just appeared in this browser's roster (used to create a genuine simultaneous offer). */
   initiate(id: string) { this.create(id, true); }
+  /** What a browser does when its connection to `id` is down (public/app.js recoverPeer, answering side): ask the offerer to restart ICE. */
+  restart(id: string) { const p = this.peers.get(id); if (p) this.send(id, { type: 'restart', epoch: p.remoteEpoch }); }
   connectedTo(id: string) { return !!this.peers.get(id)?.connected; }
   leave() { this.closed = true; clearInterval(this.timer); this.relay.leave(this.id); for (const id of [...this.peers.keys()]) this.drop(id); }
 }
