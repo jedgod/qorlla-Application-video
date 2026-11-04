@@ -24,3 +24,5 @@ Thumbs.db
 .dev-stack-ai/
 .dev-stack-noai/
 .dev-stack-launch/
+# local dev stacks hold secrets (tokens, DB passwords, keys): never track them
+.dev-stack*/

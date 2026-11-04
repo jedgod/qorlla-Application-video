@@ -13,7 +13,7 @@
 import crypto from 'node:crypto';
 
 export const GATEWAY_AUDIENCE = 'qorlla-phone-gateway';
-export const SCOPES = ['phone.verify', 'phone.consent', 'phone.media', 'phone.end', 'phone.decision', 'phone.health', 'phone.readiness'];
+export const SCOPES = ['phone.verify', 'phone.consent', 'phone.media', 'phone.end', 'phone.decision', 'phone.health', 'phone.readiness', 'phone.peer'];
 export class GatewayError extends Error { constructor(status, reason) { super(reason); this.status = status; this.reason = reason; } }
 const b64u = (b) => Buffer.from(b).toString('base64url');
 const eq = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };

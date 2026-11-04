@@ -19,6 +19,7 @@ import { recoveryService } from './recovery-service.mjs';
 import { registerCollab } from './collab.mjs';
 import { makeLimit } from './limit.mjs';
 import { registerPhone } from './phone.mjs';
+import { createPhonePeers } from './phone-peer.mjs';
 import { createGatewayAuth } from './phone-gateway-auth.mjs';
 import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
@@ -425,8 +426,11 @@ const phoneShield = { enforce: shieldCfg.enforce, configured: !!shield,
   recheck: (list) => (shield ? shield.recheck(list) : Promise.resolve(null)), report: (kind, ref) => (shield ? shield.report(kind, ref) : Promise.resolve(false)) };
 const phoneGateway = createGatewayAuth({ db, env: process.env });                // the telephone gateway's own identity (audience, subjects, scopes, keys); inert unless PHONE_GATEWAY_KEYS_JSON and PHONE_GATEWAY_SUBJECTS_JSON are set
 if (phoneGateway.problems.length && (process.env.PHONE_GATEWAY_KEYS_JSON || process.env.PHONE_GATEWAY_SUBJECTS_JSON)) console.error('[phone-gateway] incomplete configuration, gateway mode stays off:', phoneGateway.problems.join(', '));
-const phone = registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas: (mid, pid) => !!active.get(mid)?.has(pid), phoneOnline, names, recording, carrier: carrier.configured ? carrier : null,
+const phonePeers = createPhonePeers({ db, io, room });
+const phone = registerPhone({ app, io, peers: phonePeers, db, auth, member, fail, room, audit, resolveMeeting, activeHas: (mid, pid) => !!active.get(mid)?.has(pid), phoneOnline, names, recording, carrier: carrier.configured ? carrier : null,
   shield: phoneShield, gateway: phoneGateway, readiness: () => telephony.svc.phoneReadiness() });
+phonePeers.checkSchema().catch(() => {});
+phonePeers.bind({ shieldAllows: phone.shieldAllows, onLost: phone.peerLost, activeList, browserSocketId: (mid, pid) => active.get(mid)?.get(pid) });
 const telephony = registerTelephony({ app, db, bridgeAuth, phone, carrier });
 // Telephone lifecycle timers: approval and media timeouts, lost media, unconfirmed hang-ups (phone.sweep); Shield re-check of open calls. Safe on every replica: each move is atomic and checked against the current state.
 { const t1 = setInterval(() => { phone.sweep().catch((e) => console.error('[phone] sweep failed:', e.message)); }, Number(process.env.PHONE_SWEEP_MS || 5000)); t1.unref();
@@ -446,6 +450,7 @@ app.get('/api/health',async(_req,res)=>{try{await db.query('SELECT 1');res.json(
 const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:message});
 io.use(async(socket,next)=>{
  try {
+  if(socket.handshake.auth?.kind==='verification-peer'){const p=await phonePeers.authenticate(socket.handshake.auth.token);socket.data.peer=p;socket.data.user=p.user;return next();}   // the restricted telephone verification peer: its own credential, its own (tiny) connection handler
   const user=verify(socket.handshake.auth?.token);
   const {rows}=await db.query("SELECT m.ended_at,m.id AS mid,m.org_id,m.host_account_id,m.guest_enabled,p.id,p.admission,p.role,p.account_id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2 AND p.admission='admitted'",[user.meetingId,user.participantId]);
   if(!rows.length||rows[0].ended_at) throw Error('Meeting unavailable');
@@ -462,6 +467,7 @@ io.use(async(socket,next)=>{
 if(shield&&shieldCfg.enforce)startSessionGuard({io,db,client:shield,config:shieldCfg});
 io.on('connection',socket=>{
  const u=socket.data.user, id=u.meetingId, pid=u.participantId;
+ if(socket.data.peer){phonePeers.attach(socket,socket.data.peer).catch(e=>{console.error('[phone-peer] attach failed:',e.message);socket.disconnect(true);});return;}
  // Flood control: signalling is exempt (WebRTC negotiation bursts); every other event shares a sliding budget.
  const BUDGET=Number(process.env.SOCKET_EVENT_BUDGET||40), BUDGET_MS=10_000; let stamps=[];
  socket.use(([event,...args],next)=>{
@@ -491,9 +497,9 @@ io.on('connection',socket=>{
  socket.to(room(id)).emit('participant-online',{participantId:pid,name:u.name,role:u.role});
  const isOnline=(target)=>roster.get(target);
  socket.on('signal',({to,data}={},ack)=>{
-  if(typeof to!=='string'||!data||!['offer','answer','candidate'].includes(data.type)) return ackError(ack,'Invalid signal');
-  const target=isOnline(to); if(!target) return ackError(ack,'Participant offline');
-  io.to(target).emit('signal',{from:pid,data}); if(typeof ack==='function')ack({ok:true});
+  if(typeof to!=='string'||!data||!['offer','answer','candidate','restart','rebuild'].includes(data.type)) return ackError(ack,'Invalid signal');   // restart / rebuild are the browsers' recovery requests (public/app.js): they carry only the pair's epoch
+  const target=isOnline(to)||phonePeers.socketIdFor(id,to); if(!target) return ackError(ack,'Participant offline');
+  io.to(target).emit('signal',{from:pid,data}); phonePeers.noteFromBrowser(id,to,data.type); if(typeof ack==='function')ack({ok:true});
  });
  socket.on('chat',async(body,ack)=>{
   body=clean(body,4000); if(!body)return ackError(ack,'Empty message');
@@ -528,7 +534,7 @@ io.on('connection',socket=>{
    const {rows}=await db.query('SELECT choice,count(*)::int AS count FROM poll_votes WHERE poll_id=$1 GROUP BY choice',[pollId]);io.to(room(id)).emit('poll-results',{pollId,counts:rows});ack?.({ok:true});
   }catch{ackError(ack,'Vote failed');}
  });
- socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
+ socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}socket.to(room(id)).emit('participant-offline',{participantId:pid});phonePeers.notifyOffline(id,pid);db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE disconnected_at IS NULL').catch(()=>{});   // a restart ends every connection: close what the last run left open
 server.listen(PORT,()=>console.log(`Qorlla Meet listening on http://localhost:${PORT}`));

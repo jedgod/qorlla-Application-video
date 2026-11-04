@@ -14,6 +14,7 @@
 // signed requests) so the rules can be tested; any other value is refused. Real inbound calls, real numbers, and bridging telephone audio into the WebRTC meeting
 // need a provider adapter and a PSTN<->WebRTC gateway that do not exist here, so "mute at the media bridge" is recorded and announced but cannot silence real audio.
 import crypto from 'node:crypto';
+import { PeerError } from './phone-peer.mjs';
 import express from 'express';
 import { canMove, legacyStatus, audioVerified, cleanEvidence, newMediaToken, hashToken, tokenMatches } from './phone-lifecycle.mjs';
 
@@ -46,11 +47,12 @@ export function createProvider(env = process.env) {
     setMute(callId, muted) { this.calls.push({ op: muted ? 'mute' : 'unmute', callId, at: Date.now() }); } };
 }
 
-export function registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas, phoneOnline, names, recording, env = process.env, provider = createProvider(env), carrier = null, shield = null, gateway = null, readiness = null, now = () => Date.now() }) {
+export function registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas, phoneOnline, names, recording, env = process.env, provider = createProvider(env), carrier = null, shield = null, gateway = null, readiness = null, peers = null, now = () => Date.now() }) {
   // GATEWAY MODE: when gateway authentication is configured, the signed telephone routes accept ONLY a verified gateway workload token (never the provider HMAC), need PHONE_GATEWAY_ENABLED=true,
   // and admission needs all six readiness conditions from an authoritative source. Without gateway configuration everything behaves as before (test double / carrier IVR).
   const gatewayMode = !!(gateway && gateway.configured), providerName = () => (gatewayMode ? 'gateway' : provider.name);
   const APPROVAL_MS = Number(env.PHONE_APPROVAL_TIMEOUT_MS || 120000), MEDIA_MS = Number(env.PHONE_MEDIA_TIMEOUT_MS || 30000), STALE_MS = Number(env.PHONE_MEDIA_STALE_MS || 45000);
+  const REPLAY_TOKEN_MS = Math.max(1000, Number(env.PHONE_REPLAY_TOKEN_TTL_MS || 120000));
   const CONFIRM_MS = Number(env.PHONE_HANGUP_CONFIRM_MS || 60000), ORPHAN_MS = Number(env.PHONE_ORPHAN_AFTER_MS || 300000), SHIELD_GRACE_MS = Number(env.SHIELD_RECHECK_GRACE_SECONDS || 120) * 1000;
   const READY_KEYS = ['carrierConnected', 'inboundNumberCertified', 'gatewayHealthy', 'mediaBridgeCertified', 'billingCertified', 'productionApproved'];
 
@@ -96,7 +98,8 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
       if (to === 'MEDIA_CONNECTED') { p.push(JSON.stringify(o.evidence || {})); extra += ', connected_at=COALESCE(connected_at, now()), media_verified_at=now(), media_evidence=$' + p.length + '::jsonb'; }
       const { rows: [u] } = await c.query('UPDATE phone_calls SET state=$2, status=$3, state_changed_at=now()' + extra + ' WHERE id=$1 RETURNING *', p);
       await c.query('INSERT INTO phone_call_events(call_id, from_state, to_state, reason) VALUES($1,$2,$3,$4)', [id, cur.state, to, why]);
-      await c.query('COMMIT'); return u;
+      if (over && peers && peers.configured) await c.query('UPDATE phone_peer_credentials SET revoked_at=now(), revoked_reason=$2 WHERE call_id=$1 AND revoked_at IS NULL', [id, (to.toLowerCase() + (why ? ':' + why : '')).slice(0, 60)]);      // verification access ends in the SAME transaction as the call: the database is never in a state where an ended call still has a usable credential
+      await c.query('COMMIT'); if (over && peers) peers.revoke(id, to.toLowerCase() + (why ? ':' + why : '')).catch(() => {}); return u;
     } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
   }
   /** Moves a call to an ending state, then removes the participant's presence (sessions, roster, room, recording). Idempotent: a call ends once. */
@@ -106,16 +109,25 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
       await db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE participant_id=$1 AND disconnected_at IS NULL', [u.participant_id]);
       if (to === 'REFUSED' || o.status === 'removed') await db.query("UPDATE participants SET admission='denied' WHERE id=$1", [u.participant_id]);
       phoneOnline.get(u.meeting_id)?.delete(u.participant_id);
-      io.to(room(u.meeting_id)).emit('participant-offline', { participantId: u.participant_id }); io.to(room(u.meeting_id)).emit('waiting-changed', {});
+      io.to(room(u.meeting_id)).emit('participant-offline', { participantId: u.participant_id }); peers?.notifyOffline(u.meeting_id, u.participant_id); io.to(room(u.meeting_id)).emit('waiting-changed', {});
       audit(u.meeting_id, u.participant_id, 'phone.left', { call: u.id, reason, state: to }); recording?.reevaluate(u.meeting_id, 'left', u.participant_id, 'guest').catch(() => {});
     }
     return true;
   }
   /** Ends a call by what happened: refused by the host, removed, or simply over (caller hung up, meeting ended): CANCELLED if it never connected, TERMINATED if it did. */
   async function leave(c, status, reason) {
-    const { rows: [cur] } = await db.query('SELECT * FROM phone_calls WHERE id=$1', [c.id]); if (!cur) return false;
-    const to = status === 'denied' ? 'REFUSED' : status === 'removed' ? 'TERMINATED' : cur.state === 'MEDIA_CONNECTED' ? 'TERMINATED' : ['REQUESTED', 'VERIFIED', 'AWAITING_HOST', 'APPROVED', 'MEDIA_CONNECTING'].includes(cur.state) ? 'CANCELLED' : 'TERMINATED';
-    return close(cur, to, reason, { status });
+    // The target state depends on where the call is NOW, and that read is not under the row lock: a promotion (or any other move) can commit between the read and the move, which then refuses it.
+    // A refused move is retried ONLY if the state really changed since the read (a concurrent change); if the state is the same, the transition is genuinely forbidden and retrying cannot help.
+    // At most three attempts; an ended call is never resurrected (the transition table decides), and ending one that is already over stays idempotent.
+    let seen = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { rows: [cur] } = await db.query('SELECT * FROM phone_calls WHERE id=$1', [c.id]); if (!cur) return false;
+      if (seen !== null && cur.state === seen) return false;
+      const to = status === 'denied' ? 'REFUSED' : status === 'removed' ? 'TERMINATED' : cur.state === 'MEDIA_CONNECTED' ? 'TERMINATED' : ['REQUESTED', 'VERIFIED', 'AWAITING_HOST', 'APPROVED', 'MEDIA_CONNECTING'].includes(cur.state) ? 'CANCELLED' : 'TERMINATED';
+      if (await close(cur, to, reason, { status })) return true;
+      seen = cur.state;
+    }
+    return false;
   }
   /** The meeting is over (or the PIN was revoked): every call that is still up is hung up. */
   async function endAll(meetingId, reason, onlyActive) {
@@ -143,9 +155,10 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
     return [async (req, res) => {
       try {
         const body = Buffer.isBuffer(req.rawBody) ? req.rawBody.toString('utf8') : '';
+        let ctx = {};
         if (gatewayMode) {
           if (env.PHONE_GATEWAY_ENABLED !== 'true') return res.status(503).json({ error: 'Telephone gateway is not enabled' });
-          try { await gateway.authenticate(req, scope, Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.alloc(0)); }
+          try { const g = await gateway.authenticate(req, scope, Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.alloc(0)); ctx = { subject: g.subject }; }
           catch (e) { try { audit(null, null, 'phone.gateway_refused', { reason: e.reason || 'error', scope }); } catch (x) { /* audit is best effort */ } return res.status(e.status && e.status >= 400 && e.status < 600 ? e.status : 401).json({ error: e.status === 401 || e.status === 403 ? 'Gateway authentication failed' : 'Gateway unavailable' }); }
           if (o.admission) { let r = null; try { r = readiness ? (await readiness()).readiness : null; } catch { r = null; } if (!allReady(r)) return res.status(503).json({ error: 'Telephone join is not available', code: 'PHONE_JOIN_UNAVAILABLE' }); }
         } else {
@@ -153,12 +166,12 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
           if (!provider.verify(req.get('x-qorlla-signature'), body)) return res.status(401).json({ error: 'Invalid signature' });
         }
         let j; try { j = JSON.parse(body); } catch { return res.status(400).json({ error: 'Invalid JSON' }); }
-        if (o.noEvent) return res.json(await handler(j));
+        if (o.noEvent) return res.json(await handler(j, ctx));
         const eventId = String(j.eventId || ''); if (!/^[A-Za-z0-9_.:-]{8,120}$/.test(eventId)) return res.status(400).json({ error: 'eventId required' });
         const pn = providerName();
         const ins = await db.query('INSERT INTO phone_webhook_events(event_id,provider) VALUES($1,$2) ON CONFLICT DO NOTHING', [eventId, pn]);
         if (!ins.rowCount) { const { rows: [p] } = await db.query('SELECT result FROM phone_webhook_events WHERE provider=$1 AND event_id=$2', [pn, eventId]); return res.json({ ...(p && p.result ? p.result : {}), duplicate: true }); }   // replay: same answer, no second effect
-        const out = await handler(j); await db.query('UPDATE phone_webhook_events SET result=$3 WHERE provider=$1 AND event_id=$2', [pn, eventId, JSON.stringify(out)]); res.json(out);
+        const out = await handler(j, ctx); await db.query('UPDATE phone_webhook_events SET result=$3 WHERE provider=$1 AND event_id=$2', [pn, eventId, JSON.stringify(out)]); res.json(out);
       } catch (e) { console.error('[phone] webhook failed:', e.message); if (!res.headersSent) res.status(500).json({ error: 'Telephony request failed' }); }
     }];
   }
@@ -232,7 +245,8 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
    * The gateway reports what its media is doing. Meet judges the evidence ITSELF. Only a report that passes audioVerified(), for an APPROVED call, with the right one-time token, with the Shield still saying yes,
    * makes the caller connected. A report for a call Meet has refused/ended/timed out means the gateway holds a leg Meet does not want: ORPHANED + 'terminate'.
    */
-  const mediaReport = async (j, pn = providerName()) => {
+  const subjectOf = (ctx) => (ctx && ctx.subject) || 'provider:' + providerName();                    // the authenticated gateway workload identity; in provider (HMAC) mode, the provider
+  const mediaReport = async (j, pn = providerName(), ctx = {}) => {
     const { rows: [c] } = await db.query('SELECT * FROM phone_calls WHERE provider=$1 AND provider_call_id=$2', [pn, String(j.callId || '').slice(0, 120)]); if (!c) return { result: 'unknown', action: 'terminate' };
     const ev = cleanEvidence(j.evidence);
     if (TERM.includes(c.state)) {                                                                  // media for a call that is over
@@ -260,11 +274,30 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
     if (!m || m.ended_at) { await leave(cur, 'ended', 'meeting_ended'); hang(cur); return { result: 'terminate', action: 'terminate', state: 'TERMINATED' }; }
     const sh = await shieldAllows(c.meeting_id, c.participant_id);
     if (!sh.allow) { await close(cur, 'REFUSED', 'shield_' + sh.reason.toLowerCase().slice(0, 40), { status: 'denied' }); hang(cur); return { result: 'terminate', action: 'terminate', state: 'REFUSED' }; }
+    if (gatewayMode || (peers && peers.configured)) {                                               // evidence alone NEVER promotes: the server must have seen this gateway's verification peer negotiate with a browser, in this very session
+      const why = peers && peers.configured ? peers.notReady(c.id, String(j.peerJti || ''), subjectOf(ctx)) : 'verification_peer_not_configured';
+      if (why) return { result: 'connecting', action: 'none', reason: why };
+    }
     const u = await move(c.id, 'MEDIA_CONNECTED', 'media_verified', { evidence: ev }); if (!u) return { result: 'connecting', action: 'none' };
+    await peers?.promote(u.id).catch(() => {});
     await connect(u, masked(u.caller_last4), u.meeting_id); const rec = await recordingState(u.meeting_id);
     return { result: 'connected', action: 'none', say: 'You are connected to the meeting.', callRef: u.id, ...(rec ? { recordingNotice: true, consentPrompt: 'This meeting may be recorded only if everyone agrees. Press 1 to agree or 2 to decline.' } : {}) };
   };
-  app.post('/api/phone/ivr/media', ...signed((j) => mediaReport(j), 'phone.media'));
+  app.post('/api/phone/ivr/media', ...signed((j, ctx) => mediaReport(j, undefined, ctx), 'phone.media'));
+  // The restricted verification-phase credential (see phone-peer.mjs): only for an APPROVED call, only to the gateway that holds the call's one-time media token, only while the Shield still says yes.
+  const peerCredential = async (j, ctx = {}) => {
+    if (!peers || !peers.configured) return { result: 'unavailable' };
+    const { rows: [c] } = await db.query('SELECT * FROM phone_calls WHERE provider=$1 AND provider_call_id=$2', [providerName(), String(j.callId || '').slice(0, 120)]); if (!c) return { result: 'unknown' };
+    if (!tokenMatches(j.mediaToken, c.media_nonce_hash)) return { result: 'denied' };
+    if (!['APPROVED', 'MEDIA_CONNECTING'].includes(c.state)) return { result: 'not_approved', state: c.state };
+    const { rows: [m] } = await db.query('SELECT ended_at FROM meetings WHERE id=$1', [c.meeting_id]); if (!m || m.ended_at) { await leave(c, 'ended', 'meeting_ended'); hang(c); return { result: 'terminate', action: 'terminate' }; }
+    const sh = await shieldAllows(c.meeting_id, c.participant_id); if (!sh.allow) { if (await close(c, 'REFUSED', 'shield_' + sh.reason.toLowerCase().slice(0, 40), { status: 'denied' })) hang(c); return { result: 'denied', action: 'terminate' }; }
+    try { const out = await peers.issue(c.id, subjectOf(ctx)); audit(c.meeting_id, c.participant_id, 'phone.peer_credential_issued', { call: c.id, ttl: out.ttlSeconds }); return { result: 'issued', credential: out.token, jti: out.jti, expiresAt: out.expiresAt, ttlSeconds: out.ttlSeconds }; }
+    catch (e) { if (e instanceof PeerError) return { result: e.reason }; throw e; }
+  };
+  app.post('/api/phone/ivr/peer-credential', ...signed((j, ctx) => peerCredential(j, ctx), 'phone.peer', { noEvent: true }));
+  /** The verification peer's signalling is gone while its call is open: the call ends (a lost gateway never leaves a half-open caller). */
+  const peerLost = async (callId, reason) => { const { rows: [c] } = await db.query('SELECT * FROM phone_calls WHERE id=$1', [callId]); if (c && await leave(c, 'ended', reason)) { hang(c); audit(c.meeting_id, c.participant_id, 'phone.peer_lost', { call: c.id, reason }); } };
   // Where a call stands, by the carrier/gateway's own call id (the signed counterpart of the decision route, for the test double and carrier paths): once the call is APPROVED it also hands over the media token, once.
   const statusReport = async (j, pn = providerName()) => {
     const { rows: [c] } = await db.query('SELECT id FROM phone_calls WHERE provider=$1 AND provider_call_id=$2', [pn, String(j.callId || '').slice(0, 120)]); if (!c) return { result: 'unknown' };
@@ -351,6 +384,8 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
    */
   async function sweep() {
     const out = { approval: 0, media: 0, stale: 0, retried: 0, orphaned: 0 };
+    // The one-time media token is part of the stored answer to a verify request (a retried request gets the same answer). It must not sit in the database for ever: after the retry window it is removed from the stored answer.
+    await db.query("UPDATE phone_webhook_events SET result = result - 'mediaToken' WHERE result ? 'mediaToken' AND received_at < now() - ($1::int * interval '1 millisecond')", [REPLAY_TOKEN_MS]);       // (not part of the returned counters: the shape of sweep()'s answer is a contract)
     for (const c of (await db.query("SELECT * FROM phone_calls WHERE state='AWAITING_HOST' AND state_changed_at < now() - ($1::int * interval '1 millisecond') LIMIT 200", [APPROVAL_MS])).rows) if (await close(c, 'TIMED_OUT', 'approval_timeout')) { hang(c); out.approval++; }
     for (const c of (await db.query("SELECT * FROM phone_calls WHERE state IN ('APPROVED','MEDIA_CONNECTING') AND state_changed_at < now() - ($1::int * interval '1 millisecond') LIMIT 200", [MEDIA_MS])).rows) if (await close(c, 'TIMED_OUT', 'media_timeout')) { hang(c); out.media++; }
     for (const c of (await db.query("SELECT * FROM phone_calls WHERE state='MEDIA_CONNECTED' AND media_verified_at < now() - ($1::int * interval '1 millisecond') LIMIT 200", [STALE_MS])).rows) if (await close(c, 'TERMINATED', 'media_lost')) { hang(c); out.stale++; }
@@ -379,6 +414,6 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
     for (const o of list) { const { rows: [c] } = await db.query('SELECT * FROM phone_calls WHERE id=$1', [o.id]); if (c && await close(c, c.state === 'MEDIA_CONNECTED' ? 'TERMINATED' : 'REFUSED', 'shield_' + String(reason).toLowerCase().slice(0, 40), { status: c.state === 'MEDIA_CONNECTED' ? 'ended' : 'denied' })) { hang(c); n++; audit(c.meeting_id, c.participant_id, 'phone.revoked', { call: c.id, reason }); } }
     return n;
   }
-  return { provider, verifyCall, consentCall, endedCall: ended, mediaReport, statusReport, decision, statusOf, endAll, onAdmission, onHostArrived, sweep, shieldSweep, setPin, revokePin, gatewayMode, enabled: gatewayMode ? env.PHONE_GATEWAY_ENABLED === 'true' : provider.ready,
+  return { shieldAllows, peerLost, provider, verifyCall, consentCall, endedCall: ended, mediaReport, statusReport, decision, statusOf, endAll, onAdmission, onHostArrived, sweep, shieldSweep, setPin, revokePin, gatewayMode, enabled: gatewayMode ? env.PHONE_GATEWAY_ENABLED === 'true' : provider.ready,
     calls: async (meetingId) => (await db.query('SELECT * FROM phone_calls WHERE meeting_id=$1 ORDER BY created_at', [meetingId])).rows.map((c) => ({ ...callView(c), seconds: c.connected_at ? Math.max(0, Math.round(((c.ended_at ? new Date(c.ended_at) : new Date()) - new Date(c.connected_at)) / 1000)) : 0 })) };
 }

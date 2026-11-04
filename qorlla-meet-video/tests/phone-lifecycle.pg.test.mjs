@@ -20,7 +20,7 @@ import { audioVerified, canMove, TRANSITIONS, STATES, legacyStatus } from '../se
 const URL_ = process.env.PHONE_TEST_DATABASE_URL, skip = URL_ ? false : 'PHONE_TEST_DATABASE_URL is not set';
 const SQL = path.join(import.meta.dirname, '..', 'sql');
 const ORDER = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', 'v4_7_recording_consent.sql', 'v4_8_collab.sql', 'v4_9_recording_storage.sql', 'v4_10_admission.sql', 'v4_11_history.sql', 'v4_12_limit.sql',
-  'v4_13_phone.sql', 'v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_17_shield_identity.sql', 'v4_18_billing_hold.sql', 'v4_19_ai_request.sql', 'v4_20_ai_consent_seq.sql', 'v4_21_handoffs.sql', 'v4_22_host_controls.sql'];
+  'v4_13_phone.sql', 'v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_17_shield_identity.sql', 'v4_18_billing_hold.sql', 'v4_19_ai_request.sql', 'v4_20_ai_consent_seq.sql', 'v4_21_handoffs.sql', 'v4_22_host_controls.sql', 'v4_25_phone_verification_peer.sql'];
 const WEBHOOK = 'phone-webhook-secret-for-tests-0123456789', sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const eventually = async (cond, ms = 5000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await cond()) return true; await sleep(20); } return cond(); };
 const FROM = '+12025550143';
@@ -43,7 +43,7 @@ async function harness(o = {}) {
   const resolveMeeting = async (v) => { const code = String(v || '').replace(/[\s-]/g, ''); const { rows } = await db.query('SELECT id FROM meetings WHERE meeting_code=$1', [code]); return rows[0]?.id || null; };
   const recording = { reevaluate: async () => {}, publicState: async () => o.recording ?? null, consentFor: async () => ({ ok: true }) };
   const phone = registerPhone({ app, io, db, auth: (q, s, n) => n(), member: (q, s, n) => n(), fail: (res, st, m) => res.status(st).json({ error: m }), room: (id) => 'room:' + id, audit: (m, p, a, d) => log.audits.push({ m, p, a, d }),
-    resolveMeeting, activeHas: () => host.here, phoneOnline, names, recording, env, shield: o.shield, gateway, readiness: o.readiness, now: o.clock });
+    resolveMeeting, activeHas: () => host.here, phoneOnline, names, recording, env, shield: o.shield, gateway, readiness: o.readiness, peers: o.peers, now: o.clock });
   const server = http.createServer(app); await new Promise((r) => server.listen(0, '127.0.0.1', r)); const base = 'http://127.0.0.1:' + server.address().port;
   closers.push(() => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }));
   let n = 0; const uid = () => 'evt_' + Date.now().toString(36) + (n++).toString(36) + Math.random().toString(36).slice(2, 6);
@@ -248,7 +248,10 @@ function mint(k, { scope, sub = SUB, iss = ISS, kid = 'w1', aud = 'qorlla-phone-
 }
 const gpost = async (h, k, p, scope, body, o = {}) => { const raw = JSON.stringify(body); const r = await fetch(h.base + p, { method: 'POST', headers: { 'content-type': 'application/json', ...(o.noToken ? {} : { authorization: 'Bearer ' + (o.token ?? mint(k, { scope, body: raw, ...o.mint })) }) }, body: o.rawOverride ?? raw }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
 const gget = async (h, k, p, o = {}) => { const r = await fetch(h.base + p, { headers: o.noToken ? {} : { authorization: 'Bearer ' + (o.token ?? mint(k, { ...o.mint })) } }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
-const gwHarness = async (k, o = {}) => { const { env, gw, ...rest } = o; return harness({ gatewayEnv: gwEnv(k, gw), env: { PHONE_GATEWAY_ENABLED: 'true', ...env }, readiness: async () => ({ readiness: ALL }), shield: fakeShield(), ...rest }); };
+// In gateway mode a call is promoted only if Meet's own record says a verification peer of THAT gateway session has negotiated with a browser (phone-peer.mjs; the real thing is tested against the real server in phone-peer.pg.test.mjs).
+// These module tests stand in for it with a peer that is live and has negotiated, so the lifecycle rules around it can be exercised.
+const livePeers = () => ({ configured: true, notReady: () => null, promote: async () => {}, revoke: async () => true, notifyOffline: () => {} });
+const gwHarness = async (k, o = {}) => { const { env, gw, ...rest } = { peers: livePeers(), ...o }; return harness({ gatewayEnv: gwEnv(k, gw), env: { PHONE_GATEWAY_ENABLED: 'true', ...env }, readiness: async () => ({ readiness: ALL }), shield: fakeShield(), ...rest }); };
 const vbody = (h, m, over = {}) => ({ eventId: h.uid(), callId: 'call_' + h.uid(), from: FROM, meetingId: m.code, pin: m.pin, ...over });
 
 test('gateway mode is OFF unless explicitly enabled, and without gateway keys the original provider scheme is unchanged', { skip }, async () => {
@@ -373,4 +376,14 @@ test('readiness is computed from stored, FRESH evidence; nothing static; each co
   await probe('production flag off', async () => {}, 'productionApproved', () => mk(carrier, up, { PHONE_FEATURES: 'dialin,bridge,billing' }));
   await probe('gate without evidence', () => db.query("UPDATE qphone_gates SET evidence_sha256='' WHERE gate='production'"), 'productionApproved');
   await reset();
+});
+
+// ================================================================================================ A5: evidence alone never promotes in gateway mode
+test('gateway mode: perfect audio evidence does NOT connect a call when no verification peer exists (not configured) or the peer is not ready - fail closed', { skip }, async () => {
+  const k = keys(); const cases = [['no peer subsystem at all', null, 'verification_peer_not_configured'], ['peer subsystem present but not configured', { configured: false }, 'verification_peer_not_configured'], ['configured, but no live negotiated peer for this call', { ...livePeers(), notReady: () => 'no_verification_peer' }, 'no_verification_peer'], ['peer of a different gateway session', { ...livePeers(), notReady: () => 'peer_session_mismatch' }, 'peer_session_mismatch']];
+  for (const [why, peers, reason] of cases) {
+    const h = await gwHarness(k, { peers }), m = await h.meeting(), v = await gpost(h, k, '/api/phone/ivr/verify', 'phone.verify', vbody(h, m)); assert.equal(v.body.result, 'approved', why);
+    const c = await h.row(v.body.callRef), r = await gpost(h, k, '/api/phone/ivr/media', 'phone.media', { eventId: h.uid(), callId: c.provider_call_id, mediaToken: v.body.mediaToken, evidence: good({ source: 'rtp' }) });
+    assert.equal(r.body.result, 'connecting', why); assert.equal(r.body.reason, reason, why); assert.notEqual((await h.row(v.body.callRef)).state, 'MEDIA_CONNECTED', why); assert.equal((await h.row(v.body.callRef)).status, 'waiting', why);
+  }
 });
