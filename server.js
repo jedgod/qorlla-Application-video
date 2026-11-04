@@ -301,9 +301,12 @@ app.post('/api/admin/accounts/:id/suspend', (req, res, next) => auth.requireUser
 });
 const phoneAdmin = (u) => { const n = String((u && u.username) || '').toLowerCase(); return String(process.env.PHONE_ADMIN_USERS || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean).some((p) => (p.endsWith('*') ? n.startsWith(p.slice(0, -1)) : p === n)); };
 const tel = (u, method, route, o = {}) => meetLaunch.telephony(method, route, { actor: { id: u.id, admin: phoneAdmin(u) }, ...o });
+// A switched-off telephone feature is answered by Meet's release guard as {error:'feature_disabled', feature, message}. The code stays machine-readable (`code`, `feature`); the text people read is a plain sentence, never the raw code.
+const FEATURE_OFF = { pstn: 'Carrier calling is not enabled on this server (public telephone calling is switched off).', numbers: 'Telephone numbers are not enabled on this server (public telephone numbers are switched off).' };
+const failure = (d) => (d && d.error === 'feature_disabled' ? { error: FEATURE_OFF[d.feature] || 'This telephone feature is not enabled on this server.', code: 'feature_disabled', feature: typeof d.feature === 'string' ? d.feature : undefined } : { error: (d && d.error) || 'Telephony request failed.', code: (d && d.code) || 'ERROR' });
 const telSend = async (req, res, method, route, o = {}) => {
     const u = phoneUser(req, res); if (!u) return; const r = await tel(u, method, route, typeof o === 'function' ? o(req) : o);
-    res.status(r.status || 503).set('Cache-Control', 'no-store').json(r.ok ? r.data : { error: (r.data && r.data.error) || 'Telephony request failed.', code: (r.data && r.data.code) || 'ERROR' });
+    res.status(r.status || 503).set('Cache-Control', 'no-store').json(r.ok ? r.data : failure(r.data));
 };
 const NOCAPS = (why) => { const r = (status, detail) => ({ status, detail, proof: [] }); return { reachable: false, provider: r('not_connected', why), dialin: r('not_connected', why), carrier: r('off', why), number: r('unassigned', 'No number is assigned to you.'), bridge: r('not_built', 'No media gateway is installed.'), billing: r('not_connected', why), callingEnabled: false, phoneMeetingJoinEnabled: false, carrierName: null, webhookConfigured: false }; };
 async function capsFor(u) { const r = await tel(u, 'GET', '/capabilities'); return r.ok ? { reachable: true, ...r.data } : NOCAPS((r.data && r.data.error) || 'Telephony is unavailable.'); }
