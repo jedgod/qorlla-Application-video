@@ -64,11 +64,11 @@ test.afterEach(async (t) => { const dir = process.env.A5_EVIDENCE_DIR; if (dir) 
   await sleep(300); assert.deepEqual(leftovers(), [], 'no Meet or gateway process of this test survives it'); });
 test.after(async () => { if (skip) return; await admin.query('DROP SCHEMA ' + schema + ' CASCADE'); await admin.end(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
-async function startMeet() {
+async function startMeet(extraEnv: Record<string, string> = {}) {
   const port = await freePort(), { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }), store = fs.mkdtempSync(path.join(tmp, 'rec-'));
   const env = { ...process.env, PORT: String(port), DATABASE_URL: URL_ + (URL_!.includes('?') ? '&' : '?') + 'options=' + encodeURIComponent('-c search_path=' + schema), JWT_SECRET: crypto.randomBytes(32).toString('hex'), QORLLA_BRIDGE_SECRET: BRIDGE, RECOVERY_ESCROW_KEY: crypto.randomBytes(32).toString('base64'),
     RECORDING_MASTER_KEYS: JSON.stringify({ k1: crypto.randomBytes(32).toString('base64') }), RECORDING_ACTIVE_KEY_ID: 'k1', RECORDING_STORE_DIR: store, RECORDING_ADMIN_SECRET: 'x'.repeat(24), NODE_ENV: 'development', PHONE_SWEEP_MS: '500', PHONE_PROVIDER: 'test', PHONE_WEBHOOK_SECRET: HMAC,
-    PHONE_PEER_SIGNING_KEY_PEM: privateKey.export({ type: 'pkcs8', format: 'pem' }) as string, PHONE_PEER_KID: 'p1', PHONE_MEDIA_TIMEOUT_MS: '40000', PHONE_MEDIA_STALE_MS: '15000' };
+    PHONE_PEER_SIGNING_KEY_PEM: privateKey.export({ type: 'pkcs8', format: 'pem' }) as string, PHONE_PEER_KID: 'p1', PHONE_MEDIA_TIMEOUT_MS: '40000', PHONE_MEDIA_STALE_MS: '15000', ...extraEnv };
   const child = spawn(process.execPath, ['server/index.js', '--a5-test=' + RUN], { cwd: MEET_DIR!, env, stdio: ['ignore', 'pipe', 'pipe'] }); procs.push(child); let log = ''; child.stdout!.on('data', (d) => (log += d)); child.stderr!.on('data', (d) => (log += d));
   const base = 'http://127.0.0.1:' + port; for (let i = 0; i < 80; i++) { if (await fetch(base + '/api/ready').then((r) => r.ok).catch(() => false)) logSinks.push({ name: 'meet', log: () => log }); return { base, log: () => log }; await sleep(250); } throw new Error('Meet did not start: ' + log.slice(-500));
 }
@@ -248,8 +248,8 @@ const gwPcs = (p: Page) => p.evaluate(() => (window as any).__peerIndexes().filt
 const tlOf = (p: Page) => p.evaluate(() => (window as any).__tl as [number, number, string][]);
 const countOf = (tl: [number, number, string][], what: string) => tl.filter((x) => x[2] === what).length;
 const heldCount = (p: Page) => p.evaluate(() => ((window as any).__frozen || []).length as number);
-async function earlyLab(o: { freeze: ('A' | 'B')[]; carol?: boolean }) {
-  const meet = await startMeet(), gw = await startGateway(meet.base), seeded = await seedMeeting(meet.base);
+async function earlyLab(o: { freeze: ('A' | 'B')[]; carol?: boolean; meetEnv?: Record<string, string>; gwEnv?: Record<string, string> }) {
+  const meet = await startMeet(o.meetEnv), gw = await startGateway(meet.base, o.gwEnv), seeded = await seedMeeting(meet.base);
   const A = await openMeeting(await chrome(1000), meet.base, 'Alice', seeded.id), B = await openMeeting(await chrome(1500), meet.base, 'Bob', seeded.id), C = o.carol ? await openMeeting(await chrome(2000), meet.base, 'Carol', seeded.id) : undefined; A.code = seeded.code;
   const mesh = async () => { for (const w of [A, B, C]) if (w && !(await connectedPeers(w.page)).some((x: any) => x.state === 'connected')) return false; return true; };
   await eventually(mesh, 30000); if (C) await sleep(4000);                                  // three browsers starting their capture devices load the machine: let that settle before the phone dials (the gateway's own timeouts are not relaxed for the test)
@@ -326,4 +326,27 @@ test('A5.2 - the gateway dies while a pending peer is recovering: Meet ends the 
   { const ok = await eventually(async () => (await gwPcs(L.A.page)).every((x: any) => x.state === 'closed'), 30000); if (!ok) assert.fail('Alice connection to the gateway is not closed: ' + JSON.stringify(await gwPcs(L.A.page)) + ' timeline tail: ' + JSON.stringify((await tlOf(L.A.page)).slice(-25)) + ' held: ' + (await heldCount(L.A.page))); }
   const n0 = countOf(await tlOf(L.A.page), 'ws-out signal restart'), pcs0 = (await gwPcs(L.A.page)).length; await sleep(6000); assert.equal(countOf(await tlOf(L.A.page), 'ws-out signal restart'), n0, 'no more recovery attempts for a peer that is gone'); assert.equal((await gwPcs(L.A.page)).length, pcs0, 'no new connection');
   assert.ok(!(await L.A.page.evaluate((pid) => !!document.getElementById('tile-' + pid), L.call.participant_id)), 'no ghost tile for the terminated phone'); await othersMoving(L.A.page); saveEvidence('a52-gateway-dies-during-recovery');
+});
+
+test('A5.2 - the GATEWAY\'s own recovery deadline ends the leg (Meet and the gateway\'s media watchdog are kept from doing it first): reason recovery_deadline, the ledger ends and its lease stops, the credential is revoked, nothing late revives it, and the browsers stay connected to each other', { skip, timeout: 300000 }, async () => {
+  // Isolation (laboratory only): Meet's staleness timer is made very long and the gateway's evidence reports are switched off, so MEET cannot end the call; the gateway's media watchdog (5 s in production, reason media_interrupted) is relaxed to 120 s.
+  // The only thing left that can end the leg is the mesh peer's own deadline: both browsers hold the announcement back, close their never-announced connections at 45 s, and cannot be recovered.
+  const L = await earlyLab({ freeze: ['A', 'B'], meetEnv: { PHONE_MEDIA_STALE_MS: '600000' }, gwEnv: { A5_NO_KEEPALIVE: '1', A5_RECOVER_WITHIN_MS: '120000' } });
+  assert.ok(await eventually(async () => (await gwPcs(L.A.page)).every((x: any) => x.state === 'closed') && (await gwPcs(L.B.page)).every((x: any) => x.state === 'closed'), 90000, 250), 'both browsers closed their connection to the gateway'); const tClosed = Date.now();
+  assert.equal((await callState(L.call.id)).state, 'MEDIA_CONNECTED', 'when the browsers closed, nobody had ended the call yet');
+  assert.ok(await eventually(async () => (await callState(L.call.id)).state === 'TERMINATED', 100000, 250), 'the call ended by itself: ' + JSON.stringify(await callState(L.call.id)) + ' gateway log: ' + L.gw.log().slice(-1500)); const tEnded = Date.now(), st = await callState(L.call.id);
+  // The gateway's clock for a browser starts when ITS connection to that browser first stops being connected (it notices a closed browser only when ICE consent fails, well after the browser closed), and the first thing it does then is ask for an ICE restart.
+  // So the reference is the gateway's restart offers after the browsers closed (from its signalling trace), one per browser; the session ends when the LAST browser's own 30 s deadline expires. (Each browser gets one restart here - the state does not change again - so 'restarts do not reset the clock' is proven by the fake-clock test, not by this one.)
+  const offerTimes = (L.gw.log().match(/"out":"offer","to":"[0-9a-f]+"\},"t":\d+/g) ?? []).map((m) => Number(m.split('"t":')[1])).filter((t) => t > tClosed), lastOffer = Math.max(...offerTimes);
+  assert.equal(offerTimes.length, 2, 'the gateway asked for one ICE restart per browser: ' + offerTimes.length); const waited = tEnded - lastOffer, sinceClose = tEnded - tClosed;
+  assert.ok(waited >= 27000 && waited <= 36000, 'the leg ended one recovery deadline (30 s) after the gateway first lost the LAST browser, plus the time to tear down (<= 6 s on this loaded host): ' + waited + ' ms');
+  const gwSchema = 'gw_' + schema, events = (await admin.query(`SELECT from_state, to_state, reason FROM ${gwSchema}.phone_join_call_events WHERE call_id=$1 ORDER BY id`, [L.call.provider_call_id])).rows;
+  const ended = events.filter((e: any) => e.to_state === 'terminating' || e.to_state === 'ended'); assert.ok(ended.some((e: any) => /recovery_deadline/.test(String(e.reason))), 'the gateway ledger records the termination reason recovery_deadline: ' + JSON.stringify(ended));
+  assert.ok(!ended.some((e: any) => /media_interrupted|media_unverified/.test(String(e.reason))), 'and not the media watchdog or Meet\'s evidence'); assert.notEqual(st.end_reason, 'media_unverified', 'Meet did not end it first (' + st.end_reason + ')');
+  const ledgerRow = async () => (await admin.query(`SELECT state, lease_expires_at FROM ${gwSchema}.phone_join_calls WHERE call_id=$1`, [L.call.provider_call_id])).rows[0], final = await eventually(async () => { const r = await ledgerRow(); return !r || ['ended', 'failed'].includes(r.state); }, 20000), row = await ledgerRow(); assert.ok(final, 'the ledger row becomes final (Meet shows TERMINATED a moment before the gateway records the end): ' + JSON.stringify(row)); await sleep(3000);
+  const row2 = await ledgerRow(); assert.deepEqual(row2, row, 'the lease is no longer renewed after the end');
+  assert.ok((await cred(L.call.id)).revoked_at, 'credential revoked'); assert.ok(await eventually(() => L.phone.requests('BYE').length >= 1, 15000), 'the caller was hung up'); let held = await portsHeld(34000, 34300); for (let n = 0; n < 30 && held > 0; n++) { await sleep(300); held = await portsHeld(34000, 34300); } assert.equal(held, 0, 'the RTP port was released');
+  const offers = () => (L.gw.log().match(/"out":"(offer|rebuild)"/g) ?? []).length, pcs = async () => (await gwPcs(L.A.page)).length + (await gwPcs(L.B.page)).length, o0 = offers(), p0 = await pcs(); await sleep(6000);
+  assert.equal(offers(), o0, 'the ended session sends nothing more'); assert.equal(await pcs(), p0, 'and no browser created a new connection to the gateway'); await othersMoving(L.A.page);
+  evidence.gatewayDeadline = { lastGatewayRestartOfferToEndedMs: waited, browsersClosedToEndedMs: sinceClose, restartOfferOffsetsFromLastMs: offerTimes.map((t) => t - lastOffer), endReasonInMeet: st.end_reason, ledgerReasons: ended.map((e: any) => e.to_state + ':' + e.reason), ledgerRow: row, gatewayRestartMessagesAfterClose: offers() }; saveEvidence('a52-gateway-deadline');
 });
