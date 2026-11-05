@@ -64,3 +64,15 @@ well-formed `duplicate` answer **without** `mediaToken`; it issues nothing. This
 `tests/phone-peer.pg.test.mjs` (12 tests, real server process, real PostgreSQL, real socket.io clients): lifecycle, capability isolation, credential rules, failure handling, three race tests plus a deterministic stale-read
 test, idempotent termination, token scrubbing (real and controlled clock), and the missing-migration case. Final code: 10 consecutive runs, 12 of 12 each. Existing suites: `phone-lifecycle` 37/37, `phone-server` 2/2,
 `bridge-contract` 3/3, `consent-lock` 3/3. **Not covered here:** real Chrome, the real Security Shield server, Redis-backed gateway limits, and any real telephone or carrier.
+
+## A5.2 - the window between a connection forming and the roster announcing the phone
+
+The gateway is announced to the room (`participant-online`) only once Meet has promoted its call, but its offer reaches the browsers earlier, so a browser connection to it can exist - and fail - before the app's roster knows the peer. `public/app.js` now treats such a connection as PENDING:
+
+- it is recovered like any roster peer (ICE restart request to the gateway), on the SAME connection - never a second one;
+- when the announcement arrives it is ADOPTED; a recovery already in flight is not started a second time;
+- it is BOUNDED: a pending connection that is never announced is closed after 45 s (`PENDING_MS`);
+- every asynchronous step is bound to the connection it started on, and the epochs of closed connections are remembered (16 per peer), so a late offer of a superseded attempt cannot bring one back. Revocation and termination are still enforced by Meet (the relay refuses a revoked credential); this is a second fence in the browser, not a replacement.
+
+The browser tests for this window are in the gateway package (`qorlla-phone-join/test/e2e-chrome.test.ts`, "A5.2" scenarios): they run the real app in Chromium against this server with the announcement held back in the page.
+

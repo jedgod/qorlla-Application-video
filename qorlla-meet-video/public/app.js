@@ -39,21 +39,29 @@ function updateControls(){
 function connect(){state.socket=io({path:BASE+'socket.io',auth:{token:state.token},transports:['websocket','polling']});const s=state.socket;s.on('connect',()=>{state.reconnected=!!state.everConnected;state.everConnected=true;net.signaling='connected';net.lostAt=0;renderNet();if(state.reconnected)collab.load();s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});});s.on('connect_error',e=>{if(!net.lostAt)net.lostAt=Date.now();net.signaling=!s.active||!s.io.reconnection()?'disconnected':(state.everConnected?'reconnecting':'connecting');renderNet();if(!state.everConnected)notify('Connection error: '+e.message);});s.on('disconnect',reason=>{net.lostAt=Date.now();net.signaling=s.active&&s.io.reconnection()?'reconnecting':'disconnected';renderNet();if(reason==='io server disconnect')notify('You were disconnected from the meeting (another session may have joined as you).');});s.on('roster',ids=>{state.roster=new Set([...ids,state.participantId]);renderPeople();
   for(const id of [...state.peers.keys()])if(!state.roster.has(id))removePeer(id);                                  // people who left while we were offline
   for(const id of ids)if(id!==state.participantId){if(state.reconnected)dropPeer(id);createPeer(id,true);}          // after a reconnect every peer connection is rebuilt (the tile stays: no duplicates)
-  state.reconnected=false;renderNet();});s.on('participant-online',p=>{s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});announce(p.name+' joined');state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{announce((state.names.get(p.participantId)||'A participant')+' left');state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();renderNet();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('names',map=>{for(const [pid,n] of Object.entries(map)){state.names.set(pid,n);const t=$('tile-'+pid);if(t&&pid!==state.participantId){t.querySelector('.nameplate').textContent=n;t.querySelector('.avatar').textContent=n.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();}}renderPeople();});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('ai-consent-request',n=>aiPrompt(n));s.on('ai-consent-closed',()=>{if(!document.querySelector('#rcModal[data-ai]'))return;rcClose();notify('The host closed the Qorlla AI request.');});s.on('media-state',({participantId,sharing,mic,cam})=>{if(participantId===state.participantId)return;const t=$('tile-'+participantId);if(t){t.classList.toggle('sharing-remote',!!sharing);setTileMedia(participantId,mic,cam);}else pendingMedia.set(participantId,{sharing,mic,cam});});s.on('hand',({participantId,raised})=>{setHand(participantId,raised);if(raised)announce((state.names.get(participantId)||'Someone')+' raised their hand');});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));collab.attach(s);attachHostControls(s);s.on('limit-reminder',limitReminder);s.on('meeting-limit',endedByLimit);s.on('waiting-changed',()=>loadWaiting());s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
+  state.reconnected=false;renderNet();});s.on('participant-online',p=>{s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});announce(p.name+' joined');state.roster.add(p.participantId);adoptPending(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{announce((state.names.get(p.participantId)||'A participant')+' left');state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();renderNet();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('names',map=>{for(const [pid,n] of Object.entries(map)){state.names.set(pid,n);const t=$('tile-'+pid);if(t&&pid!==state.participantId){t.querySelector('.nameplate').textContent=n;t.querySelector('.avatar').textContent=n.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();}}renderPeople();});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('ai-consent-request',n=>aiPrompt(n));s.on('ai-consent-closed',()=>{if(!document.querySelector('#rcModal[data-ai]'))return;rcClose();notify('The host closed the Qorlla AI request.');});s.on('media-state',({participantId,sharing,mic,cam})=>{if(participantId===state.participantId)return;const t=$('tile-'+participantId);if(t){t.classList.toggle('sharing-remote',!!sharing);setTileMedia(participantId,mic,cam);}else pendingMedia.set(participantId,{sharing,mic,cam});});s.on('hand',({participantId,raised})=>{setHand(participantId,raised);if(raised)announce((state.names.get(participantId)||'Someone')+' raised their hand');});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));collab.attach(s);attachHostControls(s);s.on('limit-reminder',limitReminder);s.on('meeting-limit',endedByLimit);s.on('waiting-changed',()=>loadWaiting());s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
 // One RTCPeerConnection per remote participant. The side that makes the offer owns the pair's "epoch"; every signal carries it, so messages from an
 // older connection (before a reconnect) are ignored instead of corrupting the new one. ICE restarts reuse the epoch; a rebuilt connection gets a new one.
-const ICE_GRACE_MS=4000,MAX_RESTARTS=3;
+const ICE_GRACE_MS=4000,MAX_RESTARTS=3,PENDING_MS=45000;
+// A5.2 - the window between a connection forming and the roster announcing its owner. The telephone gateway is announced (participant-online) only AFTER Meet has promoted its call, but its offer arrives
+// earlier, so a connection can exist, and fail, before the roster knows the peer. Such a peer is PENDING: recovered exactly like a roster peer (same connection, never a second one), reconciled when the
+// announcement arrives, and BOUNDED - if it is never announced it is closed after PENDING_MS. Every asynchronous step is bound to the connection it started on, and the epochs of closed connections are
+// remembered so that a late offer of a superseded attempt cannot bring one back.
+const retired=new Map();                                          // peer id -> epochs of connections that were closed
+const retire=(id,pc)=>{const set=retired.get(id)||new Set();for(const e of [pc._epoch,pc._remoteEpoch])if(e)set.add(e);if(set.size>16)set.delete(set.values().next().value);retired.set(id,set);};
+function adoptPending(id){const pc=state.peers.get(id);if(!pc||!pc._pending)return;pc._pending=false;clearTimeout(pc._pendingTimer);if(!pc._recovering&&(pc.connectionState==='failed'||pc.connectionState==='disconnected'))recoverPeer(id,pc);}
 const newEpoch=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
 const sendSignal=(to,data)=>{if(state.socket?.connected)state.socket.emit('signal',{to,data});};
 function createPeer(id,initiator=false){
   if(state.peers.has(id))return state.peers.get(id);
   const pc=new RTCPeerConnection({iceServers:state.iceServers,iceTransportPolicy:state.iceTransportPolicy||'all'});state.peers.set(id,pc);pc._queue=[];pc._restarts=0;if(initiator)pc._epoch=newEpoch();
+  if(!state.roster.has(id)){pc._pending=true;pc._pendingTimer=setTimeout(()=>{if(state.peers.get(id)===pc&&pc._pending){console.warn('peer '+id+' was never announced: connection closed');dropPeer(id);renderNet();}},PENDING_MS);}
   for(const track of state.stream.getTracks())pc.addTrack(track,state.stream);
   pc.onicecandidate=e=>{if(e.candidate)sendSignal(id,{type:'candidate',candidate:e.candidate,epoch:pc._epoch||pc._remoteEpoch});};
   pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);setVideo(id,stream);};
   pc.onconnectionstatechange=()=>{
     clearTimeout(pc._grace);renderNet();
-    if(pc.connectionState==='connected'){pc._restarts=0;}
+    if(pc.connectionState==='connected'){pc._restarts=0;pc._recovering=false;}
     else if(pc.connectionState==='failed')recoverPeer(id,pc);
     else if(pc.connectionState==='disconnected')pc._grace=setTimeout(()=>{if(state.peers.get(id)===pc&&pc.connectionState!=='connected')recoverPeer(id,pc);},ICE_GRACE_MS);
   };
@@ -61,17 +69,19 @@ function createPeer(id,initiator=false){
   return pc;
 }
 async function offerTo(id,pc,iceRestart){
-  try{const o=await pc.createOffer(iceRestart?{iceRestart:true}:undefined);await pc.setLocalDescription(o);sendSignal(id,{type:'offer',sdp:pc.localDescription,epoch:pc._epoch});}catch(e){console.error('offer failed',e);}
+  try{const o=await pc.createOffer(iceRestart?{iceRestart:true}:undefined);await pc.setLocalDescription(o);if(state.peers.get(id)!==pc)return;sendSignal(id,{type:'offer',sdp:pc.localDescription,epoch:pc._epoch});}catch(e){console.error('offer failed',e);}
 }
 // A connection that is down: restart ICE (the offering side does it; the answering side asks); after repeated failures rebuild from scratch.
 function recoverPeer(id,pc){
-  if(state.peers.get(id)!==pc||!state.roster.has(id))return;
+  if(state.peers.get(id)!==pc||(!state.roster.has(id)&&!pc._pending))return;           // a connection that was replaced or whose owner left is not ours to recover; a PENDING one (not announced yet) is
   if(!state.socket?.connected)return;                                                   // signalling is down: the roster handler rebuilds everything when it returns
   if(++pc._restarts>MAX_RESTARTS){if(pc._epoch){dropPeer(id);createPeer(id,true);}else sendSignal(id,{type:'rebuild',epoch:pc._remoteEpoch});return;}
+  pc._recovering=true;                                                                 // one recovery in flight per connection: the roster announcement does not start a second one
   if(pc._epoch&&pc.signalingState==='stable')offerTo(id,pc,true);else if(!pc._epoch)sendSignal(id,{type:'restart',epoch:pc._remoteEpoch});
 }
 async function onSignal(id,data){
   let pc=state.peers.get(id);
+  if(data.type==='offer'&&data.epoch&&retired.get(id)?.has(data.epoch))return;           // an offer of a connection that was already closed (a superseded attempt)
   if(data.type==='offer'){
     if(pc&&pc._epoch){                                                                  // both sides offered at once: the lower id yields, the other keeps its offer
       if(state.participantId<id){dropPeer(id);pc=null;}else return;
@@ -87,7 +97,7 @@ async function onSignal(id,data){
   else if(data.type==='rebuild'){if(pc._epoch){dropPeer(id);createPeer(id,true);}}
 }
 async function flushCandidates(pc){const q=pc._queue.splice(0);for(const c of q)try{await pc.addIceCandidate(c);}catch(e){console.warn('queued ICE candidate rejected',e);}}
-function dropPeer(id){const pc=state.peers.get(id);if(!pc)return;clearTimeout(pc._grace);pc.onconnectionstatechange=pc.ontrack=pc.onicecandidate=null;try{pc.close();}catch{}state.peers.delete(id);}
+function dropPeer(id){const pc=state.peers.get(id);if(!pc)return;clearTimeout(pc._grace);clearTimeout(pc._pendingTimer);retire(id,pc);pc.onconnectionstatechange=pc.ontrack=pc.onicecandidate=null;try{pc.close();}catch{}state.peers.delete(id);}
 function removePeer(id){dropPeer(id);pendingMedia.delete(id);$('tile-'+id)?.remove();}
 
 // ---- what the header and status line say: meeting, signalling and media are reported separately, and a lost connection never looks healthy -------
