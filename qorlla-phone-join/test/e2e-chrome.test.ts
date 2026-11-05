@@ -116,10 +116,11 @@ async function openMeeting(b: Browser, base: string, name: string, join?: string
   if (join) { await page.fill('#meetingId', join); await page.click('#joinBtn'); } else await page.click('#createBtn');
   const j = await (await resp).json(); return { page, id: name, meetingId: j.meetingId, code: j.meetingCode, token: j.token, pid: j.participantId };
 }
-async function seedMeeting(base: string) {
-  const id = crypto.randomUUID(), code = String(Math.floor(1e10 + Math.random() * 9e10)), source = 'sched_' + crypto.randomBytes(5).toString('hex');
+async function seedMeeting(base: string, o: { code?: string; alias?: string } = {}) {
+  const id = crypto.randomUUID(), code = o.code ?? String(Math.floor(1e10 + Math.random() * 9e10)), source = 'sched_' + crypto.randomBytes(5).toString('hex');
   await admin.query(`INSERT INTO ${schema}.meetings(id,title,host_secret_hash,meeting_code) VALUES($1,'E2E','x',$2)`, [id, code]); await admin.query(`INSERT INTO ${schema}.external_meeting_links(source_system,source_id,meeting_id) VALUES('qorlla-main',$1,$2)`, [source, id]);
-  return { id, code, source, makePin: async () => (await fetch(base + '/api/integrations/scheduled-meetings/' + source + '/phone-access', { method: 'POST', headers: { 'x-qorlla-bridge-secret': BRIDGE, 'content-type': 'application/json' }, body: '{}' })).json() as Promise<{ pin: string }> };
+  if (o.alias) await admin.query(`INSERT INTO ${schema}.meeting_code_aliases(alias_code,meeting_id) VALUES($1,$2)`, [o.alias, id]);
+  return { id, code, alias: o.alias, source, makePin: async () => (await fetch(base + '/api/integrations/scheduled-meetings/' + source + '/phone-access', { method: 'POST', headers: { 'x-qorlla-bridge-secret': BRIDGE, 'content-type': 'application/json' }, body: '{}' })).json() as Promise<{ pin: string }> };
 }
 const connectedPeers = (p: Page) => p.evaluate(() => (window as any).__peerIndexes());
 const dbCall = async (callId: string) => (await admin.query(`SELECT * FROM ${schema}.phone_calls WHERE provider_call_id=$1`, [callId])).rows[0];
@@ -132,7 +133,7 @@ async function dial(gw: { sipPort: number }, code: string, pin: string, hz = 440
   const p = await SyntheticPhone.create({ gateway: { address: '127.0.0.1', port: gw.sipPort }, username: SIP_USER, password: SIP_PASS, number: '+12025550100' }); phones.push(p); const r = await p.invite(); assert.equal(r.status, 200, 'the gateway answered the INVITE');
   // A caller presses keys when the prompt invites it. The gateway plays a cue tone (880 Hz) at the start of EACH entry (meeting number, then PIN); the synthetic caller waits for it, like a person waiting for the prompt.
   const cue = async (from: number, what: string) => assert.ok(await eventually(() => goertzel(p.received.slice(Math.max(from, p.received.length - 12)), 880) > 0.01, 15000, 40), 'the gateway played its prompt tone for the ' + what);
-  p.tone(hz); await cue(0, 'meeting number'); const mark = p.received.length; await p.digits(code); await cue(mark, 'PIN'); await p.digits(pin + '#'); return p;
+  p.tone(hz); await cue(0, 'meeting number'); const mark = p.received.length; await p.digits(code + '#'); await cue(mark, 'PIN'); await p.digits(pin + '#'); return p;
 }
 const heard = (p: SyntheticPhone, n = 40) => p.received.slice(-n);
 
@@ -175,8 +176,8 @@ test('REAL CHROMIUM + GATEWAY PROCESS + MEET: admission through the real flow, I
 
 // ================================================================================================ fault scenarios: each one starts its OWN stack, so a failure points at one cause
 type Lab = Awaited<ReturnType<typeof lab>>;
-async function lab() {
-  const meet = await startMeet(), gw = await startGateway(meet.base), seeded = await seedMeeting(meet.base);
+async function lab(o: { code?: string; alias?: string } = {}) {
+  const meet = await startMeet(), gw = await startGateway(meet.base), seeded = await seedMeeting(meet.base, o);
   const A = await openMeeting(await chrome(1000), meet.base, 'Alice', seeded.id), B = await openMeeting(await chrome(1500), meet.base, 'Bob', seeded.id); A.code = seeded.code;
   await eventually(async () => (await connectedPeers(A.page)).some((x: any) => x.state === 'connected') && (await connectedPeers(B.page)).some((x: any) => x.state === 'connected'), 30000);
   const pin = (await seeded.makePin()).pin, phone = await dial(gw, seeded.code, pin);
@@ -193,6 +194,18 @@ const callState = async (id: string) => (await admin.query(`SELECT state, end_re
 const abStats = (L: Lab) => L.A.page.evaluate(async () => { const pcs = (window as any).__pcs; const i = pcs.findIndex((pc: any) => !(pc.remoteDescription && /PCMU/.test(pc.remoteDescription.sdp) && !/opus/i.test(pc.remoteDescription.sdp)) && pc.connectionState === 'connected'); return { i, s: await (window as any).__stats(i) }; });
 const gatewayPcsGone = async (L: Lab) => !(await connectedPeers(L.A.page)).some((x: any) => x.gateway && x.state === 'connected') && !(await connectedPeers(L.B.page)).some((x: any) => x.gateway && x.state === 'connected');
 
+test('A5.3 - a 12-digit primary code with a leading zero and the 11-digit alias of the SAME meeting both admit through the real flow: two-way audio, the same Meet UUID, no truncation', { skip, timeout: 240000 }, async () => {
+  const code = '0' + String(Math.floor(1e10 + Math.random() * 9e10)), alias = '0' + String(Math.floor(1e9 + Math.random() * 9e9)), startedAt = new Date(), L = await lab({ code, alias });
+  assert.equal(L.seeded.code.length, 12); assert.equal(L.phone.digitLog.map((x) => x.d).join('').startsWith(code + '#'), true, 'the keypad sent all 12 digits (leading zero included) and the terminator');
+  assert.equal(L.call.meeting_id, L.seeded.id, 'the 12-digit code resolved to the meeting'); assert.equal((await callState(L.call.id)).state, 'MEDIA_CONNECTED');
+  const heardByPhone = await eventually(() => snr(L.phone.received.slice(-40), 1000) >= 30, 20000), listen = await L.A.page.evaluate((n) => (window as any).__listen(n, 2000), await L.gwPc(L.A.page));
+  assert.ok(heardByPhone, 'the phone hears the meeting'); assert.ok(listen.levels[440] - listen.noise > 25, 'Alice hears the phone');
+  const sent = L.phone.digitLog.map((x) => x.d).join(''); assert.equal(sent, code + '#' + L.pin + '#', 'exactly the code, the terminator, the PIN, the terminator: nothing from the code reached the PIN entry');
+  L.phone.bye(); assert.ok(await eventually(async () => (await callState(L.call.id)).state === 'TERMINATED', 20000));
+  // the 11-digit alias of the same meeting admits a second call into the SAME meeting
+  const pin2 = (await L.seeded.makePin()).pin, phone2 = await dial(L.gw, alias, pin2); assert.ok(await eventually(async () => (await admin.query(`SELECT 1 FROM ${schema}.phone_calls WHERE meeting_id=$1 AND state='MEDIA_CONNECTED'`, [L.seeded.id])).rowCount === 1, 60000), 'the alias admitted a call');
+  const calls = (await admin.query(`SELECT meeting_id, state FROM ${schema}.phone_calls WHERE created_at >= $1 ORDER BY created_at`, [startedAt])).rows; assert.deepEqual(calls.map((c: any) => c.meeting_id), [L.seeded.id, L.seeded.id], 'two calls, both in the one meeting, none elsewhere'); assert.equal(phone2.digitLog.map((x) => x.d).join(''), alias + '#' + pin2 + '#');
+});
 test('FAULT 1 - real ICE restart: a browser that reports its gateway connection as failed triggers the APP own recovery; the gateway re-offers with NEW ICE credentials, the connection recovers, the call stays connected and audio keeps flowing both ways', { skip, timeout: 240000 }, async () => {
   const L = await lab(), i = await L.gwPc(L.A.page); const ufrag = () => L.A.page.evaluate((n) => /a=ice-ufrag:(\S+)/.exec((window as any).__pcs[n].remoteDescription.sdp)?.[1], i); const before = await ufrag(); assert.ok(before);
   await L.A.page.evaluate((n) => (window as any).__force(n, 'failed'), i);                                    // the app's connectionstatechange handler runs recoverPeer: it asks the offerer (the gateway) to restart ICE

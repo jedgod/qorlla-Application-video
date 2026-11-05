@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { admitTelephoneCall, telephoneReady, READINESS_KEYS, type Readiness, type MeetingAuthority, type SipRtpBridge, type CallLedger } from '../src/admission.js';
 
 const all: Readiness = { carrierConnected: true, inboundNumberCertified: true, gatewayHealthy: true, mediaBridgeCertified: true, billingCertified: true, productionApproved: true };
-const request = { meetingId: 'ABC12345', passcode: '123456', callId: 'call_12345678', dialedNumber: '+12025550100' };
+const request = { meetingId: '12345678901', passcode: '123456', callId: 'call_12345678', dialedNumber: '+12025550100' };
 const open: MeetingAuthority = { verifyPhoneJoin: async () => ({ allowed: true, requiresHostApproval: false, meetingSessionId: 's1' }), requestHostApproval: async () => true };
 const good = (log: string[] = []): SipRtpBridge => ({ attach: async () => { log.push('attach'); return { mediaEstablished: true }; }, disconnect: async () => { log.push('disconnect'); } });
 const memoryLedger = (): CallLedger & { held: Set<string> } => { const held = new Set<string>(); return { held, claim: async (id) => (held.has(id) ? false : (held.add(id), true)), release: async (id) => { held.delete(id); } }; };
@@ -32,7 +32,7 @@ test('extra readiness keys cannot compensate for a missing one', () => { const r
 // ---------------------------------------------------------------- request validation
 test('malformed requests are refused before the meeting service is asked', async () => {
   let asked = false; const authority: MeetingAuthority = { verifyPhoneJoin: async () => { asked = true; return { allowed: true, requiresHostApproval: false, meetingSessionId: 's' }; }, requestHostApproval: async () => true };
-  const bad = [{ meetingId: 'abc' }, { meetingId: 'ABC 12345' }, { passcode: '12' }, { passcode: 'x'.repeat(129) }, { callId: 'short' }, { callId: 'call 12345678' }, { dialedNumber: '2025550100' }, { dialedNumber: '+0123456789' }, { dialedNumber: '+1202555010099999' }, { meetingId: 123 }, { passcode: null }];
+  const bad = [{ meetingId: 'abc' }, { meetingId: 'ABC 12345' }, { meetingId: '1234567890' }, { meetingId: '1234567890123' }, { meetingId: '12345678901x' }, { meetingId: '123456789 01 ' + 'x' }, { passcode: '12' }, { passcode: 'x'.repeat(129) }, { callId: 'short' }, { callId: 'call 12345678' }, { dialedNumber: '2025550100' }, { dialedNumber: '+0123456789' }, { dialedNumber: '+1202555010099999' }, { meetingId: 123 }, { passcode: null }];
   for (const patch of bad) { const r = await admitTelephoneCall({ ...request, ...patch } as any, all, authority, good()); assert.equal(r.code, 'INVALID_JOIN_REQUEST', JSON.stringify(patch)); assert.equal(r.status, 403); }
   assert.equal(asked, false);
 });

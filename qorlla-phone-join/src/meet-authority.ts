@@ -1,3 +1,4 @@
+import { normalizeMeetingCode } from './meeting-code.js';
 import crypto from 'node:crypto';
 import type { MeetingAuthority, MeetingDecision, StepOptions, VerifyOptions } from './admission.js';
 import { signGatewayToken } from './gateway-auth.js';
@@ -69,9 +70,9 @@ export class MeetPhoneAuthority implements MeetingAuthority {
   }
 
   async verifyPhoneJoin(meetingNumber: string, passcode: string, opts?: VerifyOptions): Promise<MeetingDecision> {
-    const digits = String(meetingNumber).replace(/\D/g, ''), no: MeetingDecision = { allowed: false, requiresHostApproval: false };
-    // Meet's PIN is 4-12 digits and the meeting number is 11: anything else cannot be right, and is refused without spending an attempt in Meet
-    if (!/^\d{11}$/.test(digits) || !/^\d{4,12}$/.test(passcode) || !opts?.callId || opts.callId.length > 120 || !opts.callerNumber) return no;      // Meet stores the first 120 characters of a call id: a longer one could not be found again
+    const digits = normalizeMeetingCode(meetingNumber), no: MeetingDecision = { allowed: false, requiresHostApproval: false };
+    // Meet's PIN is 4-12 digits and the meeting code 11 (the main app's ID) or 12 digits (Meet's own): anything else cannot be right, and is refused without spending an attempt in Meet
+    if (!digits || !/^\d{4,12}$/.test(passcode) || !opts?.callId || opts.callId.length > 120 || !opts.callerNumber) return no;      // Meet stores the first 120 characters of a call id: a longer one could not be found again
     const { status, data } = await this.post('/api/phone/ivr/verify', { eventId: eventId('gw', opts.callId), callId: opts.callId, from: opts.callerNumber, meetingId: digits, pin: passcode }, opts);
     if (status !== 200 || typeof data?.result !== 'string') throw new Error('meet refused the verification request (' + status + ')');            // includes 503 "not enabled / not ready" and 401: never read as "allowed"
     const callRef = typeof data.callRef === 'string' ? data.callRef.toLowerCase() : '', meetingId = typeof data.meetingId === 'string' ? data.meetingId.toLowerCase() : '';

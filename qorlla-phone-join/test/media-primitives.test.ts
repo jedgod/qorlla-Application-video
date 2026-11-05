@@ -41,9 +41,16 @@ test('DTMF: a digit is reported once however often its packets are repeated; bad
   const d = new DtmfDecoder(); assert.equal(d.decode(1, 1000, dtmfPayload('5', 160, false)), '5'); assert.equal(d.decode(1, 1000, dtmfPayload('5', 320, false)), null); assert.equal(d.decode(1, 1000, dtmfPayload('5', 640, true)), null);
   assert.equal(d.decode(1, 2000, dtmfPayload('#', 640, true)), '#'); assert.equal(d.decode(1, 3000, Buffer.from([20, 10, 0, 160])), null, 'event 20 is not a DTMF symbol'); assert.equal(d.decode(1, 5000, Buffer.from([1, 2])), null, 'short payload');
 });
-test('DTMF entry: a meeting ID completes at 11 digits; # ends a PIN; * restarts; too short / too long / silence / hang-up are distinct, bounded outcomes', async () => {
+test('DTMF entry: a meeting code is 11 or 12 digits and ends ONLY with #; # ends a PIN; * restarts; too short / too long / silence / hang-up are distinct, bounded outcomes', async () => {
   const feed = (e: DtmfEntry, s: string) => { for (const c of s) e.push(c); };
-  const id = new DtmfEntry(RULES.meetingId); feed(id, '1234567890'); id.push('1'); assert.deepEqual(await id.result, { ok: true, digits: '12345678901' });
+  const id = new DtmfEntry(RULES.meetingId); feed(id, '12345678901#'); assert.deepEqual(await id.result, { ok: true, digits: '12345678901' });
+  const id12 = new DtmfEntry(RULES.meetingId); feed(id12, '012345678901#'); assert.deepEqual(await id12.result, { ok: true, digits: '012345678901' }, '12 digits, leading zero kept');
+  const keep = new DtmfEntry({ ...RULES.meetingId, interDigitMs: 60 }); feed(keep, '12345678901'); assert.deepEqual(await keep.result, { ok: false, reason: 'timeout' }, 'the 11th digit does NOT complete the entry: without # it times out and yields nothing');
+  const sep = new DtmfEntry(RULES.meetingId); feed(sep, '123456789012'); sep.push('#'); assert.deepEqual(await sep.result, { ok: true, digits: '123456789012' }, 'the 12th digit is a digit, not a terminator, and nothing is truncated');
+  const thirteen = new DtmfEntry(RULES.meetingId); feed(thirteen, '1234567890123'); assert.deepEqual(await thirteen.result, { ok: false, reason: 'too_long' }, 'a 13th digit is refused, not accepted and not redirected');
+  const ten = new DtmfEntry(RULES.meetingId); feed(ten, '1234567890#'); assert.deepEqual(await ten.result, { ok: false, reason: 'too_short' });
+  const star = new DtmfEntry(RULES.meetingId); feed(star, '999*12345678901#'); assert.deepEqual(await star.result, { ok: true, digits: '12345678901' }, '* restarts');
+  const fixed = new DtmfEntry({ minDigits: 4, maxDigits: 4, interDigitMs: 1000, totalMs: 5000 }); feed(fixed, '1234'); assert.deepEqual(await fixed.result, { ok: true, digits: '1234' }, 'a rule without requireTerminator still completes at its length (unchanged behaviour)');
   const pin = new DtmfEntry(RULES.pin); feed(pin, '99'); pin.push('*'); feed(pin, '4321#'); assert.deepEqual(await pin.result, { ok: true, digits: '4321' });
   const short = new DtmfEntry(RULES.pin); feed(short, '12#'); assert.deepEqual(await short.result, { ok: false, reason: 'too_short' });
   const long = new DtmfEntry({ ...RULES.pin, maxDigits: 5 }); feed(long, '123456'); assert.deepEqual(await long.result, { ok: false, reason: 'too_long' });

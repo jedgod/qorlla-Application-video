@@ -9,7 +9,7 @@ import { PostgresCallLedger, PostgresReplayStore } from '../src/ledger-pg.js';
 // Integration tests against a REAL PostgreSQL. Set PHONE_JOIN_TEST_DATABASE_URL to any database the tests may create a throw-away schema in; without it they are skipped (and reported as skipped).
 const URL = process.env.PHONE_JOIN_TEST_DATABASE_URL, skip = URL ? false : 'PHONE_JOIN_TEST_DATABASE_URL is not set';
 const all: Readiness = { carrierConnected: true, inboundNumberCertified: true, gatewayHealthy: true, mediaBridgeCertified: true, billingCertified: true, productionApproved: true };
-const request = (n: number | string) => ({ meetingId: 'ABC12345', passcode: '123456', callId: 'call_' + String(n).padStart(8, '0'), dialedNumber: '+12025550100' });
+const request = (n: number | string) => ({ meetingId: '12345678901', passcode: '123456', callId: 'call_' + String(n).padStart(8, '0'), dialedNumber: '+12025550100' });
 const open: MeetingAuthority = { verifyPhoneJoin: async () => ({ allowed: true, requiresHostApproval: false, meetingSessionId: 's1' }), requestHostApproval: async () => true };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Polls until the condition holds (background cleanup has no completion signal of its own). */

@@ -41,12 +41,12 @@ class FakeMeeting implements MeetingAudio {
 }
 const realm = 'qorlla-gw', secret = crypto.randomBytes(32), H = ha1('SHA-256', 'trunk1', realm, 'trunk-secret');
 const cleanup: (() => Promise<void> | void)[] = []; test.afterEach(async () => { for (const c of cleanup.splice(0).reverse()) await c(); });
-type StackOpts = { audio?: MeetingAudio; gate?: Promise<void>; readiness?: Partial<Readiness>; meeting?: FakeMeeting['o']; decision?: { allowed: boolean; approval?: boolean }; portRange?: [number, number]; minPackets?: number; stepTimeoutMs?: number; recoverWithinMs?: number; staleAfterMs?: number; meetOK?: boolean; port?: number };
+type StackOpts = { audio?: MeetingAudio; gate?: Promise<void>; readiness?: Partial<Readiness>; meeting?: FakeMeeting['o']; decision?: { allowed: boolean; approval?: boolean }; portRange?: [number, number]; minPackets?: number; stepTimeoutMs?: number; recoverWithinMs?: number; staleAfterMs?: number; meetOK?: boolean; port?: number; codes?: string[]; seen?: string[] };
 async function stack(o: StackOpts = {}) {
   const fake = new FakeMeeting(o.meeting ?? { encrypted: true, speakHz: 1000 }), cancels: string[] = [], held = new Set<string>(), trail: string[] = [], reports: AudioEvidence[] = [], ended: { id: string; reason: string; phase: string }[] = [];
   const ledger: CallLedger = { claim: async (id) => (held.has(id) ? false : (held.add(id), true)), release: async (id) => { held.delete(id); trail.push('released:' + id.slice(0, 8)); }, transition: async (id, to: CallState) => { trail.push(to); return true; } };
   const authority: MeetingAuthority = {
-    verifyPhoneJoin: async (m, p) => (m === MEETING && p === PIN && o.decision?.allowed !== false ? { allowed: true, requiresHostApproval: true, meetingSessionId: SESSION } : { allowed: false, requiresHostApproval: false }),
+    verifyPhoneJoin: async (m, p) => { o.seen?.push(m + '|' + p); return (o.codes ?? [MEETING]).includes(m) && p === PIN && o.decision?.allowed !== false ? { allowed: true, requiresHostApproval: true, meetingSessionId: SESSION } : { allowed: false, requiresHostApproval: false }; },
     requestHostApproval: async () => { await o.gate; return o.decision?.approval === false ? false : { approved: true, mediaToken: TOKEN }; }, cancelAdmission: async (_s, id) => { cancels.push(id); }
   };
   const minPackets = o.minPackets ?? 10, gateway = new SipMediaGateway({ meeting: fake, minPackets, minObservedMs: 200, attachTimeoutMs: 2500, staleAfterMs: o.staleAfterMs ?? 700, recoverWithinMs: o.recoverWithinMs ?? 1200, watchdogMs: 100 });
@@ -56,7 +56,7 @@ async function stack(o: StackOpts = {}) {
   const ingress = new UdpSipIngress({ host: '127.0.0.1', port: o.port ?? 0, realm, digest, allowedSources: ['127.0.0.1'], maxCalls: 8, t1Ms: 20, t2Ms: 80, ringTimeoutMs: 8000, maxInvitesPerSecond: 50, burst: 100 });
   const results: { id: string; code: string }[] = [];
   const controller = new TelephoneController({ ingress, gateway, bridge, authority, readiness: async () => ({ ...READY, ...o.readiness }), tones: false,
-    media: { bindHost: '127.0.0.1', publicHost: '127.0.0.1', portRange: o.portRange ?? [31000, 31400], inactivityMs: 4000 }, rules: { meetingId: { minDigits: 11, maxDigits: 11, interDigitMs: 2000, totalMs: 8000 }, passcode: { minDigits: 4, maxDigits: 32, interDigitMs: 2000, totalMs: 8000 } },
+    media: { bindHost: '127.0.0.1', publicHost: '127.0.0.1', portRange: o.portRange ?? [31000, 31400], inactivityMs: 4000 }, rules: { meetingId: { minDigits: 11, maxDigits: 12, interDigitMs: 2000, totalMs: 8000, requireTerminator: true }, passcode: { minDigits: 4, maxDigits: 32, interDigitMs: 2000, totalMs: 8000 } },
     admission: { ledger, stepTimeoutMs: o.stepTimeoutMs ?? 4000, hostApprovalTimeoutMs: 2000, ledgerTimeoutMs: 1000 }, maxEntryAttempts: 1,
     onEnded: async (id, reason, phase) => { ended.push({ id, reason, phase }); if (phase !== 'ivr') await terminateCall({ bridge, authority, ledger })({ callId: id, meetingSessionId: SESSION }, reason).catch(() => undefined); } });
   controller.start(); const addr = await ingress.start();
@@ -64,7 +64,7 @@ async function stack(o: StackOpts = {}) {
   const phone = async (po: Partial<ConstructorParameters<typeof SyntheticPhone>[0]> = {}) => { const p = await SyntheticPhone.create({ gateway: addr, ...po }); cleanup.push(() => p.close()); return p; };
   /** Dials in, enters the meeting ID and passcode by keypad, streams a 440 Hz tone. Resolves when the 200 OK has been received. */
   const dial = async (p: SyntheticPhone, o2: { id?: string; pin?: string; tone?: Parameters<SyntheticPhone['tone']>[1] | false } = {}) => {
-    const r = await p.invite(); assert.equal(r.status, 200); if (o2.tone !== false) p.tone(440, o2.tone || {}); await p.digits(o2.id ?? MEETING); await p.digits((o2.pin ?? PIN) + '#'); return r;
+    const r = await p.invite(); assert.equal(r.status, 200); if (o2.tone !== false) p.tone(440, o2.tone || {}); await p.digits((o2.id ?? MEETING) + '#'); await p.digits((o2.pin ?? PIN) + '#'); return r;
   };
   return { fake, gateway, ingress, controller, addr, phone, dial, ledger, held, trail, cancels, reports, ended, results, bridge };
 }
@@ -82,6 +82,16 @@ test('happy path: DTMF meeting ID + passcode, admission, then REAL two-way audio
   const ev = s.gateway.measure(id)!; assert.equal(ev.state, 'audio_flowing'); assert.equal(ev.encrypted, true); assert.equal(ev.codec, 'PCMU'); assert.ok(ev.inboundPackets >= 10 && ev.outboundPackets >= 10, JSON.stringify(ev));
   assert.ok(s.reports.length >= 1 && audioVerified(s.reports[0], { minPackets: 10, minObservedMs: 200 }), 'Meet\'s judge was given verified evidence');
   assert.equal(s.trail.includes('released:' + id.slice(0, 8)), false, 'a connected call keeps its claim'); assert.equal(s.ended.length, 0);
+});
+test('A5.3: a 12-digit code (and one with a leading zero) is keyed in with #, reaches admission EXACTLY as dialled, and the passcode is its own entry', async () => {
+  for (const code of ['123456789012', '012345678901', '01234567890']) {
+    const seen: string[] = [], s = await stack({ codes: [code], seen }), p = await s.phone(); await s.dial(p, { id: code }); await connected(s);
+    assert.deepEqual(seen, [code + '|' + PIN], 'the digits that were pressed, untouched, and the passcode without any digit of the code'); assert.equal(s.fake.opens, 1);
+  }
+});
+test('A5.3: a 13th digit is refused - no admission request is made, no passcode is spent, nothing is attached', async () => {
+  const seen: string[] = [], s = await stack({ codes: [MEETING, '123456789012'], seen }), p = await s.phone(); await s.dial(p, { id: '1234567890123' }); await eventually(() => p.requests('BYE').length >= 1, 12000);
+  assert.deepEqual(seen, [], 'nothing reached admission: not the first 11 digits, not the first 12, not anything'); assert.equal(s.fake.opens, 0); assert.equal(s.gateway.activeLegs(), 0); assert.equal(s.bridge.legs.size, 0);
 });
 test('wrong meeting credentials: the caller is refused, hung up, and nothing is ever attached to the meeting', async () => {
   const s = await stack({ decision: { allowed: false } }), p = await s.phone(); await s.dial(p); await eventually(() => p.requests('BYE').length >= 1, 6000);

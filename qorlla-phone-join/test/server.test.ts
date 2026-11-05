@@ -7,7 +7,7 @@ import { createPhoneJoinRouter } from '../src/server.js';
 import { UNAVAILABLE_MESSAGE, type Readiness, type MeetingAuthority, type SipRtpBridge } from '../src/admission.js';
 
 const all: Readiness = { carrierConnected: true, inboundNumberCertified: true, gatewayHealthy: true, mediaBridgeCertified: true, billingCertified: true, productionApproved: true };
-const body = { meetingId: 'ABC12345', passcode: '123456', callId: 'call_12345678', dialedNumber: '+12025550100' };
+const body = { meetingId: '12345678901', passcode: '123456', callId: 'call_12345678', dialedNumber: '+12025550100' };
 const allow: express.RequestHandler = (_q, _r, next) => next();
 const deny = (code: string): express.RequestHandler => (_q, r) => { r.status(401).json({ code }); };
 
@@ -37,7 +37,7 @@ test('admission: a request without a verified gateway is refused before anything
 });
 test('admission: unknown fields and wrong types are rejected as invalid', async () => {
   const calls: string[] = []; const s = await serve({}, calls);
-  for (const bad of [{ ...body, extra: 1 }, { ...body, passcode: 123456 }, { meetingId: 'ABC12345' }, [], null, 'x']) assert.equal((await post(s.base, bad)).status, 400, JSON.stringify(bad));
+  for (const bad of [{ ...body, extra: 1 }, { ...body, passcode: 123456 }, { meetingId: '12345678901' }, [], null, 'x']) assert.equal((await post(s.base, bad)).status, 400, JSON.stringify(bad));
   assert.deepEqual(calls, []); await s.close();
 });
 test('admission: malformed or oversized bodies get a JSON refusal (no stack trace, no HTML)', async () => {

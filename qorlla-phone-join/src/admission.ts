@@ -1,4 +1,5 @@
 /** Qorlla external telephone admission. All external PSTN paths default DENY. */
+import { normalizeMeetingCode } from './meeting-code.js';
 export type Readiness = {
   carrierConnected: boolean;
   inboundNumberCertified: boolean;
@@ -89,7 +90,7 @@ export async function admitTelephoneCall(
   const stepMs = options.stepTimeoutMs ?? 10_000, ledgerMs = options.ledgerTimeoutMs ?? 5_000, hostMs = options.hostApprovalTimeoutMs ?? 60_000, ledger = options.ledger;
   if (!telephoneReady(readiness)) return { status: 503, code: 'PHONE_JOIN_UNAVAILABLE', announcement: UNAVAILABLE_MESSAGE };
   if (typeof req?.meetingId !== 'string' || typeof req.passcode !== 'string' || typeof req.callId !== 'string' || typeof req.dialedNumber !== 'string' || (req.callerNumber !== undefined && (typeof req.callerNumber !== 'string' || !/^\+[1-9]\d{5,14}$/.test(req.callerNumber))) ||
-      !/^[-A-Za-z0-9]{6,64}$/.test(req.meetingId) || req.passcode.length < 4 || req.passcode.length > 128 ||
+      normalizeMeetingCode(req.meetingId) === null || req.passcode.length < 4 || req.passcode.length > 128 ||
       !/^[-A-Za-z0-9_:]{8,128}$/.test(req.callId) || !/^\+[1-9]\d{5,14}$/.test(req.dialedNumber)) {
     return { status: 403, code: 'INVALID_JOIN_REQUEST', announcement: DENIED };
   }

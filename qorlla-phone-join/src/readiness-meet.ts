@@ -1,3 +1,4 @@
+import { normalizeMeetingCode } from './meeting-code.js';
 import { READINESS_KEYS, type Readiness } from './admission.js';
 import { signGatewayToken } from './gateway-auth.js';
 import { GATEWAY_AUDIENCE } from './meet-authority.js';
@@ -43,7 +44,7 @@ export class MeetReadiness {
 export class MeetDirectoryClient {
   constructor(private readonly cfg: { baseUrl: string; bridgeSecret: string; fetchImpl?: typeof fetch; timeoutMs?: number }) { if (String(cfg.bridgeSecret).length < 32) throw new Error('bridgeSecret must be at least 32 characters'); }
   async resolve(meetingNumber: string): Promise<{ meetingId: string; sourceId: string | null; locked: boolean; waitingRoom: boolean } | null> {
-    const digits = String(meetingNumber).replace(/\D/g, ''); if (!/^\d{11}$/.test(digits)) return null;
+    const digits = normalizeMeetingCode(meetingNumber); if (!digits) return null;
     const r = await (this.cfg.fetchImpl ?? fetch)(this.cfg.baseUrl.replace(/\/+$/, '') + '/api/integrations/phone/meetings/' + digits, { headers: { 'x-qorlla-bridge-secret': this.cfg.bridgeSecret }, signal: AbortSignal.timeout(this.cfg.timeoutMs ?? 3000) });
     if (r.status === 404) return null; if (r.status !== 200) throw new Error('directory ' + r.status);
     const b: any = await r.json();
