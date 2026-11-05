@@ -30,11 +30,17 @@ export interface SignalingPort {
   close(): void;
 }
 export type SignalingFactory = (o: { callId: string; meetingSessionId: string; mediaToken?: string; signal: AbortSignal }) => Promise<SignalingPort>;
-export type MeshOptions = { signaling: SignalingFactory; iceServers?: { urls: string | string[]; username?: string; credential?: string }[]; maxRestarts?: number; connectTimeoutMs?: number; jitterDepth?: number };
+/** Timers for the recovery deadlines only (injectable so tests control time). */
+export type MeshClock = { now(): number; setTimeout(fn: () => void, ms: number): unknown; clearTimeout(handle: unknown): void };
+/**
+ * connectTimeoutMs: how long a browser may take to FIRST connect (default 45 s). recoveryDeadlineMs: how long a connection that was up may stay down, counting every ICE restart and every rebuild together (default 30 s).
+ * A peer that misses its deadline is closed and forgotten; when no peer is left the whole session closes with reason `recovery_deadline` (the call is ended with that reason; other participants are not affected).
+ */
+export type MeshOptions = { signaling: SignalingFactory; iceServers?: { urls: string | string[]; username?: string; credential?: string }[]; maxRestarts?: number; connectTimeoutMs?: number; recoveryDeadlineMs?: number; jitterDepth?: number; clock?: MeshClock };
 
 type Peer = {
   id: string; pc: RTCPeerConnection; track: MediaStreamTrack; epoch?: string; remoteEpoch?: string; queue: unknown[]; restarts: number; jb: JitterBuffer<Int16Array>;
-  seq: number; ts: number; ssrc: number; connected: boolean; grace?: NodeJS.Timeout; closed: boolean; decoded: number;
+  seq: number; ts: number; ssrc: number; connected: boolean; grace?: NodeJS.Timeout; deadline?: unknown; closed: boolean; decoded: number;
 };
 const newEpoch = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 export class MeshPeerAudio implements MeetingAudio {
@@ -49,11 +55,13 @@ class MeshSession implements MeetingAudioSession {
   get sessionId() { return this.port.credentialJti; }
   readonly encrypted = true;                                                     // DTLS-SRTP is the only transport werift offers; a peer that is not connected carries nothing
   private readonly peers = new Map<string, Peer>(); private closedFlag = false; private listeners: ((r: string) => void)[] = [];
+  private readonly since = new Map<string, number>(); private readonly everConnected = new Set<string>(); private readonly retired = new Map<string, Set<string>>();     // per browser: when it went (or has been) unconnected, whether it ever connected, epochs of closed connections
+  private get clock(): MeshClock { return this.o.clock ?? { now: () => Date.now(), setTimeout: (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return t; }, clearTimeout: (h) => clearTimeout(h as NodeJS.Timeout) }; }
   private fromMeeting = 0; private toMeeting = 0; private lastFrom = 0;
   constructor(private readonly port: SignalingPort, private readonly o: MeshOptions) {}
   start() {
     this.port.onSignal((from, data) => { void this.onSignal(from, data).catch(() => undefined); });
-    this.port.onPeerLeft((id) => this.drop(id));
+    this.port.onPeerLeft((id) => { this.drop(id); this.forget(id); });
     this.port.onClosed((r) => { void this.close('signaling_' + r); });
     for (const id of this.port.roster()) if (id !== this.port.selfId) this.create(id, true);                 // the joiner offers to everyone already present
   }
@@ -88,14 +96,26 @@ class MeshSession implements MeetingAudioSession {
     pc.onTrack.subscribe((t: MediaStreamTrack) => { t.onReceiveRtp.subscribe((rtp: RtpPacket) => { if (peer.closed || rtp.header.payloadType !== 0 || rtp.payload.length !== 160) return; peer.decoded++; peer.jb.push(rtp.header.sequenceNumber, decode('PCMU', rtp.payload), performance.now(), rtp.header.timestamp / 8); }); });
     pc.connectionStateChange.subscribe((s: string) => {
       if (peer.closed) return; clearTimeout(peer.grace);
-      if (s === 'connected') { peer.connected = true; peer.restarts = 0; }
-      else { peer.connected = false; if (s === 'failed') this.recover(peer); else if (s === 'disconnected') { peer.grace = setTimeout(() => { if (!peer.closed && !peer.connected) this.recover(peer); }, 4000); peer.grace.unref?.(); } }
+      if (s === 'connected') { peer.connected = true; peer.restarts = 0; this.unwatch(peer); }
+      else { peer.connected = false; this.watch(peer); if (s === 'failed') this.recover(peer); else if (s === 'disconnected') { peer.grace = setTimeout(() => { if (!peer.closed && !peer.connected) this.recover(peer); }, 4000); peer.grace.unref?.(); } }
     });
-    if (initiator) void this.offer(peer, false);
+    this.watch(peer); if (initiator) void this.offer(peer, false);
     return peer;
   }
+  /** Bounded recovery. The clock starts when a browser first becomes unconnected and is NOT reset by an ICE restart or a rebuild: only a real connection (or the browser leaving) stops it. */
+  private watch(peer: Peer) {
+    if (peer.closed || this.closedFlag) return; const c = this.clock; c.clearTimeout(peer.deadline); const now = c.now(); if (!this.since.has(peer.id)) this.since.set(peer.id, now);
+    const limit = this.everConnected.has(peer.id) ? (this.o.recoveryDeadlineMs ?? 30_000) : (this.o.connectTimeoutMs ?? 45_000);
+    peer.deadline = c.setTimeout(() => this.expire(peer), Math.max(0, this.since.get(peer.id)! + limit - now));
+  }
+  private unwatch(peer: Peer) { this.clock.clearTimeout(peer.deadline); peer.deadline = undefined; this.since.delete(peer.id); this.everConnected.add(peer.id); }
+  private forget(id: string) { this.since.delete(id); this.everConnected.delete(id); }
+  private expire(peer: Peer) {
+    if (peer.closed || this.closedFlag || peer.connected || this.peers.get(peer.id) !== peer) return;                       // it recovered, or was already replaced: nothing to do
+    this.drop(peer.id); this.forget(peer.id); if (this.peers.size === 0) void this.close('recovery_deadline');                // nobody left to talk to: end the leg, with the reason
+  }
   private async offer(peer: Peer, iceRestart: boolean) {
-    try { const o = await peer.pc.createOffer(iceRestart ? { iceRestart: true } : undefined); await peer.pc.setLocalDescription(o); this.port.send(peer.id, { type: 'offer', sdp: toInit(peer.pc.localDescription), epoch: peer.epoch! }); } catch { this.drop(peer.id); }
+    try { const o = await peer.pc.createOffer(iceRestart ? { iceRestart: true } : undefined); await peer.pc.setLocalDescription(o); if (peer.closed || this.peers.get(peer.id) !== peer) return; this.port.send(peer.id, { type: 'offer', sdp: toInit(peer.pc.localDescription), epoch: peer.epoch! }); } catch { this.drop(peer.id); }
   }
   /** A connection that is down: the offering side re-offers, the answering side asks (browsers do the same); after repeated failures the pair is rebuilt from scratch. */
   private recover(peer: Peer) {
@@ -105,11 +125,12 @@ class MeshSession implements MeetingAudioSession {
   }
   private async onSignal(id: string, data: SignalData) {
     if (this.closedFlag || !data || typeof data !== 'object') return; let peer = this.peers.get(id);
+    if (data.type === 'offer' && data.epoch && this.retired.get(id)?.has(data.epoch)) return;                                // an offer of a connection that was already closed (a superseded attempt)
     if (data.type === 'offer') {
       if (peer?.epoch) { if (this.port.selfId < id) { this.drop(id); peer = undefined; } else return; }                  // both sides offered at once: the lower id yields, the other keeps its offer
       else if (peer?.remoteEpoch && peer.remoteEpoch !== data.epoch) { this.drop(id); peer = undefined; }              // the other side rebuilt its connection
       peer ??= this.create(id, false); peer.remoteEpoch = data.epoch;
-      await peer.pc.setRemoteDescription(data.sdp as never); await this.flush(peer); const answer = await peer.pc.createAnswer(); await peer.pc.setLocalDescription(answer);
+      await peer.pc.setRemoteDescription(data.sdp as never); await this.flush(peer); const answer = await peer.pc.createAnswer(); await peer.pc.setLocalDescription(answer); if (peer.closed || this.peers.get(id) !== peer) return;
       this.port.send(id, { type: 'answer', sdp: toInit(peer.pc.localDescription), epoch: data.epoch }); return;
     }
     if (!peer || ('epoch' in data && data.epoch && data.epoch !== (peer.epoch ?? peer.remoteEpoch))) return;                // a message from a connection that no longer exists
@@ -119,7 +140,9 @@ class MeshSession implements MeetingAudioSession {
     else if (data.type === 'rebuild') { if (peer.epoch) { this.drop(id); this.create(id, true); } }
   }
   private async flush(peer: Peer) { for (const c of peer.queue.splice(0)) { try { await peer.pc.addIceCandidate(c as never); } catch { /* ignored */ } } }
-  private drop(id: string) { const p = this.peers.get(id); if (!p) return; p.closed = true; p.connected = false; clearTimeout(p.grace); this.peers.delete(id); void p.pc.close().catch(() => undefined); }
+  private drop(id: string) {
+    const p = this.peers.get(id); if (!p) return; p.closed = true; p.connected = false; clearTimeout(p.grace); this.clock.clearTimeout(p.deadline); this.peers.delete(id);
+    const dead = this.retired.get(id) ?? new Set<string>(); for (const e of [p.epoch, p.remoteEpoch]) if (e) dead.add(e); if (dead.size > 16) dead.delete(dead.values().next().value as string); this.retired.set(id, dead); void p.pc.close().catch(() => undefined); }
   async close(reason = 'closed') {
     if (this.closedFlag) return; this.closedFlag = true; for (const id of [...this.peers.keys()]) this.drop(id); try { this.port.close(); } catch { /* already closed */ }
     for (const l of this.listeners.splice(0)) { try { l(reason); } catch { /* a listener must not break teardown */ } }

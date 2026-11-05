@@ -126,7 +126,8 @@ test('crash recovery: stale open claims are reaped by exactly one reaper, their 
   await admin.query(`UPDATE ${schema}.phone_join_calls SET lease_challenged_at = now() - interval '5 minutes' WHERE lease_challenged_at IS NOT NULL`);        // the grace period passed with no renewal
   const got = (await Promise.all([a.ledger.reapStale(), b.ledger.reapStale()])).flat().sort(); assert.deepEqual(got, ['stale_00000001', 'stale_00000002'], 'each stale claim goes to one reaper');
   assert.equal(await a.ledger.stateOf('live_000000001'), 'connected');
-  await a.ledger.finishReap('stale_00000001', true); await a.ledger.finishReap('stale_00000002', false);
+  const owner = (id: string) => [a, b].find((r) => r.ledger.generationOf(id) === 2)!.ledger;      // a reaper settles only what IT took over (generation 2); `a` still remembers generation 1 from its own claim, and finishReap is fenced
+  assert.equal(await owner('stale_00000001').finishReap('stale_00000001', true), true); assert.equal(await owner('stale_00000002').finishReap('stale_00000002', false), true);
   assert.equal(await a.ledger.stateOf('stale_00000001'), null); assert.equal(await a.ledger.stateOf('stale_00000002'), 'orphaned');
   assert.deepEqual(await a.ledger.reapStale(), [], 'nothing left to reap');
 });

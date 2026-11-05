@@ -40,6 +40,15 @@ const goertzel = (frames: Int16Array[], hz: number) => { if (!frames.length) ret
 /** How many UDP ports of the gateway's RTP range are currently held by SOMEONE (a bind probe): >0 while a call is up, 0 once it is over. */
 const portsHeld = async (lo: number, hi: number) => { let held = 0; for (let p = lo; p <= hi; p += 2) held += await new Promise<number>((res) => { const sk = dgram.createSocket('udp4'); sk.once('error', () => { try { sk.close(); } catch { /* closed */ } res(1); }); sk.bind(p, '127.0.0.1', () => sk.close(() => res(0))); }); return held; };
 const leftovers = () => { try { const out = process.platform === 'win32' ? execFileSync('wmic', ['process', 'where', "name='node.exe'", 'get', 'ProcessId,CommandLine', '/format:list'], { encoding: 'utf8' }) : execFileSync('ps', ['-eo', 'pid,args'], { encoding: 'utf8' }); return out.split(String.fromCharCode(10)).filter((l) => l.includes('--a5-test=' + RUN) && !l.includes('wmic') && !l.includes('ps -eo')); } catch { return []; } };
+const logSinks: { name: string; log: () => string }[] = [];      // gateway / Meet logs, written next to the evidence at the end of each test (lab observability)
+/** Lab observability: while a stack starts, sample the host CPU and the database sessions (waits, locks) and the round trip of a probe query, from the test process. */
+function sampler() {
+  const out = { samples: 0, cpuMaxPct: 0, cpuSumPct: 0, dbProbeMaxMs: 0, maxActiveSessions: 0, lockWaits: 0, waitEvents: {} as Record<string, number> }; let prev = os.cpus(), stopped = false;
+  const run = (async () => { while (!stopped) { const cpus = os.cpus(); let idle = 0, total = 0; cpus.forEach((c, i) => { for (const k of Object.keys(c.times) as (keyof typeof c.times)[]) { total += c.times[k] - prev[i].times[k]; } idle += c.times.idle - prev[i].times.idle; }); prev = cpus; const pct = total ? 100 * (1 - idle / total) : 0; out.cpuMaxPct = Math.max(out.cpuMaxPct, pct); out.cpuSumPct += pct; out.samples++;
+    const t = performance.now(); try { const r = await admin.query("SELECT wait_event_type, wait_event, state FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()"); out.dbProbeMaxMs = Math.max(out.dbProbeMaxMs, performance.now() - t); const active = r.rows.filter((x) => x.state && x.state !== 'idle'); out.maxActiveSessions = Math.max(out.maxActiveSessions, active.length); for (const x of r.rows) if (x.wait_event_type) { const k = x.wait_event_type + ':' + x.wait_event; out.waitEvents[k] = (out.waitEvents[k] ?? 0) + 1; if (x.wait_event_type === 'Lock') out.lockWaits++; } } catch { /* ignore */ }
+    await sleep(500); } })();
+  return async () => { stopped = true; await run; return { ...out, cpuAvgPct: out.samples ? out.cpuSumPct / out.samples : 0, cpuMaxPct: Math.round(out.cpuMaxPct), dbProbeMaxMs: Math.round(out.dbProbeMaxMs) }; };
+}
 const evidence: Record<string, unknown> = {}; const saveEvidence = (name: string) => { const d = process.env.A5_EVIDENCE_DIR; if (d) { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, name + '.json'), JSON.stringify(evidence, null, 2)); } };
 const toneTimeline = (p: SyntheticPhone) => { const out: string[] = []; for (let i = 0; i + 10 <= p.received.length; i += 10) { const w = p.received.slice(i, i + 10); const c = goertzel(w, 880), e = goertzel(w, 330); if (c > 0.01) out.push(`${i * 20}ms:cue880`); else if (e > 0.01) out.push(`${i * 20}ms:error330`); } return out.join(' '); };
 const REFS = [700, 1250, 1750, 2700, 3200];
@@ -51,7 +60,7 @@ test.before(async () => {
   if (skip) return; schema = 'e2e_' + Math.random().toString(36).slice(2, 8); admin = new pg.Pool({ connectionString: URL_ }); await admin.query('CREATE SCHEMA ' + schema);
   const c = await admin.connect(); try { await c.query('SET search_path=' + schema); for (const f of ORDER) await c.query(fs.readFileSync(path.join(MEET_DIR!, 'sql', f), 'utf8')); } finally { c.release(); }
 });
-test.afterEach(async () => { for (const p of phones.splice(0)) p.close(); for (const b of browsers.splice(0)) await b.close().catch(() => undefined); const ps = procs.splice(0); for (const p of ps) { try { p.kill(); } catch { /* gone */ } } await Promise.all(ps.map((p) => new Promise<void>((r) => { if (p.exitCode !== null || p.signalCode) return r(); p.once('exit', () => r()); setTimeout(r, 8000).unref?.(); })));
+test.afterEach(async (t) => { const dir = process.env.A5_EVIDENCE_DIR; if (dir) { fs.mkdirSync(dir, { recursive: true }); for (const k of logSinks.splice(0)) fs.writeFileSync(path.join(dir, String(t.name).replace(/[^A-Za-z0-9]+/g, '_').slice(0, 60) + '.' + k.name + '.log'), k.log()); } else logSinks.splice(0); if (dir && Object.keys(evidence).length) fs.writeFileSync(path.join(dir, String(t.name).replace(/[^A-Za-z0-9]+/g, '_').slice(0, 60) + '.evidence.json'), JSON.stringify(evidence, null, 2)); for (const p of phones.splice(0)) p.close(); for (const b of browsers.splice(0)) await b.close().catch(() => undefined); const ps = procs.splice(0); for (const p of ps) { try { p.kill(); } catch { /* gone */ } } await Promise.all(ps.map((p) => new Promise<void>((r) => { if (p.exitCode !== null || p.signalCode) return r(); p.once('exit', () => r()); setTimeout(r, 8000).unref?.(); })));
   await sleep(300); assert.deepEqual(leftovers(), [], 'no Meet or gateway process of this test survives it'); });
 test.after(async () => { if (skip) return; await admin.query('DROP SCHEMA ' + schema + ' CASCADE'); await admin.end(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
@@ -61,12 +70,13 @@ async function startMeet() {
     RECORDING_MASTER_KEYS: JSON.stringify({ k1: crypto.randomBytes(32).toString('base64') }), RECORDING_ACTIVE_KEY_ID: 'k1', RECORDING_STORE_DIR: store, RECORDING_ADMIN_SECRET: 'x'.repeat(24), NODE_ENV: 'development', PHONE_SWEEP_MS: '500', PHONE_PROVIDER: 'test', PHONE_WEBHOOK_SECRET: HMAC,
     PHONE_PEER_SIGNING_KEY_PEM: privateKey.export({ type: 'pkcs8', format: 'pem' }) as string, PHONE_PEER_KID: 'p1', PHONE_MEDIA_TIMEOUT_MS: '40000', PHONE_MEDIA_STALE_MS: '15000' };
   const child = spawn(process.execPath, ['server/index.js', '--a5-test=' + RUN], { cwd: MEET_DIR!, env, stdio: ['ignore', 'pipe', 'pipe'] }); procs.push(child); let log = ''; child.stdout!.on('data', (d) => (log += d)); child.stderr!.on('data', (d) => (log += d));
-  const base = 'http://127.0.0.1:' + port; for (let i = 0; i < 80; i++) { if (await fetch(base + '/api/ready').then((r) => r.ok).catch(() => false)) return { base, log: () => log }; await sleep(250); } throw new Error('Meet did not start: ' + log.slice(-500));
+  const base = 'http://127.0.0.1:' + port; for (let i = 0; i < 80; i++) { if (await fetch(base + '/api/ready').then((r) => r.ok).catch(() => false)) logSinks.push({ name: 'meet', log: () => log }); return { base, log: () => log }; await sleep(250); } throw new Error('Meet did not start: ' + log.slice(-500));
 }
 async function startGateway(meetBase: string, extraEnv: Record<string, string> = {}) {
   const env = { ...process.env, ...extraEnv, MEET_URL: meetBase, MEET_HMAC_SECRET: HMAC, SIP_USER, SIP_PASSWORD: SIP_PASS, GATEWAY_DATABASE_URL: URL_!, GATEWAY_PG_SCHEMA: 'gw_' + schema, A5_LAB_READINESS: '1', RTP_RANGE: '34000-34300', A5_LOG: '1' };
   const child = spawn(process.execPath, [path.join(ROOT, 'scripts', 'a5-gateway-runner.mjs'), '--a5-test=' + RUN], { cwd: ROOT, env, stdio: ['pipe', 'pipe', 'pipe'] }); procs.push(child); let log = '';
   child.stderr!.on('data', (d) => (log += d)); const info = await new Promise<{ sipPort: number }>((resolve, reject) => { let out = ''; const t = setTimeout(() => reject(new Error('gateway did not start: ' + log.slice(-500))), 20000); child.stdout!.on('data', (d) => { out += d; const m = /\{"ready":true[^\n]*\}/.exec(out); if (m) { clearTimeout(t); resolve(JSON.parse(m[0])); } }); child.on('exit', (c) => reject(new Error('gateway exited ' + c + ': ' + log.slice(-500)))); });
+  logSinks.push({ name: 'gateway' + (extraEnv.A5_REAPER ? '2' : ''), log: () => log });
   return { child, sipPort: info.sipPort, log: () => log, kill: () => { try { child.kill('SIGKILL'); } catch { /* gone */ } } };
 }
 
@@ -77,9 +87,14 @@ const INIT = `(() => { const pcs = []; const Orig = window.RTCPeerConnection; wi
     pc.addEventListener('connectionstatechange', () => note('conn=' + pc.connectionState)); pc.addEventListener('iceconnectionstatechange', () => note('ice=' + pc.iceConnectionState)); void t0; return pc; }; window.RTCPeerConnection.prototype = Orig.prototype; window.__pcs = pcs; const tl = (window.__tl = window.__tl || []); const note0 = (what) => tl.push([Math.round(performance.now()), -1, what]);
   const OrigWS = window.WebSocket; const KINDS = ['participant-online', 'participant-offline', 'roster', 'signal'], SIG = ['offer', 'answer', 'candidate', 'restart', 'rebuild'];
   const kindOf = (d) => KINDS.find((k) => { const at = d.indexOf('"' + k + '"'); return at >= 0 && at < 14; }), sigOf = (d) => SIG.find((t) => d.indexOf('"type":"' + t + '"') >= 0) || '?';
-  window.WebSocket = function (...a) { const ws = new OrigWS(...a); ws.addEventListener('message', (e) => { if (typeof e.data === 'string' && e.data.startsWith('42')) { const k = kindOf(e.data); if (k) note0('ws-in ' + k + (k === 'signal' ? ' ' + sigOf(e.data) : '') + (k === 'participant-online' ? ' ' + e.data.substr(e.data.indexOf('"participantId":"') + 17, 8) : '')); } });
+  window.WebSocket = function (...a) { const ws = new OrigWS(...a);
+    // A5.2 laboratory control: with __freezeOnPhoneOnline set, the announcement of the PHONE (participant-online with phone:true) is held back, and so is any participant-offline behind it (order is kept); everything else, signalling included, flows. __thaw() delivers the held events in order.
+    ws.addEventListener('message', (e) => { if (e.__replay || typeof e.data !== 'string' || !e.data.startsWith('42')) return; const on = e.data.indexOf('"participant-online"') >= 0 && e.data.indexOf('"phone":true') >= 0; if (on && window.__freezeOnPhoneOnline) window.__freeze = true;
+      if (window.__freeze && (on || e.data.indexOf('"participant-offline"') >= 0)) { e.stopImmediatePropagation(); (window.__frozen = window.__frozen || []).push({ ws, d: e.data }); note0('held ' + (on ? 'participant-online' : 'participant-offline')); } });
+    ws.addEventListener('message', (e) => { if (typeof e.data === 'string' && e.data.startsWith('42')) { const k = kindOf(e.data); if (k) note0('ws-in ' + k + (k === 'signal' ? ' ' + sigOf(e.data) : '') + (k === 'participant-online' ? ' ' + e.data.substr(e.data.indexOf('"participantId":"') + 17, 8) : '')); } });
     const send = ws.send.bind(ws); ws.send = (d) => { if (typeof d === 'string' && d.indexOf('"signal"') >= 0 && d.indexOf('"signal"') < 14) note0('ws-out signal ' + sigOf(d)); return send(d); }; return ws; }; Object.assign(window.WebSocket, OrigWS); window.WebSocket.prototype = OrigWS.prototype;
   new MutationObserver((muts) => { for (const mu of muts) for (const n of mu.addedNodes) if (n.id && String(n.id).startsWith('tile-')) note0('tile appeared ' + n.id.slice(0, 13)); }).observe(document, { childList: true, subtree: true });
+  window.__thaw = () => { window.__freeze = false; window.__freezeOnPhoneOnline = false; const q = (window.__frozen || []).splice(0); for (const x of q) { const ev = new MessageEvent('message', { data: x.d }); ev.__replay = true; x.ws.dispatchEvent(ev); } return q.length; };
   window.__force = (i, state) => { const pc = pcs[i]; Object.defineProperty(pc, 'connectionState', { configurable: true, get: () => state }); pc.dispatchEvent(new Event('connectionstatechange')); };
   window.__unforce = (i) => { const pc = pcs[i]; delete pc.connectionState; pc.dispatchEvent(new Event('connectionstatechange')); };
   window.__gatewayIndex = () => pcs.findIndex((pc) => pc.remoteDescription && /PCMU/.test(pc.remoteDescription.sdp) && !/opus/i.test(pc.remoteDescription.sdp) && pc.connectionState !== 'closed');
@@ -92,7 +107,7 @@ const INIT = `(() => { const pcs = []; const Orig = window.RTCPeerConnection; wi
 })();`;
 
 async function chrome(hz: number): Promise<Browser> {
-  const b = await chromium.launch({ headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-audio-capture=' + wav(hz), '--autoplay-policy=no-user-gesture-required', '--disable-features=WebRtcHideLocalIpsWithMdns', '--allow-loopback-in-peer-connection'] }); browsers.push(b); return b;
+  const b = await chromium.launch({ headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream' + (process.env.A5_CAM_FPS ? '=fps=' + Number(process.env.A5_CAM_FPS) : ''), '--use-file-for-fake-audio-capture=' + wav(hz), '--autoplay-policy=no-user-gesture-required', '--disable-features=WebRtcHideLocalIpsWithMdns', '--allow-loopback-in-peer-connection'] }); browsers.push(b); return b;
 }
 type Who = { page: Page; id: string; meetingId: string; code?: string; token: string; pid: string };
 async function openMeeting(b: Browser, base: string, name: string, join?: string): Promise<Who> {
@@ -223,4 +238,92 @@ test('FAULT 4 - keep-alive rejection: when the telephone stops sending audio, th
   assert.ok(await eventually(async () => (await callState(L.call.id)).state === 'TERMINATED', 30000), 'the call ended'); const st = await callState(L.call.id);
   assert.equal(st.end_reason, 'media_unverified', 'Meet rejected the keep-alive evidence (the gateway own inactivity timeout is 8 s and would have said something else): ' + st.end_reason);
   assert.ok(await eventually(() => gatewayPcsGone(L), 25000), 'the browsers dropped the gateway'); evidence.keepAliveRejection = { endReason: st.end_reason }; saveEvidence('fault-4-keepalive-rejection');
+});
+
+// ================================================================================================ A5.2: the window between a gateway connection forming and the roster announcing the phone
+// The announcement (participant-online) is held back in the page, on purpose, by __freezeOnPhoneOnline: the connection to the gateway exists, is up, and the app's roster does not know the phone yet. Readiness here is NEVER the
+// participant tile or the announcement (that would exclude the very race under test): it is Meet's promotion (database), the gateway connection being up in the browser, and the announcement sitting in the hold queue.
+type Early = Awaited<ReturnType<typeof earlyLab>>;
+const gwPcs = (p: Page) => p.evaluate(() => (window as any).__peerIndexes().filter((x: any) => x.gateway));
+const tlOf = (p: Page) => p.evaluate(() => (window as any).__tl as [number, number, string][]);
+const countOf = (tl: [number, number, string][], what: string) => tl.filter((x) => x[2] === what).length;
+const heldCount = (p: Page) => p.evaluate(() => ((window as any).__frozen || []).length as number);
+async function earlyLab(o: { freeze: ('A' | 'B')[]; carol?: boolean }) {
+  const meet = await startMeet(), gw = await startGateway(meet.base), seeded = await seedMeeting(meet.base);
+  const A = await openMeeting(await chrome(1000), meet.base, 'Alice', seeded.id), B = await openMeeting(await chrome(1500), meet.base, 'Bob', seeded.id), C = o.carol ? await openMeeting(await chrome(2000), meet.base, 'Carol', seeded.id) : undefined; A.code = seeded.code;
+  const mesh = async () => { for (const w of [A, B, C]) if (w && !(await connectedPeers(w.page)).some((x: any) => x.state === 'connected')) return false; return true; };
+  await eventually(mesh, 30000); if (C) await sleep(4000);                                  // three browsers starting their capture devices load the machine: let that settle before the phone dials (the gateway's own timeouts are not relaxed for the test)
+  for (const w of [A, B]) if (o.freeze.includes(w.id === 'Alice' ? 'A' : 'B')) await w.page.evaluate(() => { (window as any).__freezeOnPhoneOnline = true; });
+  evidence.cameraFps = { configured: process.env.A5_CAM_FPS ?? 'uncapped', observed: await Promise.all([A, B, C].filter(Boolean).map((w) => w!.page.evaluate(() => { const t = (window as any).__qorlla?.state?.stream?.getVideoTracks?.()[0]; return t ? t.getSettings().frameRate ?? null : null; }))) };
+  const stopSampler = sampler(); const pin = (await seeded.makePin()).pin, phone = await dial(gw, seeded.code, pin), all = [A, B, C].filter(Boolean) as Who[];
+  const promoted = await eventually(async () => !!(await admin.query(`SELECT 1 FROM ${schema}.phone_calls WHERE meeting_id=$1 AND state='MEDIA_CONNECTED'`, [seeded.id])).rowCount, 60000);
+  if (!promoted) { evidence.setupProbe = { browsers: all.length, failed: true, ...(await stopSampler()) }; assert.fail('setup probe ' + JSON.stringify(evidence.setupProbe) + ' | the call did not connect: ' + JSON.stringify((await admin.query(`SELECT state, end_reason FROM ${schema}.phone_calls WHERE meeting_id=$1`, [seeded.id])).rows) + ' | gateway log: ' + gw.log().slice(-1500) + ' | meet log: ' + meet.log().slice(-600)); }
+  evidence.setupProbe = { browsers: all.length, ...(await stopSampler()) };
+  const call = (await admin.query(`SELECT * FROM ${schema}.phone_calls WHERE meeting_id=$1 ORDER BY created_at`, [seeded.id])).rows[0];
+  const gwPc = async (p: Page) => (await connectedPeers(p)).find((x: any) => x.gateway && x.state === 'connected')?.i as number; assert.ok(await eventually(async () => { for (const w of all) if ((await gwPc(w.page)) === undefined) return false; return true; }, 30000), 'every browser has its connection to the gateway up');
+  for (const w of o.freeze) { const who = w === 'A' ? A : B; assert.ok(await eventually(async () => (await heldCount(who.page)) > 0, 20000), who.id + ' has the announcement of the phone held back'); }
+  return { meet, gw, seeded, A, B, C, phone, pin, call, gwPc, all };
+}
+const heardBy = (L: Early, hz: number, n = 60) => snr(L.phone.received.slice(-n), hz) >= 30;
+const othersMoving = async (page: Page) => { const idx = (await connectedPeers(page)).filter((x: any) => !x.gateway); assert.ok(idx.length >= 1); const s0 = await Promise.all(idx.map((x: any) => page.evaluate((n) => (window as any).__stats(n), x.i))); await sleep(1500); const s1 = await Promise.all(idx.map((x: any) => page.evaluate((n) => (window as any).__stats(n), x.i)));
+  idx.forEach((_: any, k: number) => { assert.equal(s1[k].state, 'connected', 'a browser-to-browser connection stays connected'); assert.ok(s1[k].inPackets > s0[k].inPackets + 20, 'and its audio keeps flowing'); }); };
+
+test('A5.2 - ICE failure BEFORE participant-online: recovery runs against the pending peer, audio resumes both ways, the late announcement then finds ONE peer and starts no second recovery; browsers A, B and C stay connected to each other throughout', { skip, timeout: 280000 }, async () => {
+  const L = await earlyLab({ freeze: ['A'], carol: true }), i = await L.gwPc(L.A.page); const ufrag = () => L.A.page.evaluate((n) => (window as any).__pcs[n].remoteDescription.sdp.split('a=ice-ufrag:')[1].split(String.fromCharCode(13))[0], i); const before = await ufrag();
+  assert.equal(countOf(await tlOf(L.A.page), 'ws-in participant-online ' + L.call.participant_id.slice(0, 8)), 0, 'Alice has NOT been told about the phone'); assert.ok(heardBy(L, 1000) && heardBy(L, 1500) && heardBy(L, 2000), 'the phone hears Alice, Bob and Carol before the fault');
+  await L.A.page.evaluate((n) => (window as any).__force(n, 'failed'), i);
+  assert.ok(await eventually(async () => (await ufrag()) !== before, 20000), 'the gateway re-offered with new ICE credentials although the phone is not in Alice\'s roster yet'); assert.equal(countOf(await tlOf(L.A.page), 'ws-out signal restart'), 1, 'exactly one restart request');
+  assert.equal(countOf(await tlOf(L.A.page), 'ws-in participant-online ' + L.call.participant_id.slice(0, 8)), 0, 'still not announced during the recovery');
+  await L.A.page.evaluate((n) => (window as any).__unforce(n), i); assert.ok(await eventually(async () => (await L.A.page.evaluate((n) => (window as any).__pcs[n].connectionState, i)) === 'connected', 25000), 'the connection recovered');
+  let ok = false; for (let n = 0; n < 40 && !ok; n++) { await sleep(500); ok = heardBy(L, 1000); } assert.ok(ok, 'the phone hears Alice again (' + snr(L.phone.received.slice(-60), 1000).toFixed(1) + 'x)'); assert.ok(heardBy(L, 1500) && heardBy(L, 2000), 'and never stopped hearing Bob and Carol');
+  const heard = await L.A.page.evaluate((n) => (window as any).__listen(n, 2000), i); assert.ok(heard.levels[440] - heard.noise > 25, 'Alice hears the phone again (' + (heard.levels[440] - heard.noise).toFixed(1) + ' dB above noise)');
+  for (const w of L.all) await othersMoving(w.page);
+  // the announcement now arrives: the SAME connection is adopted, nothing is recovered a second time
+  const restartsBefore = countOf(await tlOf(L.A.page), 'ws-out signal restart'), gwBefore = (await gwPcs(L.A.page)).length; assert.ok((await L.A.page.evaluate(() => (window as any).__thaw())) >= 1); await sleep(2500);
+  assert.equal((await gwPcs(L.A.page)).length, gwBefore, 'no second connection to the gateway'); assert.equal((await gwPcs(L.A.page)).filter((x: any) => x.state !== 'closed').length, 1); assert.equal(countOf(await tlOf(L.A.page), 'ws-out signal restart'), restartsBefore, 'no further recovery');
+  assert.ok(await L.A.page.evaluate((pid) => !!document.getElementById('tile-' + pid), L.call.participant_id), 'and now the phone is on Alice\'s roster'); assert.equal((await callState(L.call.id)).state, 'MEDIA_CONNECTED');
+  evidence.earlyIceFailure = { ufragChanged: true, restartRequests: 1, gatewayConnectionsInAlice: gwBefore }; saveEvidence('a52-early-ice-failure');
+});
+
+test('A5.2 - the announcement arrives DURING the recovery: one peer, no duplicate recovery, and audio resumes', { skip, timeout: 280000 }, async () => {
+  const L = await earlyLab({ freeze: ['A'] }), i = await L.gwPc(L.A.page); const gwBefore = (await gwPcs(L.A.page)).length;
+  await L.A.page.evaluate((n) => (window as any).__force(n, 'failed'), i); assert.ok(await eventually(async () => countOf(await tlOf(L.A.page), 'ws-out signal restart') === 1, 15000), 'recovery started (the connection is still reported failed)');
+  assert.ok((await L.A.page.evaluate(() => (window as any).__thaw())) >= 1, 'the announcement is delivered NOW, mid-recovery'); assert.ok(await eventually(() => L.A.page.evaluate((pid) => !!document.getElementById('tile-' + pid), L.call.participant_id), 15000), 'the phone joined the roster');
+  await sleep(3000); assert.equal(countOf(await tlOf(L.A.page), 'ws-out signal restart'), 1, 'still exactly one recovery'); assert.equal((await gwPcs(L.A.page)).length, gwBefore, 'one peer: no second connection was created'); await L.A.page.evaluate((n) => (window as any).__unforce(n), i);
+  assert.ok(await eventually(async () => (await L.A.page.evaluate((n) => (window as any).__pcs[n].connectionState, i)) === 'connected', 25000), 'connected again'); let ok = false; for (let n = 0; n < 40 && !ok; n++) { await sleep(500); ok = heardBy(L, 1000); } assert.ok(ok, 'the phone hears Alice again');
+  const heard = await L.A.page.evaluate((n) => (window as any).__listen(n, 2000), i); assert.ok(heard.levels[440] - heard.noise > 25, 'Alice hears the phone again'); assert.equal((await callState(L.call.id)).state, 'MEDIA_CONNECTED'); await othersMoving(L.A.page);
+  evidence.announcementDuringRecovery = { restartRequests: 1 }; saveEvidence('a52-announcement-during-recovery');
+});
+
+test('A5.2 - the announcement NEVER arrives: the pending connections are closed at their deadline, the gateway ends the leg at ITS recovery deadline (with that reason), resources are released, and the browsers stay connected to each other', { skip, timeout: 280000 }, async () => {
+  const L = await earlyLab({ freeze: ['A', 'B'] }); const t0 = Date.now();
+  assert.ok(await eventually(async () => (await gwPcs(L.A.page)).every((x: any) => x.state === 'closed') && (await gwPcs(L.B.page)).every((x: any) => x.state === 'closed'), 80000, 500), 'both browsers closed their never-announced connection to the gateway (bounded at 45 s)'); const closedAfter = Date.now() - t0;
+  assert.ok(await eventually(async () => (await callState(L.call.id)).state === 'TERMINATED', 90000, 500), 'the telephone leg was terminated (no call left in MEDIA_CONNECTED): ' + JSON.stringify(await callState(L.call.id)) + ' gateway log: ' + L.gw.log().slice(-1200)); const st = await callState(L.call.id);
+  assert.ok((await cred(L.call.id)).revoked_at, 'the credential is revoked'); let held = await portsHeld(34000, 34300); for (let n = 0; n < 30 && held > 0; n++) { await sleep(300); held = await portsHeld(34000, 34300); } assert.equal(held, 0, 'the RTP port was released');
+  assert.ok(await eventually(() => L.phone.requests('BYE').length >= 1, 15000), 'the caller was hung up'); await othersMoving(L.A.page);
+  evidence.announcementNeverArrives = { browsersClosedPendingAfterMs: closedAfter, finalState: st.state, endReason: st.end_reason }; saveEvidence('a52-announcement-never-arrives');
+});
+
+test('A5.2 - the PIN is revoked while a pending peer is recovering (before Meet promoted the call): no reconnection, no promotion, and a late announcement or signalling revives nothing', { skip, timeout: 280000 }, async () => {
+  const meet = await startMeet(), gw = await startGateway(meet.base), seeded = await seedMeeting(meet.base);
+  const A = await openMeeting(await chrome(1000), meet.base, 'Alice', seeded.id), B = await openMeeting(await chrome(1500), meet.base, 'Bob', seeded.id); A.code = seeded.code; await eventually(async () => (await connectedPeers(A.page)).some((x: any) => x.state === 'connected'), 30000);
+  await A.page.evaluate(() => { (window as any).__freezeOnPhoneOnline = true; }); const pin = (await seeded.makePin()).pin, dialing = dial(gw, seeded.code, pin);
+  // the moment the first connection to the gateway exists in Alice's browser (the call is still being verified), report it failed and revoke the PIN
+  let idx = -1; const end = Date.now() + 60000; while (idx < 0 && Date.now() < end) { idx = (await gwPcs(A.page)).find((x: any) => x.state !== 'closed')?.i ?? -1; if (idx < 0) await sleep(10); } assert.ok(idx >= 0, 'a connection to the gateway appeared | gateway log: ' + gw.log().slice(-1500) + ' | calls: ' + JSON.stringify((await admin.query(`SELECT state, end_reason FROM ${schema}.phone_calls WHERE meeting_id=$1`, [seeded.id])).rows));
+  await A.page.evaluate((n) => (window as any).__force(n, 'failed'), idx); const r = await fetch(meet.base + '/api/integrations/scheduled-meetings/' + seeded.source + '/phone-access', { method: 'DELETE', headers: { 'x-qorlla-bridge-secret': BRIDGE } }); assert.equal(r.status, 200); const phone = await dialing.catch(() => null);
+  const call = await eventually(async () => !!(await admin.query(`SELECT 1 FROM ${schema}.phone_calls WHERE meeting_id=$1`, [seeded.id])).rowCount, 20000) ? (await admin.query(`SELECT * FROM ${schema}.phone_calls WHERE meeting_id=$1`, [seeded.id])).rows[0] : null;
+  if (call) { assert.ok(await eventually(async () => ['TERMINATED', 'CANCELLED', 'REFUSED', 'TIMED_OUT'].includes((await callState(call.id)).state), 30000), 'the call ended: ' + JSON.stringify(await callState(call.id))); const t = await trail(call.id); assert.ok(!t.includes('MEDIA_CONNECTED'), 'Meet never promoted it: ' + t.join('>')); assert.ok((await cred(call.id)).revoked_at, 'credential revoked'); }
+  await A.page.evaluate((n) => (window as any).__unforce(n), idx).catch(() => undefined);
+  { const ok = await eventually(async () => (await gwPcs(A.page)).every((x: any) => x.state === 'closed'), 30000); if (!ok) assert.fail('Alice connection to the gateway is not closed: ' + JSON.stringify(await gwPcs(A.page)) + ' timeline tail: ' + JSON.stringify((await tlOf(A.page)).slice(-25)) + ' held: ' + (await heldCount(A.page)) + ' call: ' + JSON.stringify(call ? await callState(call.id) : null)); } const n0 = (await gwPcs(A.page)).length;
+  await A.page.evaluate(() => (window as any).__thaw()); await sleep(5000); assert.equal((await gwPcs(A.page)).filter((x: any) => x.state !== 'closed').length, 0, 'nothing reconnected after the thaw'); assert.equal((await gwPcs(A.page)).length, n0, 'and no new connection to the gateway was even created');
+  assert.equal(await heldCount(A.page), 0, 'the phone was never announced to Alice (nothing was promoted)'); void B; void phone; saveEvidence('a52-pin-revoked-during-recovery');
+});
+
+test('A5.2 - the gateway dies while a pending peer is recovering: Meet ends the call, the browsers\' recovery stops, and nothing stale revives the leg', { skip, timeout: 280000 }, async () => {
+  const L = await earlyLab({ freeze: ['A'] }), i = await L.gwPc(L.A.page); await L.A.page.evaluate((n) => (window as any).__force(n, 'failed'), i); assert.ok(await eventually(async () => countOf(await tlOf(L.A.page), 'ws-out signal restart') >= 1, 15000), 'recovery started');
+  L.gw.kill(); assert.ok(await eventually(async () => (await callState(L.call.id)).state === 'TERMINATED', 30000), 'Meet noticed and ended the call'); assert.equal((await callState(L.call.id)).end_reason, 'gateway_signaling_lost');
+  await L.A.page.evaluate(() => (window as any).__thaw()); await L.A.page.evaluate((n) => (window as any).__unforce(n), i);          // (a closed connection keeps reporting the state the test forced on it until the override is removed)
+  { const ok = await eventually(async () => (await gwPcs(L.A.page)).every((x: any) => x.state === 'closed'), 30000); if (!ok) assert.fail('Alice connection to the gateway is not closed: ' + JSON.stringify(await gwPcs(L.A.page)) + ' timeline tail: ' + JSON.stringify((await tlOf(L.A.page)).slice(-25)) + ' held: ' + (await heldCount(L.A.page))); }
+  const n0 = countOf(await tlOf(L.A.page), 'ws-out signal restart'), pcs0 = (await gwPcs(L.A.page)).length; await sleep(6000); assert.equal(countOf(await tlOf(L.A.page), 'ws-out signal restart'), n0, 'no more recovery attempts for a peer that is gone'); assert.equal((await gwPcs(L.A.page)).length, pcs0, 'no new connection');
+  assert.ok(!(await L.A.page.evaluate((pid) => !!document.getElementById('tile-' + pid), L.call.participant_id)), 'no ghost tile for the terminated phone'); await othersMoving(L.A.page); saveEvidence('a52-gateway-dies-during-recovery');
 });

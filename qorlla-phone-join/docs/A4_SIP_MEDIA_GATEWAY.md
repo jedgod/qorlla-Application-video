@@ -164,3 +164,19 @@ Invariants (each one is a test in `test/ledger-lease.test.ts`):
 Defaults: lease 15 s, grace 15 s, renewal every 5 s (`startLeaseKeeper`). The lab runner takes `A5_LEASE_MS`, `A5_LEASE_GRACE_MS`, and `A5_REAPER=1` (the lease keeper always runs).
 
 Not covered: a CONNECTED call whose gateway died is not resolved by this reaper (it needs a Meet-side liveness check of the session, which Meet's own media verification currently provides); lease timing across gateways with badly skewed clocks is not an issue for the database side (the database clock is the authority) but the owner's local fail-closed timer uses its own monotonic clock.
+
+## Gate A5.2: bounded recovery and stale-attempt fencing (gateway side)
+
+The browser side (Meet `public/app.js`) is described in Meet's `docs/A5_VERIFICATION_PEER.md`. In `src/media/mesh-peer.ts`:
+
+- **Bounded recovery.** A browser that never connects is dropped after `connectTimeoutMs` (default 45 s). One whose connection was up and went down is dropped after `recoveryDeadlineMs` (default 30 s). The clock starts when the browser first becomes unconnected and is NOT reset by ICE restarts or rebuilds (only a real connection, or the browser leaving, stops it). When no peer is left the session closes with reason `recovery_deadline` and the call is ended with it; other participants and the remaining browser connections are untouched.
+- **Fencing.** The epochs of closed connections are remembered (16 per browser): a late offer of a superseded attempt creates nothing. An offer or answer in flight when its peer is replaced or closed is not sent. After the session is closed every signal is ignored.
+- Lease ownership (A5.1) and Meet's credential checks are untouched.
+
+Tests: `test/early-failure.test.ts` (fake clock, real signalling/ICE/DTLS; 7 tests) and the Chromium scenarios "A5.2 - ..." in `test/e2e-chrome.test.ts`, which hold the phone's `participant-online` back in the page (`__freezeOnPhoneOnline` / `__thaw`). Readiness in those tests is Meet's promotion plus the gateway connection being up, never the participant tile.
+
+Laboratory notes (not product behaviour):
+- With three browsers the default 20 fps fake camera saturates the host (about 95% CPU); the Docker-published database port then shows multi-second round trips and the ledger fails closed at its 5 s deadline. `A5_CAM_FPS=5` caps the lab's fake camera (verified: observed frame rate 5). Production camera defaults are unchanged. Measured: 0/5 three-browser setups uncapped, 5/5 capped; the exact bottleneck is not fully isolated.
+- The runner prints lab-only probes under `A5_LOG` (ledger duration, pooled-connection acquire time, event-loop lag, an independent `SELECT 1`).
+- The "announcement never arrives" Chromium scenario ended through Meet's own `media_unverified`; the gateway's `recovery_deadline` path is proven by the fake-clock tests (a Chromium case that keeps Meet from ending the call first is a tracked follow-up).
+
