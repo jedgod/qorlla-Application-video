@@ -30,6 +30,7 @@ import { registerRecording } from './recording.mjs';
 import { createCarrier } from './telephony/provider.mjs';
 import { registerTelephony } from './telephony/routes.mjs';
 import { shieldConfig, createShieldClient, startSessionGuard } from './shield-client.mjs';
+import { normalizePhoneMeetingCode } from './meeting-code.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const SECRET = process.env.JWT_SECRET;
@@ -439,7 +440,7 @@ const telephony = registerTelephony({ app, db, bridgeAuth, phone, carrier });
 // (external_meeting_links: meeting_id UNIQUE, PRIMARY KEY (source_system, source_id)); an unexpected duplicate is refused rather than guessed.
 app.get('/api/integrations/phone/meetings/:digits', bridgeAuth, async (req, res) => {
   try {
-    const digits = String(req.params.digits || '').replace(/\D/g, ''); if (!/^\d{11}$/.test(digits)) return fail(res, 400, 'Invalid meeting number');
+    const digits = normalizePhoneMeetingCode(req.params.digits); if (!digits) return fail(res, 400, 'Invalid meeting number');
     const id = await resolveMeeting(digits); if (!id) return fail(res, 404, 'Not available');
     const { rows: [m] } = await db.query('SELECT id, ended_at, locked, waiting_room FROM meetings WHERE id=$1', [id]); if (!m || m.ended_at) return fail(res, 404, 'Not available');
     const { rows } = await db.query("SELECT source_id FROM external_meeting_links WHERE meeting_id=$1 AND source_system='qorlla-main'", [m.id]); if (rows.length > 1) return fail(res, 409, 'Ambiguous meeting');

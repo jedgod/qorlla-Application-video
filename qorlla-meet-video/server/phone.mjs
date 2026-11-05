@@ -13,6 +13,7 @@
 // WHAT IT DOES NOT DO: there is no telephone carrier and no media gateway in this repository. PHONE_PROVIDER=test enables a TEST DOUBLE (calls are simulated by
 // signed requests) so the rules can be tested; any other value is refused. Real inbound calls, real numbers, and bridging telephone audio into the WebRTC meeting
 // need a provider adapter and a PSTN<->WebRTC gateway that do not exist here, so "mute at the media bridge" is recorded and announced but cannot silence real audio.
+import { normalizePhoneMeetingCode } from './meeting-code.mjs';
 import crypto from 'node:crypto';
 import { PeerError } from './phone-peer.mjs';
 import express from 'express';
@@ -21,7 +22,6 @@ import { canMove, legacyStatus, audioVerified, cleanEvidence, newMediaToken, has
 const GENERIC = 'We could not connect you to that meeting. Check the meeting ID and PIN and try again.';
 const FAILS_PER_CALLER = Number(process.env.PHONE_MAX_FAILS_CALLER || 5), FAILS_PER_MEETING = Number(process.env.PHONE_MAX_FAILS_MEETING || 30);
 const WINDOW_MS = Number(process.env.PHONE_ATTEMPT_WINDOW_MS || 10 * 60 * 1000), LOCK_MS = Number(process.env.PHONE_LOCK_MS || 15 * 60 * 1000), SKEW_S = Number(process.env.PHONE_SIGNATURE_SKEW_S || 300);
-const digits = (v) => String(v ?? '').replace(/\D/g, '');
 const e164 = (v) => { const s = String(v ?? '').trim(); return /^\+[1-9]\d{6,14}$/.test(s) ? s : ''; };
 const masked = (last4) => 'Phone ••••' + (last4 || '');
 const eq = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
@@ -182,7 +182,7 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
     if (!num || !callId) return { result: 'denied', say: GENERIC };
     const ch = callerHash(num), ckey = 'caller:' + ch;
     if (await locked(ckey)) return { result: 'locked', say: GENERIC };                              // same words as any other failure
-    const id = await resolveMeeting(digits(j.meetingId));
+    const code = normalizePhoneMeetingCode(j.meetingId), id = code ? await resolveMeeting(code) : null;          // anything that is not exactly 11 or 12 digits (spaces and hyphens aside) is unknown: same answer, same failure accounting
     const mkey = id ? 'meeting:' + id : null; if (mkey && await locked(mkey)) return { result: 'locked', say: GENERIC };
     const { rows: [m] } = id ? await db.query('SELECT id, ended_at, locked, waiting_room, join_before_host FROM meetings WHERE id=$1', [id]) : { rows: [] };
     const { rows: [acc] } = m ? await db.query('SELECT pin_hash, revoked_at FROM meeting_phone_access WHERE meeting_id=$1', [m.id]) : { rows: [] };
