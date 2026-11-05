@@ -93,6 +93,16 @@ test('A5.3: a 13th digit is refused - no admission request is made, no passcode 
   const seen: string[] = [], s = await stack({ codes: [MEETING, '123456789012'], seen }), p = await s.phone(); await s.dial(p, { id: '1234567890123' }); await eventually(() => p.requests('BYE').length >= 1, 12000);
   assert.deepEqual(seen, [], 'nothing reached admission: not the first 11 digits, not the first 12, not anything'); assert.equal(s.fake.opens, 0); assert.equal(s.gateway.activeLegs(), 0); assert.equal(s.bridge.legs.size, 0);
 });
+test('A5.3: digits pressed after a refused entry never cross the attempt boundary: nothing of the refused entry reaches admission or the passcode, and a burst of later digits is dropped, not carried over', async () => {
+  const REFUSED = '1234567890123', TAIL = '45678901234', seen: string[] = [], s = await stack({ codes: [TAIL], seen }), p = await s.phone(); await s.dial(p, { id: REFUSED + TAIL }); await sleep(2500);
+  for (const r of seen) { const [code, pass] = r.split('|'); assert.ok(TAIL.includes(code) && !code.includes(REFUSED.slice(0, 11)) && pass === PIN, 'whatever reached admission came only from digits pressed AFTER the refusal, and the passcode is its own entry: ' + r); }
+  assert.ok(seen.length <= 3, 'within the attempt budget'); assert.equal(s.fake.opens <= 1, true);
+});
+test('A5.3: a caller cannot get around the attempt budget by streaming entries: at most three attempts reach admission, then the line is hung up', async () => {
+  const seen: string[] = [], s = await stack({ codes: [], seen }), p = await s.phone(); const r = await p.invite(); assert.equal(r.status, 200); p.tone(440, {});
+  await p.digits((MEETING + '#' + PIN + '#').repeat(6)); await eventually(() => p.requests('BYE').length >= 1, 15000);
+  assert.ok(seen.length >= 1 && seen.length <= 3, 'admission was asked ' + seen.length + ' times (budget 3): ' + JSON.stringify(seen)); assert.equal(s.fake.opens, 0); assert.equal(s.gateway.activeLegs(), 0); assert.equal(s.bridge.legs.size, 0);
+});
 test('wrong meeting credentials: the caller is refused, hung up, and nothing is ever attached to the meeting', async () => {
   const s = await stack({ decision: { allowed: false } }), p = await s.phone(); await s.dial(p); await eventually(() => p.requests('BYE').length >= 1, 6000);
   assert.equal(s.fake.opens, 0); assert.equal(s.gateway.activeLegs(), 0); assert.equal(s.bridge.legs.size, 0); assert.ok(s.trail.some((t) => t.startsWith('released:')), 'the call id was released');
