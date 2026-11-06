@@ -1,4 +1,6 @@
 import test from 'node:test';
+import { io as ioClient } from 'socket.io-client';
+import { startShieldLab, type ShieldLab } from './helpers/shield-lab.js';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -22,6 +24,8 @@ import { sleep } from './support.js';
  */
 const MEET_DIR = process.env.MEET_SERVER_DIR, URL_ = process.env.PHONE_JOIN_TEST_DATABASE_URL;
 const skip = process.env.A5_E2E !== '1' ? 'A5_E2E=1 is not set (heavy: real Chromium)' : !MEET_DIR || !fs.existsSync(path.join(MEET_DIR, 'server', 'index.js')) ? 'MEET_SERVER_DIR is not set' : !URL_ ? 'PHONE_JOIN_TEST_DATABASE_URL is not set' : false;
+const SHIELD_DIR = process.env.SHIELD_ENGINE_DIR, skipShield = skip || (!SHIELD_DIR || !fs.existsSync(path.join(SHIELD_DIR, 'src', 'app.mjs')) ? 'SHIELD_ENGINE_DIR (the qorlla-voice-engine checkout) is not set: real-Shield scenarios are skipped' : false);
+let shieldLab: ShieldLab | null = null; const shieldOf = async () => (shieldLab ??= await startShieldLab({ engineDir: SHIELD_DIR!, meetDir: MEET_DIR!, dbUrl: URL_! }));
 const ORDER = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', 'v4_7_recording_consent.sql', 'v4_8_collab.sql', 'v4_9_recording_storage.sql', 'v4_10_admission.sql', 'v4_11_history.sql', 'v4_12_limit.sql',
   'v4_13_phone.sql', 'v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_17_shield_identity.sql', 'v4_18_billing_hold.sql', 'v4_19_ai_request.sql', 'v4_20_ai_consent_seq.sql', 'v4_21_handoffs.sql', 'v4_22_host_controls.sql', 'v4_24_phone_lifecycle.sql', 'v4_25_phone_verification_peer.sql'];
 const HMAC = 'a5-e2e-hmac-secret-0123456789abcdef', SIP_USER = 'a5trunk', SIP_PASS = 'a5-trunk-' + crypto.randomBytes(6).toString('hex'), BRIDGE = crypto.randomBytes(24).toString('hex'), RUN = crypto.randomBytes(4).toString('hex');
@@ -62,7 +66,7 @@ test.before(async () => {
 });
 test.afterEach(async (t) => { const dir = process.env.A5_EVIDENCE_DIR; if (dir) { fs.mkdirSync(dir, { recursive: true }); for (const k of logSinks.splice(0)) fs.writeFileSync(path.join(dir, String(t.name).replace(/[^A-Za-z0-9]+/g, '_').slice(0, 60) + '.' + k.name + '.log'), k.log()); } else logSinks.splice(0); if (dir && Object.keys(evidence).length) fs.writeFileSync(path.join(dir, String(t.name).replace(/[^A-Za-z0-9]+/g, '_').slice(0, 60) + '.evidence.json'), JSON.stringify(evidence, null, 2)); for (const p of phones.splice(0)) p.close(); for (const b of browsers.splice(0)) await b.close().catch(() => undefined); const ps = procs.splice(0); for (const p of ps) { try { p.kill(); } catch { /* gone */ } } await Promise.all(ps.map((p) => new Promise<void>((r) => { if (p.exitCode !== null || p.signalCode) return r(); p.once('exit', () => r()); setTimeout(r, 8000).unref?.(); })));
   await sleep(300); assert.deepEqual(leftovers(), [], 'no Meet or gateway process of this test survives it'); });
-test.after(async () => { if (skip) return; await admin.query('DROP SCHEMA ' + schema + ' CASCADE'); await admin.end(); fs.rmSync(tmp, { recursive: true, force: true }); });
+test.after(async () => { if (skip) return; if (shieldLab) await shieldLab.close(); await admin.query('DROP SCHEMA ' + schema + ' CASCADE'); await admin.end(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 async function startMeet(extraEnv: Record<string, string> = {}) {
   const port = await freePort(), { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }), store = fs.mkdtempSync(path.join(tmp, 'rec-'));
@@ -116,9 +120,9 @@ async function openMeeting(b: Browser, base: string, name: string, join?: string
   if (join) { await page.fill('#meetingId', join); await page.click('#joinBtn'); } else await page.click('#createBtn');
   const j = await (await resp).json(); return { page, id: name, meetingId: j.meetingId, code: j.meetingCode, token: j.token, pid: j.participantId };
 }
-async function seedMeeting(base: string, o: { code?: string; alias?: string } = {}) {
+async function seedMeeting(base: string, o: { code?: string; alias?: string; hostAccountId?: string; orgId?: string } = {}) {
   const id = crypto.randomUUID(), code = o.code ?? String(Math.floor(1e10 + Math.random() * 9e10)), source = 'sched_' + crypto.randomBytes(5).toString('hex');
-  await admin.query(`INSERT INTO ${schema}.meetings(id,title,host_secret_hash,meeting_code) VALUES($1,'E2E','x',$2)`, [id, code]); await admin.query(`INSERT INTO ${schema}.external_meeting_links(source_system,source_id,meeting_id) VALUES('qorlla-main',$1,$2)`, [source, id]);
+  await admin.query(`INSERT INTO ${schema}.meetings(id,title,host_secret_hash,meeting_code,host_account_id,org_id) VALUES($1,'E2E','x',$2,$3,$4)`, [id, code, o.hostAccountId ?? null, o.orgId ?? null]); await admin.query(`INSERT INTO ${schema}.external_meeting_links(source_system,source_id,meeting_id) VALUES('qorlla-main',$1,$2)`, [source, id]);
   if (o.alias) await admin.query(`INSERT INTO ${schema}.meeting_code_aliases(alias_code,meeting_id) VALUES($1,$2)`, [o.alias, id]);
   return { id, code, alias: o.alias, source, makePin: async () => (await fetch(base + '/api/integrations/scheduled-meetings/' + source + '/phone-access', { method: 'POST', headers: { 'x-qorlla-bridge-secret': BRIDGE, 'content-type': 'application/json' }, body: '{}' })).json() as Promise<{ pin: string }> };
 }
@@ -176,8 +180,9 @@ test('REAL CHROMIUM + GATEWAY PROCESS + MEET: admission through the real flow, I
 
 // ================================================================================================ fault scenarios: each one starts its OWN stack, so a failure points at one cause
 type Lab = Awaited<ReturnType<typeof lab>>;
-async function lab(o: { code?: string; alias?: string } = {}) {
-  const meet = await startMeet(), gw = await startGateway(meet.base), seeded = await seedMeeting(meet.base, o);
+async function lab(o: { code?: string; alias?: string; shield?: ShieldLab; grace?: number } = {}) {
+  const owner = o.shield ? await o.shield.owner() : null;                                                      // with a Shield: the meeting has a registered host the Shield knows (a telephone caller needs one)
+  const meet = await startMeet(o.shield ? o.shield.meetEnv(o.grace) : {}), gw = await startGateway(meet.base), seeded = await seedMeeting(meet.base, { ...o, ...(owner ? { hostAccountId: owner.hostAccountId, orgId: owner.orgId } : {}) });
   const A = await openMeeting(await chrome(1000), meet.base, 'Alice', seeded.id), B = await openMeeting(await chrome(1500), meet.base, 'Bob', seeded.id); A.code = seeded.code;
   await eventually(async () => (await connectedPeers(A.page)).some((x: any) => x.state === 'connected') && (await connectedPeers(B.page)).some((x: any) => x.state === 'connected'), 30000);
   const pin = (await seeded.makePin()).pin, phone = await dial(gw, seeded.code, pin);
@@ -188,7 +193,7 @@ async function lab(o: { code?: string; alias?: string } = {}) {
   const gwPc = async (p: Page) => (await connectedPeers(p)).find((x: any) => x.gateway && x.state === 'connected')?.i as number; await eventually(async () => (await gwPc(A.page)) !== undefined && (await gwPc(B.page)) !== undefined, 30000);
   // (A tile for the gateway appears as soon as its OFFER arrives, long before the phone is a participant, so a tile proves nothing: the readiness condition is the participant-online event itself.)
   for (const w of [A, B]) assert.ok(await eventually(() => w.page.evaluate((p8) => ((window as any).__tl || []).some((x: any) => x[2] === 'ws-in participant-online ' + p8), call.participant_id.slice(0, 8)), 20000), w.id + ' received participant-online for the phone (the app only recovers peers that are in its roster)');
-  return { meet, gw, seeded, A, B, phone, pin, call, gwPc };
+  return { meet, gw, seeded, A, B, phone, pin, call, gwPc, owner, shield: o.shield };
 }
 const callState = async (id: string) => (await admin.query(`SELECT state, end_reason FROM ${schema}.phone_calls WHERE id=$1`, [id])).rows[0];
 const abStats = (L: Lab) => L.A.page.evaluate(async () => { const pcs = (window as any).__pcs; const i = pcs.findIndex((pc: any) => !(pc.remoteDescription && /PCMU/.test(pc.remoteDescription.sdp) && !/opus/i.test(pc.remoteDescription.sdp)) && pc.connectionState === 'connected'); return { i, s: await (window as any).__stats(i) }; });
@@ -370,4 +375,76 @@ test('A5.2 - the GATEWAY\'s own recovery deadline ends the leg (Meet and the gat
   const offers = () => (L.gw.log().match(/"out":"(offer|rebuild)"/g) ?? []).length, pcs = async () => (await gwPcs(L.A.page)).length + (await gwPcs(L.B.page)).length, o0 = offers(), p0 = await pcs(); await sleep(6000);
   assert.equal(offers(), o0, 'the ended session sends nothing more'); assert.equal(await pcs(), p0, 'and no browser created a new connection to the gateway'); await othersMoving(L.A.page);
   evidence.gatewayDeadline = { lastGatewayRestartOfferToEndedMs: waited, browsersClosedToEndedMs: sinceClose, restartOfferOffsetsFromLastMs: offerTimes.map((t) => t - lastOffer), endReasonInMeet: st.end_reason, ledgerReasons: ended.map((e: any) => e.to_state + ':' + e.reason), ledgerRow: row, gatewayRestartMessagesAfterClose: offers() }; saveEvidence('a52-gateway-deadline');
+});
+
+// ---------------------------------------------------------------- A5.5: the REAL Security Shield with real browsers, the real gateway process and the real Meet server
+const callRows = async (meetingId: string) => (await admin.query(`SELECT id, provider_call_id, state, end_reason FROM ${schema}.phone_calls WHERE meeting_id=$1 ORDER BY created_at`, [meetingId])).rows as { id: string; provider_call_id: string; state: string; end_reason: string | null }[];
+const ledgerOf = async (providerIds: string[]) => (await admin.query(`SELECT call_id, state FROM gw_${schema}.phone_join_calls WHERE call_id = ANY($1::text[])`, [providerIds])).rows as { call_id: string; state: string }[];
+const openSessions = async (meetingId: string, phones: boolean) => (await admin.query(`SELECT count(*)::int n FROM ${schema}.participant_sessions s JOIN ${schema}.participants p ON p.id=s.participant_id WHERE s.meeting_id=$1 AND s.disconnected_at IS NULL AND (p.kind = 'phone') = $2`, [meetingId, phones])).rows[0].n as number;
+/** Everything that explains HOW the calls of a meeting ended (offsets from t0): call trail, Meet audit, sessions, Shield events. Used in failure messages only; carries no identifiers beyond short ids. */
+async function endTrail(L: Awaited<ReturnType<typeof lab>>, t0: number, since: number) {
+  const ms = (d: unknown) => (d ? new Date(d as string).getTime() - t0 : null), id8 = (x: string) => String(x).slice(0, 8);
+  const ev = (await admin.query(`SELECT e.call_id, e.to_state, e.reason, e.at FROM ${schema}.phone_call_events e JOIN ${schema}.phone_calls c ON c.id=e.call_id WHERE c.meeting_id=$1 ORDER BY e.id`, [L.seeded.id])).rows.map((r: any) => ({ c: id8(r.call_id), to: r.to_state, why: r.reason, ms: ms(r.at) }));
+  const au = (await admin.query(`SELECT event_type, detail->>'reason' AS why, created_at FROM ${schema}.audit_events WHERE meeting_id=$1 AND event_type LIKE 'phone.%' ORDER BY id`, [L.seeded.id])).rows.map((r: any) => ({ t: r.event_type, why: r.why, ms: ms(r.created_at) }));
+  const se = (await admin.query(`SELECT p.kind, p.admission, s.disconnected_at FROM ${schema}.participant_sessions s JOIN ${schema}.participants p ON p.id=s.participant_id WHERE s.meeting_id=$1 ORDER BY s.connected_at`, [L.seeded.id])).rows.map((r: any) => ({ kind: r.kind, admission: r.admission, droppedMs: ms(r.disconnected_at) }));
+  const sh = L.shield ? (await L.shield.eventsSince(since)).filter((e) => /^meet\.|suspend|report/.test(e.action)).map((e) => ({ a: e.action, d: e.decision, r: e.reason })) : [];
+  return 'call events ' + JSON.stringify(ev) + ' | meet audit ' + JSON.stringify(au) + ' | sessions ' + JSON.stringify(se) + ' | shield events ' + JSON.stringify(sh.slice(-12));
+}
+/** After Meet ends the phone calls: every phone is hung up, nobody keeps a connection to the gateway, the gateway's ledger rows are finished (never left connected or orphaned), and the browsers are in the state the policy demands. */
+async function assertTornDown(L: Awaited<ReturnType<typeof lab>>, phones: SyntheticPhone[], browsers: 'stay' | 'dropped' | 'either') {
+  assert.ok(await eventually(async () => phones.every((p) => p.requests('BYE').length >= 1), 40000), 'every phone was hung up');
+  assert.ok(await eventually(() => gatewayPcsGone(L), 40000), 'the browsers dropped the gateway');
+  if (browsers === 'stay') assert.equal((await abStats(L)).s.state, 'connected', 'Alice and Bob remain connected to each other');
+  if (browsers === 'dropped') assert.ok(await eventually(async () => (await Promise.all([L.A, L.B].map((w) => connectedPeers(w.page).catch(() => [] as any[])))).every((ps) => ps.every((x: any) => x.state !== 'connected')), 40000), 'the browsers hold no live peer connection any more');
+  const ids = (await callRows(L.seeded.id)).map((r) => r.provider_call_id); assert.ok(await eventually(async () => { const l = await ledgerOf(ids); return l.length === ids.length && l.every((x) => ['ended', 'failed'].includes(x.state)); }, 60000), 'the gateway ledger rows are finished: ' + JSON.stringify(await ledgerOf(ids)));
+}
+test('SHIELD (real) - the HOST is SUSPENDED after media connected (meeting-wide policy): Alice, Bob and BOTH phone callers are disconnected, nobody stays attached, new admission is denied, both credentials are revoked, the ledger is finished, and the Shield holds the record of the revocation', { skip: skipShield, timeout: 480000 }, async () => {
+  const sh = await shieldOf(), L = await lab({ shield: sh }), phone2 = await dial(L.gw, L.seeded.code, (await L.seeded.makePin()).pin, 660);
+  assert.ok(await eventually(async () => (await callRows(L.seeded.id)).filter((r) => r.state === 'MEDIA_CONNECTED').length === 2, 90000), 'both callers are connected: ' + JSON.stringify((await callRows(L.seeded.id)).map((r) => r.state)));
+  assert.equal(await openSessions(L.seeded.id, false), 2, 'control: Alice and Bob are attached');
+  const since = await sh.mark(), t0 = Date.now(); await L.owner!.suspendHost(); let why = '';
+  try {
+    assert.ok(await eventually(async () => (await callRows(L.seeded.id)).filter((r) => r.state === 'TERMINATED').length === 2, 60000), '1. both telephone legs terminate'); const ms = Date.now() - t0; assert.ok(ms <= 30_000, 'within the 30 s objective (' + ms + ' ms)');
+    assert.ok(await eventually(async () => (await openSessions(L.seeded.id, false)) === 0, 40000), '2. Alice and Bob are disconnected (their sessions are closed)'); assert.equal(await openSessions(L.seeded.id, true), 0, '3. no affected participant remains attached');
+    await assertTornDown(L, [L.phone, phone2], 'dropped');
+    // 4. new admission is denied, for a telephone caller and for a browser guest
+    const third = await dial(L.gw, L.seeded.code, (await L.seeded.makePin()).pin, 880); assert.ok(await eventually(async () => third.requests('BYE').length >= 1, 40000), 'the new caller was hung up');
+    const rows = await callRows(L.seeded.id); const newest = rows[rows.length - 1]; assert.equal(newest.state, 'REFUSED'); assert.match(newest.end_reason ?? '', /^shield_host_suspended/);
+    const j = await fetch(L.meet.base + '/api/meetings/' + L.seeded.id + '/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Late guest' }) }).then((r) => r.json() as Promise<{ token?: string }>);
+    const refused = j.token ? await new Promise<string>((resolve) => { const s = ioClient(L.meet.base, { auth: { token: j.token }, transports: ['websocket'], reconnection: false, timeout: 10000 }); s.once('connect', () => { s.close(); resolve('connected'); }); s.once('connect_error', (e: Error) => { s.close(); resolve('refused: ' + e.message); }); }) : 'no token';
+    assert.match(refused, /^refused/, 'a new browser guest is not admitted to the signalling session (' + refused + ')');
+    // 5. both phone credentials are revoked
+    const creds = (await admin.query(`SELECT c.revoked_at FROM ${schema}.phone_peer_credentials c JOIN ${schema}.phone_calls p ON p.id=c.call_id WHERE p.meeting_id=$1`, [L.seeded.id])).rows; assert.ok(creds.length >= 2 && creds.every((r: any) => r.revoked_at), '5. every phone credential is revoked: ' + JSON.stringify(creds.map((r: any) => !!r.revoked_at)));
+    // 7. the suspension is recorded, whichever termination mechanism won each race: the Shield's own audit trail holds the revocation, and a call that ended as gateway_signaling_lost is accepted ONLY with proof that the Shield revoked it (its participant was denied by the signalling guard)
+    const ev = await sh.eventsSince(since); assert.ok(ev.some((e) => e.action === 'meet.recheck' && e.decision === 'DENY' && /^REVOKED:/.test(e.reason)), '7. the Shield recorded the revocation: ' + JSON.stringify(ev.map((e) => e.action + ':' + e.reason)));
+    for (const r of (await callRows(L.seeded.id)).filter((x) => x.state === 'TERMINATED')) {
+      if (/^shield_host_suspended/.test(r.end_reason ?? '')) continue; assert.equal(r.end_reason, 'gateway_signaling_lost', 'unexpected end reason ' + r.end_reason);
+      const denied = (await admin.query(`SELECT p.admission FROM ${schema}.phone_calls c JOIN ${schema}.participants p ON p.id=c.participant_id WHERE c.id=$1`, [r.id])).rows[0]?.admission; assert.equal(denied, 'denied', 'a gateway_signaling_lost end is accepted only when the signalling guard acted on a Shield revocation (participant denied)');
+    }
+    evidence.shieldSuspension = { callsConnected: 2, allTerminatedAfterMs: ms, endReasons: (await callRows(L.seeded.id)).map((r) => r.end_reason) }; saveEvidence('shield-suspension-connected');
+  } catch (e) { why = await endTrail(L, t0, since).catch((x) => 'trail unavailable: ' + (x as Error).message); throw new Error((e as Error).message + '\nTRAIL: ' + why, { cause: e }); }
+});
+test('SHIELD (real) - a SUSPENDED host before admission: the caller is refused (REFUSED, a Shield reason), hung up, and nothing is ever attached or left in the gateway ledger as connected', { skip: skipShield, timeout: 240000 }, async () => {
+  const sh = await shieldOf(), owner = await sh.owner(); await owner.suspendHost(); const meet = await startMeet(sh.meetEnv()), gw = await startGateway(meet.base), seeded = await seedMeeting(meet.base, { hostAccountId: owner.hostAccountId, orgId: owner.orgId });
+  const phone = await dial(gw, seeded.code, (await seeded.makePin()).pin); assert.ok(await eventually(async () => phone.requests('BYE').length >= 1, 40000), 'the caller was hung up');
+  const rows = await callRows(seeded.id); assert.equal(rows.length, 1); assert.equal(rows[0].state, 'REFUSED'); assert.match(rows[0].end_reason ?? '', /^shield_host_suspended/);
+  assert.ok(await eventually(async () => { const l = await ledgerOf([rows[0].provider_call_id]); return l.every((x) => x.state !== 'connected' && x.state !== 'orphaned'); }, 30000), 'the ledger holds no connected or orphaned row'); assert.equal((await admin.query(`SELECT count(*)::int n FROM ${schema}.participant_sessions s JOIN ${schema}.participants p ON p.id=s.participant_id WHERE p.kind='phone' AND s.meeting_id=$1`, [seeded.id])).rows[0].n, 0, 'no phone participant was ever present');
+});
+test('SHIELD (real) - an OUTAGE beyond the grace deadline (grace 12 s for the test; 120 s in production): the connected call survives inside the grace, is then ended, the phone is hung up and everything is torn down; the cause is the unavailable Shield, proven when another mechanism closes the call first', { skip: skipShield, timeout: 420000 }, async () => {
+  const sh = await shieldOf(), L = await lab({ shield: sh, grace: 12 }); assert.equal((await callRows(L.seeded.id))[0].state, 'MEDIA_CONNECTED'); const since = await sh.mark(), t0 = Date.now(); sh.setOutage(true);
+  try {
+    try {
+      await sleep(6000); assert.equal((await callRows(L.seeded.id))[0].state, 'MEDIA_CONNECTED', 'inside the grace period the call is untouched, although the gateway keeps refreshing its media evidence (' + (Date.now() - t0) + ' ms)');
+      assert.ok(await eventually(async () => (await callRows(L.seeded.id))[0].state === 'TERMINATED', 40000), 'terminated by the deadline'); const ms = Date.now() - t0, r = (await callRows(L.seeded.id))[0];
+      assert.ok(ms >= 10_000 && ms <= 12_000 + 12_000, 'ended ' + ms + ' ms after the outage began (grace 12 s)');
+      if (!/^shield_shield_unavailable/.test(r.end_reason ?? '')) { assert.equal(r.end_reason, 'gateway_signaling_lost', 'unexpected end reason ' + r.end_reason); assert.match(L.meet.log(), /unreachable beyond the grace period/, 'gateway_signaling_lost is accepted only when Meet\'s own log shows the signalling guard closed the sessions because the Shield stayed unreachable beyond the grace period'); }
+      evidence.shieldOutage = { graceMs: 12000, terminatedAfterMs: ms, endReason: r.end_reason }; saveEvidence('shield-outage-beyond-grace');
+    } catch (e) { throw new Error((e as Error).message + '\nTRAIL: ' + (await endTrail(L, t0, since).catch((x) => 'trail unavailable: ' + (x as Error).message)), { cause: e }); }
+  } finally { sh.setOutage(false); }
+  await assertTornDown(L, [L.phone], 'either');                              // after the grace the signalling guard fails closed for the browsers too (pre-existing behaviour), so they may or may not still be connected
+});
+test('SHIELD (real) - an outage that ENDS before the grace deadline: the connected call is untouched and audio keeps flowing both ways long after the original deadline would have passed', { skip: skipShield, timeout: 420000 }, async () => {
+  const sh = await shieldOf(), L = await lab({ shield: sh, grace: 12 }), i = await L.gwPc(L.A.page); sh.setOutage(true); await sleep(5000); sh.setOutage(false); await sleep(14_000);          // well past 12 s after the FIRST failure
+  assert.equal((await callRows(L.seeded.id))[0].state, 'MEDIA_CONNECTED', 'the call survived the recovered outage'); const tail = L.phone.received.slice(-60), listen = await L.A.page.evaluate((n: number) => (window as any).__listen(n, 2000), i);
+  assert.ok(snr(tail, 1000) >= 30, 'the phone still hears the meeting (' + snr(tail, 1000).toFixed(1) + 'x)'); assert.ok(listen.levels[440] - listen.noise > 25, 'Alice still hears the phone');
 });
