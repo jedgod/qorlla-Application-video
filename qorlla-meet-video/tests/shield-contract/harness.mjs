@@ -69,7 +69,8 @@ export async function startContract({ allowed, requireMtls = false, recheckSecon
   const hook = async (p, body) => { const raw = JSON.stringify({ eventId: 'evt_' + crypto.randomBytes(6).toString('hex'), ...body }), t = Math.floor(Date.now() / 1000); const r = await fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json', 'x-qorlla-signature': 't=' + t + ',v1=' + crypto.createHmac('sha256', WEBHOOK).update(t + '.' + raw).digest('hex') }, body: raw }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
   let n = 0;
   /** A meeting as the main app's scheduling creates it, with the identity facts the Shield is told about (host account, organization, guest policy). */
-  async function meeting({ guestEnabled = true, hostAccountId = null, orgId = null } = {}) {
+  async function meeting({ guestEnabled = true, hostAccountId = null, orgId = null, ownerless = false } = {}) {
+    if (!ownerless && !hostAccountId) { orgId = orgId || 'org-' + crypto.randomBytes(3).toString('hex'); hostAccountId = 'acct-host-' + crypto.randomBytes(3).toString('hex'); await putOrg(orgId); await putPrincipal(hostAccountId, { orgId }); }          // A5.5: a telephone caller needs an owned meeting; pass ownerless: true for the exception
     const id = crypto.randomUUID(), code = '5' + rnd(11), source = 'sched_' + crypto.randomBytes(5).toString('hex');
     await admin.query(`INSERT INTO ${meetSchema}.meetings(id,title,host_secret_hash,meeting_code,host_account_id,org_id,guest_enabled) VALUES($1,'Contract','x',$2,$3,$4,$5)`, [id, code, hostAccountId, orgId, guestEnabled]);
     await admin.query(`INSERT INTO ${meetSchema}.external_meeting_links(source_system,source_id,meeting_id) VALUES('qorlla-main',$1,$2)`, [source, id]);
@@ -97,5 +98,5 @@ export async function startContract({ allowed, requireMtls = false, recheckSecon
   const putOrg = (orgId) => sq('INSERT INTO shield_orgs(org_id) VALUES($1) ON CONFLICT DO NOTHING', [orgId]);
   const authorize = (meetingId, participantId, o = {}) => shield('meet', 'POST', '/v1/shield/meet/authorize', { meetingId, participantId, role: 'guest', admission: 'admitted', ...o });
   const register = (m, extra = {}) => shield('meet', 'POST', '/v1/shield/meet/register', { meetingId: m.id, orgId: m.orgId ?? null, hostAccountId: m.hostAccountId ?? null, guestEnabled: true, endsAt: new Date(Date.now() + 3600e3).toISOString(), ...extra });
-  return { engine, db, keys, shield, variant, endMeeting, setOutage, outage, restartMeet, credential, credRows, counters, auditRows, sq, meeting, pinFor, dial, callRow, connect, bridge, hook, stopEngine, close, meetLog, putPrincipal, putOrg, authorize, register, meetSchema, base, h, ISSUER };
+  return { adminMeet: admin, engine, db, keys, shield, variant, endMeeting, setOutage, outage, restartMeet, credential, credRows, counters, auditRows, sq, meeting, pinFor, dial, callRow, connect, bridge, hook, stopEngine, close, meetLog, putPrincipal, putOrg, authorize, register, meetSchema, base, h, ISSUER };
 }
