@@ -1,0 +1,37 @@
+{
+  "name": "@qorlla/subscription-access",
+  "version": "2.1.0",
+  "description": "Subscription access control for Qorlla Workspace - atomic quotas, strict lifecycle, least-privilege roles, idempotent billing inbox/outbox",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./middleware": "./src/middleware.js",
+    "./service": "./src/accessService.js",
+    "./admin": "./src/admin.js",
+    "./billing": "./src/billing.js",
+    "./plans": "./src/plans.js"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
+    "test:unit": "node --test tests/lifecycle.test.js tests/decision.test.js tests/billing-adapter.test.js tests/access.test.js tests/hardening.test.js",
+    "test:db": "node --test --test-concurrency=1 tests/*.pg.test.js",
+    "migrate": "node scripts/migrate.mjs",
+    "seed": "node examples/seed-entitlements.js",
+    "rehearse:backup": "node scripts/rehearse-backup-restore.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "peerDependencies": {
+    "express": "^4.18.0"
+  },
+  "devDependencies": {
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
