@@ -114,9 +114,10 @@ test('database outage: no ownership change on either side, nothing is assumed, a
   await lapse(att); await watcher.ledger.reapStale(); await graceOver(att); await watcher.pool.end(); await assert.rejects(() => watcher.ledger.reapStale()); assert.deepEqual([(await row(att)).state, (await row(att)).gen], ['attaching', 1]); assert.deepEqual(watcher.ledger.heldCalls(), [], 'and believes it owns nothing');
 });
 
-test('a connected call that exceeds every attach deadline stays connected (a lapsed lease on it is never grounds to reap)', { skip }, async () => {
+test('a connected call that exceeds every attach deadline stays connected as long as its owner answers the challenge (A5.5: only a vanished owner leads to the fenced cleanup)', { skip }, async () => {
   const a = replica('gw-a').ledger, reaper = replica('reaper').ledger, c = await make(a, 'conn', 'connected'); await lapse(c, 86_400);
-  for (let k = 0; k < 3; k++) { assert.deepEqual(await reaper.reapStale(), []); await graceOver(c); } assert.deepEqual([(await row(c)).state, (await row(c)).gen], ['connected', 1]); assert.equal(await a.renew(c), true, 'and its owner can still renew it');
+  for (let k = 0; k < 3; k++) { assert.deepEqual(await reaper.reapStale(), [], 'a lapsed lease is first only a question'); assert.equal(await a.renew(c), true, 'the owner answers: renewed'); await lapse(c, 86_400); await graceOver(c); } assert.deepEqual([(await row(c)).state, (await row(c)).gen], ['connected', 1]);
+  assert.deepEqual(await reaper.reapStale(), []); await graceOver(c); assert.deepEqual(await reaper.reapStale(), [c], 'an owner that does NOT answer for a whole grace period loses the call to a fenced cleanup'); assert.deepEqual([(await row(c)).state, (await row(c)).gen], ['terminating', 2]);
 });
 
 test('per-state deadlines: each state is judged by its own rule', { skip }, async () => {

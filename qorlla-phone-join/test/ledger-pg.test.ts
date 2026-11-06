@@ -116,7 +116,7 @@ test('host silence: the waiting caller is cancelled in the meeting and the id is
   assert.equal(r.code, 'HOST_APPROVAL_TIMEOUT'); assert.deepEqual(cancelled, ['s9:' + request('h1').callId]); assert.equal(await ledger.stateOf(request('h1').callId), null);
 });
 
-test('crash recovery: stale open claims are reaped by exactly one reaper, their media is disconnected, and connected calls are untouched', { skip }, async () => {
+test('crash recovery: stale open claims are reaped by exactly one reaper, their media is disconnected, and a connected call with a vanished owner is only taken for fenced cleanup (never failed or ended here)', { skip }, async () => {
   await admin.query(`DELETE FROM ${schema}.phone_join_calls`);      // a reaper scans the whole table: earlier tests' rows (which grow old while the suite runs) are not part of this one
   const a = replica('reaper-a'), b = replica('reaper-b');
   for (const id of ['stale_00000001', 'stale_00000002', 'live_000000001']) await a.ledger.claim(id);
@@ -124,8 +124,8 @@ test('crash recovery: stale open claims are reaped by exactly one reaper, their 
   await admin.query(`UPDATE ${schema}.phone_join_calls SET updated_at = now() - interval '10 minutes', lease_expires_at = now() - interval '9 minutes' WHERE call_id IN ('stale_00000001','stale_00000002','live_000000001')`);   // their owner stopped renewing
   assert.deepEqual((await Promise.all([a.ledger.reapStale(), b.ledger.reapStale()])).flat(), [], 'first sight of a lapsed lease only CHALLENGES it');
   await admin.query(`UPDATE ${schema}.phone_join_calls SET lease_challenged_at = now() - interval '5 minutes' WHERE lease_challenged_at IS NOT NULL`);        // the grace period passed with no renewal
-  const got = (await Promise.all([a.ledger.reapStale(), b.ledger.reapStale()])).flat().sort(); assert.deepEqual(got, ['stale_00000001', 'stale_00000002'], 'each stale claim goes to one reaper');
-  assert.equal(await a.ledger.stateOf('live_000000001'), 'connected');
+  const got = (await Promise.all([a.ledger.reapStale(), b.ledger.reapStale()])).flat().sort(); assert.deepEqual(got, ['live_000000001', 'stale_00000001', 'stale_00000002'], 'each stale row goes to one reaper (the connected one for CLEANUP: it is returned, not failed)');
+  assert.equal(await a.ledger.stateOf('live_000000001'), 'terminating', 'held for cleanup, awaiting Meet; not ended, not released');
   const owner = (id: string) => [a, b].find((r) => r.ledger.generationOf(id) === 2)!.ledger;      // a reaper settles only what IT took over (generation 2); `a` still remembers generation 1 from its own claim, and finishReap is fenced
   assert.equal(await owner('stale_00000001').finishReap('stale_00000001', true), true); assert.equal(await owner('stale_00000002').finishReap('stale_00000002', false), true);
   assert.equal(await a.ledger.stateOf('stale_00000001'), null); assert.equal(await a.ledger.stateOf('stale_00000002'), 'orphaned');
