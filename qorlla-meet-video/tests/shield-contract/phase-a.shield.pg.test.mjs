@@ -31,7 +31,7 @@ test('ENDED MEETING at the Shield: authorize answers MEETING_UNKNOWN_OR_ENDED, a
   const a = await C.authorize(m.id, uuid()); assert.equal(a.status, 403); assert.equal(a.body.reason, 'MEETING_UNKNOWN_OR_ENDED');
   const again = await C.register(m); assert.equal(again.status, 409); assert.equal(again.body.error, 'meeting_ended', 'an ended meeting stays ended');
   const d = await C.dial(m); assert.notEqual(d.body.result, 'approved'); const row = await C.callRow(d.callId); assert.equal(row.state, 'REFUSED');
-  console.log('# note: Meet reports this refusal as end_reason=' + row.end_reason + ' (the 409 is surfaced as an unavailable Shield, not as a refusal)');
+  assert.match(row.end_reason, /^shield_meeting_ended/, 'A5.5 B3: an ended meeting is a REFUSAL with its own reason, not an unavailable Shield (Phase A recorded shield_shield_unavailable here)');
 });
 
 test('UNREGISTERED MEETING: authorize is refused (MEETING_UNKNOWN_OR_ENDED); registration is a hard prerequisite, which Meet satisfies on every decision', { skip }, async () => {
@@ -58,10 +58,9 @@ test('RECHECK (current behaviour): a registered, live meeting revokes nobody; on
   const ended = await C.shield('meet', 'POST', '/v1/shield/meet/recheck', { participants: [{ meetingId: m.id, participantId: pid }] }); assert.deepEqual(ended.body.revoke, [{ meetingId: m.id, participantId: pid, reason: 'MEETING_ENDED' }]);
 });
 
-test('REPORT KINDS (current contract): only signaling_termination_failed and outbox_delivery_failed are accepted; the phone-specific kinds Meet and the gateway send are rejected as invalid input', { skip }, async () => {
-  const ok = await C.shield('ops', 'POST', '/v1/shield/report', { kind: 'signaling_termination_failed', source: 'meet', ref: 'call-1' }); assert.equal(ok.status, 200);
-  assert.equal((await C.shield('ops', 'POST', '/v1/shield/report', { kind: 'outbox_delivery_failed', source: 'numbers' })).status, 200);
-  for (const kind of ['phone_late_media', 'phone_termination_failed']) { const r = await C.shield('ops', 'POST', '/v1/shield/report', { kind, source: 'meet', ref: 'call-1' }); assert.equal(r.status, 400, kind + ' is rejected today (Meet\'s best-effort report() swallows this, so the alert is lost)'); }
+test('REPORT KINDS (contract after A5.5 B2): the two original kinds and the two phone kinds are accepted; the old, never-accepted phone_media_orphaned stays rejected (Meet no longer sends it); anything else is rejected', { skip }, async () => {
+  for (const kind of ['signaling_termination_failed', 'outbox_delivery_failed', 'phone_late_media', 'phone_termination_failed']) assert.equal((await C.shield('ops', 'POST', '/v1/shield/report', { kind, source: 'meet', ref: 'call-1' })).status, 200, kind);
+  assert.equal((await C.shield('ops', 'POST', '/v1/shield/report', { kind: 'phone_media_orphaned', source: 'meet', ref: 'call-1' })).status, 400);
 });
 
 test('FAIL CLOSED (last: stops the Shield): when the Shield cannot be reached Meet admits nobody and attaches nobody', { skip }, async () => {

@@ -172,7 +172,7 @@ test('unconfirmed hang-ups are retried, and past the limit become ORPHANED with 
   const m = await h.meeting(), pid = crypto.randomUUID(), cid = crypto.randomUUID(); await h.db.query("INSERT INTO participants(id,meeting_id,display_name,role,admission,kind) VALUES($1,$2,'Phone','guest','denied','phone')", [pid, m.id]);
   await h.db.query("INSERT INTO phone_calls(id,meeting_id,provider,provider_call_id,caller_hash,status,state,participant_id,terminated_at,ended_at) VALUES($1,$2,'gateway','call_unconf_0001','h','ended','TIMED_OUT',$3,now(),now())", [cid, m.id, pid]);
   await sleep(500); assert.equal((await h.phone.sweep()).retried, 1); assert.equal((await h.row(cid)).state, 'TIMED_OUT'); await sleep(2300); const s = await h.phone.sweep(); assert.equal(s.orphaned, 1);
-  assert.equal((await h.row(cid)).state, 'ORPHANED'); assert.deepEqual(reports, [['phone_media_orphaned', cid]]); assert.ok(h.log.audits.some((a) => a.a === 'phone.orphaned'));
+  assert.equal((await h.row(cid)).state, 'ORPHANED'); assert.deepEqual(reports, [['phone_termination_failed', cid]], 'A5.5: the kind the Shield accepts for a leg that could not be terminated'); assert.ok(h.log.audits.some((a) => a.a === 'phone.orphaned'));
   await h.db.query("UPDATE phone_calls SET hangup_confirmed_at=now() WHERE id=$1", [cid]); assert.equal((await h.phone.sweep()).retried, 0, 'once the gateway confirms, nothing is retried');
 });
 test('the meeting ending hangs every call up, whatever its state', { skip }, async () => {
@@ -207,8 +207,11 @@ test('Shield re-check of OPEN calls: a revocation ends the call at once; an unre
   assert.deepEqual(await h.phone.shieldSweep(), { revoked: 0 }); sh.revoke = [ca.participant_id]; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 1 });
   assert.equal((await h.row(a.callRef)).state, 'TERMINATED'); assert.match((await h.row(a.callRef)).end_reason, /^shield_suspended/); assert.equal((await h.row(b.callRef)).state, 'APPROVED'); assert.ok(h.phone.provider.calls.some((x) => x.op === 'hangup' && x.callId === ca.provider_call_id));
   assert.equal(h.phoneOnline.get(m.id)?.size ?? 0, 0, 'the revoked caller left the room'); sh.revoke = [];
-  sh.down = true; skew += 30_000; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 0 }, 'inside the grace period'); skew += 40_000; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 1 }, 'past the grace period every open call ends');
-  assert.equal((await h.row(b.callRef)).state, 'REFUSED'); assert.equal(cb.state, 'APPROVED');
+  // A5.5: an unreachable Shield. A call that is not yet connected ends AT ONCE (admission and promotion are fail-closed); an already-connected call keeps its grace period, measured from the FIRST failed recheck.
+  const c3 = (await verify(h, m)).body, cc = await h.row(c3.callRef); await media(h, cc.provider_call_id, c3.mediaToken, good()); assert.equal((await h.row(c3.callRef)).state, 'MEDIA_CONNECTED');
+  sh.down = true; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 1 }, 'the approved-but-not-connected call ends at once'); assert.equal((await h.row(b.callRef)).state, 'REFUSED'); assert.equal(cb.state, 'APPROVED'); assert.equal((await h.row(c3.callRef)).state, 'MEDIA_CONNECTED', 'the connected call is inside its grace period');
+  skew += 30_000; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 0 }, 'still inside the grace period (30 s after the first failed recheck)'); skew += 40_000; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 1 }, 'past the grace period (70 s after the FIRST failure) the connected call ends');
+  assert.equal((await h.row(c3.callRef)).state, 'TERMINATED'); assert.match((await h.row(c3.callRef)).end_reason, /^shield_shield_unavailable/);
 });
 test('gateway mode never runs without the Shield, even when SHIELD_MEET_ENFORCE is off', { skip }, async () => {
   const ks = keys(), h = await harness({ gatewayEnv: gwEnv(ks), env: { PHONE_GATEWAY_ENABLED: 'true' }, readiness: async () => ({ readiness: ALL }) }), m = await h.meeting();
