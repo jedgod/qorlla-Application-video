@@ -316,6 +316,24 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       await audit(c, hostAccountId, 'meet.register', 'ALLOW', 'META'); return { meetingId };
     });
   }
+  /**
+   * The CURRENT standing of a meeting's registered owner (A5.5): a denial reason, or null when the meeting may keep admitting. Decided from the Shield's own records of the registered host account and organization, never from
+   * the participant (a telephone caller has no account, so its own state says nothing). Ordering against a concurrent suspension is defined by the row locks: with `lock`, the principal and organization rows are read
+   * FOR SHARE, so an authorize either waits for an in-flight suspension and sees it, or commits first and is revoked by the next recheck; an authorize that starts after the suspension committed is always denied.
+   * Missing or inconsistent ownership never allows silently: an unknown host is HOST_UNKNOWN, a host whose organization differs from the registered one is OWNER_INCONSISTENT. A meeting registered with no host account
+   * at all has no owner to check; that is reported as ownerless (audited, returned to the caller) and is a contract decision, not an implicit allow.
+   */
+  async function meetingOwnerState(c, m, { lock = false } = {}) {
+    const share = lock ? ' FOR SHARE' : '';
+    if (!m.host_account_id) return { denial: null, ownerless: true };
+    const host = (await c.query('SELECT account_id, org_id, suspended FROM shield_principals WHERE account_id=$1' + share, [m.host_account_id])).rows[0];
+    if (!host) return { denial: 'HOST_UNKNOWN' };
+    if (host.suspended) return { denial: 'HOST_SUSPENDED' };
+    if (m.org_id && host.org_id !== m.org_id) return { denial: 'OWNER_INCONSISTENT' };
+    const orgIds = [...new Set([m.org_id, host.org_id].filter(Boolean))];
+    if (orgIds.length) { const orgs = (await c.query('SELECT org_id, suspended FROM shield_orgs WHERE org_id = ANY($1::text[])' + share, [orgIds])).rows; if (orgs.some((o) => o.suspended)) return { denial: 'ORG_SUSPENDED' }; }
+    return { denial: null, ownerless: false };
+  }
   /** -> { allow, reason, kind: 'host'|'member'|'guest', capabilities }. kind/capabilities come from the shield's own records, never from the request. */
   async function meetAuthorize({ meetingId, participantId, accountId = null, role, admission }) {
     if (!idText(meetingId) || !uuid(participantId) || (accountId != null && !validAccountId(accountId)) || !['host', 'guest'].includes(role) || typeof admission !== 'string') throw new ShieldError('invalid_input', 400);
@@ -324,6 +342,7 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       const m = (await c.query('SELECT * FROM shield_meetings WHERE meeting_id=$1', [meetingId])).rows[0];
       if (!m || m.authority !== 'meet' || new Date(m.ends_at) <= new Date()) return no('MEETING_UNKNOWN_OR_ENDED');
       if (admission !== 'admitted') return no('NOT_ADMITTED');
+      const owner = await meetingOwnerState(c, m, { lock: true }); if (owner.denial && !(owner.denial === 'HOST_SUSPENDED' && accountId && accountId === m.host_account_id)) return no(owner.denial);       // a suspended host asking for itself keeps the existing SUSPENDED answer below
       let kind = 'guest';
       if (accountId) {
         const p = (await c.query('SELECT p.verified, p.suspended, p.org_id, o.suspended AS org_suspended FROM shield_principals p LEFT JOIN shield_orgs o ON o.org_id=p.org_id WHERE p.account_id=$1', [accountId])).rows[0];
@@ -336,8 +355,8 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       } else {
         if (role === 'host') return no('NOT_THE_HOST'); if (!m.guest_enabled) return no('GUEST_NOT_ALLOWED');
       }
-      await audit(c, who, 'meet.signal', 'ALLOW', kind, null);
-      return { allow: true, reason: 'ALLOW', kind, capabilities: kind === 'host' ? HOST_CAPS : kind === 'member' ? MEMBER_CAPS : GUEST_CAPS };
+      await audit(c, who, 'meet.signal', 'ALLOW', owner.ownerless ? kind + ':OWNERLESS' : kind, null);
+      return { allow: true, reason: 'ALLOW', kind, capabilities: kind === 'host' ? HOST_CAPS : kind === 'member' ? MEMBER_CAPS : GUEST_CAPS, ...(owner.ownerless ? { ownership: 'none' } : {}) };
     });
   }
   /** The caller's OWN standing, for the UI: registered with the Shield? verified? suspended? (never anyone else's, never an organization name). */
@@ -358,12 +377,14 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
   /** Meet sends the sessions it is holding open; the shield names the ones that must be closed NOW (suspension, ended meeting, a principal that vanished). */
   async function meetRecheck({ participants }) {
     if (!Array.isArray(participants) || participants.length > 500) throw new ShieldError('invalid_input', 400);
-    const revoke = [];
+    const revoke = [], owners = new Map();
     await tx(async (c) => {
       for (const s of participants) {
         if (!s || !idText(s.meetingId) || !uuid(s.participantId) || (s.accountId != null && !validAccountId(s.accountId))) throw new ShieldError('invalid_input', 400);
-        const m = (await c.query('SELECT ends_at FROM shield_meetings WHERE meeting_id=$1', [s.meetingId])).rows[0];
+        const m = (await c.query('SELECT ends_at, host_account_id, org_id FROM shield_meetings WHERE meeting_id=$1', [s.meetingId])).rows[0];
         if (!m || new Date(m.ends_at) <= new Date()) { revoke.push({ meetingId: s.meetingId, participantId: s.participantId, reason: 'MEETING_ENDED' }); continue; }
+        if (!owners.has(s.meetingId)) owners.set(s.meetingId, (await meetingOwnerState(c, m)).denial);        // once per meeting per recheck: every participant of an affected meeting, accountless guests included
+        if (owners.get(s.meetingId)) { revoke.push({ meetingId: s.meetingId, participantId: s.participantId, reason: owners.get(s.meetingId) }); continue; }
         if (s.accountId) {
           const p = (await c.query('SELECT p.suspended, o.suspended AS org_suspended FROM shield_principals p LEFT JOIN shield_orgs o ON o.org_id=p.org_id WHERE p.account_id=$1', [s.accountId])).rows[0];
           if (!p || p.suspended || p.org_suspended) revoke.push({ meetingId: s.meetingId, participantId: s.participantId, reason: !p ? 'UNKNOWN_PRINCIPAL' : 'SUSPENDED' });
