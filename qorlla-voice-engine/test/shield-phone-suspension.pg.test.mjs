@@ -98,3 +98,21 @@ test('B1 PRESERVED PROTECTIONS: a replayed token and a certificate-claiming toke
   assert.equal((await call('meet', 'POST', '/v1/shield/meet/authorize', body, { token: tok })).status, 200); assert.equal((await call('meet', 'POST', '/v1/shield/meet/authorize', body, { token: tok })).status, 401);
   assert.ok([401, 403].includes((await call('meet', 'POST', '/v1/shield/meet/authorize', body, { cnf: 'A'.repeat(43) })).status));
 });
+
+test('MEETING-WIDE SCOPE (approved policy): a suspended host or organization revokes the host, authenticated attendees (same and other organization) and browser guests of ITS meetings - and only those: another meeting of an attendee from another organization, and unrelated meetings, are untouched', async (t) => {
+  if (skip(t)) return;
+  const put = (a, org) => q('INSERT INTO shield_principals(account_id, org_id, verified) VALUES($1,$2,true) ON CONFLICT (account_id) DO UPDATE SET org_id=$2, suspended=false', [a, org]);
+  for (const kind of ['host', 'org']) {
+    const m1 = await meetingOf(), m2 = await meetingOf(), member = 'acct-member-' + tag(), outsider = 'acct-outsider-' + tag(), otherOrg = 'org-other-' + tag(); await q('INSERT INTO shield_orgs(org_id) VALUES($1) ON CONFLICT DO NOTHING', [otherOrg]); await put(member, m1.org); await put(outsider, otherOrg);
+    const who = { host: [m1.host, uuid(), 'host'], member: [member, uuid(), 'guest'], outsider: [outsider, uuid(), 'guest'], guest: [null, uuid(), 'guest'] }, inM2 = { member: [outsider, uuid(), 'guest'] };       // the cross-meeting attendee belongs to ANOTHER organization: a member of the suspended organization has their own account suspended everywhere (existing behaviour, not part of the meeting-wide rule)
+    const ask = (m, [acc, pid, role]) => authorize(m, pid, { role, ...(acc ? { accountId: acc } : {}) });
+    for (const k of Object.keys(who)) assert.equal((await ask(m1, who[k])).status, 200, kind + ': control, ' + k + ' is admitted before the suspension'); assert.equal((await ask(m2, inM2.member)).status, 200);
+    assert.equal((await (kind === 'host' ? suspendHost(m1) : suspendOrg(m1))).status, 200);
+    const reason = kind === 'host' ? 'HOST_SUSPENDED' : 'ORG_SUSPENDED';
+    for (const k of ['member', 'outsider', 'guest']) { const a = await ask(m1, [who[k][0], uuid(), 'guest']); assert.deepEqual([a.status, a.body.reason], [403, reason], kind + ': new admission denied for ' + k); }
+    const h = await ask(m1, [m1.host, uuid(), 'host']); assert.equal(h.status, 403, kind + ': the host itself is denied');
+    const r = await call('meet', 'POST', '/v1/shield/meet/recheck', { participants: [...Object.values(who).map(([acc, pid]) => ({ meetingId: m1.id, participantId: pid, ...(acc ? { accountId: acc } : {}) })), { meetingId: m2.id, participantId: inM2.member[1], accountId: outsider }] });
+    assert.deepEqual(r.body.revoke.map((x) => x.participantId).sort(), Object.values(who).map(([, pid]) => pid).sort(), kind + ': every participant of the affected meeting is revoked (host, member, outsider, guest)'); assert.ok(r.body.revoke.every((x) => x.meetingId === m1.id), 'and none of another meeting');
+    assert.equal((await ask(m2, inM2.member)).status, 200, kind + ': the same attendee in an unrelated meeting is untouched'); assert.deepEqual((await recheck(m2, [inM2.member[1]])).body.revoke, []);
+  }
+});
