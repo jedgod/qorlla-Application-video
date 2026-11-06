@@ -420,7 +420,7 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
       await audit(c, actor, 'alert.' + (to === 'acknowledged' ? 'ack' : 'resolve'), 'ALLOW', String(r.rows[0].kind), null, { discriminator: alertId }); return alertView(r.rows[0]);
     });
   }
-  const KINDS = { signaling_termination_failed: 'SIGNALING_TERMINATION_FAILED', outbox_delivery_failed: 'OUTBOX_DELIVERY_FAILED' };
+  const KINDS = { signaling_termination_failed: 'SIGNALING_TERMINATION_FAILED', outbox_delivery_failed: 'OUTBOX_DELIVERY_FAILED', phone_late_media: 'PHONE_LATE_MEDIA', phone_termination_failed: 'PHONE_TERMINATION_FAILED' };
   /** Other services (Meet, Numbers & Plans) report operational failures they observed; each becomes an event, hence an alert. Only these kinds, only with the reporter's own workload identity. */
   async function report({ kind, source, ref }, workload) {
     if (!KINDS[kind] || typeof source !== 'string' || !/^[A-Za-z0-9_.:-]{1,64}$/.test(source) || (ref != null && !/^[A-Za-z0-9_.:@-]{1,80}$/.test(ref))) throw new ShieldError('invalid_input', 400);
