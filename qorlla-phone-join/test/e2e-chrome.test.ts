@@ -415,12 +415,9 @@ test('SHIELD (real) - the HOST is SUSPENDED after media connected (meeting-wide 
     assert.match(refused, /^refused/, 'a new browser guest is not admitted to the signalling session (' + refused + ')');
     // 5. both phone credentials are revoked
     const creds = (await admin.query(`SELECT c.revoked_at FROM ${schema}.phone_peer_credentials c JOIN ${schema}.phone_calls p ON p.id=c.call_id WHERE p.meeting_id=$1`, [L.seeded.id])).rows; assert.ok(creds.length >= 2 && creds.every((r: any) => r.revoked_at), '5. every phone credential is revoked: ' + JSON.stringify(creds.map((r: any) => !!r.revoked_at)));
-    // 7. the suspension is recorded, whichever termination mechanism won each race: the Shield's own audit trail holds the revocation, and a call that ended as gateway_signaling_lost is accepted ONLY with proof that the Shield revoked it (its participant was denied by the signalling guard)
+    // 7. the suspension is recorded, whichever termination mechanism ran first: the Shield's own audit trail holds the revocation, and every terminated call carries the Shield reason (the guard and the sweep end a phone call the same way)
     const ev = await sh.eventsSince(since); assert.ok(ev.some((e) => e.action === 'meet.recheck' && e.decision === 'DENY' && /^REVOKED:/.test(e.reason)), '7. the Shield recorded the revocation: ' + JSON.stringify(ev.map((e) => e.action + ':' + e.reason)));
-    for (const r of (await callRows(L.seeded.id)).filter((x) => x.state === 'TERMINATED')) {
-      if (/^shield_host_suspended/.test(r.end_reason ?? '')) continue; assert.equal(r.end_reason, 'gateway_signaling_lost', 'unexpected end reason ' + r.end_reason);
-      const denied = (await admin.query(`SELECT p.admission FROM ${schema}.phone_calls c JOIN ${schema}.participants p ON p.id=c.participant_id WHERE c.id=$1`, [r.id])).rows[0]?.admission; assert.equal(denied, 'denied', 'a gateway_signaling_lost end is accepted only when the signalling guard acted on a Shield revocation (participant denied)');
-    }
+    for (const r of (await callRows(L.seeded.id)).filter((x) => x.state === 'TERMINATED')) assert.match(r.end_reason ?? '', /^shield_host_suspended/, 'every terminated call carries the Shield reason, whichever mechanism closed it first (the signalling guard ends the call of a phone peer through the phone module): got ' + r.end_reason);
     evidence.shieldSuspension = { callsConnected: 2, allTerminatedAfterMs: ms, endReasons: (await callRows(L.seeded.id)).map((r) => r.end_reason) }; saveEvidence('shield-suspension-connected');
   } catch (e) { why = await endTrail(L, t0, since).catch((x) => 'trail unavailable: ' + (x as Error).message); throw new Error((e as Error).message + '\nTRAIL: ' + why, { cause: e }); }
 });
@@ -437,7 +434,7 @@ test('SHIELD (real) - an OUTAGE beyond the grace deadline (grace 12 s for the te
       await sleep(6000); assert.equal((await callRows(L.seeded.id))[0].state, 'MEDIA_CONNECTED', 'inside the grace period the call is untouched, although the gateway keeps refreshing its media evidence (' + (Date.now() - t0) + ' ms)');
       assert.ok(await eventually(async () => (await callRows(L.seeded.id))[0].state === 'TERMINATED', 40000), 'terminated by the deadline'); const ms = Date.now() - t0, r = (await callRows(L.seeded.id))[0];
       assert.ok(ms >= 10_000 && ms <= 12_000 + 12_000, 'ended ' + ms + ' ms after the outage began (grace 12 s)');
-      if (!/^shield_shield_unavailable/.test(r.end_reason ?? '')) { assert.equal(r.end_reason, 'gateway_signaling_lost', 'unexpected end reason ' + r.end_reason); assert.match(L.meet.log(), /unreachable beyond the grace period/, 'gateway_signaling_lost is accepted only when Meet\'s own log shows the signalling guard closed the sessions because the Shield stayed unreachable beyond the grace period'); }
+      assert.match(r.end_reason ?? '', /^shield_shield_unavailable/, 'the call ends because the Shield is unavailable (the phone module\'s own deadline governs phone peers; the signalling guard leaves them to it): got ' + r.end_reason);
       evidence.shieldOutage = { graceMs: 12000, terminatedAfterMs: ms, endReason: r.end_reason }; saveEvidence('shield-outage-beyond-grace');
     } catch (e) { throw new Error((e as Error).message + '\nTRAIL: ' + (await endTrail(L, t0, since).catch((x) => 'trail unavailable: ' + (x as Error).message)), { cause: e }); }
   } finally { sh.setOutage(false); }
@@ -445,6 +442,6 @@ test('SHIELD (real) - an OUTAGE beyond the grace deadline (grace 12 s for the te
 });
 test('SHIELD (real) - an outage that ENDS before the grace deadline: the connected call is untouched and audio keeps flowing both ways long after the original deadline would have passed', { skip: skipShield, timeout: 420000 }, async () => {
   const sh = await shieldOf(), L = await lab({ shield: sh, grace: 12 }), i = await L.gwPc(L.A.page); sh.setOutage(true); await sleep(5000); sh.setOutage(false); await sleep(14_000);          // well past 12 s after the FIRST failure
-  assert.equal((await callRows(L.seeded.id))[0].state, 'MEDIA_CONNECTED', 'the call survived the recovered outage'); const tail = L.phone.received.slice(-60), listen = await L.A.page.evaluate((n: number) => (window as any).__listen(n, 2000), i);
+  const row = (await callRows(L.seeded.id))[0]; assert.equal(row.state, 'MEDIA_CONNECTED', 'the call survived the recovered outage (state ' + row.state + ', end reason ' + row.end_reason + ')'); const tail = L.phone.received.slice(-60), listen = await L.A.page.evaluate((n: number) => (window as any).__listen(n, 2000), i);
   assert.ok(snr(tail, 1000) >= 30, 'the phone still hears the meeting (' + snr(tail, 1000).toFixed(1) + 'x)'); assert.ok(listen.levels[440] - listen.noise > 25, 'Alice still hears the phone');
 });
