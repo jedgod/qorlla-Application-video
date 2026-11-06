@@ -1,0 +1,120 @@
+QORLLA SECURITY STANDING
+Updated 2026-11-06. Defensive review and isolated automated verification.
+
+HOW TO READ THIS
+- This is a code-reading review, isolated automated verification, and two dependency audits. It is NOT a penetration test and NOT an independent audit.
+  Nothing below was exploited. Findings marked "from code" were inferred by reading, and should be confirmed with a test before you rely on them.
+- Reviewed: main app (server.js, auth.js, docker-compose.yml), Qorlla Meet (server/index.js and the phone/gateway auth modules),
+  the telephone gateway and Shield integration as built in this session, the installable clients' build policy.
+- NOT reviewed: workplace.js and the other main-app route files in detail, store.js, mailer.js, nginx/proxy config, the database role setup,
+  meet-sync, qorlla-ops, the Shield engine beyond the phone changes, the gateway/Shield/clients dependency trees, git history for old secrets,
+  and any live deployment. The current uncommitted worktree was not tested; its tracked `index.html` deletion prevents the Docker image build.
+
+CURRENT CERTIFICATION (2026-11-06)
+- `cert/run-security.mjs`: 15 PASS, 0 FAIL against isolated containers and a local Meet process.
+- Tested application source: pushed commit `c1847ea7a7e7fea96e97d30e6eab88df2a7ab49f`; evidence is in `cert/SECURITY_EVIDENCE.md` and `.json`.
+- The isolated build used the committed `index.html`; the current dirty worktree deletes that file, so its current Docker build fails. That worktree and its other uncommitted edits are not covered by this result.
+- SEC12 initially exposed a harness issue: loading the login page while already authenticated triggers its expected redirect. The check now asserts `SameSite=Lax`, attempts a cross-site logout from the alternate origin, and verifies the session remains active; it passed in the final run.
+
+OVERALL
+The main-app priorities in this review were implemented in pushed commit `c1847ea` and the security suite is green on that committed revision.
+This is not production clearance: the current dirty worktree is untested, several subsystems were not reviewed, and there is no independent
+penetration test or live deployment validation. Telephone/Shield and installable-client release blockers below remain open.
+
+WHAT IS GOOD (verified by reading the code)
+- Main app accounts: scrypt password hashing with per-user salt, constant-time comparison, and a dummy hash on unknown users (no user enumeration by timing).
+  Sessions are random 256-bit tokens in an HttpOnly, SameSite=Lax cookie, stored only as SHA-256 hashes. Email-verify and reset tokens are single-use,
+  expiring, hashed. Login/reset rate limits are persisted to disk, so a restart does not clear a lockout. CSRF tokens are HMAC-bound to the session.
+  Baseline headers (nosniff, no-referrer, X-Frame-Options, Permissions-Policy). Startup refuses to run if stored data cannot be decrypted.
+- Meet: helmet + CSP, several rate limiters (API, bridge, phone, meeting), constant-time comparison for the bridge and read secrets, bcrypt for
+  passcodes and host secrets, parameterised queries, input clamping (clean(..)), socket.io CORS closed by default (origin false), 16 KB socket buffer,
+  failed-join throttling per client+meeting and per meeting, JWT with issuer check and 8 h expiry, AES-256-GCM recording encryption with per-chunk AAD.
+- Telephone (this session): Meet is the only Shield enforcer; the gateway holds no Shield identity. Admission, credential issue and promotion fail closed.
+  Host/org suspension ends the whole meeting (meeting-wide) and is audited. Phone PINs are 8 random digits (crypto.randomInt), scrypt-hashed, attempt-bounded.
+  Verification-peer credentials are short-lived, single-use, revocable. Gateway-to-Meet calls are authenticated and rate limited, with a fenced
+  ledger (lease/generation) so a stale gateway cannot end or revive someone else's call. No call id is released until cleanup is confirmed.
+- Dependencies: `npm audit --omit=dev` reported 0 vulnerabilities for the main app and for Meet (run today; advisory data depends on the registry).
+- No private keys or .env files are tracked in the main repo (file-name scan plus a BEGIN PRIVATE KEY search of cert/). Git history was NOT scanned.
+
+FINDINGS, MOST SERIOUS FIRST
+
+HIGH-1  Anonymous meeting host takeover (REMEDIATED in c1847ea)
+  The earlier implementation trusted a client-supplied userId for anonymous-host authority and exposed user IDs in room rosters. The pushed fix
+  issues a server-generated host credential, verifies it server-side, and keeps private identifiers out of public meeting data. The focused
+  regression tests passed before the push; the full suite also passed SEC05.
+
+HIGH-2  Predictable meeting codes and validity disclosure (REMEDIATED in c1847ea)
+  The pushed fix uses cryptographically secure meeting identifiers and rate-limits validation while reducing response metadata. This is part of the
+  selected main-app hardening scope; retain the regression coverage.
+
+HIGH-3  Stale automated evidence (CLOSED for tested commit; rerun per release)
+  The old evidence recorded 4 PASS / 11 FAIL on another branch. It has been replaced with a fresh isolated run: 15 PASS / 0 FAIL on c1847ea.
+  The run validates controls SEC01-SEC15, but does not replace independent review or cover the dirty worktree.
+
+MEDIUM-1  Main-app CSP and complete CSRF/CORS review remain open
+  Main-app origin restrictions were tightened in c1847ea and SEC12 now verifies SameSite=Lax behavior in a browser. This did not complete a
+  route-by-route CSRF audit or remove inline scripts/add a restrictive main-app CSP. Recheck all mutation routes and allowed origins before launch.
+
+MEDIUM-2  No second factor; modest password policy (from code)
+  Minimum 8 characters, no breached-password check, scrypt at library defaults (N=16384). Recovery codes exist, but there is no TOTP/WebAuthn.
+  Advice: add TOTP or passkeys at least for hosts and admins; raise scrypt cost (N=2^15 or higher) with a rehash-on-login; screen against known-breached passwords.
+
+MEDIUM-3  Production secret and bind requirements (REMEDIATED in c1847ea; verify deployment)
+  Production startup now requires the relevant encryption/bridge configuration, and the main app host port binds to loopback by default. Keep
+  secrets in the deployment secret manager, validate deployed compose/environment values, and do not expose the backend directly.
+
+MEDIUM-4  Meet join throttle is in memory and can be used to lock people out (from code)
+  The failed-join counters (8 per client+meeting, 60 per meeting per 10 min) live in a Map: they reset on restart, are not shared between instances,
+  and the per-meeting cap blocks legitimate joiners once an attacker (with enough source addresses) fills it. Client identity depends on correct
+  trusted-proxy settings; a wrong setting lets one attacker rotate X-Forwarded-For.
+  Advice: move the counters to the database or Redis, confirm the proxy trust setting in the real deployment, and prefer per-attacker backoff over a
+  meeting-wide lockout.
+
+MEDIUM-5  Meet tokens are bearer JWTs held in the browser, with no revocation (from code)
+  HS256 with a shared env secret (JWT_SECRET: I did not see a minimum-length check), 8 h lifetime, held in sessionStorage and handed over in a URL
+  fragment (#qs=). The CSP limits XSS risk, but a stolen token is valid for hours and cannot be revoked server-side except through meeting state.
+  Advice: enforce a 32+ byte secret at startup, shorten lifetimes or add a server-side session check, support secret rotation (kid), and keep the token out
+  of URLs.
+
+MEDIUM-6  Telephone: shipped-in-lab controls that are not yet live (known, tracked)
+  - Production dial-in is BLOCKED by design: no licensed carrier, no public numbers. Do not enable it until the open items below are closed.
+  - Migration 019 (new Shield alert kinds) is reviewed but NOT applied; SHIELD_WORKLOAD_ALLOWED for the Meet service must gain alerts.report first.
+    Until then, phone_late_media / phone_termination_failed reports will be refused by the Shield.
+  - Reliability under load is unproven: the real-Shield Chromium scenarios pass in isolation (4/4), but the full file was 14/16 today with two
+    Shield scenarios failing as gateway_signaling_lost under host load, and earlier setup failures (503s, slow ledger transitions). These look like capacity,
+    not a guard defect, but they are unresolved (A5.4). A fail-closed system that falls over under load is an availability risk.
+  - Outage policy is a deliberate trade-off: connected calls get a 120 s grace from the FIRST failed Shield check; new admissions fail closed at once.
+    A longer Shield outage ends all connected calls.
+  - Telephone fraud controls (toll fraud, concurrent-call caps per trunk, per-caller budgets, billing reconciliation) are not part of what was built or
+    verified here. Assume they are missing until reviewed.
+  Advice: finish A5.4 on the isolated machine; apply migration 019 only after review, in the documented order; add trunk-level IP allowlisting, call-rate and
+  concurrency caps and alerting before any carrier connection.
+
+MEDIUM-7  Installable clients are test builds only
+  The Android build used with the lab stack allows cleartext traffic and a debuggable WebView (QORLLA_TEST_BUILD) and is signed with a debug key.
+  The apps launched on the Galaxy and LG phones today are these test builds pointed at localhost. Release is blocked: no signed installer/store build,
+  no cross-network TURN. The Electron shell trusts a fixed origin allowlist, which is good, and localhost-over-http is ignored in packaged builds.
+  Advice: never distribute the test APK; keep the profile checks that refuse cleartext/debuggable in staging and production builds; add signing,
+  update-integrity and certificate pinning decisions before release.
+
+LOW
+  - The local 3200/3300 forwarders started today (fwd.cjs, loopback only) are a development convenience. Stop them when done; they have no authentication of their own.
+  - X-Frame-Options SAMEORIGIN on the main app and frame-ancestors none on Meet are consistent with the embedding design; revisit if embedding changes.
+  - Test fixtures and evidence (cert/) are committed. They hold no keys, but keep screenshots and logs reviewed for personal data before any publication.
+    Phone screenshots with the camera on must never be committed.
+  - multer is on the 1.x line, which its maintainers have superseded by 2.x security fixes. npm audit reports clean, but plan the upgrade.
+  - Dependency audits were not run for the gateway, Shield or clients.
+
+PRIORITISED ACTION LIST
+  1. Preserve the c1847ea host-credential, meeting-code, validation, production-secret, origin and loopback controls; keep SEC01-SEC15 in CI.
+  2. Resolve the dirty-worktree `index.html` deletion and retest the exact candidate deployment tree.
+  3. Audit every main-app mutation route for CSRF; finish the main-app CSP and origin-policy review.
+  4. Add a second factor for hosts/admins; assess scrypt cost and rehash-on-login.
+  5. Move join-failure counters out of process memory and revisit the meeting-wide lockout.
+  6. Finish A5.4 and Shield dev-stack testing; review/apply migration 019 only in the documented order, before any carrier work.
+  7. Commission an independent penetration test and deployment review before public launch.
+
+CONFIDENCE
+  Automated controls: high confidence for the specific behaviors asserted by SEC01-SEC15 on c1847ea in the isolated stack. Code-review findings
+  retained below are not newly revalidated unless stated. Low confidence for not-reviewed subsystems and any live deployment. This is a current
+  security status report, not a production clearance.

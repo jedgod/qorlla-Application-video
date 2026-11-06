@@ -1,27 +1,21 @@
 {
-  "finished": "2026-10-26T20:33:20.419Z",
+  "finished": "2026-11-06T20:01:11.804Z",
   "git": {
-    "headSha": "782cd39b6e96a84ae95a1bf45a26a32e6a2e3386",
-    "branch": "release/qorlla-meet-v3.9.2-production-closure",
+    "headSha": "c1847ea7a7e7fea96e97d30e6eab88df2a7ab49f",
+    "branch": "",
     "sourceTreeClean": false,
     "dirtySourcePaths": [
-      " M cert/PROXY_EVIDENCE.json",
-      " M cert/PROXY_EVIDENCE.md",
-      " M cert/SECURITY_EVIDENCE.json",
-      " M cert/SECURITY_EVIDENCE.md",
-      " M cert/evidence.json",
-      " M cert/screenshots/C16-guest.png",
-      " M cert/screenshots/C16-host.png",
-      " M cert/screenshots/C24-pending.png",
-      " M cert/screenshots/P06-proxy-passcode.png",
-      " M cert/screenshots/P07-proxy-guest.png",
-      " M cert/screenshots/P07-proxy-host.png"
+      "M cert/README.md",
+      " M cert/run-security.mjs",
+      " M cert/stack-down.ps1",
+      " M cert/stack-up.ps1",
+      " M docker-compose.yml"
     ]
   },
-  "gitHeadSha": "782cd39b6e96a84ae95a1bf45a26a32e6a2e3386",
+  "gitHeadSha": "c1847ea7a7e7fea96e97d30e6eab88df2a7ab49f",
   "summary": {
-    "pass": 4,
-    "fail": 11
+    "pass": 15,
+    "fail": 0
   },
   "results": [
     {
@@ -33,8 +27,8 @@
     {
       "id": "SEC02",
       "name": "Passcode brute force is throttled per client+meeting (8 failures -> 429); other clients unaffected",
-      "status": "FAIL",
-      "detail": "sequence 404,404,404,404,404,404,404,404,404,404"
+      "status": "PASS",
+      "detail": "403,403,403,403,403,403,403,403,429,429"
     },
     {
       "id": "SEC03",
@@ -45,26 +39,26 @@
     {
       "id": "SEC04",
       "name": "WebSocket authorization: no/forged/expired/foreign-secret tokens are refused; cross-meeting REST access is refused",
-      "status": "FAIL",
-      "detail": "valid token refused"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "id": "SEC05",
       "name": "Host-only actions are enforced server-side (notes, polls, end, lock refused for guests)",
-      "status": "FAIL",
-      "detail": "guest socket"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "id": "SEC06",
       "name": "Socket flood control: events beyond the per-socket budget are refused with \"Rate limited\"",
-      "status": "FAIL",
-      "detail": "connect"
+      "status": "PASS",
+      "detail": "refused 30/70"
     },
     {
       "id": "SEC07",
       "name": "SQL injection probes are inert (parameterised queries; no 500s, tables intact)",
-      "status": "FAIL",
-      "detail": "hostile title/name rejected? 500"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "id": "SEC08",
@@ -75,44 +69,44 @@
     {
       "id": "SEC09",
       "name": "Stored XSS: hostile chat text/display name never becomes markup or runs script (browser-verified, CSP active)",
-      "status": "FAIL",
-      "detail": "page.waitForSelector: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('#app:not(.hidden)') to be visible\u001b[22m\n"
+      "status": "PASS",
+      "detail": "rendered inert as text"
     },
     {
       "id": "SEC10",
       "name": "Logs contain no secrets (bridge secret, vault/escrow keys, JWT secret, host secrets)",
       "status": "PASS",
-      "detail": "scanned 32 KiB of logs"
+      "detail": "scanned 3 KiB of logs"
     },
     {
       "id": "SEC11",
       "name": "MAIN: login brute force is throttled; weak passwords refused; error text does not reveal which field was wrong",
-      "status": "FAIL",
-      "detail": "fetch failed"
+      "status": "PASS",
+      "detail": "401,401,401,401,401,429,429,429,429,429,429,429,429,429"
     },
     {
       "id": "SEC12",
       "name": "MAIN: cross-site request cannot use the session cookie (SameSite) - no state change from a hostile origin",
-      "status": "FAIL",
-      "detail": "fetch failed"
+      "status": "PASS",
+      "detail": "request completed as a cross-site POST; browser omitted the session cookie and the session remained active"
     },
     {
       "id": "SEC13",
       "name": "Containers run unprivileged (MAIN, worker)",
-      "status": "FAIL",
-      "detail": "Command failed: docker exec zoom_core_backend_instance id -u\nError response from daemon: No such container: zoom_core_backend_instance\n"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "id": "SEC14",
       "name": "Application database roles are least-privilege (not superuser, no DDL, cannot drop tables)",
-      "status": "FAIL",
-      "detail": "Command failed: docker exec qcert-main-db-1 psql -U qorlla_app -d qorlla_main -tAc SELECT rolsuper OR rolcreatedb OR rolcreaterole FROM pg_roles WHERE rolname=current_user\nError response from daemon: container 932c3d56730fddac7a4d1a884781fa64fdbee1f3448c17e5b74a091233c48795 is not running\n"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "id": "SEC15",
       "name": "Recovery responses are no-store; escrow is ciphertext at rest; invalid escrow key fails closed at startup",
-      "status": "FAIL",
-      "detail": "fetch failed"
+      "status": "PASS",
+      "detail": ""
     }
   ]
 }
