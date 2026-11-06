@@ -31,7 +31,7 @@ Run migrations as the **migrator** (table owner). The application connects as on
 |---|---|---|---|
 | `qorlla_sub_runtime` | request path | read plans/subscriptions/overrides; reserve, commit, release quota; write audit and usage | change subscriptions or overrides, delete anything, DDL |
 | `qorlla_sub_billing` | webhook worker | subscriptions, inbox, outbox | overrides, usage, reservations, customer links, audit |
-| `qorlla_sub_admin` | billing-admin service | overrides, override history, customer links | subscriptions, reservations, usage, inbox |
+| `qorlla_sub_admin` | billing-admin / provisioning service | overrides, override history, customer links, customers, members | subscriptions, reservations, usage, inbox, platform staff |
 
 ```sql
 GRANT qorlla_sub_runtime TO app_request_login;   -- one LOGIN role per service
@@ -81,15 +81,21 @@ capacity checks, metered route, PSTN gate, entitlements endpoint, webhook route 
 5. Operations: alert on `security_events` of severity `critical` (see PRODUCTION_READINESS.md for the queries).
 6. PSTN / public numbers need **both** the `phone.pstn` entitlement and operations opening the gate. A paid plan never overrides it.
 
+## Wiring into the product
+
+[INTEGRATION.md](INTEGRATION.md) specifies how the main app (verified tenant from the live session), the directory (customers, roles, suspension, staff) and Meet
+(`createMeetGuard`) connect. Those modules are built and tested; **they are not yet mounted in the product**.
+
 ## Layout
 
 ```
 src/        accessService (request path)  lifecycle (pure)  decision (pure)  plans  middleware  db (transactions)
-            admin (overrides)  billing + billingAdapters (inbox/outbox)  migrate  seed  errors  cache  index
-schema/     001 base  002 hardening (constraints, immutability, lock triggers)  003 billing  004 roles and grants
+            admin (overrides)  billing + billingAdapters (inbox/outbox)  directory (customers/roles)  identity (session -> tenant)
+            staff (platform staff)  meetGuard (Meet enforcement)  migrate  seed  errors  cache  index
+schema/     001 base  002 hardening (constraints, immutability, lock triggers)  003 billing  004 roles and grants  005 directory
 scripts/    migrate.mjs  rehearse-backup-restore.mjs
 examples/   express-integration.js  seed-entitlements.js
-tests/      43 unit tests (no database) + 105 PostgreSQL tests
+tests/      43 unit tests (no database) + 141 PostgreSQL tests
 ```
 
 ## Tests

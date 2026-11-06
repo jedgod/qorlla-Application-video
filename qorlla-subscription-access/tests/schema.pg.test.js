@@ -19,8 +19,8 @@ describe('migrations (PostgreSQL)', { skip }, () => {
   test('four parallel runners on an empty database apply every file exactly once', async () => {
     const results = await Promise.all(Array.from({ length: 4 }, () => migrate({ pool: blank.owner, dir })));
     const all = results.flat();
-    assert.deepEqual([...all].sort(), ['001_subscriptions.sql', '002_hardening.sql', '003_billing.sql', '004_roles_and_grants.sql']);
-    assert.equal((await blank.owner.query('SELECT count(*)::int n FROM schema_migrations')).rows[0].n, 4);
+    assert.deepEqual([...all].sort(), ['001_subscriptions.sql', '002_hardening.sql', '003_billing.sql', '004_roles_and_grants.sql', '005_directory.sql']);
+    assert.equal((await blank.owner.query('SELECT count(*)::int n FROM schema_migrations')).rows[0].n, 5);
   });
 
   test('running again applies nothing (idempotent)', async () => {
@@ -35,12 +35,12 @@ describe('migrations (PostgreSQL)', { skip }, () => {
   });
 
   test('a failing migration is rolled back completely and is not recorded; fixing it lets the run continue', async () => {
-    await writeFile(join(dir, '005_broken.sql'), 'CREATE TABLE zz_half_done (a int);\nINSERT INTO zz_half_done VALUES (1);\nSELECT 1/0;\n');
-    await assert.rejects(migrate({ pool: blank.owner, dir }), /005_broken\.sql failed and was rolled back/);
+    await writeFile(join(dir, '006_broken.sql'), 'CREATE TABLE zz_half_done (a int);\nINSERT INTO zz_half_done VALUES (1);\nSELECT 1/0;\n');
+    await assert.rejects(migrate({ pool: blank.owner, dir }), /006_broken\.sql failed and was rolled back/);
     assert.equal((await blank.owner.query(`SELECT to_regclass('zz_half_done') AS t`)).rows[0].t, null, 'nothing half-applied');
-    assert.equal((await blank.owner.query(`SELECT count(*)::int n FROM schema_migrations WHERE version='005_broken.sql'`)).rows[0].n, 0);
-    await writeFile(join(dir, '005_broken.sql'), 'CREATE TABLE zz_fixed (a int);\n');
-    assert.deepEqual(await migrate({ pool: blank.owner, dir }), ['005_broken.sql']);
+    assert.equal((await blank.owner.query(`SELECT count(*)::int n FROM schema_migrations WHERE version='006_broken.sql'`)).rows[0].n, 0);
+    await writeFile(join(dir, '006_broken.sql'), 'CREATE TABLE zz_fixed (a int);\n');
+    assert.deepEqual(await migrate({ pool: blank.owner, dir }), ['006_broken.sql']);
   });
 
   test('files that do not follow the naming rule are ignored, not executed', async () => {
@@ -205,7 +205,7 @@ describe('schema integrity, immutability and roles (PostgreSQL)', { skip }, () =
     try {
       await cl.query(`CREATE ROLE ${role} NOLOGIN`);
       await cl.query(`SET ROLE ${role}`);
-      for (const t of ['subscriptions', 'plans', 'features', 'plan_entitlements', 'entitlement_overrides', 'usage_events', 'quota_reservations', 'access_audit', 'security_events', 'billing_inbox', 'billing_outbox', 'billing_customers', 'entitlement_override_history']) {
+      for (const t of ['subscriptions', 'plans', 'features', 'plan_entitlements', 'entitlement_overrides', 'usage_events', 'quota_reservations', 'access_audit', 'security_events', 'billing_inbox', 'billing_outbox', 'billing_customers', 'entitlement_override_history', 'customers', 'customer_members', 'customer_member_history', 'platform_staff', 'platform_staff_customers']) {
         await assert.rejects(cl.query(`SELECT 1 FROM ${t}`), { code: '42501' }, t);
       }
       await cl.query('RESET ROLE');
