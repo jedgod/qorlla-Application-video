@@ -426,7 +426,11 @@ const phoneShield = { enforce: shieldCfg.enforce, configured: !!shield,
     const { rows: [m] } = await db.query('SELECT id, org_id, host_account_id, guest_enabled FROM meetings WHERE id=$1', [meetingId]); if (!m) return { allow: false, reason: 'MEETING_UNKNOWN_OR_ENDED' };
     const reg = await shield.registerResult({ id: m.id, org_id: m.org_id, host_account_id: m.host_account_id, guest_enabled: m.guest_enabled });
     if (!reg.ok) return { allow: false, reason: reg.status === 409 && reg.error === 'meeting_ended' ? 'MEETING_ENDED' : 'SHIELD_UNAVAILABLE' };      // an ended meeting is a REFUSAL; only a Shield that could not answer is "unavailable"
-    return shield.authorize({ meetingId, participantId, role: 'guest', admission: 'admitted' });
+    const r = await shield.authorize({ meetingId, participantId, role: 'guest', admission: 'admitted' });
+    // A5.5: a telephone caller is only admitted into a meeting with a VERIFIED OWNER CONTEXT (a registered host account the Shield knows). The Shield flags an allow for a meeting registered without any host as `ownership: none`;
+    // for telephone calls that is not enough. Registration of such meetings and browser admission are unchanged: only this telephone bridge reads the flag.
+    if (r && r.allow === true && r.ownership === 'none') { shieldOps.log('phone_ownerless_meeting_refused', {}); return { allow: false, reason: 'OWNERLESS_MEETING' }; }
+    return r;
   },
   recheck: (list) => (shield ? shield.recheck(list) : Promise.resolve(null)),
   report: async (kind, ref) => { if (!shield) { shieldOps.counters.report_failed++; shieldOps.log('shield_report_failed', { kind, reason: 'no_shield' }); return false; }
