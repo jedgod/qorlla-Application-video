@@ -47,7 +47,7 @@ export function createProvider(env = process.env) {
     setMute(callId, muted) { this.calls.push({ op: muted ? 'mute' : 'unmute', callId, at: Date.now() }); } };
 }
 
-export function registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas, phoneOnline, names, recording, env = process.env, provider = createProvider(env), carrier = null, shield = null, gateway = null, readiness = null, peers = null, now = () => Date.now() }) {
+export function registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas, phoneOnline, names, recording, env = process.env, provider = createProvider(env), carrier = null, shield = null, gateway = null, readiness = null, peers = null, now = () => Date.now(), mono = null }) {
   // GATEWAY MODE: when gateway authentication is configured, the signed telephone routes accept ONLY a verified gateway workload token (never the provider HMAC), need PHONE_GATEWAY_ENABLED=true,
   // and admission needs all six readiness conditions from an authoritative source. Without gateway configuration everything behaves as before (test double / carrier IVR).
   const gatewayMode = !!(gateway && gateway.configured), providerName = () => (gatewayMode ? 'gateway' : provider.name);
@@ -265,7 +265,10 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
     const verified = audioVerified(ev, { now: now(), allowSynthetic: pn === 'test-double' });
     if (c.state === 'MEDIA_CONNECTED') {
       if (!verified) { await close(c, 'TERMINATED', 'media_unverified'); hang(c); return { result: 'terminate', action: 'terminate', state: 'TERMINATED' }; }       // connected calls must KEEP showing audio
-      const sh = await shieldAllows(c.meeting_id, c.participant_id); if (!sh.allow) { await close(c, 'TERMINATED', 'shield_' + sh.reason.toLowerCase().slice(0, 40)); hang(c); return { result: 'terminate', action: 'terminate', state: 'TERMINATED' }; }
+      // An EXPLICIT Shield refusal ends the call now. An UNREACHABLE Shield does not: for a call that is already connected the outage deadline (shieldSweep: measured from the first failed recheck, 120 s by default)
+      // decides, so a keep-alive refresh cannot cut the grace period short. While an outage is known the Shield is not asked again on every refresh.
+      const sh = outage ? { allow: false, reason: 'SHIELD_UNAVAILABLE' } : await shieldAllows(c.meeting_id, c.participant_id);
+      if (!sh.allow && sh.reason !== 'SHIELD_UNAVAILABLE') { await close(c, 'TERMINATED', 'shield_' + sh.reason.toLowerCase().slice(0, 40)); hang(c); return { result: 'terminate', action: 'terminate', state: 'TERMINATED' }; }
       await db.query('UPDATE phone_calls SET media_verified_at=now(), media_evidence=$2::jsonb WHERE id=$1 AND state=\'MEDIA_CONNECTED\'', [c.id, JSON.stringify(ev)]); return { result: 'connected', action: 'none', refreshed: true };
     }
     let cur = c; if (c.state === 'APPROVED') cur = (await move(c.id, 'MEDIA_CONNECTING', 'media_reported')) || c;
@@ -392,28 +395,51 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
     // Every age is computed by the DATABASE (never application clock minus database timestamp: the two clocks need not agree).
     for (const c of (await db.query("SELECT *, (terminated_at < now() - ($2::int * interval '1 millisecond')) AS past_orphan_limit FROM phone_calls WHERE hangup_confirmed_at IS NULL AND state IN ('REFUSED','TIMED_OUT','CANCELLED','TERMINATED') AND terminated_at < now() - ($1::int * interval '1 millisecond') LIMIT 200", [CONFIRM_MS, ORPHAN_MS])).rows) {
       hang(c); out.retried++;
-      if (c.past_orphan_limit && await move(c.id, 'ORPHANED', 'hangup_unconfirmed')) { out.orphaned++; audit(c.meeting_id, c.participant_id, 'phone.orphaned', { call: c.id }); shield?.report?.('phone_media_orphaned', c.id)?.catch?.(() => {}); }
+      if (c.past_orphan_limit && await move(c.id, 'ORPHANED', 'hangup_unconfirmed')) { out.orphaned++; audit(c.meeting_id, c.participant_id, 'phone.orphaned', { call: c.id }); counters.calls_orphaned++; shield?.report?.('phone_termination_failed', c.id)?.catch?.(() => {}); }
     }
     return out;
   }
   /** Calls the Shield must keep authorizing: everything between approval and the end. */
-  const openForShield = async () => (await db.query("SELECT id, meeting_id, participant_id FROM phone_calls WHERE state IN ('APPROVED','MEDIA_CONNECTING','MEDIA_CONNECTED') AND participant_id IS NOT NULL LIMIT 500")).rows;
-  let shieldOk = now();
-  /** Re-checks every open call with the Shield (like Meet's session guard for signalling): revoked -> hung up now; Shield unreachable past the grace period -> every call hung up (fail closed). */
+  const openForShield = async () => (await db.query("SELECT id, meeting_id, participant_id, state FROM phone_calls WHERE state IN ('APPROVED','MEDIA_CONNECTING','MEDIA_CONNECTED') AND participant_id IS NOT NULL LIMIT 500")).rows;
+  const counters = { shield_outage_started: 0, shield_outage_recovered: 0, calls_revoked_by_shield: 0, calls_ended_by_outage: 0, calls_orphaned: 0 };
+  const monotonic = mono || (typeof arguments[0]?.now === 'function' ? now : () => Number(process.hrtime.bigint() / 1000000n)), slog = (event, o = {}) => { try { console.error(JSON.stringify({ ts: new Date().toISOString(), component: 'meet-phone', event, ...o })); } catch { /* never throws */ } };
+  /**
+   * A Shield outage is measured from the FIRST failed recheck with a monotonic clock and is never restarted by further failures; a successful recheck clears it. The start is also written to the audit trail, so a
+   * restart of this process during an uninterrupted outage inherits the original start instead of granting a fresh grace period. Only calls that are already CONNECTED get the grace period (SHIELD_GRACE_MS, 120 s by
+   * default); calls that are not yet connected are ended at once (admission, credential issue and promotion are fail-closed on their own).
+   */
+  let outage = null;
+  async function inheritedOutageStart(open) {
+    try { const meetings = [...new Set(open.map((c) => c.meeting_id))], { rows: [r] } = await db.query(`SELECT (s.detail->>'sinceEpochMs')::bigint AS since FROM audit_events s WHERE s.event_type='phone.shield_outage_start' AND s.meeting_id = ANY($1::uuid[]) AND s.created_at > now() - interval '15 minutes'
+      AND NOT EXISTS (SELECT 1 FROM audit_events r WHERE r.event_type='phone.shield_recovered' AND r.meeting_id=s.meeting_id AND r.id > s.id) ORDER BY s.id ASC LIMIT 1`, [meetings]); return r ? Number(r.since) : null; } catch { return null; }
+  }
+  /** Re-checks every open call with the Shield (like Meet's session guard for signalling): revoked -> hung up now; Shield unreachable -> not-yet-connected calls end at once, connected calls at the outage deadline (fail closed). */
   async function shieldSweep() {
-    const open = await openForShield(); if (!open.length) { shieldOk = now(); return { revoked: 0 }; }
-    if (!shield || !shield.recheck) { return { revoked: await revokeCalls(open, 'SHIELD_UNAVAILABLE', now() - shieldOk > SHIELD_GRACE_MS) }; }
-    let out = null; try { out = await shield.recheck(open.map((c) => ({ meetingId: c.meeting_id, participantId: c.participant_id }))); } catch { out = null; }
-    if (!out || !Array.isArray(out.revoke)) return { revoked: await revokeCalls(open, 'SHIELD_UNAVAILABLE', now() - shieldOk > SHIELD_GRACE_MS) };
-    shieldOk = now(); let n = 0;
+    const open = await openForShield();
+    if (!open.length) { if (outage) { outage = null; counters.shield_outage_recovered++; } return { revoked: 0 }; }
+    let out = null; if (shield && shield.recheck) { try { out = await shield.recheck(open.map((c) => ({ meetingId: c.meeting_id, participantId: c.participant_id }))); } catch { out = null; } }
+    if (!out || !Array.isArray(out.revoke)) {
+      const t = monotonic();
+      if (!outage) {
+        const prior = await inheritedOutageStart(open), wall = prior ?? now(); outage = { start: t - Math.max(0, now() - wall), wall }; counters.shield_outage_started++;
+        slog('shield_outage_start', { openCalls: open.length, inherited: prior !== null, sinceEpochMs: wall });
+        if (prior === null) for (const m of new Set(open.map((c) => c.meeting_id))) audit(m, null, 'phone.shield_outage_start', { sinceEpochMs: wall });
+      }
+      const expired = t - outage.start > SHIELD_GRACE_MS, connected = open.filter((c) => c.state === 'MEDIA_CONNECTED'), notYet = open.filter((c) => c.state !== 'MEDIA_CONNECTED');
+      const n = await revokeCalls(notYet, 'SHIELD_UNAVAILABLE', true) + await revokeCalls(connected, 'SHIELD_UNAVAILABLE', expired);
+      if (n) { counters.calls_ended_by_outage += n; slog('shield_outage_calls_ended', { ended: n, outageMs: Math.round(t - outage.start), deadlineExpired: expired }); }
+      return { revoked: n };
+    }
+    if (outage) { slog('shield_outage_end', { outageMs: Math.round(monotonic() - outage.start) }); outage = null; counters.shield_outage_recovered++; for (const m of new Set(open.map((c) => c.meeting_id))) audit(m, null, 'phone.shield_recovered', {}); }
+    let n = 0;
     for (const rv of out.revoke) { const c = open.find((x) => x.participant_id === rv.participantId && x.meeting_id === rv.meetingId); if (c) n += await revokeCalls([c], String(rv.reason || 'REVOKED'), true); }
-    return { revoked: n };
+    counters.calls_revoked_by_shield += n; return { revoked: n };
   }
   async function revokeCalls(list, reason, doIt) {
     if (!doIt) return 0; let n = 0;
     for (const o of list) { const { rows: [c] } = await db.query('SELECT * FROM phone_calls WHERE id=$1', [o.id]); if (c && await close(c, c.state === 'MEDIA_CONNECTED' ? 'TERMINATED' : 'REFUSED', 'shield_' + String(reason).toLowerCase().slice(0, 40), { status: c.state === 'MEDIA_CONNECTED' ? 'ended' : 'denied' })) { hang(c); n++; audit(c.meeting_id, c.participant_id, 'phone.revoked', { call: c.id, reason }); } }
     return n;
   }
-  return { shieldAllows, peerLost, provider, verifyCall, consentCall, endedCall: ended, mediaReport, statusReport, decision, statusOf, endAll, onAdmission, onHostArrived, sweep, shieldSweep, setPin, revokePin, gatewayMode, enabled: gatewayMode ? env.PHONE_GATEWAY_ENABLED === 'true' : provider.ready,
+  return { counters, shieldAllows, peerLost, provider, verifyCall, consentCall, endedCall: ended, mediaReport, statusReport, decision, statusOf, endAll, onAdmission, onHostArrived, sweep, shieldSweep, setPin, revokePin, gatewayMode, enabled: gatewayMode ? env.PHONE_GATEWAY_ENABLED === 'true' : provider.ready,
     calls: async (meetingId) => (await db.query('SELECT * FROM phone_calls WHERE meeting_id=$1 ORDER BY created_at', [meetingId])).rows.map((c) => ({ ...callView(c), seconds: c.connected_at ? Math.max(0, Math.round(((c.ended_at ? new Date(c.ended_at) : new Date()) - new Date(c.connected_at)) / 1000)) : 0 })) };
 }

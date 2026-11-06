@@ -402,7 +402,7 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
  await db.query("UPDATE meetings SET ended_at=now(), end_reason='host_ended' WHERE id=$1",[req.params.id]);
  recording.stopFor(req.params.id,'meeting_ended',req.user.participantId).catch(()=>{});await phone.endAll(req.params.id,'meeting_ended').catch(()=>{});         // every caller is hung up before the host is told it is done
  io.to(room(req.params.id)).emit('meeting-ended');
- if(shield&&shieldCfg.enforce)shield.end(req.params.id).catch(()=>{});
+ shieldEnd(req.params.id);                                        // whenever the Shield is in use, it is told the meeting is over (fire-and-forget)
  audit(req.params.id,req.user.participantId,'meeting.ended'); res.json({ok:true});
 });
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
@@ -414,17 +414,23 @@ registerHandoff({ app, db, sign, fail, bridgeAuth, audit });          // single-
 const aiConsent = registerAiConsent({ app, io, db, auth, fail, audit: recAudit, room, readAuth, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });   // Qorlla AI consent: host request, late-joiner prompt, read-only export for the portal
 let limiter;
 const recording = registerRecording({ app, io, db, auth, member, fail, room, audit: recAudit, media: recMedia, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
-limiter = makeLimit({ io, db, room, audit, upgradeUrl: process.env.UPGRADE_URL || '/pricing?reason=meeting-limit', onEnd: async (id) => { await recording.stopFor(id, 'meeting_ended'); await phone.endAll(id, 'time_limit'); } });
+limiter = makeLimit({ io, db, room, audit, upgradeUrl: process.env.UPGRADE_URL || '/pricing?reason=meeting-limit', onEnd: async (id) => { await recording.stopFor(id, 'meeting_ended'); await phone.endAll(id, 'time_limit'); shieldEnd(id); } });
 const carrier = createCarrier(process.env);                 // a real telephone carrier only when PHONE_CARRIER and its credentials are set; otherwise inert
 // Telephone callers have no signalling session, so the Security Shield is asked about them here: before approval, before they count as connected, and on a timer for every open call (phone.shieldSweep).
+// Operational counters and structured log lines for the Shield dialogue (A5.5). Nothing here is on the termination path: reports and meeting-end notices are fire-and-forget and can only count and log.
+const shieldOps = { counters: { report_sent: 0, report_failed: 0, meeting_end_sent: 0, meeting_end_failed: 0 }, log: (event, o = {}) => { try { console.error(JSON.stringify({ ts: new Date().toISOString(), component: 'meet-shield', event, ...o })); } catch { /* logging must never throw */ } } };
+const shieldEnd = (meetingId) => { if (!shield) return Promise.resolve(false); return shield.endResult(meetingId).then((r) => { if (r.ok) shieldOps.counters.meeting_end_sent++; else { shieldOps.counters.meeting_end_failed++; shieldOps.log('shield_meeting_end_failed', { status: r.status }); } return r.ok; }, () => false); };
 const phoneShield = { enforce: shieldCfg.enforce, configured: !!shield,
   authorize: async (meetingId, participantId) => {
     if (!shield) return { allow: false, reason: 'SHIELD_UNAVAILABLE' };
     const { rows: [m] } = await db.query('SELECT id, org_id, host_account_id, guest_enabled FROM meetings WHERE id=$1', [meetingId]); if (!m) return { allow: false, reason: 'MEETING_UNKNOWN_OR_ENDED' };
-    if (!(await shield.register({ id: m.id, org_id: m.org_id, host_account_id: m.host_account_id, guest_enabled: m.guest_enabled }))) return { allow: false, reason: 'SHIELD_UNAVAILABLE' };
+    const reg = await shield.registerResult({ id: m.id, org_id: m.org_id, host_account_id: m.host_account_id, guest_enabled: m.guest_enabled });
+    if (!reg.ok) return { allow: false, reason: reg.status === 409 && reg.error === 'meeting_ended' ? 'MEETING_ENDED' : 'SHIELD_UNAVAILABLE' };      // an ended meeting is a REFUSAL; only a Shield that could not answer is "unavailable"
     return shield.authorize({ meetingId, participantId, role: 'guest', admission: 'admitted' });
   },
-  recheck: (list) => (shield ? shield.recheck(list) : Promise.resolve(null)), report: (kind, ref) => (shield ? shield.report(kind, ref) : Promise.resolve(false)) };
+  recheck: (list) => (shield ? shield.recheck(list) : Promise.resolve(null)),
+  report: async (kind, ref) => { if (!shield) { shieldOps.counters.report_failed++; shieldOps.log('shield_report_failed', { kind, reason: 'no_shield' }); return false; }
+    const r = await shield.reportResult(kind, ref).catch(() => ({ ok: false, status: 0 })); if (r.ok) shieldOps.counters.report_sent++; else { shieldOps.counters.report_failed++; shieldOps.log('shield_report_failed', { kind, status: r.status }); } return r.ok; } };
 const phoneGateway = createGatewayAuth({ db, env: process.env });                // the telephone gateway's own identity (audience, subjects, scopes, keys); inert unless PHONE_GATEWAY_KEYS_JSON and PHONE_GATEWAY_SUBJECTS_JSON are set
 if (phoneGateway.problems.length && (process.env.PHONE_GATEWAY_KEYS_JSON || process.env.PHONE_GATEWAY_SUBJECTS_JSON)) console.error('[phone-gateway] incomplete configuration, gateway mode stays off:', phoneGateway.problems.join(', '));
 const phonePeers = createPhonePeers({ db, io, room });
@@ -438,6 +444,8 @@ const telephony = registerTelephony({ app, db, bridgeAuth, phone, carrier });
   if (phone.gatewayMode || (shield && shieldCfg.enforce)) { const t2 = setInterval(() => { phone.shieldSweep().catch((e) => console.error('[phone] shield sweep failed:', e.message)); }, shieldCfg.recheckMs); t2.unref(); } }
 // Meeting directory for the telephone gateway (bridge secret): a meeting number -> the Meet meeting and, when it was scheduled by the main app, that scheduled-meeting id. One-to-one by construction
 // (external_meeting_links: meeting_id UNIQUE, PRIMARY KEY (source_system, source_id)); an unexpected duplicate is refused rather than guessed.
+// Operational counters for the telephone/Shield dialogue (bridge secret; numbers only, no identifiers): reports and meeting-end notices sent or failed, outages seen, calls ended by an outage.
+app.get('/api/integrations/phone/counters', bridgeAuth, (_req, res) => res.set('Cache-Control', 'no-store').json({ shield: shieldOps.counters, phone: phone.counters }));
 app.get('/api/integrations/phone/meetings/:digits', bridgeAuth, async (req, res) => {
   try {
     const digits = normalizePhoneMeetingCode(req.params.digits); if (!digits) return fail(res, 400, 'Invalid meeting number');

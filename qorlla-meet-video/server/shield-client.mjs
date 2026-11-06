@@ -17,8 +17,10 @@ export function createShieldClient({ config, fetchImpl = (config.transport && co
   const state = { lastOk: now() };
   return {
     state,
-    /** Meet's facts about a meeting, pushed before each decision (idempotent). Returns false when the shield could not take them. */
-    async register(m) { try { const r = await call('/v1/shield/meet/register', { meetingId: m.id, orgId: m.org_id || null, hostAccountId: m.host_account_id || null, guestEnabled: m.guest_enabled !== false, endsAt: new Date(Date.now() + 24 * 3600e3).toISOString() }); return r.status === 200; } catch { return false; } },
+    /** Meet's facts about a meeting, pushed before each decision (idempotent) -> { ok, status, error }: a 409 `meeting_ended` is the Shield REFUSING (the meeting is over), not the Shield being unavailable. */
+    async registerResult(m) { try { const r = await call('/v1/shield/meet/register', { meetingId: m.id, orgId: m.org_id || null, hostAccountId: m.host_account_id || null, guestEnabled: m.guest_enabled !== false, endsAt: new Date(Date.now() + 24 * 3600e3).toISOString() }); return { ok: r.status === 200, status: r.status, error: (r.data && r.data.error) || null }; } catch { return { ok: false, status: 0, error: 'unreachable' }; } },
+    /** Returns false when the shield could not take them. */
+    async register(m) { return (await this.registerResult(m)).ok; },
     /** -> { allow, reason, kind, capabilities }. ANY failure is a denial. */
     async authorize({ meetingId, participantId, accountId, role, admission }) {
       try { const r = await call('/v1/shield/meet/authorize', { meetingId, participantId, ...(accountId ? { accountId } : {}), role, admission }); state.lastOk = now(); return r.status === 200 && r.data.allow === true ? r.data : { allow: false, reason: r.data.reason || 'SHIELD_REFUSED' }; }
@@ -27,8 +29,10 @@ export function createShieldClient({ config, fetchImpl = (config.transport && co
     /** -> { revoke: [...] } or null when the shield could not be asked (the caller applies the grace period). */
     async recheck(participants) { try { const r = await call('/v1/shield/meet/recheck', { participants }); if (r.status !== 200 || !Array.isArray(r.data.revoke)) return null; state.lastOk = now(); return r.data; } catch { return null; } },
     /** Tell the Shield about an operational failure Meet could not handle itself (it becomes a durable alert). Best effort: never throws. */
-    async report(kind, ref) { try { return (await call('/v1/shield/report', { kind, source: 'meet', ...(ref ? { ref: String(ref).replace(/[^A-Za-z0-9_.:@-]/g, '').slice(0, 80) } : {}) })).status === 200; } catch { return false; } },
-    async end(meetingId) { try { return (await call('/v1/shield/meet/end', { meetingId })).status === 200; } catch { return false; } }
+    async reportResult(kind, ref) { try { const r = await call('/v1/shield/report', { kind, source: 'meet', ...(ref ? { ref: String(ref).replace(/[^A-Za-z0-9_.:@-]/g, '').slice(0, 80) } : {}) }); return { ok: r.status === 200, status: r.status }; } catch { return { ok: false, status: 0 }; } },
+    async report(kind, ref) { return (await this.reportResult(kind, ref)).ok; },
+    async endResult(meetingId) { try { const r = await call('/v1/shield/meet/end', { meetingId }); return { ok: r.status === 200, status: r.status }; } catch { return { ok: false, status: 0 }; } },
+    async end(meetingId) { return (await this.endResult(meetingId)).ok; }
   };
 }
 
