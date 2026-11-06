@@ -5,20 +5,21 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     environment:
       - NODE_ENV=production
       - PORT=5000
       # Optional. Put real values in a .env file next to this one (see .env.example).
       - PUBLIC_URL=${PUBLIC_URL:-}
-      - ENCRYPT_KEY=${ENCRYPT_KEY:-}
+      - ENCRYPT_KEY=${ENCRYPT_KEY:?set ENCRYPT_KEY in .env}
       - ENCRYPT_KEY_OLD=${ENCRYPT_KEY_OLD:-}
       - SMTP_URL=${SMTP_URL:-}
       - SMTP_FROM=${SMTP_FROM:-}
       - MAIL_DAILY_LIMIT=${MAIL_DAILY_LIMIT:-20}
       - CHAT_MAX_MESSAGES=${CHAT_MAX_MESSAGES:-500}
       - DATABASE_URL=postgres://qorlla_app:${QORLLA_APP_DB_PASSWORD}@main-db:5432/qorlla_main
-      - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:-}
+      - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:?set QORLLA_BRIDGE_SECRET in .env}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
       - MEET_BASE_URL=${MEET_BASE_URL:-http://host.docker.internal:3000}
       - MEET_PUBLIC_URL=${MEET_PUBLIC_URL:-}
     depends_on:
@@ -62,7 +63,7 @@ services:
     environment:
       - DATABASE_URL=postgres://qorlla_app:${QORLLA_APP_DB_PASSWORD}@main-db:5432/qorlla_main
       - MEET_BASE_URL=${MEET_BASE_URL:-http://host.docker.internal:3000}
-      - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:-}
+      - QORLLA_BRIDGE_SECRET=${QORLLA_BRIDGE_SECRET:?set QORLLA_BRIDGE_SECRET in .env}
       - QORLLA_VAULT_KEY=${QORLLA_VAULT_KEY:-}
       - MEET_SYNC_LEASE_SECONDS=${MEET_SYNC_LEASE_SECONDS:-90}
       - MEET_SYNC_BACKOFF_BASE_SECONDS=${MEET_SYNC_BACKOFF_BASE_SECONDS:-5}

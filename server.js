@@ -13,6 +13,48 @@ const fs = require('fs');
 const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
+const crypto = require('crypto');
+
+const isProduction = process.env.NODE_ENV === 'production';
+if (isProduction) {
+    const problems = [];
+    if (!/^[0-9a-f]{64}$/i.test(process.env.ENCRYPT_KEY || '')) {
+        problems.push('ENCRYPT_KEY must be 64 hexadecimal characters (32 bytes).');
+    }
+    if (Buffer.byteLength(process.env.QORLLA_BRIDGE_SECRET || '', 'utf8') < 32) {
+        problems.push('QORLLA_BRIDGE_SECRET must contain at least 32 bytes.');
+    }
+    if (problems.length) {
+        console.error('FATAL: production security configuration is incomplete:\n- ' + problems.join('\n- '));
+        process.exit(1);
+    }
+}
+
+function configuredOrigins() {
+    const values = [
+        process.env.PUBLIC_URL,
+        process.env.MEET_PUBLIC_URL,
+        ...(process.env.CORS_ALLOWED_ORIGINS || '').split(',')
+    ].filter(Boolean).map((value) => value.trim()).filter(Boolean);
+    return new Set(values.map((value) => {
+        let url;
+        try { url = new URL(value.trim()); } catch (err) {
+            throw new Error('Configured CORS origins must be absolute HTTP(S) URLs.');
+        }
+        if (!['http:', 'https:'].includes(url.protocol)) {
+            throw new Error('Configured CORS origins must use HTTP or HTTPS.');
+        }
+        return url.origin;
+    }));
+}
+
+const allowedOrigins = configuredOrigins();
+function originAllowed(req, origin) {
+    if (!origin || origin === 'null') return false;
+    let normalized;
+    try { normalized = new URL(origin).origin; } catch (err) { return false; }
+    return normalized === `${req.protocol}://${req.get('host')}` || allowedOrigins.has(normalized);
+}
 
 const app = express();
 // Behind nginx (private network) so req.ip reflects the real client for sign-in throttling
@@ -27,7 +69,25 @@ app.use((req, res, next) => {
     });
     next();
 });
-app.use(cors());
+app.use((req, res, next) => cors({
+    origin: (origin, callback) => callback(null, !!origin && originAllowed(req, origin)),
+    credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
+    maxAge: 600
+})(req, res, next));
+
+// Gate every API mutation by browser origin; only explicitly configured origins may be cross-origin.
+app.use('/api', (req, res, next) => {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+    const origin = req.get('origin');
+    const fetchSite = req.get('sec-fetch-site');
+    if ((origin && originAllowed(req, origin)) ||
+        (!origin && (!fetchSite || fetchSite === 'same-origin' || fetchSite === 'none'))) {
+        return next();
+    }
+    return res.status(403).json({ error: 'Cross-origin request blocked.' });
+});
 // Accounts and sessions
 const DATA_ROOT = process.env.DATA_DIR || path.join(__dirname, 'data');
 const store = require('./store');
@@ -65,8 +125,19 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
+        origin: Array.from(allowedOrigins),
+        methods: ['GET', 'POST'],
+        credentials: true
+    },
+    allowRequest: (req, callback) => {
+        const origin = req.headers.origin;
+        const forwardedProtocol = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+        const protocol = ['http', 'https'].includes(forwardedProtocol)
+            ? forwardedProtocol
+            : req.connection.encrypted ? 'https' : 'http';
+        const requestOrigin = `${protocol}://${req.headers.host}`;
+        if (!origin || origin === requestOrigin || originAllowed({ protocol, get: () => req.headers.host }, origin)) return callback(null, true);
+        return callback('Origin not allowed', false);
     }
 });
 
@@ -81,6 +152,45 @@ const MAX_CHAT_LENGTH = 2000;
 const MAX_NOTES_LENGTH = 20000;
 
 const normalizeId = (id) => String(id || '').replace(/\s+/g, ' ').trim();
+const HOST_COOKIE = 'qh';
+const HOST_COOKIE_TTL_SECONDS = 30 * 24 * 60 * 60;
+const hostSecretHashes = new Set();
+
+function hashHostSecret(secret) {
+    return crypto.createHash('sha256').update(secret).digest('hex');
+}
+
+function cookieValue(req, name) {
+    const cookieHeader = String(req.headers.cookie || '');
+    for (const part of cookieHeader.split(';')) {
+        const separator = part.indexOf('=');
+        if (separator > 0 && part.slice(0, separator).trim() === name) {
+            return part.slice(separator + 1).trim();
+        }
+    }
+    return '';
+}
+
+function hostSecretMatches(secret, expectedHash) {
+    if (!/^[0-9a-f]{64}$/i.test(secret || '') || !/^[0-9a-f]{64}$/i.test(expectedHash || '')) return false;
+    const actual = Buffer.from(hashHostSecret(secret), 'hex');
+    const expected = Buffer.from(expectedHash, 'hex');
+    return crypto.timingSafeEqual(actual, expected);
+}
+
+function publicMeeting(meeting) {
+    return {
+        meetingId: meeting.meetingId,
+        topic: meeting.topic,
+        startTime: meeting.startTime,
+        durationMinutes: meeting.durationMinutes,
+        timezone: meeting.timezone,
+        status: meeting.status,
+        documents: meeting.documents,
+        notes: meeting.notes,
+        chatHistory: meeting.chatHistory
+    };
+}
 
 // ------------------------------------------
 // Persistence: JSON snapshot so meetings and chats survive restarts
@@ -96,6 +206,7 @@ function loadSnapshot() {
             // No sockets survive a restart, so nothing can still be active
             if (m.status === 'active') m.status = 'scheduled';
             meetingsState.set(m.meetingId, m);
+            if (m.hostSecretHash) hostSecretHashes.add(m.hostSecretHash);
         }
     } catch (err) {
         console.error('[Persistence]: load failed:', err.message);
@@ -172,8 +283,11 @@ app.get('/index.html', (req, res) => {
 // MEETING PREPARATION FLOW (REST API)
 // ==========================================
 function allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone }) {
-    const rawId = Math.floor(10000000000 + Math.random() * 90000000000).toString();
-    const formattedMeetingId = `${rawId.substring(0, 3)} ${rawId.substring(3, 7)} ${rawId.substring(7, 11)}`;
+    let formattedMeetingId;
+    do {
+        const rawId = crypto.randomInt(10000000000, 100000000000).toString();
+        formattedMeetingId = `${rawId.substring(0, 3)} ${rawId.substring(3, 7)} ${rawId.substring(7, 11)}`;
+    } while (meetingsState.has(formattedMeetingId));
 
     const newMeeting = {
         id: uuidv4(),
@@ -196,45 +310,90 @@ function allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone }
 }
 
 app.post('/api/meetings/create', (req, res) => {
-    const { topic, startTime, durationMinutes, hostId, timezone } = req.body;
+    const { topic, startTime, durationMinutes, timezone } = req.body;
 
-    if (!topic || !hostId) {
-        return res.status(400).json({ error: "Missing required topic or host registration identifier." });
+    if (!topic) {
+        return res.status(400).json({ error: "Missing required meeting topic." });
     }
 
-    const newMeeting = allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone });
+    const account = auth.getUser(req);
+    const newMeeting = allocateMeeting({ topic, startTime, durationMinutes, hostId: account ? account.id : null, timezone });
+    if (!account) {
+        let hostSecret = cookieValue(req, HOST_COOKIE);
+        let hostSecretHash = hostSecret ? hashHostSecret(hostSecret) : '';
+        if (!hostSecretHashes.has(hostSecretHash)) {
+            hostSecret = crypto.randomBytes(32).toString('hex');
+            hostSecretHash = hashHostSecret(hostSecret);
+            const cookie = [
+                `${HOST_COOKIE}=${hostSecret}`,
+                'Path=/',
+                'HttpOnly',
+                'SameSite=Lax',
+                `Max-Age=${HOST_COOKIE_TTL_SECONDS}`
+            ];
+            if (isProduction || req.secure) cookie.push('Secure');
+            res.append('Set-Cookie', cookie.join('; '));
+        }
+        newMeeting.hostSecretHash = hostSecretHash;
+        hostSecretHashes.add(hostSecretHash);
+        saveSnapshotSoon();
+    }
 
     return res.status(201).json({
         message: "Meeting room allocation successful.",
-        meeting: newMeeting
+        meeting: publicMeeting(newMeeting)
     });
 });
 
+const validationRequests = new Map();
+const VALIDATION_WINDOW_MS = 60 * 1000;
+const VALIDATION_LIMIT = 20;
+const VALIDATION_MAX_CLIENTS = 5000;
+function allowValidationRequest(ip) {
+    const now = Date.now();
+    let bucket = validationRequests.get(ip);
+    if (!bucket || bucket.resetAt <= now) {
+        if (!bucket && validationRequests.size >= VALIDATION_MAX_CLIENTS) {
+            for (const [key, current] of validationRequests) {
+                if (current.resetAt <= now) validationRequests.delete(key);
+            }
+            if (validationRequests.size >= VALIDATION_MAX_CLIENTS) return false;
+        }
+        bucket = { count: 0, resetAt: now + VALIDATION_WINDOW_MS };
+        validationRequests.set(ip, bucket);
+    }
+    if (bucket.count >= VALIDATION_LIMIT) return false;
+    bucket.count++;
+    return true;
+}
+
 app.get('/api/meetings/validate/:meetingId', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (!allowValidationRequest(req.ip || req.socket.remoteAddress || 'unknown')) {
+        return res.status(429).json({ isValid: false, error: 'Too many meeting code checks. Try again shortly.' });
+    }
     const meeting = meetingsState.get(normalizeId(req.params.meetingId));
     if (!meeting || meeting.status === 'completed') {
-        return res.status(404).json({ isValid: false, error: "Meeting resource code is invalid or has expired." });
+        return res.status(404).json({ isValid: false, error: "Meeting code is invalid or unavailable." });
     }
 
-    return res.json({ isValid: true, topic: meeting.topic, status: meeting.status });
+    return res.json({ isValid: true });
 });
 
 // ==========================================
 // LIVE WEBRTC & WEBSOCKET ROOM FLOW
 // ==========================================
-// Meetings created by a signed-in account (hostId starts with u_) can only be hosted by that
-// account's session; anonymous meetings keep the old client-supplied id comparison.
-function isHostFor(socket, meeting, claimedUserId) {
+function isHostFor(socket, meeting) {
     if (String(meeting.hostId).startsWith('u_')) {
         const account = auth.getUser(socket.request);
         return !!account && account.id === meeting.hostId;
     }
-    return !!claimedUserId && claimedUserId === meeting.hostId;
+    return hostSecretMatches(cookieValue(socket.request, HOST_COOKIE), meeting.hostSecretHash);
 }
 
 function rosterOf(roomId) {
     const room = activeRooms.get(roomId);
-    return room ? Array.from(room.values()) : [];
+    return room ? Array.from(room.values(), ({ userId, ...participant }) => participant) : [];
 }
 
 function leaveCurrentRoom(socket) {
@@ -296,7 +455,7 @@ io.on('connection', (socket) => {
             userId,
             userName: safeName,
             // Role is derived from the meeting record, never from client input
-            role: isHostFor(socket, currentMeeting, userId) ? 'host' : 'participant',
+            role: isHostFor(socket, currentMeeting) ? 'host' : 'participant',
             media: { audio: false, video: false, sharing: false, hand: false },
             permissions: { audio: true, video: true, screenShare: true }
         });
@@ -306,7 +465,7 @@ io.on('connection', (socket) => {
         console.log(`[User Joined Room]: ${safeName} entered ${cleanId}`);
 
         io.to(cleanId).emit('room_state_updated', {
-            meetingMetadata: currentMeeting,
+            meetingMetadata: publicMeeting(currentMeeting),
             participants: rosterOf(cleanId)
         });
 
