@@ -135,7 +135,8 @@ export class PostgresCallLedger implements CallLedger {
   }
 
   /**
-   * Crash recovery with ownership. For each reapable state (never `connected`) whose OWN deadline has passed AND whose lease has lapsed:
+   * Crash recovery with ownership. For each reapable state whose OWN deadline has passed AND whose lease has lapsed - and, since A5.5, for a `connected` call whose OWNER IS GONE (lease lapsed; a connected call has no
+   * state deadline, the lease is its only liveness evidence):
    *  - first sight: the lease is CHALLENGED (the row is otherwise untouched, nothing is returned) - a slow but healthy owner renews and the challenge disappears;
    *  - still lapsed a full grace period after the challenge: the call is TAKEN OVER under generation + 1 (state `terminating`, owner = this instance, by exactly one reaper) and returned,
    *    so the caller can disconnect its media and then settle it with finishReap().
@@ -146,18 +147,20 @@ export class PostgresCallLedger implements CallLedger {
     const c = await this.pool.connect(); const taken: { callId: string; generation: number }[] = [];
     try {
       await c.query('BEGIN');
-      const due = `state = ANY($1::text[]) AND lease_expires_at < now() AND updated_at < now() - make_interval(secs => CASE state WHEN 'claimed' THEN $2::float8 WHEN 'authorizing' THEN $3::float8
-        WHEN 'awaiting_host' THEN $4::float8 WHEN 'attaching' THEN $5::float8 ELSE $6::float8 END)`;
+      const due = `((state = ANY($1::text[]) AND lease_expires_at < now() AND updated_at < now() - make_interval(secs => CASE state WHEN 'claimed' THEN $2::float8 WHEN 'authorizing' THEN $3::float8
+        WHEN 'awaiting_host' THEN $4::float8 WHEN 'attaching' THEN $5::float8 ELSE $6::float8 END)) OR (state = 'connected' AND lease_expires_at < now()))`;
       const params = [REAPABLE, ...secs];
       await c.query(`UPDATE phone_join_calls SET lease_challenged_at = now() WHERE call_id IN (SELECT call_id FROM phone_join_calls WHERE ${due} AND lease_challenged_at IS NULL ORDER BY updated_at LIMIT $7 FOR UPDATE SKIP LOCKED)`, [...params, o.limit ?? 100]);
-      const rows = (await c.query(`SELECT call_id, state, lease_generation FROM phone_join_calls WHERE ${due} AND lease_challenged_at < now() - make_interval(secs => $7::float8)
-        ORDER BY updated_at LIMIT $8 FOR UPDATE SKIP LOCKED`, [...params, grace, o.limit ?? 100])).rows as { call_id: string; state: CallState; lease_generation: string }[];
+      const rows = (await c.query(`SELECT call_id, state, reason, lease_generation FROM phone_join_calls WHERE ${due} AND lease_challenged_at < now() - make_interval(secs => $7::float8)
+        ORDER BY updated_at LIMIT $8 FOR UPDATE SKIP LOCKED`, [...params, grace, o.limit ?? 100])).rows as { call_id: string; state: CallState; reason: string | null; lease_generation: string }[];
       for (const r of rows) {
+        // WHY it was taken: a connected call keeps that fact through every later takeover of its cleanup (`stale_connected`), because its release needs Meet's word, not just a stale lease
+        const why = r.state === 'connected' || (r.state === 'terminating' && r.reason === 'stale_connected') ? 'stale_connected' : r.state === 'terminating' ? 'stale_terminating' : 'stale_claim';
         const u = await c.query(`UPDATE phone_join_calls SET state='terminating', reason=$4, updated_at=now(), lease_owner=$5, lease_generation=lease_generation+1,
           lease_expires_at = now() + make_interval(secs => $6::float8), lease_challenged_at = NULL WHERE call_id=$1 AND lease_generation=$2 AND state=$3`,
-          [r.call_id, r.lease_generation, r.state, r.state === 'terminating' ? 'stale_terminating' : 'stale_claim', this.instance, this.lease.leaseMs / 1000]);
+          [r.call_id, r.lease_generation, r.state, why, this.instance, this.lease.leaseMs / 1000]);
         if (u.rowCount !== 1) continue;
-        await c.query("INSERT INTO phone_join_call_events(call_id, from_state, to_state, reason, actor) VALUES($1,$2,'terminating',$3,$4)", [r.call_id, r.state, r.state === 'terminating' ? 'stale_terminating' : 'stale_claim', this.instance]);
+        await c.query("INSERT INTO phone_join_call_events(call_id, from_state, to_state, reason, actor) VALUES($1,$2,'terminating',$3,$4)", [r.call_id, r.state, why, this.instance]);
         taken.push({ callId: r.call_id, generation: Number(r.lease_generation) + 1 });
       }
       await c.query('COMMIT');
@@ -165,6 +168,15 @@ export class PostgresCallLedger implements CallLedger {
     for (const t of taken) this.held.set(t.callId, { generation: t.generation, state: 'terminating', confirmedAt: this.clock() });      // only after the commit: a failed reap assumes nothing
     return taken.map((t) => t.callId);
   }
+  /** Why the call is in its current state (`stale_connected`: its owner vanished while it was connected and a reaper holds it for cleanup). */
+  async reasonOf(callId: string): Promise<string | null> { const r = await this.pool.query('SELECT reason FROM phone_join_calls WHERE call_id=$1', [callId]); return r.rows[0]?.reason ?? null; }
+  /** Cleanups THIS instance already holds (taken over earlier, Meet could not confirm yet): they are retried, never forgotten. */
+  async pendingCleanups(limit = 100): Promise<string[]> {
+    const mine = [...this.held].filter(([, h]) => h.state === 'terminating').map(([id]) => id); if (!mine.length) return [];
+    const r = await this.pool.query("SELECT call_id FROM phone_join_calls WHERE state='terminating' AND reason='stale_connected' AND lease_owner=$1 AND call_id = ANY($2::text[]) ORDER BY updated_at LIMIT $3", [this.instance, mine, limit]); return r.rows.map((x: { call_id: string }) => x.call_id);
+  }
+  /** The call is over in Meet (confirmed by Meet itself): a connected call whose cleanup this instance holds becomes `ended`, fenced by the generation of the takeover. Repeating it changes nothing. */
+  async finishCleanup(callId: string): Promise<boolean> { return this.transition(callId, 'ended', { reason: 'reconciled_stale_connected' }); }
   /** After the media of a reaped call was disconnected (terminated) or could not be (orphaned: an operator must act). Fenced by the generation the reap took; false (and nothing released) when that ownership is gone. Repeating it changes nothing. */
   async finishReap(callId: string, terminated: boolean): Promise<boolean> {
     const done = await this.transition(callId, terminated ? 'failed' : 'orphaned', { reason: 'reaped' });

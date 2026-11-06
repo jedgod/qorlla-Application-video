@@ -116,6 +116,16 @@ export class MeetPhoneAuthority implements MeetingAuthority {
     return { credential: data.credential, jti: data.jti, expiresAt: Number(data.expiresAt) || 0, ttlSeconds: Number(data.ttlSeconds) || 0 };
   }
 
+  /**
+   * Where Meet says the call stands, for reconciliation (A5.5 liveness): `over` (refused, timed out, cancelled, ended), `live` (pending or approved, including connected), or `unknown` (Meet does not know the call, or
+   * could not be asked). Nothing is inferred from silence: only an explicit answer is `over`/`live`.
+   */
+  async callState(session: string, callId: string, opts?: StepOptions): Promise<'live' | 'over' | 'unknown'> {
+    const s = parseSession(session); try {
+      const r = this.cfg.auth.kind === 'workload' ? (s ? await this.get('/api/phone/ivr/calls/' + s.callRef + '/decision?waitMs=0', opts) : { status: 404, data: {} }) : await this.post('/api/phone/ivr/status', { callId }, opts);
+      if (r.status !== 200) return 'unknown'; const d = r.data?.decision; if (d === 'pending' || d === 'approved') return 'live'; return typeof d === 'string' ? 'over' : 'unknown';
+    } catch { return 'unknown'; }
+  }
   /** Ends the call in Meet (removes the participant, frees the waiting-room slot). Idempotent: Meet answers a repeat with the stored result. */
   async cancelAdmission(session: string, callId: string): Promise<void> { await this.cancelByCall(callId); void session; }
   private async cancelByCall(callId: string): Promise<void> {

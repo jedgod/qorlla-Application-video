@@ -23,7 +23,7 @@ await admin.query('CREATE SCHEMA IF NOT EXISTS ' + SCHEMA); const c = await admi
 const authority = new MeetPhoneAuthority({ baseUrl: MEET, auth: { kind: 'hmac', secret: HMAC }, requestTimeoutMs: 8000, decisionWaitMs: 8000, pollMs: 300 });
 const sessions = new Map();                                                                                        // call id -> Meet session id (for terminateCall)
 const wrapped = { verifyPhoneJoin: async (m, p, o) => { const d = await authority.verifyPhoneJoin(m, p, o); if (d.meetingSessionId && o?.callId) sessions.set(o.callId, d.meetingSessionId); return d; },
-  requestHostApproval: (s, id, o) => authority.requestHostApproval(s, id, o), cancelAdmission: (s, id) => authority.cancelAdmission(s, id) };
+  requestHostApproval: (s, id, o) => authority.requestHostApproval(s, id, o), cancelAdmission: (s, id) => authority.cancelAdmission(s, id), callState: (s, id) => authority.callState(s, id) };
 const ledger = new PostgresCallLedger(pool, 'a5-gateway-' + process.pid, { lease: { leaseMs: Number(process.env.A5_LEASE_MS || 15000), graceMs: Number(process.env.A5_LEASE_GRACE_MS || 15000) } });
 const READY = { carrierConnected: true, inboundNumberCertified: true, gatewayHealthy: true, mediaBridgeCertified: true, billingCertified: true, productionApproved: true };   // LAB ONLY (see above)
 // Lab observability only: with A5_LOG set, every signalling message the gateway peer sends or receives is logged (type and the first 8 characters of the peer id; never an SDP or a credential).

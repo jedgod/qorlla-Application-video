@@ -23,13 +23,27 @@ export function terminateCall(deps: { bridge: SipRtpBridge; authority: MeetingAu
  * and only then released. A leg that cannot be disconnected is marked ORPHANED and reported (onOrphan) so an operator is told; its call id is never reused. If this reaper itself loses the call to a newer
  * owner while it works, it stops touching it (finishReap is fenced and answers false).
  */
-export function startReaper(o: { ledger: { reapStale(o?: { deadlines?: Partial<StateDeadlines> }): Promise<string[]>; sessionOf(id: string): Promise<string | null>; finishReap(id: string, terminated: boolean): Promise<boolean | void>; renew?(id: string): Promise<boolean>; purgeReleased?(ms: number): Promise<number> }; bridge: SipRtpBridge; authority: MeetingAuthority; deadlines?: Partial<StateDeadlines>; intervalMs?: number; onOrphan?: (callId: string) => void; log?: Pick<Console, 'error'> }) {
-  const log = o.log ?? console; let running = false;
+export function startReaper(o: { ledger: { reapStale(o?: { deadlines?: Partial<StateDeadlines> }): Promise<string[]>; sessionOf(id: string): Promise<string | null>; finishReap(id: string, terminated: boolean): Promise<boolean | void>; renew?(id: string): Promise<boolean>; purgeReleased?(ms: number): Promise<number>; reasonOf?(id: string): Promise<string | null>; pendingCleanups?(): Promise<string[]>; finishCleanup?(id: string): Promise<boolean> }; bridge: SipRtpBridge; authority: MeetingAuthority & { callState?(session: string, callId: string): Promise<'live' | 'over' | 'unknown'> }; deadlines?: Partial<StateDeadlines>; intervalMs?: number; onOrphan?: (callId: string) => void; log?: Pick<Console, 'error'>; cleanupAttempts?: number; cleanupWindowMs?: number; now?: () => number }) {
+  const log = o.log ?? console; let running = false; const clock = o.now ?? Date.now, maxAttempts = o.cleanupAttempts ?? 10, windowMs = o.cleanupWindowMs ?? 15 * 60_000, pending = new Map<string, { attempts: number; since: number }>();
+  /**
+   * A connected call whose OWNER VANISHED. A stale lease only says the owner is gone, never that the call is over, so nothing is released on that alone: ask Meet. over -> `ended`; live -> ask Meet to end it (idempotent),
+   * then ask again; unknown / unreachable -> stay `terminating` (recoverable) and retry on the next ticks, within a bound (attempts and window); past the bound the call is marked `orphaned` for an operator, never `ended`.
+   */
+  const cleanupConnected = async (callId: string): Promise<boolean> => {
+    const session = (await o.ledger.sessionOf(callId)) ?? '', p = pending.get(callId) ?? { attempts: 0, since: clock() }; pending.set(callId, p); p.attempts++;
+    let state = await (o.authority.callState?.(session, callId) ?? Promise.resolve('unknown' as const)).catch(() => 'unknown' as const);
+    if (state === 'live') { await o.authority.cancelAdmission?.(session, callId).catch(() => undefined); state = await (o.authority.callState?.(session, callId) ?? Promise.resolve('unknown' as const)).catch(() => 'unknown' as const); }
+    if (state === 'over') { try { await o.bridge.disconnect(callId); } catch { /* the leg belonged to the process that died; nothing local to tear down */ } if ((await o.ledger.finishCleanup?.(callId)) === false) { pending.delete(callId); return false; } pending.delete(callId); return true; }
+    if (p.attempts >= maxAttempts || clock() - p.since >= windowMs) { log.error('[phone-join] reaper: Meet could not confirm that ' + callId + ' is over after ' + p.attempts + ' attempts: marked orphaned for an operator'); pending.delete(callId); if ((await o.ledger.finishReap(callId, false)) !== false) o.onOrphan?.(callId); return false; }
+    log.error('[phone-join] reaper: Meet did not confirm that ' + callId + ' is over (' + state + '): kept terminating, will retry'); return false;
+  };
   const tick = async (): Promise<string[]> => {
     if (running) return []; running = true; const done: string[] = [];
     try {
-      for (const callId of await o.ledger.reapStale({ deadlines: o.deadlines })) {
-        if (o.ledger.renew && !(await o.ledger.renew(callId).catch(() => true))) continue;        // lost to a newer owner already: not ours to tear down
+      const fresh = await o.ledger.reapStale({ deadlines: o.deadlines }), retry = (await o.ledger.pendingCleanups?.().catch(() => [] as string[])) ?? [];
+      for (const callId of [...new Set([...fresh, ...retry])]) {
+        if (o.ledger.renew && !(await o.ledger.renew(callId).catch(() => true))) { pending.delete(callId); continue; }        // lost to a newer owner already: not ours to tear down
+        if ((await o.ledger.reasonOf?.(callId).catch(() => null)) === 'stale_connected' && o.ledger.finishCleanup) { if (await cleanupConnected(callId)) done.push(callId); continue; }
         const session = (await o.ledger.sessionOf(callId)) ?? '';
         let media = false; try { await o.bridge.disconnect(callId); media = true; } catch (e) { log.error('[phone-join] reaper: media of ' + callId + ' could not be disconnected: ' + (e as Error).message); }
         await o.authority.cancelAdmission?.(session, callId).catch(() => undefined);
