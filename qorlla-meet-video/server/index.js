@@ -477,7 +477,7 @@ io.use(async(socket,next)=>{
   socket.data.user=user;next();
  } catch { next(new Error('Unauthorized')); }
 });
-if(shield&&shieldCfg.enforce)startSessionGuard({io,db,client:shield,config:shieldCfg});
+if(shield&&shieldCfg.enforce)startSessionGuard({io,db,client:shield,config:shieldCfg,audit,onPhonePeer:phone.revokeParticipant});
 io.on('connection',socket=>{
  const u=socket.data.user, id=u.meetingId, pid=u.participantId;
  if(socket.data.peer){phonePeers.attach(socket,socket.data.peer).catch(e=>{console.error('[phone-peer] attach failed:',e.message);socket.disconnect(true);});return;}

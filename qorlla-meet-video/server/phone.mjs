@@ -300,7 +300,8 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
   };
   app.post('/api/phone/ivr/peer-credential', ...signed((j, ctx) => peerCredential(j, ctx), 'phone.peer', { noEvent: true }));
   /** The verification peer's signalling is gone while its call is open: the call ends (a lost gateway never leaves a half-open caller). */
-  const peerLost = async (callId, reason) => { const { rows: [c] } = await db.query('SELECT * FROM phone_calls WHERE id=$1', [callId]); if (c && await leave(c, 'ended', reason)) { hang(c); audit(c.meeting_id, c.participant_id, 'phone.peer_lost', { call: c.id, reason }); } };
+  // A call that is already over is not "lost" again: no second offline broadcast, no duplicate audit rows.
+  const peerLost = async (callId, reason) => { const { rows: [c] } = await db.query('SELECT * FROM phone_calls WHERE id=$1', [callId]); if (c && !TERM.includes(c.state) && await leave(c, 'ended', reason)) { hang(c); audit(c.meeting_id, c.participant_id, 'phone.peer_lost', { call: c.id, reason }); } };
   // Where a call stands, by the carrier/gateway's own call id (the signed counterpart of the decision route, for the test double and carrier paths): once the call is APPROVED it also hands over the media token, once.
   const statusReport = async (j, pn = providerName()) => {
     const { rows: [c] } = await db.query('SELECT id FROM phone_calls WHERE provider=$1 AND provider_call_id=$2', [pn, String(j.callId || '').slice(0, 120)]); if (!c) return { result: 'unknown' };
@@ -435,11 +436,16 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
     for (const rv of out.revoke) { const c = open.find((x) => x.participant_id === rv.participantId && x.meeting_id === rv.meetingId); if (c) n += await revokeCalls([c], String(rv.reason || 'REVOKED'), true); }
     counters.calls_revoked_by_shield += n; return { revoked: n };
   }
+  /** The Shield revoked this participant: end its open telephone call (if any) with the Shield's reason - the same path the sweep takes, so whichever of the two runs first, the call ends the same way. */
+  async function revokeParticipant(meetingId, participantId, reason) {
+    const { rows } = await db.query("SELECT id FROM phone_calls WHERE meeting_id=$1 AND participant_id=$2 AND state IN ('APPROVED','MEDIA_CONNECTING','MEDIA_CONNECTED')", [meetingId, participantId]);
+    const n = await revokeCalls(rows, String(reason || 'REVOKED'), true); counters.calls_revoked_by_shield += n; return n;
+  }
   async function revokeCalls(list, reason, doIt) {
     if (!doIt) return 0; let n = 0;
     for (const o of list) { const { rows: [c] } = await db.query('SELECT * FROM phone_calls WHERE id=$1', [o.id]); if (c && await close(c, c.state === 'MEDIA_CONNECTED' ? 'TERMINATED' : 'REFUSED', 'shield_' + String(reason).toLowerCase().slice(0, 40), { status: c.state === 'MEDIA_CONNECTED' ? 'ended' : 'denied' })) { hang(c); n++; audit(c.meeting_id, c.participant_id, 'phone.revoked', { call: c.id, reason }); } }
     return n;
   }
-  return { counters, shieldAllows, peerLost, provider, verifyCall, consentCall, endedCall: ended, mediaReport, statusReport, decision, statusOf, endAll, onAdmission, onHostArrived, sweep, shieldSweep, setPin, revokePin, gatewayMode, enabled: gatewayMode ? env.PHONE_GATEWAY_ENABLED === 'true' : provider.ready,
+  return { counters, revokeParticipant, shieldAllows, peerLost, provider, verifyCall, consentCall, endedCall: ended, mediaReport, statusReport, decision, statusOf, endAll, onAdmission, onHostArrived, sweep, shieldSweep, setPin, revokePin, gatewayMode, enabled: gatewayMode ? env.PHONE_GATEWAY_ENABLED === 'true' : provider.ready,
     calls: async (meetingId) => (await db.query('SELECT * FROM phone_calls WHERE meeting_id=$1 ORDER BY created_at', [meetingId])).rows.map((c) => ({ ...callView(c), seconds: c.connected_at ? Math.max(0, Math.round(((c.ended_at ? new Date(c.ended_at) : new Date()) - new Date(c.connected_at)) / 1000)) : 0 })) };
 }

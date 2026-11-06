@@ -36,17 +36,29 @@ export function createShieldClient({ config, fetchImpl = (config.transport && co
   };
 }
 
-/** Periodic re-check of the open signaling sessions. Suspended / unknown / ended => the session is terminated. If the shield stays unreachable past the grace period, sessions are terminated too (fail closed). */
-export function startSessionGuard({ io, db, client, config, log = console }) {
+/**
+ * Periodic re-check of the open signaling sessions. Suspended / unknown / ended => the session is terminated. If the shield stays unreachable past the grace period, sessions are terminated too (fail closed).
+ * A5.5: every session the Shield revokes leaves ONE audit row (`session.revoked_by_shield`: the reason and whether it was a browser or a telephone verification peer), so the underlying cause is recorded whichever
+ * mechanism closes the session. A telephone verification peer is not simply disconnected: its call is first ended through the phone module (`onPhonePeer`) with the Shield's reason, so the call never ends as
+ * "signalling lost" when the real cause is the Shield. In an outage the phone module's own deadline (measured from the first failed recheck) governs phone peers; the guard leaves them to it.
+ */
+export function startSessionGuard({ io, db, client, config, log = console, audit = null, onPhonePeer = null }) {
+  const revoking = new WeakSet(); let busy = false;                                                           // a session being revoked is not revoked again by the next tick, and ticks do not overlap
   const t = setInterval(async () => {
-    const live = [...io.sockets.sockets.values()].filter((s) => s.data && s.data.user);
+    if (busy) return; busy = true; try {
+    const live = [...io.sockets.sockets.values()].filter((s) => s.data && s.data.user && !revoking.has(s));
     if (!live.length) { client.state.lastOk = Date.now(); return; }
     const list = live.map((s) => ({ meetingId: s.data.user.meetingId, participantId: s.data.user.participantId, ...(s.data.accountId ? { accountId: s.data.accountId } : {}) })).slice(0, 500);
-    const out = await client.recheck(list), stop = (s, reason) => { try { s.emit('session_revoked', { reason }); s.disconnect(true); } catch { client.report('signaling_termination_failed', s.data.user.participantId); } };
-    if (!out) { if (Date.now() - client.state.lastOk > config.graceMs) { log.error('[shield] unreachable beyond the grace period: closing sessions'); for (const s of live) stop(s, 'SHIELD_UNAVAILABLE'); } return; }
+    const out = await client.recheck(list), stop = async (s, reason) => {
+      if (revoking.has(s)) return; revoking.add(s); const u = s.data.user; try { audit?.(u.meetingId, u.participantId, 'session.revoked_by_shield', { reason: String(reason).slice(0, 60), kind: s.data.peer ? 'phone-peer' : 'browser' }); } catch { /* auditing must not stop a revocation */ }
+      if (s.data.peer && onPhonePeer) { try { await onPhonePeer(u.meetingId, u.participantId, reason); } catch { client.report('phone_termination_failed', u.participantId); } }       // end the CALL with the Shield's reason first
+      try { s.emit('session_revoked', { reason }); s.disconnect(true); } catch { client.report('signaling_termination_failed', u.participantId); }
+    };
+    if (!out) { if (Date.now() - client.state.lastOk > config.graceMs) { log.error('[shield] unreachable beyond the grace period: closing sessions'); for (const s of live) if (!(s.data.peer && onPhonePeer)) await stop(s, 'SHIELD_UNAVAILABLE'); } return; }
     for (const rv of out.revoke) {
-      const s = live.find((x) => x.data.user.participantId === rv.participantId && x.data.user.meetingId === rv.meetingId); if (s) stop(s, rv.reason);
+      const s = live.find((x) => x.data.user.participantId === rv.participantId && x.data.user.meetingId === rv.meetingId); if (s) await stop(s, rv.reason);
       await db.query("UPDATE participants SET admission='denied' WHERE id=$1 AND meeting_id=$2", [rv.participantId, rv.meetingId]).catch(() => { client.report('signaling_termination_failed', rv.participantId); });      // the token cannot be used to come back
     }
+    } finally { busy = false; }
   }, config.recheckMs); t.unref(); return () => clearInterval(t);
 }
