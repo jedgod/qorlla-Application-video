@@ -64,7 +64,7 @@ that remain open and what is still BLOCKED.
 | `src/meet-authority.ts` | `MeetingAuthority` over Meet's phone gateway routes (workload identity or provider HMAC): `approved`/`waiting` (never `connected`), durable host decision, media reports, heartbeat |
 | `src/meet-media.ts` | `meetConfirmedBridge`: `MEDIA_CONNECTED` needs this gateway's check AND Meet's own acceptance; `startMediaKeepAlive` keeps calls proven |
 | `src/readiness-meet.ts` | `MeetReadiness` (the six conditions from Meet, all false on any doubt) and `MeetDirectoryClient` |
-| `src/shield.ts` | Security Shield authorization, re-check loop and fail-closed termination (defence in depth: Meet asks the Shield too) |
+| `src/shield.ts` | Security Shield authorization, re-check loop and fail-closed termination (reference client only: Meet is the sole Shield enforcer for telephone calls and the gateway holds no Shield identity; see docs/A4_SIP_MEDIA_GATEWAY.md, Gate A5.5) |
 | `src/media-contract.ts` | the SIP/RTP-to-WebRTC contract and the audio-evidence rule |
 | `src/compose.ts` | `terminateCall` (media, then Meet, then the record), `startLeaseKeeper` (renews owned leases, stops a leg whose ownership is lost) and `startReaper` (crash recovery: challenge, grace, fenced takeover) |
 

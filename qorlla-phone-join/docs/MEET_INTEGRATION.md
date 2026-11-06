@@ -18,7 +18,7 @@ Two branches carry this work (same repository, two worktrees):
    encrypted, packets in **both** directions for long enough, an allowed codec, the one-time media token, the meeting still open, and the Security Shield still allowing. The database enforces it
    (`status='connected'` requires `state='MEDIA_CONNECTED'`; `MEDIA_CONNECTED` requires `media_verified_at`). Existing `connected` rows are ended (`legacy_unverified_media`): they never had verified audio.
 2. **Security Shield for telephone callers.** Meet asked the Shield only for signalling sessions. It now asks before approval, again before connecting, and on a timer for every open call
-   (`shieldSweep`); a revocation hangs the call up immediately; an unreachable Shield refuses new calls and, past the grace period, ends open ones. In gateway mode the Shield is mandatory even if `SHIELD_MEET_ENFORCE` is off.
+   (`shieldSweep`); a revocation hangs the call up immediately; an unreachable Shield refuses new calls and calls that are not yet connected at once, and ends an already-connected call at the outage deadline (120 s, measured from the first failed recheck). In gateway mode the Shield is mandatory even if `SHIELD_MEET_ENFORCE` is off. A5.5: the Shield also refuses a suspended host or organization, a telephone call is refused in a meeting without a registered owner, and these rules are exercised against the REAL Shield (see docs/A4_SIP_MEDIA_GATEWAY.md, Gate A5.5).
 3. **The gateway's own identity** (`server/phone-gateway-auth.mjs`): the ES256 workload token Meet already uses, but with its **own audience** (`qorlla-phone-gateway`), **subjects mapped server-side to scopes**
    (`phone.verify|consent|media|end|decision|health|readiness`: a token valid for another operation does not authorise this one), per-issuer keys with **kid rotation**, single-use `jti` and a **request budget in PostgreSQL**
    (shared by every replica), a body hash on POST, and mTLS binding (`cnf x5t#S256`) on by default. Gateway mode is off unless configured *and* `PHONE_GATEWAY_ENABLED=true`; admission then needs all six readiness conditions.
@@ -45,7 +45,7 @@ from the previous milestone are unchanged.
 | this package | 104 (29 original + 75) | PostgreSQL, Redis, a **killed** gateway process, and the **real Meet server** (`real-meet.e2e.test.ts`) |
 | Meet `tests/phone.spec.js` | updated, **not run here** | needs the dev stack; its dial-in block already failed in this environment before the change (main's `/start` returns no Meet URL) |
 
-Not exercised: the real Security Shield server (it is tested through its documented contract with a double that follows the engine's routes and token rules), the Twilio/IVR path (no bridge exists), any real carrier or phone.
+Not exercised: the Shield's own dev-stack integration suite (Main App + Meet + engine) against these changes, the Twilio/IVR path (no bridge exists), any real carrier or phone.
 
 ## Readiness matrix
 

@@ -3,10 +3,13 @@ import { signGatewayToken } from './gateway-auth.js';
 import { parseSession } from './meet-authority.js';
 
 /**
- * Qorlla Security Shield integration for telephone callers. The Shield is part of the voice engine (qorlla-voice-engine, src/shield.mjs) and Meet already talks to it with a short-lived ES256 workload
- * token (aud 'qorlla-shield'): POST /v1/shield/meet/{authorize,recheck,end} and /v1/shield/report. A telephone caller is a guest with no account, so the Shield's decision for them is about the MEETING:
- * unknown or ended meeting, guests not allowed, not admitted (host rejection) and - through the re-check - a meeting that ended or a host/org that was suspended. ANY failure to get an answer is a denial.
- * (Meet itself does not consult the Shield for telephone callers today; see docs/MEET_INTEGRATION.md.)
+ * Qorlla Security Shield client classes for telephone callers. ENFORCEMENT OWNER (A5.5 decision): MEET is the only Shield enforcer for telephone admission and connected-call rechecks. Meet holds the Shield
+ * workload identity (short-lived ES256 token, aud 'qorlla-shield'), registers the meeting, asks before approval, before the verification credential is issued and before media promotion, and re-checks every open call on a
+ * timer; the gateway holds NO Shield identity or secret and does not call the Shield in production. The classes below are NOT wired into the gateway runner or compose.ts; they remain only as a tested reference of the
+ * Shield's routes (POST /v1/shield/meet/{authorize,recheck,end}, /v1/shield/report) pending a separate review of whether to remove them. The gateway independently enforces its OWN protections: call-state
+ * transitions, the ownership lease and generation fencing, per-state deadlines, fenced cleanup of a vanished owner (reconciled with Meet), and termination of its media legs.
+ * The Shield's decision for a telephone caller (a guest with no account) is about the MEETING: unknown or ended meeting, guests not allowed, not admitted, and - since A5.5 - a suspended registered host or organization.
+ * See docs/A4_SIP_MEDIA_GATEWAY.md, section "Gate A5.5".
  */
 export type ShieldConfig = {
   url: string;
