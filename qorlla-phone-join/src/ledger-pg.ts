@@ -175,6 +175,30 @@ export class PostgresCallLedger implements CallLedger {
     const mine = [...this.held].filter(([, h]) => h.state === 'terminating').map(([id]) => id); if (!mine.length) return [];
     const r = await this.pool.query("SELECT call_id FROM phone_join_calls WHERE state='terminating' AND reason='stale_connected' AND lease_owner=$1 AND call_id = ANY($2::text[]) ORDER BY updated_at LIMIT $3", [this.instance, mine, limit]); return r.rows.map((x: { call_id: string }) => x.call_id);
   }
+  /**
+   * Meet could not confirm, within the bound, that a connected call whose owner vanished is over. The call becomes `orphaned` for an OPERATOR: this records only that the cleanup could not be confirmed. It does NOT
+   * release the call id (an orphan keeps its id: claim() cannot take it, release() and purgeReleased() only ever delete `failed` rows), does not touch any credential, and does not claim that media was terminated.
+   * Fenced by the takeover generation; repeating it changes nothing.
+   */
+  async orphanCleanup(callId: string): Promise<boolean> { return this.transition(callId, 'orphaned', { reason: 'cleanup_unconfirmed' }); }
+  /** What an operator has to reconcile: every orphaned call, oldest first, with the reason it was left (read-only). */
+  async listOrphans(limit = 100): Promise<{ callId: string; reason: string | null; since: Date; meetingSessionId: string | null }[]> {
+    const r = await this.pool.query("SELECT call_id, reason, ended_at, updated_at, meeting_session_id FROM phone_join_calls WHERE state='orphaned' ORDER BY updated_at LIMIT $1", [limit]);
+    return r.rows.map((x: { call_id: string; reason: string | null; ended_at: Date | null; updated_at: Date; meeting_session_id: string | null }) => ({ callId: x.call_id, reason: x.reason, since: x.ended_at ?? x.updated_at, meetingSessionId: x.meeting_session_id }));
+  }
+  /**
+   * The ONLY way out of `orphaned`: an operator who has reconciled the call by hand (confirmed in Meet and on the carrier side that it is over) records the outcome. Audited with the operator's name; `failed` also frees
+   * the call id, `ended` keeps the row. Not fenced by a generation (an orphan has no live owner) but conditional on the call still being orphaned, so repeating or racing it changes nothing.
+   */
+  async resolveOrphan(callId: string, outcome: 'ended' | 'failed', operator: string): Promise<boolean> {
+    if (!/^[A-Za-z0-9_.@-]{1,64}$/.test(operator)) throw new Error('operator must be a short identifier'); const c = await this.pool.connect(); let done = false;
+    try {
+      await c.query('BEGIN'); const r = await c.query("UPDATE phone_join_calls SET state=$2, reason='operator_reconciled', ended_at=now(), updated_at=now() WHERE call_id=$1 AND state='orphaned' RETURNING call_id", [callId, outcome]);
+      if (r.rowCount === 1) { await c.query("INSERT INTO phone_join_call_events(call_id, from_state, to_state, reason, actor) VALUES($1,'orphaned',$2,'operator_reconciled',$3)", [callId, outcome, 'operator:' + operator]); done = true; }
+      await c.query('COMMIT');
+    } catch (e) { await c.query('ROLLBACK').catch(() => undefined); throw e; } finally { c.release(); }
+    if (done && outcome === 'failed') await this.release(callId); return done;
+  }
   /** The call is over in Meet (confirmed by Meet itself): a connected call whose cleanup this instance holds becomes `ended`, fenced by the generation of the takeover. Repeating it changes nothing. */
   async finishCleanup(callId: string): Promise<boolean> { return this.transition(callId, 'ended', { reason: 'reconciled_stale_connected' }); }
   /** After the media of a reaped call was disconnected (terminated) or could not be (orphaned: an operator must act). Fenced by the generation the reap took; false (and nothing released) when that ownership is gone. Repeating it changes nothing. */

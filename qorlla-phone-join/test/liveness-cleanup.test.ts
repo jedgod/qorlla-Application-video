@@ -55,7 +55,7 @@ test('CLEANUP 3 - Meet UNREACHABLE: the call stays terminating (recoverable), is
   for (let i = 0; i < 3; i++) { assert.deepEqual(await r.tick(), []); const x = await row(c); assert.deepEqual([x.state, x.reason], ['terminating', 'stale_connected'], 'attempt ' + (i + 1) + ': kept, not ended'); }
   m.set('over'); assert.deepEqual(await r.tick(), [c], 'Meet is back and says over: the retry finishes it'); assert.equal((await row(c)).state, 'ended');
   const dead2 = replica('gw-dead-5'), orphans: string[] = [], m2 = meet('unknown'), r2 = reaper(replica('gw-survivor-5'), m2, { cleanupAttempts: 3, onOrphan: (x) => orphans.push(x) }), c2 = await connected(dead2); await readyForTakeover(r2, c2);
-  for (let i = 0; i < 3; i++) await r2.tick(); const z = await row(c2); assert.equal(z.state, 'orphaned', 'bounded: after 3 unconfirmed attempts an operator must act'); assert.deepEqual(orphans, [c2]); assert.notEqual(z.state, 'ended');
+  for (let i = 0; i < 3; i++) await r2.tick(); const z = await row(c2); assert.equal(z.state, 'orphaned', 'bounded: after 3 unconfirmed attempts an operator must act'); assert.equal(z.reason, 'cleanup_unconfirmed', 'the reason says only that the cleanup could not be confirmed'); assert.deepEqual(orphans, [c2]); assert.notEqual(z.state, 'ended');
 });
 
 test('CLEANUP 4 - CONCURRENT reapers: two survivors tick at the same moment; exactly ONE takeover happens, the call is ended once, the trail has one cleanup', { skip }, async () => {
@@ -83,4 +83,21 @@ test('CLEANUP 7 (safety) - a connected call whose owner is ALIVE is never touche
   const owner = replica('gw-owner'), live = replica('gw-survivor-9'), m = meet('over'), r = reaper(live, m), c = await connected(owner);
   await admin.query(`UPDATE ${schema}.phone_join_calls SET updated_at = now() - interval '3 hours' WHERE call_id=$1`, [c]); for (let i = 0; i < 3; i++) assert.deepEqual(await r.tick(), []);
   await graceOver(c); assert.deepEqual(await r.tick(), []); assert.equal((await row(c)).state, 'connected'); assert.deepEqual(m.asked, [], 'Meet was never even asked');
+});
+
+test('CLEANUP 8 - an ORPHANED cleanup stays visible and is never released: the call id cannot be claimed, release() and the purge leave it, the reaper and the keeper do not touch it, an operator can list it, and nothing implies that media was terminated', { skip }, async () => {
+  const dead = replica('gw-dead-10'), live = replica('gw-survivor-10'), orphans: string[] = [], r = reaper(live, meet('unknown'), { cleanupAttempts: 2, onOrphan: (x) => orphans.push(x) }), c = await connected(dead); await readyForTakeover(r, c);
+  await r.tick(); await r.tick(); const x = await row(c); assert.deepEqual([x.state, x.reason], ['orphaned', 'cleanup_unconfirmed']); assert.deepEqual(orphans, [c]);
+  assert.equal(await live.claim(c), false, 'the call id is still taken'); assert.equal(await replica('gw-other').claim(c), false);
+  await live.release(c); assert.equal((await row(c)).state, 'orphaned', 'release() frees only failed calls');
+  await admin.query(`UPDATE ${schema}.phone_join_calls SET ended_at = now() - interval '2 days', updated_at = now() - interval '2 days' WHERE call_id=$1`, [c]); assert.equal(await live.purgeReleased(1000), 0, 'the purge only ever removes failed rows'); assert.equal((await row(c)).state, 'orphaned');
+  assert.deepEqual(await reaper(replica('gw-third'), meet('over')).tick(), [], 'no reaper picks an orphan up again'); assert.equal(await live.renew(c), false, 'and nothing renews it back to life');
+  const listed = await live.listOrphans(); assert.deepEqual(listed.filter((o) => o.callId === c).map((o) => [o.callId, o.reason]), [[c, 'cleanup_unconfirmed']], 'an operator can see it');
+  assert.ok((await events(c)).every((e) => e.to_state !== 'ended' && e.to_state !== 'failed'), 'no event claims it ended or failed');
+  assert.equal(await live.transition(c, 'ended'), false, 'no gateway can move it on through the normal, owner-fenced path');
+  await assert.rejects(live.resolveOrphan(c, 'ended', 'not a valid operator!'), /operator must be/); assert.equal((await row(c)).state, 'orphaned');
+  const [x1, x2] = await Promise.all([live.resolveOrphan(c, 'ended', 'ops.alice'), replica('gw-ops').resolveOrphan(c, 'ended', 'ops.bob')]); assert.deepEqual([x1, x2].sort(), [false, true], 'racing operators: exactly one resolution');
+  assert.equal((await row(c)).state, 'ended'); assert.ok((await events(c)).some((e) => e.reason === 'operator_reconciled' && e.to_state === 'ended'), 'the resolution is on the trail');
+  const dead2 = replica('gw-dead-11'), r2 = reaper(replica('gw-survivor-11'), meet('unknown'), { cleanupAttempts: 1 }), c2 = await connected(dead2); await readyForTakeover(r2, c2); await r2.tick(); assert.equal((await row(c2)).state, 'orphaned');
+  assert.equal(await live.resolveOrphan(c2, 'failed', 'ops.alice'), true); assert.equal(await row(c2), undefined, '`failed` frees the call id'); assert.equal(await live.claim(c2), true);
 });
