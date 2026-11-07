@@ -1396,6 +1396,20 @@
       h('a', { class: 'btn primary', href: 'login.html?next=qorlla.html', text: I18n.t('Sign in or create account') })
     ]));
   }
+  // Sign out, then land on the main sign-in page. That page is the signed-out Home view, so leave Settings / More / any other view:
+  // drop the #view and any ?next= / reset / verify parameters (reloading in place would keep a signed-out Settings page instead).
+  // If the server could not be told, the user is still signed in: say so and stay, never pretend. An already-expired session (401) counts as signed out.
+  function signOut(btn) {
+    if (btn) btn.disabled = true;
+    return fetch(BASE + '/api/auth/logout', { method: 'POST' }).then(function (r) {
+      if (!r.ok && r.status !== 401) throw new Error('logout_' + r.status);
+      store('zw_name', ''); sessionStorage.removeItem('zw_uid');
+      location.replace(location.pathname);
+    }).catch(function () {
+      if (btn) btn.disabled = false;
+      toast(I18n.t('Could not sign out. Check your connection and try again.'), 'err');
+    });
+  }
   // Signed-out visitors get the real sign-in page inside the app shell (same origin, so a successful sign-in reloads the shell itself)
   function embedLogin(view) {
     document.body.classList.add('signed-out');
@@ -3296,11 +3310,7 @@
       if (state.user) {
         acct.appendChild(h('div', { class: 'hub-avatar', text: state.user.displayName.charAt(0).toUpperCase() }));
         acct.appendChild(h('div', { class: 'who' }, [h('b', { text: state.user.displayName }), h('span', { class: 'muted', text: '@' + state.user.username + ' \u00b7 signed in' })]));
-        acct.appendChild(h('button', { class: 'btn small', type: 'button', text: I18n.t('Sign out'), onclick: function () {
-          fetch(BASE + '/api/auth/logout', { method: 'POST' }).catch(function () {}).then(function () {
-            store('zw_name', ''); sessionStorage.removeItem('zw_uid'); location.reload();
-          });
-        } }));
+        acct.appendChild(h('button', { class: 'btn small', type: 'button', text: I18n.t('Sign out'), onclick: function (e) { signOut(e.currentTarget); } }));
       } else {
         acct.appendChild(h('div', { class: 'hub-avatar guest', text: '?' }));
         acct.appendChild(h('div', { class: 'who' }, [h('b', { text: 'Not signed in' }), h('span', { class: 'muted', text: 'Chat and hosted meetings need an account' })]));
@@ -3430,11 +3440,7 @@
       viewEl.appendChild(h('div', { class: 'card narrow' }, [
         h('h3', { text: I18n.t('Account') }),
         h('p', { class: 'muted', text: 'Signed in as ' + u.displayName + ' (@' + u.username + ')' }),
-        h('div', { style: 'margin-top:10px' }, [h('button', { class: 'btn', type: 'button', text: I18n.t('Sign out'), onclick: function () {
-          fetch(BASE + '/api/auth/logout', { method: 'POST' }).catch(function () {}).then(function () {
-            store('zw_name', ''); sessionStorage.removeItem('zw_uid'); location.reload();
-          });
-        } })])
+        h('div', { style: 'margin-top:10px' }, [h('button', { class: 'btn', type: 'button', text: I18n.t('Sign out'), onclick: function (e) { signOut(e.currentTarget); } })])
       ]));
 
       // email
