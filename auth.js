@@ -14,6 +14,7 @@ const { v4: uuidv4 } = require('uuid');
 const store = require('./store');
 const createPortalTokens = require('./portal-token');
 const guard = require('./signup-guard');
+const createDeviceLinks = require('./device-link');
 
 const COOKIE = 'qs';
 const PORTAL_COOKIE = 'qorlla_portal_session';
@@ -261,6 +262,11 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthe
     let extraDisposable = [];
     try { if (process.env.DISPOSABLE_DOMAINS_FILE) extraDisposable = require('fs').readFileSync(process.env.DISPOSABLE_DOMAINS_FILE, 'utf8').split(String.fromCharCode(10)); } catch (err) { console.error('[Auth]: could not read DISPOSABLE_DOMAINS_FILE:', err.message); }
     const disposable = guard.disposableSet(extraDisposable);
+    // Server-issued "az_dev" cookie: after DEVICE_MAX_ACCOUNTS accounts from one browser, a further sign-up needs an administrator's override.
+    const deviceLinks = createDeviceLinks({ dir, store, maxAccounts: Math.max(1, Number(process.env.DEVICE_MAX_ACCOUNTS || 2)) });
+    try { deviceLinks.prune(); } catch (err) { console.error('[Auth]: device-link cleanup failed:', err.message); }
+    setInterval(() => { try { deviceLinks.prune(); } catch (err) { console.error('[Auth]: device-link cleanup failed:', err.message); } }, 24 * HOUR).unref();
+    const DEV_COOKIE = 'az_dev';
     const subnetKey = (ip) => {
         if (guard.isAllowedNetwork(ip, allowNetworks)) return null;
         if (guard.isLocalAddress(ip) && process.env.REGISTER_LIMIT_PRIVATE !== '1') return null;
@@ -309,6 +315,12 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthe
         const netKey = subnetKey(req.ip);
         if (netKey && registerLimit.blocked(netKey)) return res.status(429).json({ error: 'Too many accounts were created from your network recently. Try again in an hour, or contact support if you are on a shared network.' });
 
+        // Same browser, several accounts: a soft stop (nothing is banned or deleted). Networks that are allow-listed or have no real client address are exempt.
+        const devCookie = parseCookies(req)[DEV_COOKIE];
+        if (netKey && !deviceLinks.allowed(devCookie, username)) {
+            return res.status(403).json({ code: 'DEVICE_ACCOUNTS_EXHAUSTED', error: 'This browser has already created the free accounts it can. Sign in to one of them, upgrade, or ask an administrator to allow another.' });
+        }
+
         const users = loadUsers();
         if (users.some((u) => u.username === username)) return res.status(409).json({ error: 'That username is taken.' });
 
@@ -319,11 +331,19 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthe
         saveUsers(users);
         if (netKey) registerLimit.record(netKey);                  // counted only when an account was really created, in the same tick as the check above
         startSession(req, res, user.id);
+        try {
+            const dev = deviceLinks.link(devCookie, user.id, username);
+            const secure = ((process.env.PUBLIC_URL || '').startsWith('https://') || req.secure) ? ['Secure'] : [];
+            res.append('Set-Cookie', [`${DEV_COOKIE}=${dev}`, 'Path=/api/auth', 'HttpOnly', 'SameSite=Lax', `Max-Age=${90 * 24 * 3600}`, ...secure].join('; '));
+        } catch (err) { console.error('[Auth]: could not record the device link:', err.message); }      // never blocks a sign-up that already succeeded
         notify(user);
 
         const verification = email ? (await sendVerification(user)).status : 'none';
         res.status(201).json({ user: selfUser(user), recoveryCodes, verificationEmail: verification });
     });
+
+    // Only counts for THIS browser's own cookie. Never emails, names or ids; nothing about anyone else.
+    router.get('/check-linked', (req, res) => { res.set('Cache-Control', 'no-store'); res.json(deviceLinks.status(parseCookies(req)[DEV_COOKIE])); });
 
     router.post('/login', (req, res) => {
         const username = String((req.body && req.body.username) || '').trim().toLowerCase();
@@ -566,5 +586,5 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthe
         const users = loadUsers(), u = users.find((x) => x.id === userId); if (!u) return false;
         u.suspended = !!suspended; saveUsers(users); if (suspended) dropSessions(userId); notify(u); return true;
     }
-    return { router, portalTokens, setSuspended, allAccounts: () => loadUsers().map((u) => ({ id: u.id, verified: !!u.emailVerified, suspended: !!u.suspended })), getUser, requireUser, requireCsrf, listUsers: () => loadUsers().map(publicUser), getUserById: (id) => { const u = loadUsers().find((y) => y.id === id); return u ? selfUser(u) : null; } };
+    return { router, portalTokens, deviceLinks, setSuspended, allAccounts: () => loadUsers().map((u) => ({ id: u.id, verified: !!u.emailVerified, suspended: !!u.suspended })), getUser, requireUser, requireCsrf, listUsers: () => loadUsers().map(publicUser), getUserById: (id) => { const u = loadUsers().find((y) => y.id === id); return u ? selfUser(u) : null; } };
 };

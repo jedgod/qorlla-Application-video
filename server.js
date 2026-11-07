@@ -299,6 +299,17 @@ app.post('/api/admin/accounts/:id/suspend', (req, res, next) => auth.requireUser
     if (suspended) disconnectAccountSockets(String(req.params.id));
     res.json({ ok: true, suspended });
 });
+// Lets ONE more sign-up of a username through when its browser has reached the free-account limit. Audited (hash-chained), expires in 7 days.
+app.post('/api/admin/signup-overrides', (req, res, next) => auth.requireUser(req, res, next), (req, res, next) => auth.requireCsrf(req, res, next), express.json({ limit: '2kb' }), (req, res) => {
+    if (!phoneAdmin(req.user)) return res.status(403).json({ error: 'Only administrators can do this.' });
+    const out = auth.deviceLinks.grantOverride({ username: (req.body || {}).username, reason: (req.body || {}).reason, adminId: req.user.id });
+    if (!out.ok) return res.status(400).json({ error: out.error });
+    res.status(201).json({ ok: true, expiresInDays: out.expiresInDays });
+});
+app.get('/api/admin/signup-overrides/audit', (req, res, next) => auth.requireUser(req, res, next), (req, res) => {
+    if (!phoneAdmin(req.user)) return res.status(403).json({ error: 'Only administrators can do this.' });
+    res.json({ intact: auth.deviceLinks.verifyAudit(), entries: auth.deviceLinks.auditTrail().slice(-200) });
+});
 const phoneAdmin = (u) => { const n = String((u && u.username) || '').toLowerCase(); return String(process.env.PHONE_ADMIN_USERS || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean).some((p) => (p.endsWith('*') ? n.startsWith(p.slice(0, -1)) : p === n)); };
 const tel = (u, method, route, o = {}) => meetLaunch.telephony(method, route, { actor: { id: u.id, admin: phoneAdmin(u) }, ...o });
 // A switched-off telephone feature is answered by Meet's release guard as {error:'feature_disabled', feature, message}. The code stays machine-readable (`code`, `feature`); the text people read is a plain sentence, never the raw code.
