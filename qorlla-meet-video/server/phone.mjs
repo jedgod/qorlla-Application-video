@@ -193,11 +193,18 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
     const last4 = num.slice(-4), name = masked(last4), pid = crypto.randomUUID(), cid = crypto.randomUUID();
     const hostHere = (await db.query("SELECT id FROM participants WHERE meeting_id=$1 AND role='host'", [m.id])).rows.some((r) => activeHas(m.id, r.id));
     const wait = m.waiting_room ? 'waiting_room' : !m.join_before_host && !hostHere ? 'host_absent' : null;
-    await db.query("INSERT INTO participants(id,meeting_id,display_name,role,admission,wait_reason,kind) VALUES($1,$2,$3,'guest',$4,$5,'phone')", [pid, m.id, name, wait ? 'waiting' : 'admitted', wait, ]);
-    const { rows: [c] } = await db.query("INSERT INTO phone_calls(id,meeting_id,provider,provider_call_id,caller_hash,caller_last4,status,state,participant_id) VALUES($1,$2,$3,$4,$5,$6,'waiting','REQUESTED',$7) ON CONFLICT (provider,provider_call_id) DO NOTHING RETURNING *",
-      [cid, m.id, pn, callId, ch, last4, pid]);
-    if (!c) { await db.query('DELETE FROM participants WHERE id=$1', [pid]).catch(() => {}); return denied(); }          // the same call id twice with a new event id: refused
-    await db.query("INSERT INTO phone_call_events(call_id, from_state, to_state, reason) VALUES($1,NULL,'REQUESTED','created')", [c.id]);
+    const tx = await db.connect();
+    let c;
+    try {
+      await tx.query('BEGIN');
+      await tx.query("INSERT INTO participants(id,meeting_id,display_name,role,admission,wait_reason,kind) VALUES($1,$2,$3,'guest',$4,$5,'phone')", [pid, m.id, name, wait ? 'waiting' : 'admitted', wait]);
+      ({ rows: [c] } = await tx.query("INSERT INTO phone_calls(id,meeting_id,provider,provider_call_id,caller_hash,caller_last4,status,state,participant_id) VALUES($1,$2,$3,$4,$5,$6,'waiting','REQUESTED',$7) ON CONFLICT (provider,provider_call_id) DO NOTHING RETURNING *",
+        [cid, m.id, pn, callId, ch, last4, pid]));
+      if (!c) { await tx.query('ROLLBACK'); return denied(); }
+      await tx.query("INSERT INTO phone_call_events(call_id, from_state, to_state, reason) VALUES($1,NULL,'REQUESTED','created')", [c.id]);
+      await tx.query('COMMIT');
+    } catch (e) { await tx.query('ROLLBACK'); throw e; }
+    finally { tx.release(); }
     await move(c.id, 'VERIFIED', 'pin_verified');                                                                         // the PIN was right. That is all this means.
     if (wait) { await move(c.id, 'AWAITING_HOST', wait); audit(m.id, pid, 'phone.waiting', { call: cid, reason: wait }); io.to(room(m.id)).emit('waiting-changed', {}); return { result: 'waiting', say: 'Please hold. The host will let you in shortly.', callRef: cid, meetingId: m.id }; }
     const ok = await approve(c); if (!ok) return denied();

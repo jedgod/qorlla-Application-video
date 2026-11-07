@@ -60,7 +60,7 @@ test('B3 OUTAGE during a CONNECTED call (grace ' + GRACE_FAST + ' s): calls not 
   assert.equal((await A.callRow(connected.callId)).state, 'MEDIA_CONNECTED', 'the connected call is still up inside the grace period (' + (Date.now() - t0) + ' ms)');
   assert.ok(await until(async () => (await A.callRow(connected.callId)).state === 'TERMINATED', (GRACE_FAST + 8) * 1000, 250), 'terminated by the deadline'); const elapsed = (await endedAt(A, connected.callId)) - t0;
   assert.ok(elapsed >= (GRACE_FAST - 2) * 1000 && elapsed <= (GRACE_FAST + 4) * 1000, 'ended ' + elapsed + ' ms after the outage began (grace ' + GRACE_FAST * 1000 + ' ms, recheck 1 s)'); assert.match((await A.callRow(connected.callId)).end_reason, /^shield_shield_unavailable/); A.setOutage(false);
-  const k = (await A.counters()).phone; assert.ok(k.shield_outage_started >= 1 && k.calls_ended_by_outage >= 2);
+  assert.ok(await until(async () => { const k = (await A.counters()).phone; return k.shield_outage_started >= 1 && k.calls_ended_by_outage >= 2; }, 6000), 'outage terminations are counted after cleanup completes');
 });
 
 test('B3 REFRESH of a connected call: an EXPLICIT Shield refusal (suspended host) ends it on the very next media refresh; an UNREACHABLE Shield does NOT end it on a refresh (the outage deadline decides)', { skip }, async () => {

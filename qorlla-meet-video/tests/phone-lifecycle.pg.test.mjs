@@ -29,7 +29,7 @@ let schema, admin; const pools = [], closers = [];
 const poolFor = () => { const p = new pg.Pool({ connectionString: URL_, options: '-c search_path=' + schema, max: 12 }); pools.push(p); return p; };
 test.before(async () => {
   if (!URL_) return; schema = 'mp_' + Math.random().toString(36).slice(2, 9); admin = new pg.Pool({ connectionString: URL_ }); await admin.query('CREATE SCHEMA ' + schema);
-  const c = await admin.connect(); try { await c.query('SET search_path=' + schema); for (const f of [...ORDER, 'v4_24_phone_lifecycle.sql']) await c.query(fs.readFileSync(path.join(SQL, f), 'utf8')); await c.query(fs.readFileSync(path.join(SQL, 'v4_24_phone_lifecycle.sql'), 'utf8')); } finally { c.release(); }   // the last one twice: idempotent
+  const c = await admin.connect(); try { await c.query('SET search_path=' + schema); for (const f of [...ORDER, 'v4_24_phone_lifecycle.sql']) await c.query(fs.readFileSync(path.join(SQL, f), 'utf8')); await c.query(fs.readFileSync(path.join(SQL, 'v4_24_phone_lifecycle.sql'), 'utf8')); await c.query(fs.readFileSync(path.join(SQL, 'v4_26_phone_event_outbox.sql'), 'utf8')); } finally { c.release(); }   // v4.24 remains idempotent
 });
 test.after(async () => { for (const c of closers) await c().catch(() => {}); if (!URL_) return; for (const p of pools) await p.end().catch(() => {}); await admin.query('DROP SCHEMA ' + schema + ' CASCADE'); await admin.end(); });
 
@@ -63,6 +63,77 @@ const good = (over = {}) => ({ state: 'audio_flowing', inboundPackets: 120, outb
 const clean = (h) => h.db.query('DELETE FROM phone_calls');       // the sweeper and some queries are global, so a test that counts their work starts from no calls
 const verify = (h, m, over = {}) => h.sendDouble('/api/phone/ivr/verify', { callId: 'call_' + h.uid(), from: FROM, meetingId: m.code, pin: m.pin, ...over });
 const media = (h, callId, token, ev) => h.sendDouble('/api/phone/ivr/media', { callId, mediaToken: token, evidence: ev });
+
+test('initial lifecycle event and participant roll back when event persistence fails', { skip }, async () => {
+  const h = await harness(), m = await h.meeting(), providerCallId = 'rollback_' + h.uid();
+  await h.db.query(`CREATE FUNCTION test_fail_requested_event() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.to_state = 'REQUESTED' THEN RAISE EXCEPTION 'injected event failure'; END IF; RETURN NEW; END $$`);
+  await h.db.query('CREATE TRIGGER test_fail_requested_event BEFORE INSERT ON phone_call_events FOR EACH ROW EXECUTE FUNCTION test_fail_requested_event()');
+  try {
+    await assert.rejects(h.phone.verifyCall({ callId: providerCallId, from: FROM, meetingId: m.code, pin: m.pin }), /injected event failure/);
+    assert.equal((await h.db.query('SELECT count(*)::int AS n FROM phone_calls WHERE provider_call_id=$1', [providerCallId])).rows[0].n, 0);
+    assert.equal((await h.db.query("SELECT count(*)::int AS n FROM participants WHERE meeting_id=$1 AND kind='phone'", [m.id])).rows[0].n, 0);
+  } finally {
+    await h.db.query('DROP TRIGGER test_fail_requested_event ON phone_call_events');
+    await h.db.query('DROP FUNCTION test_fail_requested_event()');
+  }
+});
+
+test('concurrent duplicate provider calls have one initial event and no orphan participant', { skip }, async () => {
+  const h = await harness(), m = await h.meeting(), callId = 'duplicate_' + h.uid();
+  const request = { callId, from: FROM, meetingId: m.code, pin: m.pin };
+  const results = await Promise.all([h.phone.verifyCall(request), h.phone.verifyCall(request)]);
+  assert.deepEqual(results.map(r => r.result).sort(), ['approved', 'denied']);
+  const calls = await h.db.query('SELECT id FROM phone_calls WHERE provider_call_id=$1', [callId]);
+  assert.equal(calls.rowCount, 1);
+  assert.equal((await h.db.query("SELECT count(*)::int AS n FROM phone_call_events WHERE call_id=$1 AND from_state IS NULL AND to_state='REQUESTED'", [calls.rows[0].id])).rows[0].n, 1);
+  assert.equal((await h.db.query("SELECT count(*)::int AS n FROM participants WHERE meeting_id=$1 AND kind='phone'", [m.id])).rows[0].n, 1);
+});
+
+test('Meet lifecycle outbox captures committed authoritative events in order', { skip }, async () => {
+  const h = await harness(), m = await h.meeting(), result = await verify(h, m);
+  assert.equal(result.body.result, 'approved');
+  const ref = result.body.callRef;
+  const rows = (await h.db.query(`SELECT o.lifecycle_version::int,o.call_id,o.meeting_id,o.from_state,o.event_type,
+    o.occurred_at=e.at AS timestamp_matches,o.source_event_id=e.id AS source_matches
+    FROM phone_lifecycle_outbox o JOIN phone_call_events e ON e.id=o.source_event_id
+    WHERE o.call_id=$1 ORDER BY o.lifecycle_version`, [ref])).rows;
+  assert.deepEqual(rows.map(row => row.event_type), ['REQUESTED', 'VERIFIED', 'APPROVED']);
+  assert.deepEqual(rows.map(row => row.lifecycle_version), [1, 2, 3]);
+  assert.ok(rows.every(row => row.call_id === ref && row.meeting_id === m.id && row.timestamp_matches && row.source_matches));
+  await assert.rejects(h.db.query('UPDATE phone_lifecycle_outbox SET event_type=$2 WHERE call_id=$1', [ref, 'MEDIA_CONNECTED']), /immutable/);
+  await assert.rejects(h.db.query('DELETE FROM phone_lifecycle_outbox WHERE call_id=$1', [ref]), /immutable/);
+  await assert.rejects(h.db.query('TRUNCATE phone_lifecycle_outbox'), /immutable/);
+});
+
+test('uncommitted Meet lifecycle snapshots are not visible and disappear on rollback', { skip }, async () => {
+  const h = await harness(), m = await h.meeting(), result = await verify(h, m);
+  const ref = result.body.callRef, client = await h.db.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query("INSERT INTO phone_call_events(call_id,from_state,to_state,reason) VALUES($1,'APPROVED','MEDIA_CONNECTING','rollback-test')", [ref]);
+    assert.equal((await client.query('SELECT count(*)::int AS n FROM phone_lifecycle_outbox WHERE call_id=$1', [ref])).rows[0].n, 4);
+    assert.equal((await h.db.query('SELECT count(*)::int AS n FROM phone_lifecycle_outbox WHERE call_id=$1', [ref])).rows[0].n, 3);
+    await client.query('ROLLBACK');
+    assert.equal((await h.db.query('SELECT count(*)::int AS n FROM phone_lifecycle_outbox WHERE call_id=$1', [ref])).rows[0].n, 3);
+  } finally { client.release(); }
+});
+
+test('Meet rolls back call and initial history if lifecycle outbox persistence fails', { skip }, async () => {
+  const h = await harness(), m = await h.meeting(), callId = 'outbox_failure_' + h.uid();
+  await h.db.query(`CREATE FUNCTION test_fail_lifecycle_outbox() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN RAISE EXCEPTION 'injected outbox failure'; END $$`);
+  await h.db.query('CREATE TRIGGER test_fail_lifecycle_outbox BEFORE INSERT ON phone_lifecycle_outbox FOR EACH ROW EXECUTE FUNCTION test_fail_lifecycle_outbox()');
+  try {
+    await assert.rejects(h.phone.verifyCall({ callId, from: FROM, meetingId: m.code, pin: m.pin }), /injected outbox failure/);
+    assert.equal((await h.db.query('SELECT count(*)::int AS n FROM phone_calls WHERE provider_call_id=$1', [callId])).rows[0].n, 0);
+    assert.equal((await h.db.query("SELECT count(*)::int AS n FROM participants WHERE meeting_id=$1 AND kind='phone'", [m.id])).rows[0].n, 0);
+    assert.equal((await h.db.query('SELECT count(*)::int AS n FROM phone_lifecycle_outbox WHERE meeting_id=$1', [m.id])).rows[0].n, 0);
+  } finally {
+    await h.db.query('DROP TRIGGER test_fail_lifecycle_outbox ON phone_lifecycle_outbox');
+    await h.db.query('DROP FUNCTION test_fail_lifecycle_outbox()');
+  }
+});
 
 // ================================================================================================ the state machine, pure
 test('lifecycle: the transition table has no way into MEDIA_CONNECTED except from MEDIA_CONNECTING, and none out of TERMINATED', () => {
