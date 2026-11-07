@@ -23,6 +23,8 @@ export { createStripeAdapter, createStripeClient, stripeReconciler } from './pro
 export { createRevenueCatAdapter, revenuecatReconciler } from './providers/revenuecat.js';
 export { BillingGateway } from './billingGateway.js';
 export { webhookRouter, customerRouter } from './billingRoutes.js';
+export { createPool } from './schema.js';
+export { createCsrf } from './csrf.js';
 export { migrate } from './migrate.js';
 export { seedCatalog, verifyCatalog } from './seed.js';
 export { requireFeature, loadSubscription, createMiddleware, respondWithAccessError } from './middleware.js';
