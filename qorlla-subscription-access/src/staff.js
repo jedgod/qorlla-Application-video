@@ -51,5 +51,11 @@ export function createStaff({ pool, connectionString, stepUp = async () => null 
     return { id: user.id, roles: s.roles, mfaVerifiedAt: (await stepUp(req, user)) ?? undefined };
   }
 
-  return { authorize, buildActor, close: async () => { if (own) await p.end(); } };
+  /** The staff roles from the DATABASE (null when the user is not, or is no longer, active staff). */
+  async function rolesOf(userId) {
+    const r = await staffRow(userId);
+    return r ? r.roles : null;
+  }
+
+  return { authorize, buildActor, rolesOf, close: async () => { if (own) await p.end(); } };
 }

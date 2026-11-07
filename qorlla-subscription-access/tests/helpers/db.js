@@ -20,7 +20,7 @@ const withDb = (url, db, user, pw, appName) => {
   return u.toString();
 };
 
-export const GROUPS = { runtime: 'qorlla_sub_runtime', billing: 'qorlla_sub_billing', admin: 'qorlla_sub_admin' };
+export const GROUPS = { runtime: 'qorlla_sub_runtime', billing: 'qorlla_sub_billing', admin: 'qorlla_sub_admin', ops: 'qorlla_sub_ops' };
 
 export async function createTestDb({ migrateAndSeed = true } = {}) {
   const id = randomBytes(4).toString('hex');

@@ -87,7 +87,7 @@ describe('coexistence with unrelated applications (PostgreSQL)', { skip }, () =>
   test('applying every migration changes NOTHING outside the subscription_access schema', async () => {
     const before = (await db.owner.query(SNAPSHOT)).rows;
     const applied = await migrate({ pool: db.owner });
-    assert.equal(applied.length, 6);
+    assert.equal(applied.length, 7);
     await seedCatalog(db.owner);
     const after = (await db.owner.query(SNAPSHOT)).rows;
     assert.deepEqual(after, before, 'every ACL, default privilege, role attribute and membership outside our schema is identical');
@@ -101,7 +101,7 @@ describe('coexistence with unrelated applications (PostgreSQL)', { skip }, () =>
     assert.deepEqual(strays.rows, []);
     const fns = await db.owner.query(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname <> 'legacy_fn'`);
     assert.deepEqual(fns.rows, [], 'our trigger functions live in the dedicated schema only');
-    assert.equal((await db.owner.query(`SELECT count(*)::int n FROM subscription_access.schema_migrations`)).rows[0].n, 6);
+    assert.equal((await db.owner.query(`SELECT count(*)::int n FROM subscription_access.schema_migrations`)).rows[0].n, 7);
   });
 
   test('the unrelated application keeps working with exactly its old permissions', async () => {
@@ -132,7 +132,7 @@ describe('coexistence with unrelated applications (PostgreSQL)', { skip }, () =>
     assert.deepEqual((await db.owner.query(SNAPSHOT)).rows, before, 'unrelated state unchanged by the uninstall');
     assert.equal((await db.owner.query('SELECT count(*)::int n FROM public.legacy_accounts')).rows[0].n, 2);
     const again = await migrate({ pool: db.owner });                                   // and it installs again cleanly
-    assert.equal(again.length, 6);
+    assert.equal(again.length, 7);
     assert.deepEqual((await db.owner.query(SNAPSHOT)).rows, before, 'and reinstalling is equally harmless');
   });
 
