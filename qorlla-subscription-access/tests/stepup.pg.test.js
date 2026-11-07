@@ -127,6 +127,17 @@ describe('step-up authentication (PostgreSQL)', { skip }, () => {
     await assert.rejects(slow.finishAssertion({ userId: user, sessionHash: s3, action: 'override.set', response: a.get(o3) }), { code: 'not_authorized' }, 'expired challenge');
   });
 
+  test('a synced passkey that ALWAYS reports counter 0 (no clone detection possible) is still protected from replay by the single-use challenge', async () => {
+    const user = uid(), a = await enroll(user), s = sid();
+    const opts = await svc.beginAssertion({ userId: user, sessionHash: s, action: 'override.set' });
+    const response = a.get(opts, { counter: 0 });                                     // the authenticator never increments
+    assert.equal((await svc.finishAssertion({ userId: user, sessionHash: s, action: 'override.set', response })).ok, true, 'a counter of 0 is legitimate for such passkeys');
+    assert.equal(await count(`SELECT sign_count AS n FROM webauthn_credentials WHERE user_id=$1`, [user]), 0);
+    await assert.rejects(svc.finishAssertion({ userId: user, sessionHash: s, action: 'override.set', response }), { code: 'not_authorized' }, 'the captured response replayed: only the spent challenge stops it');
+    const again = await svc.beginAssertion({ userId: user, sessionHash: s, action: 'override.set' });
+    assert.equal((await svc.finishAssertion({ userId: user, sessionHash: s, action: 'override.set', response: a.get(again, { counter: 0 }) })).ok, true, 'a fresh ceremony still works');
+  });
+
   test('every way of forging or mangling the proof is refused, creates no grant, and is audited as a failure', async () => {
     const user = uid(), a = await enroll(user), s = sid();
     const attempts = {
