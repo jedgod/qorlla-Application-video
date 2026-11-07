@@ -9,8 +9,8 @@
  * Roles: owner (everything, including other owners) > admin (add/remove plain members) > member.
  */
 
-import pg from 'pg';
 import { withTx } from './db.js';
+import { createPool, ensureSearchPath } from './schema.js';
 import { SubscriptionError, NotAuthorizedError, InvalidCustomerError } from './errors.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -24,11 +24,12 @@ const role = (v) => { if (!ROLES.includes(v)) throw new SubscriptionError('Inval
 export class Directory {
   constructor({ pool, connectionString } = {}) {
     this.ownsPool = !pool;
-    this.pool = pool || new pg.Pool({ connectionString: connectionString || process.env.DATABASE_URL, max: 4 });
+    this.pool = pool || createPool(connectionString || process.env.DATABASE_URL, { max: 4 });
   }
 
   /** Every customer this user belongs to, with role and whether the customer is active. */
   async membershipsOf(user) {
+    await ensureSearchPath(this.pool);
     const { rows } = await this.pool.query(
       `SELECT m.customer_id, m.role, c.status, c.name FROM customer_members m JOIN customers c ON c.id = m.customer_id
         WHERE m.user_id = $1 ORDER BY m.added_at, m.customer_id`, [userId(user)]);
@@ -48,7 +49,7 @@ export class DirectoryAdmin {
    */
   constructor(opts = {}) {
     this.ownsPool = !opts.pool;
-    this.pool = opts.pool || new pg.Pool({ connectionString: opts.connectionString || process.env.DATABASE_URL, max: 4 });
+    this.pool = opts.pool || createPool(opts.connectionString || process.env.DATABASE_URL, { max: 4 });
     this.authorizeStaff = opts.authorizeStaff;
     this.maxOwned = opts.maxOwnedCustomers ?? 5;
     this.onChange = typeof opts.onChange === 'function' ? opts.onChange : () => {};
@@ -56,6 +57,7 @@ export class DirectoryAdmin {
 
   /** Creates a customer and makes the creating user its owner. Who may call this (sign-up, invitation) is the application's decision. */
   async createCustomer(creatorUserId, name) {
+    await ensureSearchPath(this.pool);
     const creator = userId(creatorUserId);
     const label = typeof name === 'string' ? name.trim() : '';
     if (!label || label.length > 120) throw new SubscriptionError('A customer name of 1-120 characters is required', 'invalid_name', {}, 400);
@@ -79,6 +81,7 @@ export class DirectoryAdmin {
   }
 
   async addMember(actorUserId, cid, newUserId, newRole) {
+    await ensureSearchPath(this.pool);
     const [actor, customer, target, r] = [userId(actorUserId), customerId(cid), userId(newUserId), role(newRole)];
     await withTx(this.pool, async (c) => {
       const mine = await this._actorRole(c, actor, customer);
@@ -94,6 +97,7 @@ export class DirectoryAdmin {
   }
 
   async setRole(actorUserId, cid, targetUserId, newRole) {
+    await ensureSearchPath(this.pool);
     const [actor, customer, target, r] = [userId(actorUserId), customerId(cid), userId(targetUserId), role(newRole)];
     await withTx(this.pool, async (c) => {
       if ((await this._actorRole(c, actor, customer)) !== 'owner') throw new NotAuthorizedError('Only an owner may change roles');
@@ -110,6 +114,7 @@ export class DirectoryAdmin {
 
   /** Owners remove anyone; admins remove plain members; anybody may remove themselves (leave). */
   async removeMember(actorUserId, cid, targetUserId) {
+    await ensureSearchPath(this.pool);
     const [actor, customer, target] = [userId(actorUserId), customerId(cid), userId(targetUserId)];
     await withTx(this.pool, async (c) => {
       const mine = await this._actorRole(c, actor, customer);
@@ -127,6 +132,7 @@ export class DirectoryAdmin {
 
   /** Staff action (non-payment, abuse, legal hold). Needs the staff authorization callback. */
   async setStatus(staffActor, cid, status) {
+    await ensureSearchPath(this.pool);
     if (typeof this.authorizeStaff !== 'function') throw new Error('DirectoryAdmin.setStatus requires authorizeStaff');
     const customer = customerId(cid);
     if (!['active', 'suspended'].includes(status)) throw new SubscriptionError('Invalid status', 'invalid_status', {}, 400);

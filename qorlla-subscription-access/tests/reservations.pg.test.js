@@ -235,11 +235,18 @@ describe('reservations (PostgreSQL)', { skip }, () => {
     assert.equal((await rows(c)).find((x) => x.id === r.reservationId).renewed_count, 1);
   });
 
-  test('unlimited plans hold nothing; a lapsed subscription is metered against Basic in the UTC month window', async () => {
+  test('unlimited plans are recorded too (retries are recognisable, usage metered); a lapsed subscription is metered against Basic in the UTC month window', async () => {
     const pro = newCustomer(); await seedSubscription(db.owner, pro, { plan: 'pro' });
-    const u = await svc.reserve(pro, FEATURE, 5, { idempotencyKey: key() });
-    assert.equal(u.allowed, true); assert.equal(u.reservationId, null); assert.equal(u.held, false);
-    assert.equal((await rows(pro)).length, 0);
+    const k = key();
+    const u = await svc.reserve(pro, FEATURE, 5, { idempotencyKey: k });
+    assert.equal(u.allowed, true); assert.equal(u.limit, 'unlimited'); assert.ok(u.reservationId, 'an unlimited plan is still recorded: that is what makes a retry recognisable');
+    assert.equal((await rows(pro)).length, 1);
+    const again = await svc.reserve(pro, FEATURE, 5, { idempotencyKey: k });
+    assert.equal(again.replay, true); assert.equal(again.pending, true); assert.equal(again.reservationId, u.reservationId, 'the retry is a replay, not a second grant');
+    await svc.commitReservation(u.reservationId, { customerId: pro, metadata: { result: { status: 201, body: { x: 1 } } } });
+    const done = await svc.reserve(pro, FEATURE, 5, { idempotencyKey: k });
+    assert.equal(done.status, 'committed'); assert.deepEqual(done.result, { status: 201, body: { x: 1 } }, 'the stored response comes back with the replay');
+    assert.equal(await usage(pro), 5, 'and unlimited usage is metered');
 
     const lapsed = newCustomer(); await seedSubscription(db.owner, lapsed, { plan: 'pro', status: 'paused' });
     const r = await svc.reserve(lapsed, FEATURE, 1, { idempotencyKey: key() });

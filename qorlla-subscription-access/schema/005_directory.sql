@@ -35,7 +35,7 @@ CREATE INDEX IF NOT EXISTS customer_member_history_customer_idx ON customer_memb
 
 -- A customer can never be left without an owner. Enforced HERE, under a per-customer lock, so two concurrent demotions
 -- of two different owners cannot both succeed.
-CREATE OR REPLACE FUNCTION qorlla_keep_an_owner() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION qorlla_keep_an_owner() RETURNS trigger LANGUAGE plpgsql SET search_path = subscription_access, pg_catalog AS $$
 BEGIN
   IF OLD.role = 'owner' AND (TG_OP = 'DELETE' OR NEW.role <> 'owner') THEN
     PERFORM pg_advisory_xact_lock(hashtextextended('members:' || OLD.customer_id::text, 0));

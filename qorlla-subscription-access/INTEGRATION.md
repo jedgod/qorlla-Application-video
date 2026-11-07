@@ -16,6 +16,17 @@ from other work, and Meet is released from its own branches. Apply it as one rev
 What the main app lacked and this adds: **there was no organization model** (only users, sessions and chat memberships) and **no
 multi-factor sign-in**. The directory is the organization model. MFA is a contract (below), not something this package can invent.
 
+## 0. Two connection rules (the package enforces both)
+
+1. **Search path.** All tables live in the schema `subscription_access`. Every connection the services use must have
+   `search_path = subscription_access, pg_catalog`: create pools with `options: '-c search_path=subscription_access,pg_catalog'` (or
+   `?options=-c%20search_path%3Dsubscription_access%2Cpg_catalog` in the URL). The package never alters a pool you give it, and it
+   checks the setting on first use: a wrong pool makes every call fail closed with a message naming the fix. Do **not** point the main
+   app's own pool at this schema.
+2. **Counts are strict.** `requireFeature(..., { quantity: (req) => req.body.max_participants })` rejects a missing, text, fractional,
+   zero, negative, non-finite or oversized count with a 400 *before* anything is checked, and puts the exact validated number in
+   `req.validated[feature]`. Use that number to create the meeting; never re-read the raw body. There is no default.
+
 ## 1. Main app (CommonJS) -> verified tenant
 
 The package is ESM; the main app is CommonJS. Use a dynamic import once at start-up:
@@ -65,6 +76,13 @@ Phase-2 item that needs a product decision.
 
 Staff are rows in `platform_staff`, written only by the DBA/migrator (`INSERT INTO platform_staff (user_id, roles, all_customers, granted_by) ...`).
 No application role can grant staff access, by design.
+
+## 2b. Metered operations: the replay protocol
+
+For any operation that consumes quota (AI summaries, clips, ...): send `Idempotency-Key`, then `reserve` -> work -> `commit` with the response
+stored in the commit metadata. A retry is answered from PostgreSQL, so it holds across restarts and across any number of instances:
+finished -> the stored response (`Idempotent-Replay: true`); original still running -> `409 request_in_progress` + `Retry-After`; original
+failed -> `409 previous_attempt_failed` (send a new key). The work never runs twice for one key. See `examples/express-integration.js`.
 
 ## 3. Meet
 

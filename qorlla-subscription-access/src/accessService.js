@@ -16,14 +16,15 @@
  *  - Any database or audit failure DENIES (AccessUnavailableError, HTTP 503). The in-process cache is off by default.
  */
 
-import pg from 'pg';
+import { createPool, ensureSearchPath } from './schema.js';
 import { getFeatureMeta, isValidFeature } from './plans.js';
 import { decide, resolveFor } from './decision.js';
 import { evaluateLifecycle, periodBounds, DEFAULT_LIFECYCLE } from './lifecycle.js';
 import { withTx } from './db.js';
+import { strictQuantity, DEFAULT_MAX_QUANTITY } from './validate.js';
 import {
   SubscriptionError, FeatureNotAvailableError, LimitExceededError, SubscriptionInactiveError, OperationalGateError,
-  InvalidCustomerError, InvalidQuantityError, IdempotencyConflictError, AccessUnavailableError,
+  InvalidCustomerError, IdempotencyConflictError, AccessUnavailableError,
 } from './errors.js';
 import { defaultCache } from './cache.js';
 
@@ -39,13 +40,11 @@ const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
 export class AccessService {
   constructor(opts = {}) {
     this.ownsPool = !opts.pool;
-    this.pool = opts.pool || new pg.Pool({
-      connectionString: opts.connectionString || process.env.DATABASE_URL,
+    this.pool = opts.pool || createPool(opts.connectionString || process.env.DATABASE_URL, {
       max: opts.poolMax || 10,
       connectionTimeoutMillis: opts.connectionTimeoutMs || 5000,
       idleTimeoutMillis: 30_000,
     });
-    if (this.ownsPool) this.pool.on('error', (e) => console.error('[subscription-access] idle pool client error:', e.message));
 
     this.cache = opts.cache || defaultCache;
     this.cacheEnabled = opts.cacheEnabled === true;
@@ -54,6 +53,7 @@ export class AccessService {
     }
     this.cacheTtlMs = opts.cacheTtlMs || 15_000;
 
+    this.maxQuantity = opts.maxQuantity ?? DEFAULT_MAX_QUANTITY;
     this.failClosedOnAuditError = opts.failClosedOnAuditError !== false;
     this.auditMode = opts.audit === 'denied' ? 'denied' : 'all';
     this.reservationTtlMs = opts.reservationTtlMs || DEFAULT_RESERVATION_TTL_MS;
@@ -82,14 +82,14 @@ export class AccessService {
     return customerId.toLowerCase();
   }
 
+  /** No fallbacks: missing, malformed, fractional, non-positive, non-finite and excessive quantities are all rejected. */
   _quantity(q) {
-    if (!Number.isSafeInteger(q) || q < 1) throw new InvalidQuantityError();
-    return q;
+    return strictQuantity(q, { required: true, max: this.maxQuantity });
   }
 
   /** Public methods run inside this: typed errors pass through, everything else becomes "denied: unavailable". */
   async _guard(fn) {
-    try { return await fn(); } catch (err) {
+    try { await ensureSearchPath(this.pool); return await fn(); } catch (err) {
       if (err instanceof SubscriptionError) throw err;
       console.error('[subscription-access] access check failed closed:', err.code || '', err.message);
       throw new AccessUnavailableError(err);
@@ -193,6 +193,8 @@ export class AccessService {
     const meta = getFeatureMeta(featureKey);
     const usage = meta.metering === 'consumption' ? await this._usage(q, id, featureKey, periodBounds(sub, meta, now.getTime())) : null;
     let decision = decide(sub, overrides, featureKey, quantity, usage);
+    // Every consumption decision carries its usage window (an unlimited plan has no usage query, but is still metered).
+    if (usage && !decision.period_start) decision = { ...decision, period_start: usage.bounds.start, period_end: usage.bounds.end };
     if (decision.allowed && !(await this._gateOpen(featureKey, id))) {
       decision = { ...decision, allowed: false, reason: 'operational_gate_off', gate: 'closed' };
     }
@@ -203,7 +205,7 @@ export class AccessService {
   async canAccess(customerId, featureKey, opts = {}) {
     return this._guard(async () => {
       const id = this._customer(customerId);
-      const quantity = this._quantity(opts.quantity ?? 1);
+      const quantity = this._quantity(opts.quantity === undefined ? 1 : opts.quantity);
       if (!isValidFeature(featureKey)) {
         const d = { allowed: false, reason: 'unknown_feature', plan: null };
         await this._audit(this.pool, id, featureKey, d, quantity, opts);
@@ -259,14 +261,20 @@ export class AccessService {
 
         // 1. Idempotency first: a retry must never be denied, double-counted or re-evaluated.
         const prior = (await c.query(
-          `SELECT id, quantity, status, expires_at, (expires_at <= now()) AS timed_out
-             FROM quota_reservations WHERE customer_id = $1 AND feature_key = $2 AND idempotency_key = $3`,
+          `SELECT r.id, r.quantity, r.status, r.expires_at, (r.expires_at <= now()) AS timed_out, u.metadata AS result_metadata
+             FROM quota_reservations r LEFT JOIN usage_events u ON u.reservation_id = r.id
+            WHERE r.customer_id = $1 AND r.feature_key = $2 AND r.idempotency_key = $3`,
           [id, featureKey, key])).rows[0];
         if (prior) {
           if (Number(prior.quantity) !== qty) throw new IdempotencyConflictError();
           const status = prior.status === 'reserved' && prior.timed_out ? 'expired' : prior.status;
           const ok = status === 'reserved' || status === 'committed';
-          return { allowed: ok, reason: ok ? undefined : `reservation_${status}`, reservationId: prior.id, status, replay: true, expires_at: prior.expires_at };
+          // A replay NEVER means "go ahead": the caller must look at `status`.
+          //   committed -> the original finished; `result` is what it stored when it committed
+          //   reserved  -> the original is STILL RUNNING (answer 409/202, do not run the work again)
+          //   released / expired -> the original FAILED or was abandoned (a new key is needed)
+          return { allowed: ok, reason: ok ? undefined : `reservation_${status}`, reservationId: prior.id, status, replay: true,
+            pending: status === 'reserved', expires_at: prior.expires_at, result: status === 'committed' ? (prior.result_metadata?.result ?? null) : undefined };
         }
 
         // 2. Authoritative decision inside the transaction, with both locks held.
@@ -275,10 +283,8 @@ export class AccessService {
           await this._audit(c, id, featureKey, decision, qty, opts, { inTx: true });
           return decision;
         }
-        if (decision.limit === 'unlimited') {
-          await this._audit(c, id, featureKey, decision, qty, opts, { inTx: true });
-          return { ...decision, reservationId: null, held: false };
-        }
+        // Unlimited plans are still recorded: the reservation is what makes a retry recognisable, so the protected work
+        // cannot run twice, and the usage is metered for analytics. It simply never runs out.
 
         // 3. Hold the quota.
         const ins = await c.query(

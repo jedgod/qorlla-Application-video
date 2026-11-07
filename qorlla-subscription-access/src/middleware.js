@@ -5,7 +5,8 @@
  * Any failure to reach a decision DENIES the request (503), it never lets it through.
  */
 
-import { CustomerContextMissingError, InvalidQuantityError, SubscriptionError } from './errors.js';
+import { CustomerContextMissingError, SubscriptionError } from './errors.js';
+import { strictQuantity, DEFAULT_MAX_QUANTITY } from './validate.js';
 
 function extractCustomerId(req, options = {}) {
   if (typeof options.customerId === 'function') return options.customerId(req);
@@ -39,8 +40,13 @@ export function requireFeature(featureKey, options = {}) {
       const customerId = extractCustomerId(req, options);
       if (!customerId) return fail(res, new CustomerContextMissingError());
 
-      const quantity = typeof options.quantity === 'function' ? options.quantity(req) : (options.quantity ?? 1);
-      if (!Number.isSafeInteger(quantity) || quantity < 1) return fail(res, new InvalidQuantityError());
+      // The count is validated BEFORE any entitlement or quota check, with no fallback: a count function that yields nothing,
+      // text, a fraction, zero, a negative, NaN/Infinity or something above the ceiling is a 400. A route with no quantity
+      // semantics (a plain feature flag) passes no `quantity` option and is checked for 1.
+      const max = options.maxQuantity ?? service.maxQuantity ?? DEFAULT_MAX_QUANTITY;
+      const quantity = typeof options.quantity === 'function'
+        ? strictQuantity(options.quantity(req), { required: options.quantityRequired !== false, max, name: featureKey })
+        : strictQuantity(options.quantity === undefined ? 1 : options.quantity, { max, name: featureKey });
 
       const decision = await service.canAccess(customerId, featureKey, {
         quantity,
@@ -49,6 +55,8 @@ export function requireFeature(featureKey, options = {}) {
       });
 
       req.subscription = { customerId, plan: decision.plan, status: decision.status, decision };
+      // The exact number that was checked. Handlers must use THIS value, never re-read the raw request.
+      req.validated = { ...(req.validated || {}), [featureKey]: quantity };
       if (decision.allowed) return next();
 
       return res.status(DENIAL_STATUS[decision.reason] || 403).json({

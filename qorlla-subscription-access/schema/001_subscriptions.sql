@@ -1,6 +1,7 @@
 -- Qorlla Subscription Access — Production Schema (v2)
 -- Corrected: partial unique indexes, capacity vs consumption, lifecycle fields.
 
+-- Applied by src/migrate.js inside the dedicated `subscription_access` schema (SET LOCAL search_path); nothing here touches other schemas.
 -- Requires PostgreSQL 13+ (gen_random_uuid() is built in; no extension and no CREATE EXTENSION privilege needed).
 
 -- ---------------------------------------------------------------------------

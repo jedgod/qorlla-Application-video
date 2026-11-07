@@ -137,9 +137,15 @@ describe('AccessService (PostgreSQL)', { skip }, () => {
 
   test('quantity must be a positive safe integer', async () => {
     const c = await customerWith({});
-    for (const q of [0, -1, 1.5, '1', NaN, Infinity, 2 ** 60, {}, [], true]) {
-      await assert.rejects(svc.canAccess(c, 'meetings.participants', { quantity: q }), { code: 'invalid_quantity' });
+    for (const q of [0, -1, 1.5, '1', NaN, Infinity, -Infinity, {}, [], true, -0, 0.1 + 0.2, new Number(5)]) {
+      await assert.rejects(svc.canAccess(c, 'meetings.participants', { quantity: q }), { code: 'invalid_quantity', statusCode: 400 }, String(q));
     }
+    await assert.rejects(svc.canAccess(c, 'meetings.participants', { quantity: null }), { code: 'quantity_required' }, 'null is not "1"');
+    for (const q of [2 ** 60, 1_000_001, Number.MAX_SAFE_INTEGER]) await assert.rejects(svc.canAccess(c, 'meetings.participants', { quantity: q }), { code: 'quantity_too_large' });
+    assert.equal((await svc.canAccess(c, 'meetings.participants', {})).allowed, true, 'omitting the option means a plain check for 1');
+    const small = new AccessService({ pool: rt, maxQuantity: 500 });
+    assert.equal((await small.canAccess(c, 'meetings.participants', { quantity: 500 })).requested, 500);
+    await assert.rejects(small.canAccess(c, 'meetings.participants', { quantity: 501 }), { code: 'quantity_too_large' }, 'the ceiling is configurable');
   });
 
   test('assertAccess raises the typed error for each denial', async () => {

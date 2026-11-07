@@ -8,7 +8,7 @@
  * Every write needs a reason, is bounded, is recorded in append-only history, and raises a security event.
  */
 
-import pg from 'pg';
+import { createPool, ensureSearchPath } from './schema.js';
 import { getFeatureMeta } from './plans.js';
 import { withTx } from './db.js';
 import { validOverrideValue } from './accessService.js';
@@ -24,7 +24,7 @@ export class AdminService {
     }
     this.authorize = opts.authorize;
     this.ownsPool = !opts.pool;
-    this.pool = opts.pool || new pg.Pool({ connectionString: opts.connectionString || process.env.DATABASE_URL, max: opts.poolMax || 4 });
+    this.pool = opts.pool || createPool(opts.connectionString || process.env.DATABASE_URL, { max: opts.poolMax || 4 });
     this.requiredRole = opts.requiredRole || 'billing_admin';
     this.mfaMaxAgeMs = opts.mfaMaxAgeMs ?? 15 * 60 * 1000;
     this.maxOverrideMs = opts.maxOverrideMs ?? 366 * DAY_MS;
@@ -33,6 +33,7 @@ export class AdminService {
   }
 
   async _check(actor, action, customerId) {
+    await ensureSearchPath(this.pool);
     if (!UUID_RE.test(String(customerId))) throw new InvalidCustomerError();
     if (!actor || typeof actor.id !== 'string' || !actor.id.trim()) throw new NotAuthorizedError('An identified administrator is required');
     if (!Array.isArray(actor.roles) || !actor.roles.includes(this.requiredRole)) throw new NotAuthorizedError('Billing administrator role required');

@@ -13,7 +13,7 @@
  * Nothing here collects payment or talks to a provider.
  */
 
-import pg from 'pg';
+import { createPool, ensureSearchPath } from './schema.js';
 import { createHash } from 'node:crypto';
 import { withTx } from './db.js';
 import { ENTITLEMENT_TYPES, validateEvent } from './billingAdapters.js';
@@ -26,7 +26,7 @@ export class BillingProcessor {
     this.adapters = {};
     for (const a of opts.adapters || []) this.adapters[a.provider] = a;
     this.ownsPool = !opts.pool;
-    this.pool = opts.pool || new pg.Pool({ connectionString: opts.connectionString || process.env.DATABASE_URL, max: opts.poolMax || 4 });
+    this.pool = opts.pool || createPool(opts.connectionString || process.env.DATABASE_URL, { max: opts.poolMax || 4 });
     this.maxAttempts = opts.maxAttempts || 5;
     this.onSubscriptionChanged = typeof opts.onSubscriptionChanged === 'function' ? opts.onSubscriptionChanged : () => {};
     this.lockTimeoutMs = opts.lockTimeoutMs || 5000;
@@ -49,6 +49,7 @@ export class BillingProcessor {
    * @returns {Promise<{status:'applied'|'stale'|'ignored'|'dead'|'duplicate', ...}>}
    */
   async ingest({ provider, rawBody, headers = {}, nowMs = Date.now() }) {
+    await ensureSearchPath(this.pool);
     const adapter = this.adapters[provider];
     if (!adapter) throw new BillingEventError('unknown provider', 'unknown_provider');
     if (!Buffer.isBuffer(rawBody)) throw new BillingEventError('raw body bytes required', 'raw_body_required');
@@ -167,6 +168,7 @@ export class BillingProcessor {
 
   /** Re-drives a stored event (for example after an administrator linked the missing customer). Skips signature checks: it was verified on receipt. */
   async redrive(provider, eventId) {
+    await ensureSearchPath(this.pool);
     const out = await this._tx(async (c) => {
       const row = (await c.query(`SELECT id, status, payload, raw_sha256 FROM billing_inbox WHERE provider = $1 AND event_id = $2 AND status IN ('dead','failed') FOR UPDATE`, [provider, eventId])).rows[0];
       if (!row) return { status: 'not_redrivable' };
@@ -183,6 +185,7 @@ export class BillingProcessor {
    * { revision, subscription } and is supplied by the provider-specific code.
    */
   async reconcile(customerId, provider, fetchSnapshot) {
+    await ensureSearchPath(this.pool);
     const link = (await this.pool.query('SELECT external_customer_id FROM billing_customers WHERE provider = $1 AND customer_id = $2', [provider, customerId])).rows[0];
     if (!link) return { status: 'not_linked' };
     const sub = (await this.pool.query('SELECT external_id, provider_revision, plan_code, status, current_period_end FROM subscriptions WHERE customer_id = $1', [customerId])).rows[0];
@@ -201,6 +204,7 @@ export class BillingProcessor {
 
   /** Publishes pending outbox rows at-least-once. `publish(row)` must be idempotent on row.dedupe_key. */
   async drainOutbox(publish, { batch = 50 } = {}) {
+    await ensureSearchPath(this.pool);
     return this._tx(async (c) => {
       const { rows } = await c.query(
         `SELECT id, dedupe_key, topic, customer_id, payload FROM billing_outbox WHERE published_at IS NULL

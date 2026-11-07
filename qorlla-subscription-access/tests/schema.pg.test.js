@@ -205,8 +205,10 @@ describe('schema integrity, immutability and roles (PostgreSQL)', { skip }, () =
     try {
       await cl.query(`CREATE ROLE ${role} NOLOGIN`);
       await cl.query(`SET ROLE ${role}`);
+      assert.equal((await cl.query(`SELECT has_schema_privilege('subscription_access', 'USAGE') AS u`)).rows[0].u, false, 'no usage on the schema');
       for (const t of ['subscriptions', 'plans', 'features', 'plan_entitlements', 'entitlement_overrides', 'usage_events', 'quota_reservations', 'access_audit', 'security_events', 'billing_inbox', 'billing_outbox', 'billing_customers', 'entitlement_override_history', 'customers', 'customer_members', 'customer_member_history', 'platform_staff', 'platform_staff_customers']) {
-        await assert.rejects(cl.query(`SELECT 1 FROM ${t}`), { code: '42501' }, t);
+        await assert.rejects(cl.query(`SELECT 1 FROM subscription_access.${t}`), { code: '42501' }, 'qualified: ' + t);
+        await assert.rejects(cl.query(`SELECT 1 FROM ${t}`), (e) => e.code === '42501' || e.code === '42P01', 'unqualified: ' + t + ' (no schema usage: the table is not even visible)');
       }
       await cl.query('RESET ROLE');
     } finally { await cl.query('RESET ROLE').catch(() => {}); await cl.query(`DROP ROLE IF EXISTS ${role}`).catch(() => {}); cl.release(); }

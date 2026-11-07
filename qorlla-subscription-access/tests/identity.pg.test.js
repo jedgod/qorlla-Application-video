@@ -198,9 +198,9 @@ describe('session -> tenant identity (real auth.js + PostgreSQL)', { skip }, () 
     const cr = (await admin.createCustomer(rich.id, 'Rich Co')).customer_id, cp = (await admin.createCustomer(poor.id, 'Poor Co')).customer_id;
     await seedSubscription(db.owner, cr, { plan: 'business' }); await seedSubscription(db.owner, cp, { plan: 'basic' });
     const create = (cookie, body, headers = {}) => fetch(exampleBase + '/api/meetings', { method: 'POST', headers: { 'content-type': 'application/json', cookie, ...headers }, body: JSON.stringify(body) });
-    assert.equal((await create(rich.cookie, { max_participants: 300 })).status, 201, 'business: 300');
-    assert.equal((await create(poor.cookie, { max_participants: 300 })).status, 403, 'basic: capped at 100');
-    assert.equal((await create(poor.cookie, { max_participants: 300 }, { 'x-qorlla-customer': cr })).status, 401, 'claiming the rich tenant is refused outright');
+    assert.equal((await create(rich.cookie, { max_participants: 300, duration_minutes: 60 })).status, 201, 'business: 300');
+    assert.equal((await create(poor.cookie, { max_participants: 300, duration_minutes: 30 })).status, 403, 'basic: capped at 100');
+    assert.equal((await create(poor.cookie, { max_participants: 300, duration_minutes: 30 }, { 'x-qorlla-customer': cr })).status, 401, 'claiming the rich tenant is refused outright');
     const entitlements = await (await fetch(exampleBase + '/api/me/entitlements', { headers: { cookie: poor.cookie, 'x-qorlla-customer': cp } })).json();
     assert.equal(entitlements.plan, 'basic');
     await post('/api/auth/logout', {}, rich.cookie);

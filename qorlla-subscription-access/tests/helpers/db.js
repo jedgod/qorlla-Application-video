@@ -10,9 +10,11 @@ import { seedCatalog } from '../../src/seed.js';
 const ADMIN_URL = process.env.SUBACC_TEST_ADMIN_URL;
 export const skip = ADMIN_URL ? false : 'set SUBACC_TEST_ADMIN_URL (superuser URL of a disposable PostgreSQL) to run the database tests';
 
+// Connections to the package's database resolve unqualified names to its dedicated schema, exactly as production pools must.
 const withDb = (url, db, user, pw, appName) => {
   const u = new URL(url);
   u.pathname = '/' + db;
+  u.searchParams.set('options', '-c search_path=subscription_access,pg_catalog');
   if (user) { u.username = user; u.password = pw; }
   if (appName) u.searchParams.set('application_name', appName);
   return u.toString();

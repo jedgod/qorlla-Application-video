@@ -7,6 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import pg from 'pg';
+import { createPool } from '../src/schema.js';
 import { createTestDb, newCustomer, seedSubscription } from '../tests/helpers/db.js';
 import { AccessService } from '../src/accessService.js';
 import { AdminService } from '../src/admin.js';
@@ -38,6 +39,7 @@ async function fingerprint(pool) {
 }
 
 const log = (m) => console.log(m);
+const quietPool = (p) => { p.on('error', () => {}); return p; };      // DROP DATABASE ... FORCE terminates idle sessions on purpose
 const source = await createTestDb();
 let restoredName; let ok = true;
 try {
@@ -63,11 +65,11 @@ try {
 
   // 3. Restore into a brand-new database
   restoredName = source.name + '_restored';
-  const adminPool = new pg.Pool({ connectionString: ADMIN_URL, max: 1 });
+  const adminPool = quietPool(new pg.Pool({ connectionString: ADMIN_URL, max: 1 }));
   await adminPool.query(`CREATE DATABASE ${restoredName}`);
   tool('pg_restore', [...conn, '-d', restoredName, '--exit-on-error'], dump);
   const restoredUrl = new URL(ADMIN_URL); restoredUrl.pathname = '/' + restoredName;
-  const restored = new pg.Pool({ connectionString: restoredUrl.toString(), max: 4 });
+  const restored = createPool(restoredUrl.toString(), { max: 4 });
 
   // 4. Verify content
   const after = await fingerprint(restored);
@@ -104,5 +106,58 @@ try {
 } finally {
   await source.drop();
 }
+
+// ---- Rollback rehearsal: a migration that SUCCEEDED is rolled back by restoring the backup taken just before it ----------------
+// (Migrations are forward-only; this is the supported way back. Run it in staging before every release.)
+try {
+  const { mkdtemp, cp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const SCHEMA_DIR = fileURLToPath(new URL('../schema', import.meta.url));
+  const old = await mkdtemp(join(tmpdir(), 'subacc-old-'));
+  for (const f of ['001_subscriptions.sql', '002_hardening.sql', '003_billing.sql', '004_roles_and_grants.sql']) await cp(join(SCHEMA_DIR, f), join(old, f));   // the release BEFORE 005
+
+  const rb = await createTestDb({ migrateAndSeed: false });
+  const rbRestored = rb.name + '_rolledback';
+  const adminPool = quietPool(new pg.Pool({ connectionString: ADMIN_URL, max: 1 }));
+  try {
+    await migrate({ pool: rb.owner, dir: old });
+    const c = newCustomer(); await seedSubscription(rb.owner, c, { plan: 'pro' });
+    const before = await fingerprint4(rb.owner);
+    const dump = tool('pg_dump', [...conn, '-Fc', '-d', rb.name]);                                     // backup taken immediately before the release
+    log(`rollback rehearsal: backup before 005 (${dump.length} bytes), versions ${before.versions}`);
+
+    const applied = await migrate({ pool: rb.owner });                                                   // the release goes out
+    if (applied.join() !== '005_directory.sql') throw new Error('expected only 005 to apply, got ' + applied);
+    await rb.owner.query(`INSERT INTO customers (name, created_by) VALUES ('after-release', 't')`);      // real life continues on the new schema...
+
+    await adminPool.query(`CREATE DATABASE ${rbRestored}`);                                              // ...then the release is rolled back
+    tool('pg_restore', [...conn, '-d', rbRestored, '--exit-on-error'], dump);
+    const rr = createPool((() => { const x = new URL(ADMIN_URL); x.pathname = '/' + rbRestored; return x.toString(); })(), { max: 2 });
+    const after = await fingerprint4(rr);
+    const check = async (name, cond) => { if (cond) log(`ok   ${name}`); else { ok = false; log(`FAIL ${name}`); } };
+    await check('restored data identical to the pre-release backup', after.hash === before.hash);
+    await check('migration 005 is not recorded after the rollback', after.versions === before.versions);
+    await check('the 005 tables are gone (customers)', (await rr.query(`SELECT to_regclass('customers') AS t`)).rows[0].t === null);
+    await check('the release can be re-applied cleanly after the rollback', (await migrate({ pool: rr })).join() === '005_directory.sql');
+    await rr.end();
+  } finally {
+    await rb.drop().catch(() => {});
+    await adminPool.query(`DROP DATABASE IF EXISTS ${rbRestored} WITH (FORCE)`).catch(() => {}); await adminPool.end();
+    await rm(old, { recursive: true, force: true });
+  }
+} catch (e) {
+  ok = false; console.error('ROLLBACK REHEARSAL ERROR:', e.message);
+}
+
+async function fingerprint4(pool) {
+  const t = ['plans', 'features', 'plan_entitlements', 'subscriptions', 'entitlement_overrides', 'usage_events', 'quota_reservations', 'access_audit', 'security_events'];
+  let h = '';
+  for (const x of t) h += (await pool.query(`SELECT md5(COALESCE(string_agg(y::text, '|' ORDER BY y::text), '')) AS h FROM ${x} y`)).rows[0].h;
+  const versions = (await pool.query('SELECT string_agg(version, \',\' ORDER BY version) AS v FROM schema_migrations')).rows[0].v;
+  return { hash: createHash('md5').update(h).digest('hex'), versions };
+}
+
 console.log(ok ? '\nREHEARSAL PASSED' : '\nREHEARSAL FAILED');
 process.exit(ok ? 0 : 1);

@@ -64,8 +64,10 @@ describe('HTTP end to end (PostgreSQL)', { skip }, () => {
     const paused = await login('pro', { status: 'paused' });
     const r = await call(paused.token, '/api/phone/pstn/enable', { method: 'POST' });
     assert.equal(r.status, 402);
-    assert.equal((await call(biz.token, '/api/meetings', { method: 'POST', body: { max_participants: 'many' } })).status, 201, 'a non-numeric value falls back to the minimum of 1');
-    assert.equal((await call(biz.token, '/api/meetings', { method: 'POST', body: { max_participants: -5 } })).status, 400, 'a negative quantity is rejected, not clamped');
+    const bad = async (body) => { const r = await call(biz.token, '/api/meetings', { method: 'POST', body }); return [r.status, (await r.json()).error]; };
+    assert.deepEqual(await bad({ max_participants: 'many', duration_minutes: 30 }), [400, 'invalid_quantity'], 'no fallback to 1');
+    assert.deepEqual(await bad({ duration_minutes: 30 }), [400, 'quantity_required'], 'a missing count is an error, not a default');
+    assert.deepEqual(await bad({ max_participants: 10 }), [400, 'quantity_required'], 'so is a missing duration (no silent 30)');
   });
 
   test('PSTN: a business plan owns it but the operational gate keeps it closed (403 operational_gate_off)', async () => {
@@ -80,7 +82,8 @@ describe('HTTP end to end (PostgreSQL)', { skip }, () => {
     const post = (key) => call(u.token, '/api/ai/summaries', { method: 'POST', body: { meeting_id: 'm' }, headers: { 'idempotency-key': key } });
     assert.equal((await post('a')).status, 201);
     const replay = await post('a');
-    assert.equal(replay.status, 200); assert.equal((await replay.json()).replay, true);
+    assert.equal(replay.status, 201, 'the stored response is replayed as it was'); assert.equal(replay.headers.get('idempotent-replay'), 'true');
+    assert.equal((await replay.json()).summary, 'done');
     assert.equal((await post('b')).status, 201); assert.equal((await post('c')).status, 201);
     const refused = await post('d');
     assert.equal(refused.status, 403); assert.equal((await refused.json()).code, 'limit_exceeded');

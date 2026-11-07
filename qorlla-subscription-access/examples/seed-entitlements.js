@@ -3,10 +3,10 @@
  * Run as the MIGRATOR role:   DATABASE_URL=postgres://migrator:...@host/db node examples/seed-entitlements.js
  */
 
-import pg from 'pg';
+import { createPool } from '../src/schema.js';
 import { seedCatalog, verifyCatalog } from '../src/seed.js';
 
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+const pool = createPool(process.env.DATABASE_URL, { max: 1 });
 try {
   await seedCatalog(pool);
   const check = await verifyCatalog(pool);

@@ -49,7 +49,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_provider_external_idx ON subscri
 -- takes the matching EXCLUSIVE lock here, in the database, so ANY writer (webhook worker, admin service, or a manual psql
 -- session) waits for in-flight reservations and is waited for by new ones: a downgrade can never slip between a
 -- reservation's entitlement check and its write.
-CREATE OR REPLACE FUNCTION qorlla_lock_customer_trg() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION qorlla_lock_customer_trg() RETURNS trigger LANGUAGE plpgsql SET search_path = subscription_access, pg_catalog AS $$
 DECLARE c uuid;
 BEGIN
   IF TG_OP = 'DELETE' THEN c := OLD.customer_id; ELSE c := NEW.customer_id; END IF;
@@ -61,7 +61,7 @@ CREATE TRIGGER subscriptions_customer_lock BEFORE INSERT OR UPDATE OR DELETE ON 
 CREATE TRIGGER entitlement_overrides_customer_lock BEFORE INSERT OR UPDATE OR DELETE ON entitlement_overrides FOR EACH ROW EXECUTE FUNCTION qorlla_lock_customer_trg();
 
 -- Keep updated_at honest.
-CREATE OR REPLACE FUNCTION qorlla_touch_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION qorlla_touch_updated_at() RETURNS trigger LANGUAGE plpgsql SET search_path = subscription_access, pg_catalog AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END $$;
 CREATE TRIGGER subscriptions_touch BEFORE UPDATE ON subscriptions FOR EACH ROW EXECUTE FUNCTION qorlla_touch_updated_at();
 
@@ -94,7 +94,7 @@ CREATE INDEX IF NOT EXISTS entitlement_override_history_customer_idx ON entitlem
 -- ---------------------------------------------------------------------------
 ALTER TABLE access_audit ADD COLUMN IF NOT EXISTS reservation_id uuid;
 
-CREATE OR REPLACE FUNCTION qorlla_forbid_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION qorlla_forbid_mutation() RETURNS trigger LANGUAGE plpgsql SET search_path = subscription_access, pg_catalog AS $$
 BEGIN
   RAISE EXCEPTION '% is append-only (% not allowed)', TG_TABLE_NAME, TG_OP USING ERRCODE = 'insufficient_privilege';
 END $$;

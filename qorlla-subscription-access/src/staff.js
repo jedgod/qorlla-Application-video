@@ -13,7 +13,7 @@
  * AdminService refuse every privileged action (fail closed) until a real step-up provider is connected.
  */
 
-import pg from 'pg';
+import { createPool, ensureSearchPath } from './schema.js';
 
 const ACTION_ROLE = Object.freeze({
   'override.set': 'billing_admin',
@@ -24,9 +24,10 @@ const ACTION_ROLE = Object.freeze({
 
 export function createStaff({ pool, connectionString, stepUp = async () => null } = {}) {
   const own = !pool;
-  const p = pool || new pg.Pool({ connectionString: connectionString || process.env.DATABASE_URL, max: 3 });
+  const p = pool || createPool(connectionString || process.env.DATABASE_URL, { max: 3 });
 
   async function staffRow(userId) {
+    await ensureSearchPath(p);
     if (typeof userId !== 'string' || !userId) return null;
     const r = (await p.query('SELECT roles, all_customers FROM platform_staff WHERE user_id = $1 AND active', [userId])).rows[0];
     return r || null;

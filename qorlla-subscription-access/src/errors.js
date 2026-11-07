@@ -82,6 +82,18 @@ export class InvalidQuantityError extends SubscriptionError {
   }
 }
 
+export class QuantityRequiredError extends SubscriptionError {
+  constructor(name = 'quantity') {
+    super(`${name} is required`, 'quantity_required', { field: name }, 400);
+  }
+}
+
+export class QuantityTooLargeError extends SubscriptionError {
+  constructor(name = 'quantity', max) {
+    super(`${name} exceeds the permitted maximum`, 'quantity_too_large', { field: name, max }, 400);
+  }
+}
+
 export class IdempotencyConflictError extends SubscriptionError {
   constructor() {
     super('The idempotency key was already used with a different request', 'idempotency_key_conflict', {}, 409);

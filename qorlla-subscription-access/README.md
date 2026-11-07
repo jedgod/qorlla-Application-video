@@ -10,12 +10,14 @@ for exactly what is proven, how, and what still blocks a live paid launch. `bill
 
 | Area | Guarantee |
 |------|-----------|
+| Isolation | Everything lives in the dedicated schema `subscription_access`. Migrations revoke and grant ONLY inside it (a database shared with other applications keeps every privilege it had; tested by snapshotting all unrelated ACLs). Pools must set `options=-c search_path=subscription_access,pg_catalog` (see below). |
 | Identity | The customer id is a UUID from authenticated context (`req.auth`, `req.actor`, `req.user`). Body, query, params and headers are never consulted. Anything else is refused before the database is touched. |
 | Lifecycle | trial / active / past_due (grace) / paused / canceled / incomplete / expired, evaluated with the **database clock**. Every deadline is exclusive. Unknown states, unknown plans and invalid dates fail closed. A lapsed customer falls back to the free Basic plan, never to a paid one, and keeps no paid overrides. |
 | Capacity | `meetings.participants`, `storage.cloud_gb`, ... are snapshot comparisons against the limit. |
 | Consumption | `reserve()` holds quota atomically (per-customer-and-feature advisory lock, decision made inside the transaction); `commit` records usage once; `release` frees it. Usage is counted by when the operation started, in UTC windows. |
 | Races | Every write to `subscriptions` / `entitlement_overrides` takes an exclusive per-customer lock in a **database trigger**; a reservation holds the shared lock. A downgrade, an override change, even a manual `psql` edit cannot interleave with a reservation's check-and-write. |
-| Idempotency | Checked **before** any denial and in **every** reservation state: a retry after commit replays, it does not consume twice. Same key + different quantity is a 409. |
+| Idempotency | Checked **before** any denial and in **every** reservation state, for unlimited plans too. A replay NEVER means "go ahead": `status: committed` -> the stored `result`; `reserved` (`pending: true`) -> the original is still running; `released`/`expired` -> it failed, use a new key. Same key + different quantity is a 409. |
+| Quantities | One strict validator: whole numbers 1..ceiling only. Text (even `"5"`), fractions, 0, negatives, NaN/Infinity, missing and oversized values are rejected (`invalid_quantity`, `quantity_required`, `quantity_too_large`) BEFORE any check; there is no fallback. The validated number is what the handler uses (`req.validated`). |
 | Long jobs | Reservations can be renewed (bounded by a maximum lifetime). A **late commit still records the usage** that happened and raises a security event. A sweeper expires abandoned reservations. |
 | Failure | Any database, lock, audit or gate failure is **denied** (`503 access_unavailable`), with no internal detail. Lock waits are bounded. A connection killed mid-request is destroyed, not pooled, and cannot crash the process. |
 | Entitlement is not capability | `phone.pstn` is entitled on Business+ but stays closed behind an operational gate (default **off**) that operations must open explicitly. |
@@ -50,7 +52,8 @@ DATABASE_URL=postgres://migrator:...@db/qorlla node examples/seed-entitlements.j
 ```js
 import { createSubscriptionAccess, AdminService, BillingProcessor, createSignedJsonAdapter } from '@qorlla/subscription-access';
 
-// request path  (login role granted qorlla_sub_runtime)
+// request path  (login role granted qorlla_sub_runtime). Pools the package creates set the schema search path themselves;
+// a pool you pass in must be created with  options: '-c search_path=subscription_access,pg_catalog'  (it is checked, never changed).
 const { service, middleware } = createSubscriptionAccess({
   connectionString: process.env.RUNTIME_DATABASE_URL,
   operationalGates: { 'phone.pstn': false },        // entitlement is not capability
@@ -89,13 +92,13 @@ capacity checks, metered route, PSTN gate, entitlements endpoint, webhook route 
 ## Layout
 
 ```
-src/        accessService (request path)  lifecycle (pure)  decision (pure)  plans  middleware  db (transactions)
+src/        schema (dedicated schema, pool config)  validate (strict quantities)  accessService (request path)  lifecycle (pure)  decision (pure)  plans  middleware  db (transactions)
             admin (overrides)  billing + billingAdapters (inbox/outbox)  directory (customers/roles)  identity (session -> tenant)
             staff (platform staff)  meetGuard (Meet enforcement)  migrate  seed  errors  cache  index
 schema/     001 base  002 hardening (constraints, immutability, lock triggers)  003 billing  004 roles and grants  005 directory
-scripts/    migrate.mjs  rehearse-backup-restore.mjs
+scripts/    migrate.mjs  rehearse-backup-restore.mjs (backup/restore AND release rollback)
 examples/   express-integration.js  seed-entitlements.js
-tests/      43 unit tests (no database) + 141 PostgreSQL tests
+tests/      51 unit tests (no database) + 166 PostgreSQL tests
 ```
 
 ## Tests

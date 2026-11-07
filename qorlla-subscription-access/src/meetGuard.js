@@ -18,6 +18,7 @@
 
 import { decide } from './decision.js';
 import { respondWithAccessError } from './middleware.js';
+import { strictQuantity, DEFAULT_MAX_QUANTITY } from './validate.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BASIC = Object.freeze({ entitled: true, effective_plan: 'basic', effective_status: 'active' });
@@ -28,7 +29,7 @@ const denial = (res, d, feature) => res.status(STATUS[d.reason] || 403).json({
   limit: d.limit, remaining: d.remaining, upgrade_url: '/pricing',
 });
 
-export function createMeetGuard({ service, lookupMeeting, unowned = 'basic' } = {}) {
+export function createMeetGuard({ service, lookupMeeting, unowned = 'basic', maxQuantity = service?.maxQuantity ?? DEFAULT_MAX_QUANTITY } = {}) {
   if (!service) throw new Error('createMeetGuard requires the AccessService');
   if (!['basic', 'deny', 'allow'].includes(unowned)) throw new Error("unowned must be 'basic', 'deny' or 'allow'");
 
@@ -53,8 +54,9 @@ export function createMeetGuard({ service, lookupMeeting, unowned = 'basic' } = 
       if (b.breakoutRooms === true) wants.push(['meetings.breakout_rooms', 1]);
       for (const [key, field] of [['meetings.participants', 'maxParticipants'], ['meetings.duration_minutes', 'durationMinutes']]) {
         if (b[field] !== undefined) {
-          if (!Number.isSafeInteger(b[field]) || b[field] < 1) return res.status(400).json({ error: 'invalid_quantity' });
-          wants.push([key, b[field]]);
+          // Present means valid: text, fractions, zero, negatives, NaN/Infinity and values above the ceiling are all rejected,
+          // never defaulted. (`null` counts as present-and-wrong, not as absent.)
+          wants.push([key, strictQuantity(b[field], { required: true, max: maxQuantity, name: field })]);
         }
       }
       for (const [feature, quantity] of wants) {
@@ -75,7 +77,8 @@ export function createMeetGuard({ service, lookupMeeting, unowned = 'basic' } = 
       try { info = await lookupMeeting(req.params.id); } catch { return respondWithAccessError(res, new Error('lookup failed')); }
       if (!info) return next();                                           // unknown meeting: let Meet answer 404
       const count = Number(info.participantCount);
-      if (!Number.isSafeInteger(count) || count < 0) return respondWithAccessError(res, new Error('bad participant count'));
+      // The count comes from Meet's own data; an impossible one is a fault, not a number to trust.
+      if (!Number.isSafeInteger(count) || count < 0 || count > maxQuantity) return respondWithAccessError(res, new Error('bad participant count'));
       const customerId = info.customerId && UUID_RE.test(info.customerId) ? info.customerId : null;
       const d = await check(customerId, 'meetings.participants', count + 1);
       if (!d.allowed) return denial(res, d, 'meetings.participants');
