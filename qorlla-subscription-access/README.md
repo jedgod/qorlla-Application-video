@@ -84,6 +84,12 @@ capacity checks, metered route, PSTN gate, entitlements endpoint, webhook route 
 5. Operations: alert on `security_events` of severity `critical` (see PRODUCTION_READINESS.md for the queries).
 6. PSTN / public numbers need **both** the `phone.pstn` entitlement and operations opening the gate. A paid plan never overrides it.
 
+## Billing channels
+
+Stripe Billing (web, desktop, organization licences) and RevenueCat (App Store / Google Play, personal accounts) both report into the same provider-neutral engine:
+`createStripeAdapter`, `createRevenueCatAdapter`, `BillingGateway` (checkout, summary, management destination) and the `webhookRouter` / `customerRouter` Express routers.
+Providers never grant access; only a verified webhook writes the subscription the engine decides from. See [INTEGRATION.md](INTEGRATION.md) section 6. `billing_live` stays `false`.
+
 ## Wiring into the product
 
 [INTEGRATION.md](INTEGRATION.md) specifies how the main app (verified tenant from the live session), the directory (customers, roles, suspension, staff) and Meet
@@ -95,7 +101,7 @@ capacity checks, metered route, PSTN gate, entitlements endpoint, webhook route 
 src/        schema (dedicated schema, pool config)  validate (strict quantities)  accessService (request path)  lifecycle (pure)  decision (pure)  plans  middleware  db (transactions)
             admin (overrides)  billing + billingAdapters (inbox/outbox)  directory (customers/roles)  identity (session -> tenant)
             staff (platform staff)  meetGuard (Meet enforcement)  migrate  seed  errors  cache  index
-schema/     001 base  002 hardening (constraints, immutability, lock triggers)  003 billing  004 roles and grants  005 directory
+schema/     001 base  002 hardening (constraints, immutability, lock triggers)  003 billing  004 roles and grants  005 directory  006 step-up  007 ops alerts  008 unified billing
 scripts/    migrate.mjs  rehearse-backup-restore.mjs (backup/restore AND release rollback)
 examples/   express-integration.js  seed-entitlements.js
 tests/      51 unit tests (no database) + 166 PostgreSQL tests

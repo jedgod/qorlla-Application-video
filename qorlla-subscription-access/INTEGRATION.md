@@ -129,3 +129,63 @@ behind the operational gate `operationalGates['phone.pstn']`, which is **off by 
 1. Ship `005_directory.sql` (migrator). 2. Stand up the internal provisioning service with `qorlla_sub_admin`. 3. Add identity to the main
 app behind a feature flag, log-only first (compare `identity.resolve` with current behaviour). 4. Meet migration + guard, log-only, then enforce.
 5. Pick the MFA approach. 6. Billing provider adapter. 7. Alerts and failover tests. Live billing stays disabled throughout.
+
+## 6. Unified billing: Stripe Billing + RevenueCat (decision: 2026-11-06)
+
+One Qorlla customer, one subscription, several payment channels. **Billing providers report; the subscription engine decides.** No webhook,
+checkout or provider call ever grants access by itself - access is read from the `subscriptions` row that a *verified* webhook wrote.
+
+| Channel | Used for | Reports through |
+|---|---|---|
+| Stripe Billing | web, Windows/macOS/Linux, organization licences, invoices | `POST /webhooks/stripe` (HMAC-SHA256 `Stripe-Signature`, 5 min tolerance, key rotation) |
+| RevenueCat | iOS App Store, Google Play - **personal accounts only** | `POST /webhooks/revenuecat` (shared `Authorization` secret, constant-time compare, rotation) |
+
+### Wiring (web tier)
+
+```js
+import { createPool, BillingProcessor, BillingGateway, createStripeAdapter, createStripeClient, createRevenueCatAdapter,
+         webhookRouter, customerRouter, createCsrf } from '@qorlla/subscription-access';
+
+const pool = createPool(process.env.SUBSCRIPTION_BILLING_DATABASE_URL);          // role qorlla_sub_billing ONLY (never qorlla_sub_admin)
+const billing = new BillingProcessor({ pool, adapters: [
+  createStripeAdapter({ secrets: [process.env.STRIPE_WEBHOOK_SECRET], prices: { price_xxx: 'pro', price_yyy: 'business' } }),
+  createRevenueCatAdapter({ secrets: [process.env.REVENUECAT_WEBHOOK_AUTH], products: { 'qorlla.pro.monthly': 'pro' }, acceptSandbox: false }) ] });
+const gateway = new BillingGateway({ pool, access, stripe: createStripeClient({ secretKey: process.env.STRIPE_SECRET_KEY }),
+  prices: { pro: 'price_xxx', business: 'price_yyy' }, urls: { success, cancel, returnUrl } });
+
+app.use('/webhooks', webhookRouter({ billing }));            // BEFORE any express.json(); the router reads the raw body
+app.use(express.json());
+app.use('/billing', customerRouter({ gateway, getUserId: (req) => req.auth?.userId, csrf: csrf.require }));
+```
+
+Keys come from the environment/secret manager; the repository holds none. With no Stripe key the client fails closed. Use **separate** Stripe and
+RevenueCat projects/keys for test and live; `acceptSandbox` must be `false` in production (sandbox events are then ignored, tested).
+
+### Rules the code enforces (each has a failing-on-mutation test)
+
+- **Canonical identity.** The RevenueCat *App User ID* is the Qorlla customer id; Stripe subscriptions carry `metadata.qorlla_customer_id`. Provider customers are linked
+  **only** by `qorlla_link_checkout_customer`, called by the gateway for an open, unexpired intent of an authorized member - never by a webhook. If a provider's own
+  metadata names a different customer than the link, the event is parked and a critical alert is raised.
+- **One purchase, one account.** `purchase_identities` (source + id: a Stripe subscription, an App Store/Play original transaction) belongs to one customer. A second customer
+  presenting the same purchase is refused and alerted. RevenueCat's mirror of a Stripe purchase (`store = STRIPE`) is ignored, so it is not applied twice.
+- **No double billing.** A live subscription from any channel blocks a new checkout (`409 already_subscribed`, with the destination to manage it); one open checkout per customer
+  (unique index), so two devices cannot start two. A second live subscription arriving anyway is never merged: parked, critical alert (`duplicate_subscription_detected`) so it can be refunded.
+  After the first has ended the customer may start on any channel.
+- **Personal vs organization.** `customers.kind`: a personal account has exactly one member (trigger), one per user, and its kind is immutable. Store purchases reach personal
+  accounts only (gateway *and* processor); organization licences are bought through Stripe by owners/admins.
+- **Ordering, replay, recovery.** Revision = Stripe `created` (s->ms) or RevenueCat `event_timestamp_ms`; older events are `stale`. Stripe events in the same second tie - `reconcile()`
+  (`stripeReconciler`) heals that and any missed webhook. Payment failure -> grace window; refund/support cancellation (RevenueCat) ends access at once; Stripe refunds are recorded
+  and the subscription deletion/cancellation that follows ends access.
+- **Management.** Stripe -> billing portal; Apple -> App Store subscriptions; Google -> Play subscriptions (`gateway.summary()` returns plan, renewal/end date, billing source, usage, destination).
+  Plain members see the plan but not the destination.
+
+### Account creation
+
+`createCustomer(userId, name, { kind: 'personal' | 'organization' })` (admin service route `orgCreate` accepts `kind`). Create the personal account at sign-up and give mobile apps its id as the
+RevenueCat App User ID (`Purchases.logIn(customerId)`); do not use anonymous ids (ignored by design).
+
+### Not yet proven (cannot be proven without accounts/devices - see PRODUCTION_READINESS.md)
+
+Payloads follow the providers' *documented* shapes and are signed/authorized as the providers do it, but **no call has been made to Stripe, Apple, Google or RevenueCat**. Required before any live
+billing: Stripe test-mode run (Checkout, portal, retries, refunds, disputes), RevenueCat sandbox with Apple StoreKit sandbox and Google Play test purchases, Android/iOS client integration
+(`logIn`, purchase, restore), Apple/Google store-policy review, product-level browser E2E, independent security review.

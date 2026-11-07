@@ -111,8 +111,39 @@ What exists: WebAuthn step-up (TOTP optional), internal admin service with signe
 Design note: a Meet host is never locked out of their own meeting, so the cap applies to guests; a late-reconnecting host can make the meeting hold limit + host.
 
 Still blocking production:
-- No payment provider selected; only the provider-neutral simulator is certified. billing_live stays false.
+- Payment providers selected (Stripe Billing + RevenueCat) and adapters built, but certified against simulated payloads only; no live sandbox run. billing_live stays false. See the unified billing section below.
 - Main app (`auth.js`, `workplace.js`) not wired: customerId to Meet bridge, identity middleware, admin proxy routes, CSRF, logout hook. Committed `auth.js` has no CSRF.
 - Meet has no recording/webinar/breakout implementation to gate; its lockfile is stale; a duplicate Meet copy exists untouched.
 - No real HA orchestration/fencing; alert paging destinations not configured.
 - No product-level browser E2E, no independent security review.
+
+## Unified billing: Stripe Billing + RevenueCat (decision 2026-11-06) - verdict: still NO-GO
+
+**Built** (baseline `7a9ef85`): Stripe and RevenueCat adapters, `BillingGateway` (checkout, one-open-intent, summary, management destination), `webhookRouter` / `customerRouter`,
+migration `008_unified_billing.sql` (customer kind, checkout intents, purchase identities, audited link function), cross-provider duplicate / account-hopping / identity-mismatch defences,
+personal-vs-organization separation enforced in the database and the processor.
+
+**Verified locally** (PostgreSQL 16, real sockets; payloads in the providers' *documented* shapes, signed/authorized as the providers do it):
+
+| Check | Result |
+|---|---|
+| Full package suite incl. Chromium E2E | 358/358 (0 failed, 0 cancelled, 0 skipped) |
+| Package without a database | 95/95 (database tests skip) |
+| Backup/restore + rollback rehearsal (migrations 005-008) | passed |
+| Mutation check of the new rules (29 in-place mutations) | 28 caught; 1 equivalent mutant (the explicit Stripe-mirror ignore is redundant with the unrecognised-store rule - behaviour identical); sources restored byte-for-byte |
+
+Covered: Stripe lifecycle (create, payment failure and grace, recovery, cancel at period end, upgrade/downgrade, deletion, refund record), RevenueCat lifecycle (purchase, renewal, unsubscribe,
+billing issue, refund/support cancellation, expiry, pause), webhook replay and out-of-order delivery, missed-event reconciliation, same-second ties, double checkout from two devices,
+live-subscription blocking from any channel, channel switch after the first ended, store purchases refused for organizations, one personal account per user, intent expiry, provider outage,
+raw-body handling (a JSON parser mounted first is refused), status-code semantics for provider retries, least-privilege grants for every new object.
+
+Found and fixed while building: a store purchase could be linked to an organization by an administrator's mistake (now parked + alerted); `summary()` returned 500 for a malformed customer id (now 400);
+`customers.kind` and personal membership were not protected by the database (now triggers + unique index); existing directory test asserted billing could not read `customers` (now: read-only, for live authorization).
+
+**NOT proven - blocks any live billing:**
+1. No call has been made to Stripe, Apple, Google or RevenueCat. Required: Stripe test-mode (Checkout, portal, retries, refunds, disputes), RevenueCat sandbox, Apple StoreKit sandbox, Google Play test purchases, webhook replay from the real providers.
+2. Android / iOS client integration (`Purchases.logIn(customerId)`, purchase, restore) is not built or tested.
+3. Apple / Google store-policy review for each storefront (multiplatform recognition, external purchase rules).
+4. RevenueCat's own Stripe integration does not support every tiered/usage pricing model: keep enterprise and metered billing in Stripe directly (the Stripe adapter rejects multi-item subscriptions).
+5. Wiring into the main app (`auth.js`, `workplace.js`), Clips Studio, AI, storage and the administration UI; the unified subscription page UI (only its data endpoint exists).
+6. Product-level browser E2E and independent security review. `billing_live` stays `false`.
