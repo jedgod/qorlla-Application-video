@@ -93,3 +93,26 @@ GO only when: a real provider adapter has passed its sandbox; staging shows mult
 alerts are wired and have fired in a drill; the product's Meet / Clips / AI / storage / calling / admin UI are integrated and certified; browser E2E passes;
 an independent reviewer has signed the tests against the committed SHA; and rollback has been rehearsed in staging.
 Until then: `billing_live=false`, no deployment, no production merge, PSTN and provider gates OFF.
+
+## Integration phase (branch feature/qorlla-subscription-integration) - verdict: still NO-GO
+
+Verified locally against real PostgreSQL 16, a real Meet server child process, real Chromium (virtual WebAuthn authenticator) and a Docker primary/standby pair.
+
+| Suite | Result |
+|---|---|
+| Package (PostgreSQL + Chromium E2E), 2 consecutive runs | 292/292 and 292/292 |
+| Package, no database | 62/62 (DB tests skip) |
+| Meet real-server enforcement | 24/24 |
+| Docker failover (opt-in `SUBACC_FAILOVER=1`) | 3/3; 208 acknowledged operations all present after promotion; no leftover resources |
+| Backup/restore + rollback rehearsal | passed (covers migrations 005-007) |
+
+What exists: WebAuthn step-up (TOTP optional), internal admin service with signed assertions and durable audit (`qorlla_sub_admin` is out of the web process), CSRF for the admin proxy, Meet atomic admission and server-side duration enforcement behind `SUBSCRIPTION_ENFORCEMENT=off|log|enforce` (default off), durable alert outbox with retry/ack.
+
+Design note: a Meet host is never locked out of their own meeting, so the cap applies to guests; a late-reconnecting host can make the meeting hold limit + host.
+
+Still blocking production:
+- No payment provider selected; only the provider-neutral simulator is certified. billing_live stays false.
+- Main app (`auth.js`, `workplace.js`) not wired: customerId to Meet bridge, identity middleware, admin proxy routes, CSRF, logout hook. Committed `auth.js` has no CSRF.
+- Meet has no recording/webinar/breakout implementation to gate; its lockfile is stale; a duplicate Meet copy exists untouched.
+- No real HA orchestration/fencing; alert paging destinations not configured.
+- No product-level browser E2E, no independent security review.
