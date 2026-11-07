@@ -151,6 +151,16 @@ export class AccessService {
     });
   }
 
+  /** Which of these customers are suspended in the directory? (A customer with no directory row is not suspended.) */
+  async suspendedCustomers(customerIds) {
+    return this._guard(async () => {
+      const ids = (customerIds || []).map((c) => this._customer(c));
+      if (!ids.length) return new Set();
+      const { rows } = await this.pool.query(`SELECT id FROM customers WHERE id = ANY($1::uuid[]) AND status = 'suspended'`, [ids]);
+      return new Set(rows.map((r) => r.id));
+    });
+  }
+
   // -------------------------------------------------------------------------
   // Usage (consumption only, counted by when the operation started)
   // -------------------------------------------------------------------------

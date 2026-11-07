@@ -16,6 +16,7 @@ import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import { Server } from 'socket.io';
 import { recoveryService } from './recovery-service.mjs';
+import { createSubscription } from './subscription.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const SECRET = process.env.JWT_SECRET;
@@ -67,6 +68,8 @@ const resolveMeeting = async value => {
  const alias=await db.query('SELECT meeting_id FROM meeting_code_aliases WHERE alias_code=$1',[code]);
  return alias.rows[0]?.meeting_id || null;
 };
+// Subscription enforcement (SUBSCRIPTION_ENFORCEMENT=off|log|enforce; off = this module does nothing).
+const sub = await createSubscription({ db, io, audit, room });
 const createCode = () => { const bytes = randomBytes(6); return Array.from(bytes, b => String(b % 100).padStart(2,'0')).join(''); };
 
 const active = new Map(); // meetingId -> Map(participantId -> socketId); single active socket per participant
@@ -77,6 +80,7 @@ const member = async (req,res,next) => {
   if (req.user.meetingId !== req.params.id) return fail(res,403,'Wrong meeting');
   const { rows } = await db.query('SELECT m.ended_at, p.id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2',[req.params.id,req.user.participantId]);
   if (!rows.length || rows[0].ended_at) return fail(res,403,'Meeting unavailable');
+  if (sub.active && !(await sub.assertRunning(req.params.id))) return fail(res,403,'Meeting unavailable');
   next();
  } catch { fail(res,500,'Database unavailable'); }
 };
@@ -93,7 +97,7 @@ const isValidDate=v=>v===null||(typeof v==='string'&&Number.isFinite(Date.parse(
 const scheduleStates=new Set(['scheduled','cancelled']);
 // Main hashes scheduled-meeting passcodes (bcrypt) itself; Meet only ever receives the hash, never the passcode.
 const validPasscodeHash=v=>v===null||v===undefined||(typeof v==='string'&&/^\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}$/.test(v));
-app.post('/api/integrations/scheduled-meetings',bridgeAuth,async(req,res)=>{
+app.post('/api/integrations/scheduled-meetings',bridgeAuth,sub.bridgeCreate,async(req,res)=>{
  const sourceId=req.body?.sourceId, title=clean(req.body?.title,160),
        legacyCode=normalizeCode(req.body?.legacyCode), ownerName=clean(req.body?.ownerName,70),
        scheduledAt=req.body?.scheduledAt ?? null;
@@ -128,6 +132,7 @@ app.post('/api/integrations/scheduled-meetings',bridgeAuth,async(req,res)=>{
   }
   if(!meetingCode)throw Error('Unable to allocate meeting code');
   await client.query('INSERT INTO meetings(id,title,host_secret_hash,meeting_code,passcode_hash) VALUES($1,$2,$3,$4,$5)',[id,title,await bcrypt.hash(hostSecret,HOST_SECRET_COST),meetingCode,req.body?.passcodeHash??null]);
+  if(sub.active)await client.query('UPDATE meetings SET customer_id=$2, entitled_features=$3 WHERE id=$1',[id,req.meetingCustomerId??null,JSON.stringify(req.entitledFeatures??{})]);
   await client.query('INSERT INTO external_meeting_links(source_system,source_id,meeting_id,scheduled_at) VALUES($1,$2,$3,$4)',['qorlla-main',sourceId,id,scheduledAt]);
   if(legacyCode)await client.query('INSERT INTO meeting_code_aliases(alias_code,meeting_id) VALUES($1,$2)',[legacyCode,id]);
   await client.query('COMMIT');
@@ -193,7 +198,10 @@ app.post('/api/meetings', async (req,res) => {
   await client.query('BEGIN');
   await client.query('INSERT INTO meetings(id,title,host_secret_hash,passcode_hash,meeting_code) VALUES($1,$2,$3,$4,$5)',[id,title,await bcrypt.hash(hostSecret,HOST_SECRET_COST),passcode?await bcrypt.hash(passcode,10):null,meetingCode]);
   await client.query('INSERT INTO participants(id,meeting_id,display_name,role) VALUES($1,$2,$3,$4)',[pid,id,name,'host']);
+  const started = sub.active ? await sub.onCreate(client,id) : null;
+  if (started && !started.ok) { await client.query('ROLLBACK'); return fail(res,started.status,started.error); }
   await client.query('COMMIT');
+  started?.arm?.();
   res.status(201).json({meetingId:id, meetingCode, participantId:pid, token:sign({meetingId:id,participantId:pid,role:'host',name}),hostSecret});
   audit(id,pid,'meeting.created');
  } catch(e) { await client.query('ROLLBACK'); console.error(e); fail(res,500,'Unable to create meeting'); } finally {client.release();}
@@ -219,7 +227,8 @@ app.post('/api/meetings/:id/join', async(req,res) => {
   if(m.locked && !host) return fail(res,403,'Meeting locked');
   if(!host && m.passcode_hash && !(await bcrypt.compare(passcode,m.passcode_hash))){joinFailed(req.ip,m.id);return fail(res,403,'Invalid passcode');}
   const pid=randomUUID(), role=host?'host':'guest';
-  await db.query('INSERT INTO participants(id,meeting_id,display_name,role) VALUES($1,$2,$3,$4)',[pid,m.id,name,role]);
+  if (sub.active) { const adm = await sub.admitJoin({ meeting: m, participantId: pid, name, role, host }); if (!adm.ok) return fail(res, adm.status, adm.error); if (adm.passthrough) await db.query('INSERT INTO participants(id,meeting_id,display_name,role) VALUES($1,$2,$3,$4)',[pid,m.id,name,role]); }
+  else await db.query('INSERT INTO participants(id,meeting_id,display_name,role) VALUES($1,$2,$3,$4)',[pid,m.id,name,role]);
   res.json({meetingId:m.id,meetingCode:m.meeting_code,participantId:pid,token:sign({meetingId:m.id,participantId:pid,role,name})});
   audit(m.id,pid,'participant.joined');
  } catch(e) { if(e.code==='22P02') return fail(res,400,'Invalid meeting ID'); console.error(e); fail(res,500,'Join failed'); }
@@ -255,8 +264,9 @@ io.use(async(socket,next)=>{
   const user=verify(socket.handshake.auth?.token);
   const {rows}=await db.query('SELECT m.ended_at,p.id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2',[user.meetingId,user.participantId]);
   if(!rows.length||rows[0].ended_at) throw Error('Meeting unavailable');
+  if(sub.active){const g=await sub.onSocketAuth(user);if(!g.ok){const e=Error('refused');e.publicMessage=g.error;throw e;}}
   socket.data.user=user;next();
- } catch { next(new Error('Unauthorized')); }
+ } catch (e) { next(new Error(e?.publicMessage || 'Unauthorized')); }
 });
 io.on('connection',socket=>{
  const u=socket.data.user, id=u.meetingId, pid=u.participantId;
@@ -310,4 +320,5 @@ io.on('connection',socket=>{
  });
  socket.on('disconnect',()=>{if(roster.get(pid)!==socket.id)return;roster.delete(pid);socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
+await sub.start();
 server.listen(PORT,()=>console.log(`Qorlla Meet listening on http://localhost:${PORT}`));
