@@ -1,0 +1,39 @@
+# Local development services: PostgreSQL and an S3-compatible object store (MinIO).
+#   cp .env.example .env   (set the passwords)   then   docker compose -f docker-compose.dev.yml up -d
+# Everything listens on 127.0.0.1 only. The ports differ from the usual 5432/9000 so this never collides with other local services.
+name: qorlla-clips-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: clips
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: qorlla_clips
+    ports: ["127.0.0.1:55433:5432"]
+    volumes: [clips_pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clips -d qorlla_clips"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    # Any S3-compatible store works. Pin a tested tag in MINIO_IMAGE for anything beyond local use.
+    image: ${MINIO_IMAGE:-minio/minio:latest}
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+      # the browser PUTs parts straight to MinIO from the web app's origin, so that origin must be allowed
+      MINIO_API_CORS_ALLOW_ORIGIN: ${WEB_ORIGIN:-http://localhost:3400}
+    ports:
+      - "127.0.0.1:9100:9000"      # S3 API
+      - "127.0.0.1:9101:9001"      # admin console
+    volumes: [clips_miniodata:/data]
+    restart: unless-stopped
+
+volumes:
+  clips_pgdata:
+  clips_miniodata:

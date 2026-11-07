@@ -1,0 +1,189 @@
+// Qorlla Clips - data model.
+//
+// PROVIDER: this file is committed with "postgresql" (production). For lightweight local runs/tests use SQLite:
+//   DATABASE_URL="file:./dev.db" npm run db:push        (the scripts pick the provider from the URL scheme and generate the
+//   matching client from a copy of this file; this file itself is never edited by a script)
+//
+// MULTI-TENANCY: every row belongs to exactly one Organization, and every query in the API is scoped by it. A user in one
+// organization can never see, share to, or list anything in another.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum ClipSource {
+  RECORDING
+  AVATAR_GENERATION
+  SLIDE_CONVERSION
+  UPLOAD
+}
+
+// A clip is created first and becomes READY only when its media exists. No placeholder URL is ever stored.
+//   UPLOADING   a browser recording is being uploaded to object storage
+//   PROCESSING  waiting for a media worker (avatars, slides)
+enum ClipStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum OrgRole {
+  MEMBER
+  ADMIN
+}
+
+model Organization {
+  id        String     @id @default(uuid())
+  name      String
+  slug      String     @unique
+  // "free" accounts have the Upload video action locked; any other plan unlocks it
+  plan      String     @default("free")
+  users     User[]
+  clips     Clip[]
+  playlists Playlist[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model User {
+  id             String         @id @default(uuid())
+  // the account id in the identity provider (the Qorlla main app); unique so one login maps to one user
+  externalId     String?        @unique
+  email          String         @unique
+  name           String?
+  role           OrgRole        @default(MEMBER)
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clips          Clip[]
+  playlists      Playlist[]
+  shares         ClipShare[]
+  notifications  Notification[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([organizationId])
+}
+
+model Playlist {
+  id             String       @id @default(uuid())
+  title          String
+  // organization playlists are visible to every member of the SAME organization and managed by its admins
+  isOrganization Boolean      @default(false)
+  ownerId        String
+  owner          User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clips          Clip[]       @relation("PlaylistToClip")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, isOrganization])
+  @@index([ownerId])
+}
+
+model Clip {
+  id             String       @id @default(uuid())
+  title          String
+  // external media (set by a worker); recordings use storageKey instead and are played through a signed link
+  videoUrl       String?
+  // recordings: the object in storage (built by the SERVER from ids, never from user input) and its multipart upload
+  storageKey     String?      @unique
+  uploadId       String?
+  sizeBytes      BigInt?
+  partSize       Int?
+  mimeType       String?
+  durationMs     Int?
+  source         ClipSource   @default(RECORDING)
+  status         ClipStatus   @default(PROCESSING)
+  isStarred      Boolean      @default(false)
+  isTrashed      Boolean      @default(false)
+  trashedAt      DateTime?
+  ownerId        String
+  owner          User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  playlists      Playlist[]   @relation("PlaylistToClip")
+  shares         ClipShare[]
+  views          PlaybackEvent[]
+  reports        ClipReport[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, ownerId, isTrashed, updatedAt])
+  @@index([ownerId, isStarred])
+}
+
+// "Shared with me": one row per (clip, recipient)
+model ClipShare {
+  id        String   @id @default(uuid())
+  clipId    String
+  clip      Clip     @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([clipId, userId])
+  @@index([userId])
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  message   String
+  clipId    String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+}
+
+// One row each time someone is given a playback link for a clip (the only "view" signal that really exists; watch time is not measured).
+model PlaybackEvent {
+  id             String   @id @default(uuid())
+  clipId         String
+  clip           Clip     @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  organizationId String
+  viewerId       String
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([clipId])
+}
+
+// A member reports a clip they can see; an organization admin reviews it. status: OPEN, DISMISSED, ACTIONED (clip moved to trash).
+model ClipReport {
+  id             String    @id @default(uuid())
+  clipId         String
+  clip           Clip      @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  organizationId String
+  reporterId     String
+  reason         String
+  status         String    @default("OPEN")
+  resolvedById   String?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([clipId, reporterId])
+  @@index([organizationId, status, createdAt])
+}
+
+// Append-only record of administrative decisions. The clip may be deleted later, so no foreign key.
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  actorId        String
+  action         String
+  clipId         String?
+  detail         String?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+}

@@ -153,6 +153,28 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthe
     }
     const currentHash = (req) => { const t = parseCookies(req)[COOKIE]; return t ? sha(t) : null; };
 
+    // ---------- CSRF ----------
+    // The token is an HMAC keyed by the server-side session hash, so it is bound to one session, needs
+    // no extra storage, and cannot be computed without the session cookie. State-changing routes that
+    // opt in must send it in X-CSRF-Token, and a browser's Origin (when present) must be this site.
+    const csrfFor = (req) => { const h = currentHash(req); return h ? crypto.createHmac('sha256', h).update('qorlla-csrf-v1').digest('hex') : null; };
+    function sameSite(req) {
+        const origin = req.headers.origin;
+        if (!origin) return true; // not a browser cross-site request; the token check still applies
+        let host;
+        try { host = new URL(origin).host; } catch (e) { return false; }
+        const allowed = [req.headers.host];
+        try { if (process.env.PUBLIC_URL) allowed.push(new URL(process.env.PUBLIC_URL).host); } catch (e) { /* ignore a bad PUBLIC_URL */ }
+        return allowed.includes(host);
+    }
+    function requireCsrf(req, res, next) {
+        if (!sameSite(req)) return res.status(403).json({ error: 'Cross-site request blocked.', code: 'csrf' });
+        const want = csrfFor(req), got = String(req.headers['x-csrf-token'] || '');
+        const a = Buffer.from(want || ''), b = Buffer.from(got);
+        if (!want || a.length !== b.length || !crypto.timingSafeEqual(a, b)) return res.status(403).json({ error: 'Missing or invalid CSRF token.', code: 'csrf' });
+        next();
+    }
+
     function getUser(req) {
         const token = parseCookies(req)[COOKIE];
         if (!token) return null;
@@ -349,6 +371,8 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthe
         res.json({ user: user ? selfUser(user) : null });
     });
 
+    router.get('/csrf', requireUser, (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ token: csrfFor(req) }); });
+
     router.patch('/me', requireUser, (req, res) => {
         const displayName = String((req.body && req.body.displayName) || '').trim().slice(0, 60);
         if (!displayName) return res.status(400).json({ error: 'Display name is required.' });
@@ -522,5 +546,5 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthe
         const users = loadUsers(), u = users.find((x) => x.id === userId); if (!u) return false;
         u.suspended = !!suspended; saveUsers(users); if (suspended) dropSessions(userId); notify(u); return true;
     }
-    return { router, portalTokens, setSuspended, allAccounts: () => loadUsers().map((u) => ({ id: u.id, verified: !!u.emailVerified, suspended: !!u.suspended })), getUser, requireUser, listUsers: () => loadUsers().map(publicUser), getUserById: (id) => { const u = loadUsers().find((y) => y.id === id); return u ? selfUser(u) : null; } };
+    return { router, portalTokens, setSuspended, allAccounts: () => loadUsers().map((u) => ({ id: u.id, verified: !!u.emailVerified, suspended: !!u.suspended })), getUser, requireUser, requireCsrf, listUsers: () => loadUsers().map(publicUser), getUserById: (id) => { const u = loadUsers().find((y) => y.id === id); return u ? selfUser(u) : null; } };
 };

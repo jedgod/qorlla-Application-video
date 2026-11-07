@@ -50,7 +50,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
     // Whiteboard saves are PNG data URLs, so this router needs a larger body limit
     router.use(express.json({ limit: '8mb' }));
 
-    const { requireUser, listUsers } = auth;
+    const { requireUser, requireCsrf, listUsers } = auth;
 
     // Real-time nudge: tells these accounts' open pages that something changed so they re-fetch.
     // It carries no message content, so nothing private travels over the socket.
@@ -1032,6 +1032,155 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         const p = prefsFor(prefs, req.user.id);
         p.apps = p.apps.filter((id) => id !== req.params.id);
         save('chatprefs', prefs);
+        res.json({ ok: true });
+    });
+
+    // ---------- Qorlla Sources: which of your own content the AI assistant may read ----------
+    // One master switch plus one switch per source. Turning the master off keeps the per-source
+    // choices, so turning it back on restores them. The assistant's data endpoints below check the
+    // switches on the server; they gate AI retrieval only, never your access to the pages themselves.
+    const AI_SOURCES = ['meetings', 'canvas', 'chat', 'my_notes', 'mail'];
+    const aiFile = (user) => 'aisources.' + userKey('x', user).slice(2);
+    const aiDefaults = () => ({ master: true, meetings: true, canvas: true, chat: true, my_notes: true, mail: true, version: 1, updatedAt: null });
+
+    function aiLoad(user) {
+        const saved = store.readJson(file(aiFile(user)), null) || {};
+        const out = aiDefaults();
+        ['master'].concat(AI_SOURCES).forEach((k) => { if (typeof saved[k] === 'boolean') out[k] = saved[k]; });
+        out.version = Number(saved.version) || 1;
+        out.updatedAt = saved.updatedAt || null;
+        return out;
+    }
+    function aiShape(s) {
+        const effective = {};
+        AI_SOURCES.forEach((k) => { effective[k] = s.master && s[k]; });
+        const sources = {};
+        AI_SOURCES.forEach((k) => { sources[k] = s[k]; });
+        return { masterEnabled: s.master, sources, effective, version: s.version, updatedAt: s.updatedAt };
+    }
+    function aiSet(user, name, enabled) {
+        const s = aiLoad(user);
+        const previous = s[name];
+        if (previous === enabled) return s;
+        s[name] = enabled; s.version += 1; s.updatedAt = nowIso();
+        save(aiFile(user), s);
+        const logKey = 'aiaudit.' + user.id;
+        const log = store.readJson(file(logKey), []);
+        log.push({ at: s.updatedAt, source: name, previous, enabled });
+        save(logKey, log.slice(-200));
+        return s;
+    }
+    const toggleBody = (req) => (req.body && typeof req.body.enabled === 'boolean' && Object.keys(req.body).length === 1) ? req.body.enabled : null;
+
+    router.get('/ai/sources', requireUser, (req, res) => res.json(aiShape(aiLoad(req.user))));
+    router.patch('/ai/sources', requireUser, requireCsrf, (req, res) => {
+        const enabled = toggleBody(req);
+        if (enabled === null) return bad(res, 'Send {"enabled": true|false}.');
+        res.json(aiShape(aiSet(req.user, 'master', enabled)));
+    });
+    router.patch('/ai/sources/:source', requireUser, requireCsrf, (req, res) => {
+        const enabled = toggleBody(req);
+        if (!AI_SOURCES.includes(req.params.source) || enabled === null) return bad(res, 'Unknown source or value.');
+        res.json(aiShape(aiSet(req.user, req.params.source, enabled)));
+    });
+
+    const requireAiSource = (name) => (req, res, next) => {
+        const s = aiLoad(req.user);
+        if (!s.master || !s[name]) return res.status(403).json({ error: 'This source is switched off in Qorlla Sources.', source: name });
+        next();
+    };
+    router.get('/ai/context/meetings', requireUser, requireAiSource('meetings'), (req, res) => {
+        res.json({ calendar: load(userKey('calendar', req.user), 'calendar'), schedule: load(userKey('schedule', req.user), 'schedule') });
+    });
+    router.get('/ai/context/mail', requireUser, requireAiSource('mail'), (req, res) => {
+        res.json(load(userKey('mail', req.user), 'mail'));
+    });
+    // Chat for the assistant: only conversations this account is a member of (a public chat you have not
+    // joined is not yours to share), human messages from the last 7 days, trimmed. Read-only.
+    const AI_CHAT_DAYS = 7;
+    router.get('/ai/context/chat', requireUser, requireAiSource('chat'), (req, res) => {
+        const since = Date.now() - AI_CHAT_DAYS * 86400000;
+        const users = userMap();
+        const chats = [];
+        load('chat').filter((c) => memberOf(c, req.user)).forEach((c) => {
+            const recent = c.messages
+                .filter((m) => Date.parse(m.at) >= since && !String(m.userId).startsWith('bot:') && typeof m.text === 'string')
+                .slice(-50);
+            if (!recent.length) return;
+            const others = c.members.filter((id) => id !== req.user.id);
+            const name = c.type === 'dm'
+                ? (others.length ? (users.get(others[0]) || { displayName: 'Former member' }).displayName : req.user.displayName + ' (You)')
+                : c.name;
+            chats.push({
+                id: c.id, type: c.type, name,
+                messages: recent.map((m) => ({ from: m.name, mine: m.userId === req.user.id, text: m.text.slice(0, 500), at: m.at, mentionsMe: mentionsUser(m.text, req.user.username) }))
+            });
+        });
+        chats.sort((a, b) => b.messages[b.messages.length - 1].at.localeCompare(a.messages[a.messages.length - 1].at));
+        res.json({ days: AI_CHAT_DAYS, chats: chats.slice(0, 20) });
+    });
+    // Canvas for the assistant: your own boards only, names and dates. The drawing itself is an image the
+    // assistant cannot read, so it is never sent.
+    router.get('/ai/context/canvas', requireUser, requireAiSource('canvas'), (req, res) => {
+        const boards = load(userKey('whiteboard', req.user), 'whiteboard').map((b) => ({ id: b.id, name: b.name, updatedAt: b.updatedAt || b.createdAt || null }));
+        res.json({ boards: boards.slice(0, 100) });
+    });
+    router.get('/ai/context/my_notes', requireUser, requireAiSource('my_notes'), (req, res) => {
+        res.json(load(userKey('notes', req.user), 'notes'));
+    });
+
+    // ---------- assistant chat history (per account, stored on the server) ----------
+    // Delete is a soft delete: the record stays on disk, marked deletedAt, and is never listed again.
+    const CHAT_ID = /^c[a-z0-9]{3,40}$/;
+    const chatsKey = (user) => 'aichats.' + userKey('x', user).slice(2);
+    const chatsLoad = (user) => { const l = store.readJson(file(chatsKey(user)), []); return Array.isArray(l) ? l : []; };
+    const chatPublic = (c) => ({ id: c.id, title: c.title, messages: c.messages, createdAt: c.createdAt, updatedAt: c.updatedAt });
+
+    router.get('/ai/chats', requireUser, (req, res) => {
+        const live = chatsLoad(req.user).filter((c) => !c.deletedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 100);
+        res.json({ chats: live.map(chatPublic) });
+    });
+    router.put('/ai/chats/:id', requireUser, requireCsrf, (req, res) => {
+        if (!CHAT_ID.test(req.params.id)) return bad(res, 'Invalid chat id.');
+        const body = req.body || {};
+        const msgs = Array.isArray(body.messages) ? body.messages : null;
+        if (!msgs || msgs.length > 200) return bad(res, 'Send up to 200 messages.');
+        const messages = [];
+        for (const m of msgs) {
+            if (!m || (m.role !== 'me' && m.role !== 'ai') || typeof m.text !== 'string' || m.text.length > 4000) return bad(res, 'Invalid message.');
+            messages.push({ role: m.role, text: m.text });
+        }
+        const title = typeof body.title === 'string' ? body.title.trim().slice(0, 120) : '';
+        const list = chatsLoad(req.user);
+        const now = nowIso();
+        let c = list.find((x) => x.id === req.params.id);
+        if (c && c.deletedAt) return missing(res);
+        if (!c) {
+            if (list.filter((x) => !x.deletedAt).length >= 100) return bad(res, 'Chat history is full. Delete a chat first.');
+            c = { id: req.params.id, title: '', messages: [], createdAt: now, updatedAt: now };
+            list.push(c);
+        }
+        c.messages = messages; c.updatedAt = now;
+        if (title) c.title = title;
+        save(chatsKey(req.user), list);
+        res.json(chatPublic(c));
+    });
+    router.patch('/ai/chats/:id', requireUser, requireCsrf, (req, res) => {
+        const title = req.body && typeof req.body.title === 'string' ? req.body.title.trim() : '';
+        if (!CHAT_ID.test(req.params.id) || !title || title.length > 120) return bad(res, 'Send a title of 1-120 characters.');
+        const list = chatsLoad(req.user);
+        const c = list.find((x) => x.id === req.params.id && !x.deletedAt);
+        if (!c) return missing(res);
+        c.title = title; c.updatedAt = nowIso();
+        save(chatsKey(req.user), list);
+        res.json(chatPublic(c));
+    });
+    router.delete('/ai/chats/:id', requireUser, requireCsrf, (req, res) => {
+        const list = chatsLoad(req.user);
+        const c = CHAT_ID.test(req.params.id) && list.find((x) => x.id === req.params.id && !x.deletedAt);
+        if (!c) return missing(res);
+        c.deletedAt = nowIso();
+        save(chatsKey(req.user), list);
         res.json({ ok: true });
     });
 

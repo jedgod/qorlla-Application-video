@@ -73,7 +73,7 @@ body[data-page=workspace] #homeMeetings .pad { padding:28px 20px; font-size:13px
 body[data-page=workspace] #homeMeetings a { color:var(--brand); font-weight:600; text-underline-offset:3px; }
 body[data-page=workspace] .meeting { background:#f7f9ff; border-color:#e3e9ff; box-shadow:none; }
 body[data-page=workspace] .join-pill { box-shadow:none; border-radius:9px; }
-body[data-page=workspace] .ai-panel { width:294px; border:1px solid var(--line); box-shadow:var(--shadow); border-radius:18px; }
+body[data-page=workspace] .ai-panel { border:1px solid var(--line); box-shadow:var(--shadow); border-radius:18px; }
 body[data-page=workspace] .ai-header { padding:18px; min-height:64px; }
 .assistant-name { font-size:13px; font-weight:650; color:var(--text); }
 body[data-page=workspace] .ai-body { padding:24px 18px; align-items:stretch; }
@@ -171,7 +171,7 @@ body[data-page=meeting] .language-control { margin-left:auto; }
 body[data-page=meeting] #slotRows { line-height:1.6; }
 /* Responsive, localization-safe layouts. */
 @media (min-width:1600px) { body[data-page=workspace] .content { padding:36px 48px; } }
-@media (max-width:1200px) { body[data-page=workspace] .content { padding:20px; gap:18px; } body[data-page=workspace] .center { padding:26px; } body[data-page=workspace] .ai-panel { width:270px; } .workspace-wordmark { display:none; } body[data-page=workspace] .search { margin-right:auto; } }
+@media (max-width:1200px) { body[data-page=workspace] .content { padding:20px; gap:18px; } body[data-page=workspace] .center { padding:26px; }  .workspace-wordmark { display:none; } body[data-page=workspace] .search { margin-right:auto; } }
 @media (max-width:1100px) { body[data-page=workspace] .ai-panel { display:none; } }
 @media (max-width:900px) { .home-heading { align-items:flex-start; } .home-clock { max-width:160px; } body[data-page=workspace] .time { font-size:25px; } body[data-page=workspace] .topbar { padding:0 20px; gap:14px; } body[data-page=auth] { grid-template-columns:minmax(0,.85fr) minmax(380px,1fr); } .auth-story { padding:36px; } .auth-story h1 { font-size:40px; } }
 @media (max-width:760px) { body[data-page=chat] .sidebar { width:100%; } body[data-page=chat] .chat-header { padding:12px; gap:8px; } body[data-page=chat] .hdr-btn { padding:8px; font-size:11px; } body[data-page=chat] .messages { padding:18px 14px; } body[data-page=chat] .msg { max-width:88%; } body[data-page=chat] .chat-input { padding:12px; } body[data-page=chat] .poll { min-width:0; } }

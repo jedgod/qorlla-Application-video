@@ -24,3 +24,17 @@ Thumbs.db
 .dev-stack-ai/
 .dev-stack-noai/
 .dev-stack-launch/
+
+# Qorlla Clips
+qorlla-clips/web/.next/
+qorlla-clips/web/next-env.d.ts
+qorlla-clips/web/tsconfig.tsbuildinfo
+qorlla-clips/api/prisma/schema.generated.*.prisma
+qorlla-clips/api/*.db
+qorlla-clips/api/*.db-journal
+qorlla-clips/api/prisma/*.db
+qorlla-clips/api/.env
+qorlla-clips/web/.env.local
+qorlla-clips/.env
+qorlla-clips/deploy/.env
+qorlla-clips/web/.env

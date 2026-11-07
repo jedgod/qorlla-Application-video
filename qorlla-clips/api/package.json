@@ -1,0 +1,31 @@
+{
+  "name": "@qorlla/clips-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Qorlla Clips API: multi-tenant Express + Prisma (PostgreSQL in production, SQLite for local tests)",
+  "scripts": {
+    "start": "node src/server.js",
+    "db:push": "node scripts/db.mjs push",
+    "db:migrate": "node scripts/db.mjs migrate",
+    "test": "node scripts/run-tests.mjs",
+    "check:migrations": "node scripts/check-migrations.mjs",
+    "db:new-migration": "node scripts/new-migration.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1164.0",
+    "@aws-sdk/lib-storage": "^3.1164.0",
+    "@aws-sdk/s3-request-presigner": "^3.1164.0",
+    "@prisma/client": "6",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "pdfkit": "^0.15.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "prisma": "6"
+  }
+}

@@ -1,0 +1,244 @@
+# Qorlla Clips: test -> build images -> (optionally) deploy.
+#
+# Runs only for changes under qorlla-clips/ (and this file). Pull requests run the checks. A push to main also builds and pushes
+# images. The DEPLOY job is switched off until you turn it on: set the repository variable CLIPS_DEPLOY_ENABLED=true, create the
+# environment "production" (add required reviewers so a person approves each deploy) and add these secrets/variables:
+#   secrets:   CLIPS_DEPLOY_HOST  CLIPS_DEPLOY_USER (a normal user in the docker group, NOT root)  CLIPS_DEPLOY_KEY
+#   variables: CLIPS_DEPLOY_PATH  (folder on the server holding deploy/docker-compose.yml and its .env)
+name: Clips CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths: ['qorlla-clips/**', '.github/workflows/clips.yml']
+  pull_request:
+    branches: [main]
+    paths: ['qorlla-clips/**', '.github/workflows/clips.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: clips-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  S3_TEST_ACCESS_KEY: ci_access_key
+  S3_TEST_SECRET_KEY: ci_secret_key_change_not_needed
+
+jobs:
+  api:
+    name: API (SQLite, PostgreSQL, object storage)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: clips_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci -d clips_ci"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    defaults:
+      run:
+        working-directory: qorlla-clips/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: qorlla-clips/api/package-lock.json
+      - run: npm ci
+
+      - name: Start an S3-compatible store (MinIO) for the upload tests
+        working-directory: .
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER="$S3_TEST_ACCESS_KEY" -e MINIO_ROOT_PASSWORD="$S3_TEST_SECRET_KEY" \
+            minio/minio server /data
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:9000/minio/health/ready && break; sleep 2; done
+
+      - name: Tests on SQLite
+        run: npm test
+        env:
+          S3_TEST_ENDPOINT: http://127.0.0.1:9000
+
+      - name: Tests on PostgreSQL
+        run: npm test
+        env:
+          TEST_DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/clips_ci
+          S3_TEST_ENDPOINT: http://127.0.0.1:9000
+
+      - name: The committed migrations match schema.prisma
+        run: node scripts/check-migrations.mjs
+        env:
+          SHADOW_DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/clips_ci
+
+  web:
+    name: Web (typecheck, unit tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: qorlla-clips/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: qorlla-clips/web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+
+  resilience:
+    name: Upload resilience, mocked network (${{ matrix.browser }})
+    needs: [web]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install and build the web app (every request is mocked, so the API is never contacted)
+        working-directory: qorlla-clips/web
+        run: |
+          npm ci
+          npm install --no-save playwright-core@1.64.1
+          npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - run: npx --yes playwright@1.64.1 install --with-deps ${{ matrix.browser }}
+      - name: Run the resilience scenarios
+        working-directory: qorlla-clips
+        run: node e2e/uploads-resilience.e2e.mjs
+        env:
+          BROWSERS: ${{ matrix.browser }}
+
+  e2e:
+    name: Browser end-to-end (recording -> upload -> playback)
+    needs: [api, web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install the API and web
+        run: |
+          (cd qorlla-clips/api && npm ci)
+          (cd qorlla-clips/web && npm ci && npm install --no-save playwright-core@1.64.1)
+          npx --yes playwright@1.64.1 install --with-deps chromium
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER="$S3_TEST_ACCESS_KEY" -e MINIO_ROOT_PASSWORD="$S3_TEST_SECRET_KEY" \
+            -e MINIO_API_CORS_ALLOW_ORIGIN='http://127.0.0.1:3411' \
+            minio/minio server /data
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:9000/minio/health/ready && break; sleep 2; done
+      - name: Build the web app with the test identity baked in
+        working-directory: qorlla-clips/web
+        run: npm run build
+        env:
+          NEXT_PUBLIC_DEV_USER: casey@clips.test
+          NEXT_PUBLIC_DEV_ORG: e2e
+          NEXT_PUBLIC_DEV_ROLE: admin
+          NEXT_TELEMETRY_DISABLED: '1'
+      - name: Run the browser test
+        working-directory: qorlla-clips
+        run: node e2e/clips.e2e.mjs
+        env:
+          S3_TEST_ENDPOINT: http://127.0.0.1:9000
+
+  images:
+    name: Build and publish images
+    needs: [api, web, resilience, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: vars
+        run: |
+          echo "tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          echo "repo=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: clips-api
+        uses: docker/build-push-action@v6
+        with:
+          context: qorlla-clips/api
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.repo }}/clips-api:${{ steps.vars.outputs.tag }}
+            ${{ steps.vars.outputs.repo }}/clips-api:latest
+          cache-from: type=gha,scope=clips-api
+          cache-to: type=gha,mode=max,scope=clips-api
+      - name: clips-web
+        uses: docker/build-push-action@v6
+        with:
+          context: qorlla-clips/web
+          build-args: |
+            CLIPS_API_URL=http://api:5400
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.repo }}/clips-web:${{ steps.vars.outputs.tag }}
+            ${{ steps.vars.outputs.repo }}/clips-web:latest
+          cache-from: type=gha,scope=clips-web
+          cache-to: type=gha,mode=max,scope=clips-web
+
+  deploy:
+    name: Deploy to production
+    needs: images
+    # Off unless explicitly enabled, and gated by the "production" environment's required reviewers.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CLIPS_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: clips-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_TAG: ${{ needs.images.outputs.tag }}
+        with:
+          host: ${{ secrets.CLIPS_DEPLOY_HOST }}
+          username: ${{ secrets.CLIPS_DEPLOY_USER }}
+          key: ${{ secrets.CLIPS_DEPLOY_KEY }}
+          envs: IMAGE_TAG
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ vars.CLIPS_DEPLOY_PATH }}"
+            export IMAGE_TAG
+            docker compose pull
+            # migrate BEFORE the new version serves traffic (the API image carries the Prisma CLI; the database image does not)
+            docker compose run --rm api npm run db:migrate
+            docker compose up -d --remove-orphans
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:3400/ > /dev/null; then echo "healthy: ${IMAGE_TAG} at $(date -u +%FT%TZ)"; exit 0; fi
+              sleep 2
+            done
+            echo "new version did not become healthy; previous images are still in 'docker images' for a manual rollback" >&2
+            exit 1

@@ -137,7 +137,7 @@
   .cal-foot svg.i { width: 15px; height: 15px; }
 
   /* ---------- AI panel ---------- */
-  .ai-panel { width: 330px; background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; flex-shrink: 0; }
+  .ai-panel { width: clamp(300px, var(--ai-w, 420px), 60vw); background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; flex-shrink: 0; }
   .ai-header { padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
   .ai-header .l { display: flex; align-items: center; gap: 10px; color: var(--brand); }
   .plan { background: linear-gradient(135deg, #6a4dff, #9a6bff); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 10px; letter-spacing: .3px; }
@@ -348,6 +348,91 @@
   dialog button { border-radius: 12px; padding: 11px 20px; font-size: 14px; font-weight: 700; cursor: pointer; border: 1px solid var(--line); background: #fff; }
   dialog button.primary { background: var(--brand); border-color: var(--brand); color: #fff; box-shadow: 0 6px 14px rgba(37,99,255,.3); }
 
+  .ai-panel { position: relative; overflow: hidden; }
+  .ai-resize { position: absolute; left: 0; top: 0; bottom: 0; width: 9px; z-index: 25; cursor: col-resize; touch-action: none; }
+  .ai-resize::after { content: ''; position: absolute; left: 2px; top: 50%; width: 3px; height: 44px; margin-top: -22px; border-radius: 2px; background: #c3cad8; opacity: 0; transition: opacity .15s; }
+  .ai-resize:hover::after, .ai-resize.drag::after, .ai-resize:focus-visible::after { opacity: 1; }
+  .ai-resize:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+  body.ai-resizing { cursor: col-resize; user-select: none; }
+  .ai-panel button { cursor: pointer; }
+  .ai-pop .mi, .hist-row .t, .hist-row .more, .ai-chip button, .src-row .exp, .switch, .input-actions .tool, .ai-drawer .icon-sm { border: 0; background: transparent; padding: 0; }
+  .ai-pop .mi { padding: 9px 12px; }
+  .hist-row .t { padding: 10px 12px; }
+  .hist-row .more { padding: 0; }
+  .switch { background: #c3cad8; }
+  .switch[aria-checked="true"] { background: #1a6bf0; }
+  .ai-panel .ai-pop .mi { display: flex; align-items: center; gap: 12px; }
+  .ai-panel .ai-pop .mi svg { flex: none; }
+  .ai-pop.row-pop { background: #f4f4f5; border-radius: 12px; padding: 8px 0; width: 196px; }
+  .ai-pop.row-pop .mi { padding: 11px 16px; border-radius: 0; font-size: 15px; }
+  .ai-pop.row-pop .mi:hover { background: #e9eaed; }
+  .ai-drawer { animation: ai-slide .2s ease-out; }
+  @keyframes ai-slide { from { transform: translateX(-100%); } to { transform: none; } }
+  .hist-row { background: transparent; }
+  .hist-row .more { background: #f0f1f3; }
+  .ai-confirm { position: absolute; inset: 0; z-index: 40; background: rgba(15,23,42,.45); display: grid; place-items: center; padding: 16px; }
+  .ai-confirm .box { background: #fff; border-radius: 14px; padding: 20px; width: 100%; box-shadow: 0 12px 35px rgba(0,0,0,.18); }
+  .ai-confirm h3 { font-size: 16px; margin-bottom: 8px; }
+  .ai-confirm p { font-size: 13px; color: var(--muted); }
+  .ai-confirm .acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  .ai-confirm .acts button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font-size: 14px; }
+  .ai-confirm .acts .danger { background: #e32636; border-color: #e32636; color: #fff; }
+  .ai-pop .mi:hover, .input-actions .tool:hover { background: var(--soft); }
+  .ai-header { gap: 4px; padding: 16px 12px; }
+  .ai-header .l .icon-sm { width: 28px; height: 28px; }
+  .ai-header .r .icon-sm { width: 28px; height: 28px; }
+  .ai-header .l { flex: 1; min-width: 0; gap: 6px; flex-wrap: nowrap; }
+  .ai-header .l > svg.i, .ai-header .icon-sm { flex: none; }
+  .ai-header .r { flex: none; gap: 2px; }
+  .ai-header .l .assistant-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .ai-header .l .icon-sm { color: var(--ink, #131a2a); }
+  #aiPlusPop { left: 16px; bottom: 114px; }
+  .ai-header .l .assistant-name { font-weight: 700; font-size: 13px; color: var(--ink, #131a2a); }
+  .input-actions .tool { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-size: 16px; line-height: 1; color: var(--muted); }
+  .input-actions .tool:hover, .input-actions .tool[aria-expanded="true"] { background: var(--soft); color: var(--brand); }
+  .input-actions .tool svg.i { width: 18px; height: 18px; }
+  .ai-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .ai-chips:empty { display: none; }
+  .ai-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 3px 8px; font-size: 12px; max-width: 100%; }
+  .ai-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ai-chip button { color: var(--muted); font-size: 14px; line-height: 1; }
+  .ai-scrim { position: absolute; inset: 0; background: rgba(15,23,42,.45); z-index: 20; }
+  .ai-drawer { position: absolute; top: 0; bottom: 0; left: 0; width: 82%; background: var(--panel); z-index: 21; display: flex; flex-direction: column; box-shadow: 8px 0 30px rgba(15,23,42,.18); }
+  .ai-drawer[hidden], .ai-scrim[hidden], .ai-pop[hidden] { display: none; }
+  .ai-drawer .dh { display: flex; align-items: center; gap: 10px; padding: 16px 14px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 15px; }
+  .ai-drawer .dh .grow { flex: 1; }
+  .ai-drawer .dh svg.i, .ai-header svg.i { width: 18px; height: 18px; }
+  .ai-drawer .dl { flex: 1; overflow-y: auto; padding: 8px; }
+  .ai-drawer .empty { padding: 14px 10px; font-size: 13px; color: var(--muted); }
+  .hist-row { position: relative; display: flex; align-items: center; border-radius: 10px; }
+  .hist-row:hover, .hist-row.open, .hist-row.current { background: #eef1f6; }
+  .hist-row .t { flex: 1; min-width: 0; text-align: left; padding: 10px 12px; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hist-row .more { width: 30px; height: 30px; margin-right: 6px; border-radius: 8px; display: grid; place-items: center; color: var(--ink, #131a2a); visibility: hidden; }
+  .hist-row:hover .more, .hist-row.open .more, .hist-row:focus-within .more { visibility: visible; background: #dfe6f3; }
+  .hist-row .rename { flex: 1; margin: 4px 6px; height: 32px; border: 1px solid var(--brand); border-radius: 8px; padding: 0 8px; font: inherit; font-size: 14px; outline: none; }
+  .ai-pop { position: absolute; z-index: 30; width: max-content; max-width: calc(100% - 24px); background: #fff; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 30px rgba(15,23,42,.18); padding: 6px; min-width: 170px; }
+  .ai-pop .mi { display: block; width: 100%; text-align: left; padding: 9px 12px; border-radius: 8px; font-size: 14px; }
+  .ai-pop .mi:hover { background: var(--soft); }
+  .ai-pop .mi.danger { color: #e11d48; }
+  .src-pop { width: auto; max-width: none; left: 16px; right: 16px; bottom: 114px; padding: 10px 12px; }
+  .src-row { display: flex; align-items: center; gap: 10px; padding: 8px 6px; font-size: 14px; }
+  .src-row.master { background: #eef1f6; border-radius: 10px; font-weight: 600; padding: 9px 10px; }
+  .src-row .lbl { flex: 1; }
+  .src-row.sub { padding-left: 22px; }
+  .src-row .exp { width: 26px; height: 26px; display: grid; place-items: center; color: var(--ink, #131a2a); }
+  .src-row .exp svg.i { width: 16px; height: 16px; transition: transform .15s; }
+  .src-row .exp[aria-expanded="true"] svg.i { transform: rotate(180deg); }
+  .src-badge { width: 20px; height: 20px; border-radius: 6px; background: #1a6bf0; color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; }
+  .src-list { max-height: 220px; overflow-y: auto; }
+  .src-list.dim { opacity: .5; }
+  .src-peek { display: flex; align-items: center; gap: 8px; padding: 2px 6px 6px 36px; color: var(--muted); font-size: 12px; }
+  .src-peek svg.i { width: 15px; height: 15px; }
+  .src-peek .grow { flex: 1; }
+  .switch { position: relative; width: 40px; height: 24px; flex: none; border-radius: 12px; background: #c3cad8; transition: background .15s; }
+  .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s; }
+  .switch[aria-checked="true"] { background: #1a6bf0; }
+  .switch[aria-checked="true"]::after { transform: translateX(16px); }
+  .switch:focus-visible, .ai-pop .mi:focus-visible, .tool:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   @media (max-width: 1100px) { .ai-panel { display: none; } }
   @media (max-width: 700px) {
     .center { padding: 24px 18px; } .time { font-size: 46px; } .actions { gap: 18px; }
@@ -711,8 +796,10 @@
       <main class="center" id="view" tabindex="-1"></main>
 
       <aside class="ai-panel" id="aiPanel">
+        <div class="ai-resize" id="aiResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize workspace overview (drag, or use the left and right arrow keys; double-click to reset)" aria-valuemin="300" aria-valuenow="420"></div>
         <div class="ai-header">
           <div class="l">
+            <button class="icon-sm" id="aiMenu" type="button" aria-label="Chat history" aria-haspopup="dialog" aria-expanded="false"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
             <svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8Z"/><path d="M19 15l.7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7Z"/></svg>
             <span class="assistant-name"><span data-i18n="Workspace overview">Workspace overview</span></span>
           </div>
@@ -733,13 +820,28 @@
           </div>
         </div>
         <div class="input-box">
+          <div class="ai-chips" id="aiChips"></div>
           <textarea id="aiInput" placeholder="Write a message or type @ for context"></textarea>
+          <input type="file" id="aiFile" multiple hidden>
           <div class="input-actions">
+            <button class="tool" id="aiPlus" type="button" aria-label="Add" aria-haspopup="menu" aria-expanded="false"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="tool" id="aiSources" type="button" aria-label="All sources" aria-haspopup="dialog" aria-expanded="false">&#9203;</button>
             <span class="grow"></span>
             <button class="send" id="aiSend" type="button" aria-label="Send" data-i18n-aria-label="Send"><svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
           </div>
         </div>
         <div class="fine">Summaries are built from your own mail, notes and calendar.</div>
+        <div class="ai-scrim" id="aiScrim" hidden></div>
+        <div class="ai-drawer" id="aiDrawer" role="dialog" aria-label="Chat history" hidden>
+          <div class="dh">
+            <svg class="i" viewBox="0 0 24 24"><path d="M3 6h8M3 12h5M3 18h8"/><circle cx="17" cy="14" r="5"/><path d="M17 11.5V14l1.6 1"/></svg>
+            <span class="grow">Chat History</span>
+            <button class="icon-sm" id="aiDrawerClose" type="button" aria-label="Close chat history"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="dl" id="aiHistList"></div>
+        </div>
+        <div class="ai-pop" id="aiPlusPop" role="menu" hidden><button class="mi" id="aiAddFiles" type="button" role="menuitem">Add data and files</button></div>
+        <div class="ai-pop src-pop" id="aiSrcPop" role="dialog" aria-label="All sources" hidden></div>
       </aside>
     </div>
   </div>
@@ -957,18 +1059,29 @@
   };
 
   // ---------- API ----------
-  function api(path, opts) {
+  var csrfToken = null;
+  function getCsrf(force) {
+    if (csrfToken && !force) return Promise.resolve(csrfToken);
+    return fetch(BASE + '/api/auth/csrf').then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) { csrfToken = d.token || null; return csrfToken; });
+  }
+  function api(path, opts, retried) {
     opts = opts || {};
     var init = { method: opts.method || 'GET', headers: {} };
     if (opts.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
-    return fetch(BASE + API + path, init).then(function (r) {
+    // the assistant's write routes (Qorlla Sources, chat history) require the CSRF token
+    var needsToken = init.method !== 'GET' && path.indexOf('/ai/') === 0;
+    return (needsToken ? getCsrf(!!retried) : Promise.resolve(null)).then(function (token) {
+      if (token) init.headers['X-CSRF-Token'] = token;
+      return fetch(BASE + API + path, init);
+    }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (b) {
         if (r.status === 401) {
           var was = !!state.user;
           state.user = null;
           throw new Error(was ? 'Your session expired. Please sign in again.' : 'Please sign in.');
         }
-        if (!r.ok) throw new Error(b.error || 'Request failed (' + r.status + ')');
+        if (r.status === 403 && b.code === 'csrf' && needsToken && !retried) return api(path, opts, true);
+        if (!r.ok) { var err = new Error(b.error || 'Request failed (' + r.status + ')'); err.status = r.status; throw err; }
         return b;
       });
     }).catch(function (e) {
@@ -3528,30 +3641,326 @@
   // =====================================================================
   // AI panel: quick actions summarise real workspace data
   // =====================================================================
-  function aiSay(role, text) {
+  // ---- chat history (stored on the server for the signed-in account; this browser keeps a copy) ----
+  var aiChats = [], aiCurrent = null;
+  function aiKey(name) { return 'qorlla_ai_' + name + '_' + (uid || 'anon'); }
+  function aiLoad() {
+    try { aiChats = JSON.parse(store(aiKey('chats')) || '[]'); } catch (e) { aiChats = []; }
+    if (!Array.isArray(aiChats)) aiChats = [];
+  }
+  function aiCache() { store(aiKey('chats'), JSON.stringify(aiChats.slice(0, 100))); }
+  function aiSync(c) {
+    aiCache();
+    if (!c || !state.user) return;
+    api('/ai/chats/' + c.id, { method: 'PUT', body: { title: c.title, messages: c.messages } }).catch(function (e) { toast(e.message || 'Could not save the chat'); });
+  }
+  // pull the account's history from the server; chats that only exist in this browser are uploaded once
+  function aiFetchChats() {
+    if (!state.user) return Promise.resolve();
+    return api('/ai/chats').then(function (d) {
+      var onServer = {}; d.chats.forEach(function (c) { onServer[c.id] = true; });
+      var localOnly = aiChats.filter(function (c) { return !onServer[c.id] && c.messages && c.messages.length; });
+      aiChats = d.chats.concat(localOnly);
+      localOnly.forEach(function (c) { aiSync(c); });
+      aiCache(); aiPaintHistory();
+    }).catch(function () {});
+  }
+  function aiChat(create) {
+    var c = aiChats.filter(function (x) { return x.id === aiCurrent; })[0];
+    if (!c && create) {
+      c = { id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), title: '', messages: [], ts: Date.now() };
+      aiChats.unshift(c); aiCurrent = c.id;
+    }
+    return c;
+  }
+  function aiPaint(role, text) {
     var box = $('aiThread');
     $('aiIntro').style.display = 'none';
     box.appendChild(h('div', { class: 'bubble ' + role, text: text }));
     box.scrollTop = box.scrollHeight;
   }
+  function aiSay(role, text) {
+    var c = aiChat(true);
+    if (!c.title && role === 'me') c.title = text.slice(0, 60);
+    c.messages.push({ role: role, text: text }); c.ts = Date.now();
+    aiSync(c);
+    aiPaint(role, text);
+  }
+  function aiReset() {
+    aiCurrent = null; $('aiThread').textContent = ''; $('aiIntro').style.display = '';
+    aiFiles = []; aiPaintChips();
+  }
+  function aiOpenChat(id) {
+    var c = aiChats.filter(function (x) { return x.id === id; })[0];
+    if (!c) return;
+    aiCurrent = id; $('aiThread').textContent = '';
+    c.messages.forEach(function (m) { aiPaint(m.role, m.text); });
+    if (!c.messages.length) $('aiIntro').style.display = '';
+  }
+
+  // ---- popups: the history drawer, the + menu and the sources menu ----
+  var aiPopups = ['aiPlusPop', 'aiSrcPop'];
+  function aiClosePops(except) {
+    aiPopups.forEach(function (id) { if (id !== except) $(id).hidden = true; });
+    $('aiPlus').setAttribute('aria-expanded', except === 'aiPlusPop' ? 'true' : 'false');
+    $('aiSources').setAttribute('aria-expanded', except === 'aiSrcPop' ? 'true' : 'false');
+  }
+  function aiTogglePop(id) { var open = $(id).hidden; aiClosePops(open ? id : null); $(id).hidden = !open; }
+  function aiCloseDrawer() {
+    $('aiDrawer').hidden = true; $('aiScrim').hidden = true;
+    $('aiMenu').setAttribute('aria-expanded', 'false'); $('aiMenu').focus();
+  }
+  function aiOpenDrawer() {
+    aiClosePops(null); aiPaintHistory(); aiFetchChats();
+    $('aiDrawer').hidden = false; $('aiScrim').hidden = false;
+    $('aiMenu').setAttribute('aria-expanded', 'true'); $('aiDrawerClose').focus();
+  }
+  var AI_ICON = {
+    rename: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+    open: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+    del: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>'
+  };
+  function aiMenuItem(icon, label, cls, fn) {
+    var b = h('button', { class: 'mi' + (cls ? ' ' + cls : ''), type: 'button', role: 'menuitem', onclick: fn });
+    var ic = aiIcon(AI_ICON[icon]); ic.style.cssText = 'width:16px;height:16px';
+    b.appendChild(ic); b.appendChild(document.createTextNode(label));
+    return b;
+  }
+  function aiDeleteChat(c) {
+    var scrim = h('div', { class: 'ai-confirm' });
+    var box = h('div', { class: 'box', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': 'Delete conversation?' }, [
+      h('h3', { text: 'Delete conversation?' }),
+      h('p', { text: 'This conversation will be removed from your history.' }),
+      h('div', { class: 'acts' }, [
+        h('button', { type: 'button', text: 'Cancel', onclick: function () { scrim.remove(); } }),
+        h('button', { type: 'button', class: 'danger', text: 'Delete', onclick: function () {
+          scrim.remove();
+          var gone = aiChats.filter(function (x) { return x.id === c.id; })[0];
+          aiChats = aiChats.filter(function (x) { return x.id !== c.id; }); aiCache();
+          if (aiCurrent === c.id) aiReset();
+          aiPaintHistory();
+          if (state.user) api('/ai/chats/' + c.id, { method: 'DELETE' }).catch(function (e) {
+            if (gone) { aiChats.unshift(gone); aiCache(); aiPaintHistory(); }
+            toast(e.message || 'Could not delete the chat');
+          });
+        } })
+      ])
+    ]);
+    scrim.appendChild(box); scrim.addEventListener('click', function (e) { if (e.target === scrim) scrim.remove(); });
+    $('aiPanel').appendChild(scrim); box.querySelector('button').focus();
+  }
+  function aiRowMenu(row, c, anchor) {
+    var old = document.getElementById('aiRowPop'); if (old) old.remove();
+    function done() { var p = document.getElementById('aiRowPop'); if (p) p.remove(); row.classList.remove('open'); }
+    var r = row.getBoundingClientRect(), pr = $('aiPanel').getBoundingClientRect();
+    var pop = h('div', { class: 'ai-pop row-pop', id: 'aiRowPop', role: 'menu', style: 'top:' + (r.bottom - pr.top + 4) + 'px;left:' + Math.max(8, r.right - pr.left - 196) + 'px' }, [
+      aiMenuItem('rename', 'Rename', '', function () { done(); aiRename(row, c); }),
+      aiMenuItem('open', 'Open in browser', '', function () {
+        done();
+        var u = new URL(location.href); u.hash = ''; u.search = '?aichat=' + encodeURIComponent(c.id);
+        window.open(u.toString(), '_blank', 'noopener');
+      }),
+      aiMenuItem('del', 'Delete', 'danger', function () { done(); aiDeleteChat(c); })
+    ]);
+    row.classList.add('open');
+    $('aiPanel').appendChild(pop);
+    pop.firstChild.focus();
+    setTimeout(function () {
+      document.addEventListener('click', function off(e) { if (!pop.contains(e.target)) { done(); document.removeEventListener('click', off); } });
+    }, 0);
+  }
+  function aiRename(row, c) {
+    var input = h('input', { class: 'rename', type: 'text', maxlength: '80', 'aria-label': 'Chat name', value: c.title || 'New chat' });
+    var finished = false;
+    function commit(save) {
+      if (finished) return; finished = true;
+      if (save && input.value.trim() && input.value.trim() !== c.title) {
+        var old = c.title; c.title = input.value.trim().slice(0, 120); aiCache();
+        if (state.user) api('/ai/chats/' + c.id, { method: 'PATCH', body: { title: c.title } }).catch(function (e) { c.title = old; aiCache(); aiPaintHistory(); toast(e.message || 'Could not rename the chat'); });
+      }
+      aiPaintHistory();
+    }
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') commit(true); else if (e.key === 'Escape') commit(false); });
+    input.addEventListener('blur', function () { commit(true); });
+    row.textContent = ''; row.appendChild(input); input.focus(); input.select();
+  }
+  function aiPaintHistory() {
+    var list = $('aiHistList'); list.textContent = '';
+    var shown = aiChats.filter(function (c) { return c.messages.length; });
+    if (!shown.length) { list.appendChild(h('div', { class: 'empty', text: 'No chats yet.' })); return; }
+    shown.forEach(function (c) {
+      var row = h('div', { class: 'hist-row' + (c.id === aiCurrent ? ' current' : '') });
+      row.appendChild(h('button', { class: 't', type: 'button', text: c.title || 'New chat', onclick: function () { aiOpenChat(c.id); aiCloseDrawer(); } }));
+      var more = h('button', { class: 'more', type: 'button', 'aria-label': 'Chat options for ' + (c.title || 'New chat'), 'aria-haspopup': 'menu' }, [
+        h('span', { text: '\u2026', 'aria-hidden': 'true' })
+      ]);
+      more.addEventListener('click', function (e) { e.stopPropagation(); aiRowMenu(row, c, more); });
+      row.appendChild(more);
+      list.appendChild(row);
+    });
+  }
+
+  // ---- Qorlla Sources: a master switch plus one switch per source ----
+  var AI_SOURCES = [
+    { key: 'meetings', label: 'Meetings', icon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>' },
+    { key: 'canvas', label: 'Canvas', icon: '<path d="M6 3h9l4 4v14H6Z"/><path d="M9 12h7M9 16h7"/>' },
+    { key: 'chat', label: 'Chat', icon: '<path d="M4 5h16v11H9l-5 4Z"/>' },
+    { key: 'mail', label: 'Mail', icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>' },
+    { key: 'my_notes', label: 'My Notes', icon: '<path d="M4 20l1-4L17 4l3 3L8 19Z"/>' }
+  ];
+  var aiSrc = { master: true, expanded: false, meetings: true, canvas: true, chat: true, my_notes: true, mail: true };
+  function aiSrcLoad() {
+    try { var s = JSON.parse(store(aiKey('sources')) || '{}'); Object.keys(aiSrc).forEach(function (k) { if (typeof s[k] === 'boolean') aiSrc[k] = s[k]; }); } catch (e) {}
+    aiSrc.expanded = false;
+  }
+  function aiSrcSave() { store(aiKey('sources'), JSON.stringify(aiSrc)); }
+  // the server is the source of truth: it stores the switches and enforces them on the assistant's data
+  function aiSrcApply(d) {
+    aiSrc.master = d.masterEnabled;
+    AI_SOURCES.forEach(function (x) { aiSrc[x.key] = !!d.sources[x.key]; });
+    aiSrcSave();
+  }
+  function aiSrcFetch() {
+    if (!state.user) return;
+    api('/ai/sources').then(function (d) { aiSrcApply(d); aiPaintSources(); }).catch(function () {});
+  }
+  function aiSrcSet(key, value) {
+    var before = aiSrc[key];
+    aiSrc[key] = value; aiPaintSources();
+    if (!state.user) { aiSrc[key] = before; aiPaintSources(); toast('Sign in to change sources'); return; }
+    api('/ai/sources' + (key === 'master' ? '' : '/' + key), { method: 'PATCH', body: { enabled: value } })
+      .then(function (d) { aiSrcApply(d); aiPaintSources(); })
+      .catch(function (e) { aiSrc[key] = before; aiPaintSources(); toast(e.message || 'Could not save the change'); });
+  }
+  // the master switch never overwrites the per-source choices
+  function aiSourceOn(key) { return aiSrc.master && aiSrc[key]; }
+  function aiIcon(d) { var s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('class', 'i'); s.setAttribute('viewBox', '0 0 24 24'); s.innerHTML = d; return s; }
+  function aiSwitch(label, on, onchange) {
+    var b = h('button', { class: 'switch', type: 'button', role: 'switch', 'aria-checked': on ? 'true' : 'false', 'aria-label': label + (on ? ', on' : ', off') });
+    b.addEventListener('click', function () { onchange(b.getAttribute('aria-checked') !== 'true'); });
+    return b;
+  }
+  function aiPaintSources() {
+    var pop = $('aiSrcPop'); pop.textContent = '';
+    var master = h('div', { class: 'src-row master' }, [
+      h('span', { class: 'src-badge', text: 'Q', 'aria-hidden': 'true' }),
+      h('span', { class: 'lbl', text: 'Qorlla Sources' }),
+      aiSwitch('Qorlla Sources', aiSrc.master, function (v) { aiSrcSet('master', v); })
+    ]);
+    pop.appendChild(master);
+    var peek = h('div', { class: 'src-peek' });
+    AI_SOURCES.slice(0, 3).forEach(function (s) { var ic = aiIcon(s.icon); ic.style.opacity = aiSourceOn(s.key) ? '1' : '.4'; peek.appendChild(ic); });
+    peek.appendChild(h('span', { text: '+' + (AI_SOURCES.length - 3) }));
+    peek.appendChild(h('span', { class: 'grow' }));
+    var exp = h('button', { class: 'exp', type: 'button', 'aria-label': 'Show sources', 'aria-expanded': aiSrc.expanded ? 'true' : 'false' });
+    exp.appendChild(aiIcon('<path d="m6 9 6 6 6-6"/>'));
+    exp.addEventListener('click', function () { aiSrc.expanded = !aiSrc.expanded; aiPaintSources(); });
+    peek.appendChild(exp);
+    pop.appendChild(peek);
+    if (aiSrc.expanded) {
+      var list = h('div', { class: 'src-list' + (aiSrc.master ? '' : ' dim') });
+      AI_SOURCES.forEach(function (s) {
+        list.appendChild(h('div', { class: 'src-row sub' }, [
+          aiIcon(s.icon), h('span', { class: 'lbl', text: s.label }),
+          aiSwitch(s.label, aiSrc[s.key], function (v) { aiSrcSet(s.key, v); })
+        ]));
+      });
+      list.querySelectorAll('svg.i').forEach(function (v) { v.style.cssText = 'width:16px;height:16px'; });
+      pop.appendChild(list);
+    }
+    var again = pop.querySelector('.exp'); if (again && document.activeElement === document.body) again.focus();
+  }
+
+  // ---- attachments chosen with the + menu ----
+  var aiFiles = [];
+  function aiPaintChips() {
+    var box = $('aiChips'); box.textContent = '';
+    aiFiles.forEach(function (f, i) {
+      box.appendChild(h('div', { class: 'ai-chip' }, [
+        h('span', { text: f.name, title: f.name }),
+        h('button', { type: 'button', 'aria-label': 'Remove ' + f.name, text: '\u00d7', onclick: function () { aiFiles.splice(i, 1); aiPaintChips(); } })
+      ]));
+    });
+  }
+
+  // meetings + events for the assistant, read through the endpoint that checks the Meetings switch
+  function aiMeetings() {
+    return api('/ai/context/meetings').then(function (r) {
+      var items = r.calendar.map(function (e) { return { title: e.title, date: e.date, start: e.start }; })
+        .concat(r.schedule.map(function (x) { return { title: x.title, date: x.date, start: x.time }; }));
+      items.sort(function (a, b) { return (a.date + a.start).localeCompare(b.date + b.start); });
+      return items;
+    });
+  }
+  // One source's data for the assistant: never requested when its switch is off, and a 403 from the server
+  // (switched off in another tab) counts as off too.
+  function aiPull(key, fn) {
+    if (!aiSourceOn(key)) return Promise.resolve({ off: true });
+    return fn().then(function (data) { return { data: data }; }).catch(function (e) {
+      if (e && e.status === 403) return { off: true };
+      throw e;
+    });
+  }
+  // a click right after page load must wait until the page knows who is signed in
+  function aiWhenSignedInKnown(fn) { (state.userReady || Promise.resolve()).then(fn); }
   function summarizeWeek() {
     aiSay('me', 'Summarize my week');
+    aiWhenSignedInKnown(aiSummarizeNow);
+  }
+  function aiSummarizeNow() {
     if (!state.user) { aiSay('ai', 'Sign in first. Summaries are built from your own mail, notes and calendar.'); return; }
-    Promise.all([upcomingItems(), api('/mail'), api('/notes')]).then(function (r) {
-      var today = new Date(); today.setHours(0, 0, 0, 0);
-      var end = new Date(today); end.setDate(end.getDate() + 7);
-      var week = r[0].filter(function (i) { var d = parseYmd(i.date); return d >= today && d < end; });
-      var unread = r[1].filter(function (m) { return (m.folder || 'inbox') === 'inbox' && !m.read; }).length;
-      var lines = ['Next 7 days: ' + week.length + ' meeting' + (week.length === 1 ? '' : 's') + '/event' + (week.length === 1 ? '' : 's') + '.'];
-      week.slice(0, 5).forEach(function (i) { lines.push('• ' + prettyDate(i.date) + ' ' + t12(i.start) + ' – ' + i.title); });
-      lines.push(unread + ' unread email' + (unread === 1 ? '' : 's') + ', ' + r[2].length + ' note' + (r[2].length === 1 ? '' : 's') + '.');
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var end = new Date(today); end.setDate(end.getDate() + 7);
+    var weekAgo = Date.now() - 7 * 86400000;
+    Promise.all([
+      aiPull('meetings', aiMeetings),
+      aiPull('mail', function () { return api('/ai/context/mail'); }),
+      aiPull('my_notes', function () { return api('/ai/context/my_notes'); }),
+      aiPull('chat', function () { return api('/ai/context/chat'); }),
+      aiPull('canvas', function () { return api('/ai/context/canvas'); })
+    ]).then(function (r) {
+      var res = { meetings: r[0], mail: r[1], my_notes: r[2], chat: r[3], canvas: r[4] };
+      var used = [], off = [];
+      AI_SOURCES.forEach(function (x) { (res[x.key].off ? off : used).push(x.label); });
+      if (!used.length) { aiSay('ai', 'All sources are switched off in Qorlla Sources. Turn one on to build a summary.'); return; }
+      var lines = [];
+      if (!res.meetings.off) {
+        var week = res.meetings.data.filter(function (i) { var d = parseYmd(i.date); return d >= today && d < end; });
+        lines.push('Next 7 days: ' + week.length + ' meeting' + (week.length === 1 ? '' : 's') + '/event' + (week.length === 1 ? '' : 's') + '.');
+        week.slice(0, 5).forEach(function (i) { lines.push('• ' + prettyDate(i.date) + ' ' + t12(i.start) + ' – ' + i.title); });
+      }
+      if (!res.chat.off) {
+        var chats = res.chat.data.chats, total = 0, mentions = 0;
+        chats.forEach(function (c) { c.messages.forEach(function (m) { total++; if (m.mentionsMe) mentions++; }); });
+        lines.push('Chat, last ' + res.chat.data.days + ' days: ' + total + ' message' + (total === 1 ? '' : 's') + ' in ' + chats.length + ' conversation' + (chats.length === 1 ? '' : 's') + (mentions ? ', ' + mentions + ' mentioning you' : '') + '.');
+        chats.slice(0, 3).forEach(function (c) { lines.push('• ' + c.name + ' – ' + c.messages.length + ' new'); });
+      }
+      var tail = [];
+      if (!res.mail.off) {
+        var unread = res.mail.data.filter(function (m) { return (m.folder || 'inbox') === 'inbox' && !m.read; }).length;
+        tail.push(unread + ' unread email' + (unread === 1 ? '' : 's'));
+      }
+      if (!res.my_notes.off) tail.push(res.my_notes.data.length + ' note' + (res.my_notes.data.length === 1 ? '' : 's'));
+      if (tail.length) lines.push(tail.join(', ') + '.');
+      if (!res.canvas.off) {
+        var boards = res.canvas.data.boards, fresh = boards.filter(function (x) { return Date.parse(x.updatedAt || 0) >= weekAgo; });
+        lines.push('Canvas: ' + boards.length + ' board' + (boards.length === 1 ? '' : 's') + ', ' + fresh.length + ' updated this week.');
+        fresh.slice(0, 3).forEach(function (x) { lines.push('• ' + x.name); });
+      }
+      lines.push('');
+      lines.push('Based on: ' + used.join(', ') + '.');
+      if (off.length) lines.push('Switched off: ' + off.join(', ') + '.');
       aiSay('ai', lines.join('\n'));
     }).catch(function (e) { aiSay('ai', e.message); });
   }
   function listActions() {
     aiSay('me', 'List my recent action items');
+    aiWhenSignedInKnown(aiActionsNow);
+  }
+  function aiActionsNow() {
     if (!state.user) { aiSay('ai', 'Sign in first. Action items come from your own notes.'); return; }
-    api('/notes').then(function (notes) {
+    if (!aiSourceOn('my_notes')) { aiSay('ai', 'My Notes is switched off in Qorlla Sources. Turn it on to list action items.'); return; }
+    api('/ai/context/my_notes').then(function (notes) {
       var items = [];
       notes.forEach(function (n) {
         (n.content || '').split('\n').forEach(function (line) {
@@ -3568,7 +3977,10 @@
     var ta = $('aiInput'), v = ta.value.trim();
     if (!v) return;
     ta.value = '';
-    aiSay('me', v);
+    var names = aiFiles.map(function (f) { return f.name; });
+    aiFiles = []; aiPaintChips();
+    aiSay('me', names.length ? v + '\n\ud83d\udcce ' + names.join(', ') : v);
+    if (names.length) { aiSay('ai', 'Attached files are not read yet, so they were not used.'); }
     aiSay('ai', 'Free-form chat is not connected yet. Try "Summarize my week" or "List my recent action items".');
   }
   $('aiSend').addEventListener('click', aiSend);
@@ -3621,7 +4033,74 @@
   }
   ['aiClose', 'aiToggle', 'aiEdge'].forEach(function (id) { $(id).addEventListener('click', function () { setOverview($('aiPanel').classList.contains('hidden'), true); }); });
   try { if (localStorage.getItem('zw_overview') === 'closed') setOverview(false, false); } catch (e) {}
-  $('aiNew').addEventListener('click', function () { $('aiThread').textContent = ''; $('aiIntro').style.display = ''; });
+  $('aiNew').addEventListener('click', aiReset);
+  aiLoad(); aiSrcLoad(); aiPaintSources();
+  $('aiMenu').addEventListener('click', aiOpenDrawer);
+  $('aiDrawerClose').addEventListener('click', aiCloseDrawer);
+  $('aiScrim').addEventListener('click', aiCloseDrawer);
+  $('aiPlus').addEventListener('click', function () { aiTogglePop('aiPlusPop'); });
+  $('aiSources').addEventListener('click', function () { aiTogglePop('aiSrcPop'); });
+  $('aiAddFiles').addEventListener('click', function () { aiClosePops(null); $('aiFile').click(); });
+  $('aiFile').addEventListener('change', function (e) {
+    Array.prototype.forEach.call(e.target.files, function (f) { if (aiFiles.length < 10) aiFiles.push({ name: f.name }); });
+    e.target.value = ''; aiPaintChips();
+  });
+  document.addEventListener('click', function (e) {
+    if (e.target.isConnected && !e.target.closest('#aiPlusPop,#aiSrcPop,#aiPlus,#aiSources')) aiClosePops(null);
+  });
+  $('aiPanel').addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (!$('aiDrawer').hidden) aiCloseDrawer(); else aiClosePops(null);
+  });
+  // ---- width of the Workspace overview: drag its left edge (or use the arrow keys); the workspace page gives up the same width ----
+  var AI_W_MIN = 300, AI_W_DEF = 420;
+  function aiMaxW() { return Math.max(AI_W_MIN, Math.min(720, Math.round(window.innerWidth * 0.6))); }
+  function aiSetW(px, remember) {
+    var w = Math.max(AI_W_MIN, Math.min(aiMaxW(), Math.round(px)));
+    $('aiPanel').style.setProperty('--ai-w', w + 'px');
+    $('aiResize').setAttribute('aria-valuenow', String(w)); $('aiResize').setAttribute('aria-valuemax', String(aiMaxW()));
+    if (remember) store('zw_ai_w', String(w));
+    return w;
+  }
+  (function aiResizeInit() {
+    var bar = $('aiResize'), saved = parseInt(store('zw_ai_w'), 10), startX = 0, startW = 0;
+    aiSetW(saved > 0 ? saved : AI_W_DEF, false);
+    bar.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault(); bar.setPointerCapture(e.pointerId); bar.classList.add('drag'); document.body.classList.add('ai-resizing');
+      startX = e.clientX; startW = $('aiPanel').getBoundingClientRect().width;              // measure from where the edge was grabbed: no jump
+    });
+    bar.addEventListener('pointermove', function (e) {
+      if (!bar.classList.contains('drag')) return;
+      aiSetW(startW + (startX - e.clientX), false);                                    // dragging left makes the panel wider
+    });
+    function end(e) {
+      if (!bar.classList.contains('drag')) return;
+      bar.classList.remove('drag'); document.body.classList.remove('ai-resizing');
+      try { bar.releasePointerCapture(e.pointerId); } catch (x) { /* already released */ }
+      aiSetW($('aiPanel').getBoundingClientRect().width, true);
+    }
+    bar.addEventListener('pointerup', end); bar.addEventListener('pointercancel', end);
+    bar.addEventListener('dblclick', function () { aiSetW(AI_W_DEF, true); });
+    bar.addEventListener('keydown', function (e) {
+      var w = $('aiPanel').getBoundingClientRect().width, step = e.shiftKey ? 80 : 24;
+      if (e.key === 'ArrowLeft') aiSetW(w + step, true);
+      else if (e.key === 'ArrowRight') aiSetW(w - step, true);
+      else if (e.key === 'Home') aiSetW(AI_W_MIN, true);
+      else if (e.key === 'End') aiSetW(aiMaxW(), true);
+      else return;
+      e.preventDefault();
+    });
+    window.addEventListener('resize', function () { aiSetW($('aiPanel').getBoundingClientRect().width || AI_W_DEF, false); });
+  })();
+  // "Open in browser" opens the page with ?aichat=<id>; the panel loads that chat
+  var aiDeepLink = (/[?&]aichat=([^&]+)/.exec(location.search) || [])[1];
+  function aiAfterAccount() {
+    aiLoad(); aiSrcLoad(); aiPaintSources(); aiSrcFetch();
+    aiFetchChats().then(function () {
+      if (aiDeepLink) { try { aiOpenChat(decodeURIComponent(aiDeepLink)); } catch (e) {} aiDeepLink = null; }
+    });
+  }
 
   window.addEventListener('beforeunload', function () { if (cleanup) { try { cleanup(); } catch (e) {} } });
   window.addEventListener('hashchange', function () {                         // links, typed addresses, browser Back/Forward
@@ -3824,8 +4303,9 @@
   function applyAccount(user) {
     state.user = user;
     document.body.classList.remove('signed-out');
-    uid = user.id;
+    uid = user.id; csrfToken = null;
     sessionStorage.setItem('zw_uid', user.id);
+    aiAfterAccount();
     store('zw_name', user.displayName);
     $('avatarBtn').textContent = user.displayName.charAt(0).toUpperCase();
     $('avatarBtn').title = user.displayName + ' (@' + user.username + ')';

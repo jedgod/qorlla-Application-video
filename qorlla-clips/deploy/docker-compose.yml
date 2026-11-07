@@ -1,0 +1,48 @@
+# Production stack for ONE host, run by the GitHub Actions deploy job (or by hand):
+#   cd <deploy dir> && cp .env.example .env && edit && docker compose pull
+#   docker compose run --rm api npm run db:migrate      # migrations first, then the new version
+#   docker compose up -d --remove-orphans
+# Object storage is external (AWS S3 or compatible); PostgreSQL is only reachable from this stack's own network.
+name: qorlla-clips
+
+services:
+  api:
+    image: ${CLIPS_IMAGE_REPO:?set CLIPS_IMAGE_REPO}/clips-api:${IMAGE_TAG:?set IMAGE_TAG}
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://clips:${POSTGRES_PASSWORD}@postgres:5432/qorlla_clips
+      PORT: "5400"
+      TRUST_PROXY: "1"
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [internal]
+    restart: unless-stopped
+
+  web:
+    image: ${CLIPS_IMAGE_REPO:?set CLIPS_IMAGE_REPO}/clips-web:${IMAGE_TAG:?set IMAGE_TAG}
+    depends_on: [api]
+    ports: ["127.0.0.1:3400:3400"]     # your reverse proxy (nginx) terminates TLS and forwards here
+    networks: [internal]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: clips
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: qorlla_clips
+    volumes: [clips_pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clips -d qorlla_clips"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [internal]
+    restart: unless-stopped
+
+networks:
+  internal:
+
+volumes:
+  clips_pgdata:
