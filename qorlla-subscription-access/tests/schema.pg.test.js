@@ -19,8 +19,8 @@ describe('migrations (PostgreSQL)', { skip }, () => {
   test('four parallel runners on an empty database apply every file exactly once', async () => {
     const results = await Promise.all(Array.from({ length: 4 }, () => migrate({ pool: blank.owner, dir })));
     const all = results.flat();
-    assert.deepEqual([...all].sort(), ['001_subscriptions.sql', '002_hardening.sql', '003_billing.sql', '004_roles_and_grants.sql', '005_directory.sql', '006_stepup.sql', '007_ops.sql']);
-    assert.equal((await blank.owner.query('SELECT count(*)::int n FROM schema_migrations')).rows[0].n, 7);
+    assert.deepEqual([...all].sort(), ['001_subscriptions.sql', '002_hardening.sql', '003_billing.sql', '004_roles_and_grants.sql', '005_directory.sql', '006_stepup.sql', '007_ops.sql', '008_unified_billing.sql']);
+    assert.equal((await blank.owner.query('SELECT count(*)::int n FROM schema_migrations')).rows[0].n, 8);
   });
 
   test('running again applies nothing (idempotent)', async () => {

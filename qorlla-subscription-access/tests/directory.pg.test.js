@@ -126,7 +126,7 @@ describe('directory, roles and staff (PostgreSQL)', { skip }, () => {
     assert.ok(owner);
   });
 
-  test('role matrix for the directory tables: runtime reads only, admin cannot touch staff, billing sees nothing', async () => {
+  test('role matrix for the directory tables: runtime reads only, admin cannot touch staff, billing reads the directory only to authorize a purchase', async () => {
     const rt = db.poolFor('runtime'), ad = db.poolFor('admin'), bl = db.poolFor('billing');
     await rt.query('SELECT * FROM customers'); await rt.query('SELECT * FROM customer_members');
     for (const sql of ['INSERT INTO customers (name, created_by) VALUES (\'x\',\'x\')', 'UPDATE customer_members SET role=\'owner\'', 'DELETE FROM customer_members', 'SELECT * FROM platform_staff', 'SELECT * FROM customer_member_history']) {
@@ -135,7 +135,11 @@ describe('directory, roles and staff (PostgreSQL)', { skip }, () => {
     for (const sql of ['INSERT INTO platform_staff (user_id, granted_by) VALUES (\'x\',\'x\')', 'UPDATE platform_staff SET active = true', 'DELETE FROM platform_staff', 'INSERT INTO platform_staff_customers (user_id, customer_id) VALUES (\'x\', gen_random_uuid())']) {
       await assert.rejects(ad.query(sql), { code: '42501' }, 'admin: ' + sql);
     }
-    for (const t of ['customers', 'customer_members', 'platform_staff', 'customer_member_history']) await assert.rejects(bl.query(`SELECT 1 FROM ${t}`), { code: '42501' }, 'billing: ' + t);
+    for (const t of ['platform_staff', 'customer_member_history']) await assert.rejects(bl.query(`SELECT 1 FROM ${t}`), { code: '42501' }, 'billing: ' + t);
+    await bl.query('SELECT 1 FROM customers'); await bl.query('SELECT 1 FROM customer_members');                       // read-only: the gateway authorizes live
+    for (const sql of ["INSERT INTO customers (name, created_by) VALUES ('x','x')", "UPDATE customers SET status = 'active'", "UPDATE customer_members SET role = 'owner'", 'DELETE FROM customer_members']) {
+      await assert.rejects(bl.query(sql), { code: '42501' }, 'billing may not write: ' + sql);
+    }
   });
 
   // ---- platform staff ------------------------------------------------------

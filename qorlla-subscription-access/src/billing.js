@@ -115,6 +115,13 @@ export class BillingProcessor {
         return await finish('dead', { reason: 'unmapped_customer' }, 'unmapped_customer');
       }
       const customerId = map.customer_id;
+      // The provider may state which Qorlla customer a purchase was made for (Stripe subscription metadata). If it disagrees with
+      // the administrator-controlled link, neither is trusted: the event is parked and an operator is alerted.
+      if (event.claimedCustomerId && String(event.claimedCustomerId).toLowerCase() !== customerId) {
+        await c.query(`INSERT INTO security_events (event_type, severity, customer_id, details) VALUES ('webhook_identity_mismatch', 'critical', $1, $2)`,
+          [customerId, JSON.stringify({ provider, eventId: event.eventId })]);
+        return await finish('dead', { reason: 'identity_mismatch' }, 'identity_mismatch', customerId);
+      }
 
       let status = 'applied'; let changedCustomer = null;
       if (ENTITLEMENT_TYPES.includes(event.type) && event.subscription) {
@@ -139,7 +146,30 @@ export class BillingProcessor {
   async _applySnapshot(c, customerId, provider, event) {
     const s = event.subscription;
     await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`sub:${customerId}`]);
-    const cur = (await c.query('SELECT provider, external_id, provider_revision FROM subscriptions WHERE customer_id = $1 FOR UPDATE', [customerId])).rows[0];
+    // Store purchases (App Store / Google Play via RevenueCat) belong to PERSONAL accounts only. A link that points one at an
+    // organization (an administrator's mistake or an attack) never grants the organization anything.
+    if (provider === 'revenuecat') {
+      const kind = (await c.query('SELECT kind FROM customers WHERE id = $1', [customerId])).rows[0]?.kind;
+      if (kind !== 'personal') {
+        await c.query(`INSERT INTO security_events (event_type, severity, customer_id, details) VALUES ('store_purchase_for_non_personal', 'critical', $1, $2)`,
+          [customerId, JSON.stringify({ provider, eventId: event.eventId })]);
+        return 'conflict';
+      }
+    }
+    const cur = (await c.query(
+      `SELECT provider, external_id, provider_revision,
+              (status IN ('active','trialing','past_due','paused') AND greatest(current_period_end, coalesce(grace_period_ends_at, current_period_end)) > now()) AS live
+         FROM subscriptions WHERE customer_id = $1 FOR UPDATE`, [customerId])).rows[0];
+    // The underlying PURCHASE (a Stripe subscription, an App Store / Play original transaction) can belong to one customer only,
+    // whichever provider reports it. This is what stops the same purchase being applied twice or moved to another account.
+    if (event.purchase) {
+      const owner = (await c.query('SELECT customer_id FROM purchase_identities WHERE source = $1 AND source_id = $2', [event.purchase.source, event.purchase.id])).rows[0];
+      if (owner && owner.customer_id !== customerId) {
+        await c.query(`INSERT INTO security_events (event_type, severity, customer_id, details) VALUES ('purchase_claimed_by_other_customer', 'critical', $1, $2)`,
+          [customerId, JSON.stringify({ provider, eventId: event.eventId, source: event.purchase.source })]);
+        return 'conflict';
+      }
+    }
     // The provider's subscription id must belong to THIS customer only. Seeing it on another tenant is a mapping error or an attack.
     const clash = await c.query('SELECT 1 FROM subscriptions WHERE provider = $1 AND external_id = $2 AND customer_id <> $3', [provider, s.externalId, customerId]);
     if (clash.rowCount) {
@@ -149,20 +179,33 @@ export class BillingProcessor {
     }
     const vals = [provider, s.externalId, event.revision, s.planCode, s.status, s.quantity ?? 1, s.trialEndsAt ?? null,
       s.currentPeriodStart, s.currentPeriodEnd, s.gracePeriodEndsAt ?? null, s.cancelAtPeriodEnd === true, s.canceledAt ?? null, s.pausedAt ?? null, customerId];
+    const remember = async () => {
+      if (event.purchase) await c.query('INSERT INTO purchase_identities (source, source_id, customer_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [event.purchase.source, event.purchase.id, customerId]);
+      await c.query("UPDATE checkout_intents SET status = 'completed' WHERE customer_id = $1 AND status = 'open'", [customerId]);
+    };
     if (!cur) {
       await c.query(
         `INSERT INTO subscriptions (provider, external_id, provider_revision, plan_code, status, quantity, trial_ends_at,
            current_period_start, current_period_end, grace_period_ends_at, cancel_at_period_end, canceled_at, paused_at, customer_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, vals);
+      await remember();
       return 'created';
     }
-    // A customer has one subscription, owned by one provider. A different provider or subscription id is never merged silently.
-    if ((cur.provider && cur.provider !== provider) || (cur.external_id && cur.external_id !== s.externalId)) return 'conflict';
-    if (Number(event.revision) <= Number(cur.provider_revision)) return 'stale';
+    // A customer has one subscription, owned by one provider. While it is LIVE, a different provider or subscription id is a second,
+    // overlapping subscription (double billing): it is never merged, and an operator is alerted so the duplicate can be refunded.
+    // Once the existing one has ended, the customer may legitimately start over - on any channel.
+    const differs = (cur.provider && cur.provider !== provider) || (cur.external_id && cur.external_id !== s.externalId);
+    if (differs && cur.live) {
+      await c.query(`INSERT INTO security_events (event_type, severity, customer_id, details) VALUES ('duplicate_subscription_detected', 'critical', $1, $2)`,
+        [customerId, JSON.stringify({ existingProvider: cur.provider, incomingProvider: provider, eventId: event.eventId })]);
+      return 'conflict';
+    }
+    if (!differs && Number(event.revision) <= Number(cur.provider_revision)) return 'stale';
     await c.query(
       `UPDATE subscriptions SET provider=$1, external_id=$2, provider_revision=$3, plan_code=$4, status=$5, quantity=$6, trial_ends_at=$7,
          current_period_start=$8, current_period_end=$9, grace_period_ends_at=$10, cancel_at_period_end=$11, canceled_at=$12, paused_at=$13
        WHERE customer_id=$14`, vals);
+    await remember();
     return 'updated';
   }
 

@@ -56,8 +56,9 @@ export class DirectoryAdmin {
   }
 
   /** Creates a customer and makes the creating user its owner. Who may call this (sign-up, invitation) is the application's decision. */
-  async createCustomer(creatorUserId, name) {
+  async createCustomer(creatorUserId, name, { kind = 'organization' } = {}) {
     await ensureSearchPath(this.pool);
+    if (!['organization', 'personal'].includes(kind)) throw new SubscriptionError('kind must be organization or personal', 'invalid_kind', {}, 400);
     const creator = userId(creatorUserId);
     const label = typeof name === 'string' ? name.trim() : '';
     if (!label || label.length > 120) throw new SubscriptionError('A customer name of 1-120 characters is required', 'invalid_name', {}, 400);
@@ -65,7 +66,9 @@ export class DirectoryAdmin {
       await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`owner-cap:${creator}`]);
       const owned = Number((await c.query(`SELECT count(*) AS n FROM customer_members WHERE user_id = $1 AND role = 'owner'`, [creator])).rows[0].n);
       if (owned >= this.maxOwned) throw new SubscriptionError('Too many customers owned by this user', 'customer_limit', {}, 409);
-      const cid = (await c.query('INSERT INTO customers (name, created_by) VALUES ($1, $2) RETURNING id', [label, creator])).rows[0].id;
+      let cid;
+      try { cid = (await c.query('INSERT INTO customers (name, created_by, kind) VALUES ($1, $2, $3) RETURNING id', [label, creator, kind])).rows[0].id; }
+      catch (e) { if (e.code === '23505' && kind === 'personal') throw new SubscriptionError('This user already has a personal account', 'personal_account_exists', {}, 409); throw e; }
       await c.query(`INSERT INTO customer_members (customer_id, user_id, role, added_by) VALUES ($1, $2, 'owner', $2)`, [cid, creator]);
       await c.query(`INSERT INTO customer_member_history (customer_id, user_id, action, new_role, actor) VALUES ($1, $2, 'customer_created', 'owner', $2)`, [cid, creator]);
       return cid;

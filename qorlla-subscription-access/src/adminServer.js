@@ -132,7 +132,7 @@ export function createAdminServer({ keys, pool, stepUp, directoryAdmin, adminSer
   handle('sessionRevoke',  async (req) => { await stepUp.revokeSession(req.claims.sid); return { ok: true }; });
 
   // ---- organizations (customer roles are enforced by DirectoryAdmin, inside its transaction) ---------------------------------
-  handle('orgCreate',     async (req) => ({ status: 201, body: await directoryAdmin.createCustomer(req.claims.sub, b(req).name) }));
+  handle('orgCreate',     async (req) => ({ status: 201, body: await directoryAdmin.createCustomer(req.claims.sub, b(req).name, { kind: b(req).kind === 'personal' ? 'personal' : 'organization' }) }));
   handle('memberAdd',     (req) => directoryAdmin.addMember(req.claims.sub, req.params.cid, b(req).userId, b(req).role));
   handle('memberSetRole', (req) => directoryAdmin.setRole(req.claims.sub, req.params.cid, req.params.uid, b(req).role));
   handle('memberRemove',  (req) => directoryAdmin.removeMember(req.claims.sub, req.params.cid, req.params.uid));
