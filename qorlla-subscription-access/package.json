@@ -21,6 +21,7 @@
     "rehearse:backup": "node scripts/rehearse-backup-restore.mjs"
   },
   "dependencies": {
+    "@simplewebauthn/server": "^13.1.0",
     "pg": "^8.13.0"
   },
   "peerDependencies": {
