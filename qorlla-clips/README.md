@@ -135,6 +135,7 @@ SHADOW_DATABASE_URL=postgresql://user:pw@localhost:5432/scratch npm run db:new-m
 | `GET /analytics/report.pdf?days&title` | the same numbers as a PDF, built in memory and streamed; the title is sanitized and the file name is fixed. Nothing is e-mailed |
 | `POST /clips/:id/report` `{reason}` | any member who can see a clip reports it (once; not your own) |
 | `GET /admin/reports`, `POST /admin/reports/:id/resolve` `{action: dismiss\|trash}`, `GET /admin/audit` | **admins only**, own organization only. Trashing notifies the owner; every decision is written to an append-only audit log; two admins racing on one report: exactly one wins |
+| `POST /webhooks/qorlla-ingest` | **server-to-server**, from Qorlla Meeting. Off unless `QORLLA_WEBHOOK_SECRET` (32+ chars) is set. Headers `x-qorlla-timestamp` (unix seconds, 5 minute window) and `x-qorlla-signature: sha256=<HMAC-SHA256 of "<timestamp>.<raw body>">`. Body `{meetingId, ownerEmail, videoUrl, meetingTitle?, durationSeconds?, sizeBytes?}`. The server never fetches the URL: it must be https on a `MEDIA_HOSTS` host and is stored as a link. Free-plan organizations get 403 `PREMIUM_ENTITLEMENT_REQUIRED`; unknown e-mail 404 (no account is created); a repeat meeting id returns the same clip |
 | `POST /internal/clips/:id/complete` | service-to-service (needs `SERVICE_KEY`): attach worker-made media; https and an allow-listed host only |
 
 Errors are `{error, message}`; invalid input is 400 with the offending fields; anything the caller may not see is **404**, never 403, so guessed ids
@@ -165,6 +166,7 @@ container (passwords travel in the environment, never on a command line). Tested
   republish it organization-wide).
 - **Uploads:** the browser cannot name an object, change a part's length, or complete with parts storage does not hold; the announced size is verified.
 - **Writes:** need the `x-requested-with: qorlla-clips` header and a same-site `Origin` (cookie-authenticated CSRF defence).
+- **Free-plan quota:** each free account holds at most `FREE_MAX_CLIPS` (25) recordings and `FREE_MAX_STORAGE_MB` (1024) MB (trash counts until emptied; failed uploads do not); `403 quota_exceeded` otherwise. Paid organizations have no quota. This, not device fingerprinting, is the defence against bulk free accounts. Sign-up throttling lives in the main app (`signup-guard.js`, `REGISTER_*` settings).
 - Strict input validation (zod, unknown fields rejected), request size limit, per-user rate limit, at most 5 open uploads per user, no stack traces.
 
 ## Tests
@@ -242,6 +244,13 @@ by itself.**
 * **`exec` of backup shell scripts from a BullMQ worker, `aws s3 cp`, the "PITR" runner.** Replaced by `api/scripts/clips-backup.mjs` (below): no
   shell, no secrets on a command line, restore-tested. It is **not** point-in-time recovery (that needs WAL archiving or your provider's PITR);
   it proves that one dump restores. Scheduling it is the host's job (cron or systemd timer), not an in-app job queue.
+* **The pasted Qorlla webhook, as written.** Built differently: it signed `JSON.stringify(req.body)` (not the bytes received, no timestamp, so replayable
+  and brittle), `timingSafeEqual` throws on unequal lengths, `https://` alone still allows internal hosts and cloud metadata addresses (SSRF), it
+  stored the sender's URL as the playable link, and used an undefined `db`. Also not built: the "missed sync" marketing counter and weekly e-mail
+  (the counter would be bumpable by anyone who can reach the endpoint; mail needs real SMTP, consent and an unsubscribe), the mock-session Next
+  route (authentication by a hard-coded user), the `window.onerror` hardware boundary, and a rollback file containing `echo` (not SQL). The
+  entitlement here is the organization's `plan`, the same rule that unlocks Upload video; wiring it to the live subscription engine is a separate step.
+  The rollback for migration 0004 is `api/prisma/rollbacks/0004_qorlla_meeting_ingest.down.sql` (run and checked on PostgreSQL).
 * **Poster thumbnails.** Cards show a placeholder. Real thumbnails need a poster frame captured in the browser at record time (small JPEG, signed
   like the video) or a transcoder; neither exists yet.
 

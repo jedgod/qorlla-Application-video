@@ -1,6 +1,6 @@
 // Typed client for the Clips API. Calls are same-origin (/api/*, forwarded by Next.js), so the Qorlla session cookie is sent automatically.
 
-export type ClipSource = 'RECORDING' | 'AVATAR_GENERATION' | 'SLIDE_CONVERSION' | 'UPLOAD';
+export type ClipSource = 'RECORDING' | 'AVATAR_GENERATION' | 'SLIDE_CONVERSION' | 'UPLOAD' | 'QORLLA_MEETING';
 export type ClipStatus = 'UPLOADING' | 'PROCESSING' | 'READY' | 'FAILED';
 
 export interface Clip {

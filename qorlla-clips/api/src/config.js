@@ -31,8 +31,12 @@ export function loadConfig(env = process.env) {
   };
   if (production && s3.autoCreateBucket) throw new Error('S3_AUTO_CREATE_BUCKET is for development; create and secure the bucket yourself in production');
 
+  const webhookSecret = env.QORLLA_WEBHOOK_SECRET || '';
+  if (webhookSecret && webhookSecret.length < 32) throw new Error('QORLLA_WEBHOOK_SECRET must be at least 32 characters (generate one with: openssl rand -hex 32)');
+  if (webhookSecret && !list(env.MEDIA_HOSTS).length) throw new Error('QORLLA_WEBHOOK_SECRET is set but MEDIA_HOSTS is empty: ingested links would have nowhere safe to point');
+
   return {
-    production, provider, databaseUrl, authMode,
+    production, webhookSecret, provider, databaseUrl, authMode,
     s3, storageEnabled: !!(s3.bucket && s3.accessKeyId && s3.secretAccessKey),
     uploadPartBytes: partBytes, maxUploadBytes,
     uploadTtlMs: Math.round(Number(env.UPLOAD_TTL_HOURS || 24) * 3600 * 1000),
@@ -46,6 +50,9 @@ export function loadConfig(env = process.env) {
     // completing a clip (attaching its media) is a service-to-service call, never a browser one
     serviceKey: env.SERVICE_KEY || '',
     mediaHosts: list(env.MEDIA_HOSTS).map((s) => s.toLowerCase()),
+    // free-plan quota per account: the real defence against bulk account creation is that extra free accounts are worth very little
+    freeMaxClips: Math.max(1, Number(env.FREE_MAX_CLIPS || 25)),
+    freeStorageBytes: Math.round(Math.max(1, Number(env.FREE_MAX_STORAGE_MB || 1024)) * 1048576),
     trustProxy: env.TRUST_PROXY === '1',
     rateLimitPerMinute: Number(env.RATE_LIMIT_PER_MINUTE || 600),
     identityCacheMs: Number(env.IDENTITY_CACHE_MS || 0),

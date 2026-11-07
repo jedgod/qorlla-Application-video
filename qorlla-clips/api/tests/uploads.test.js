@@ -247,3 +247,30 @@ describe('privacy edges found by mutation testing', () => {
     assert.equal(JSON.stringify((await call(base, A.m1, 'GET', '/api/navigation/summary')).body).includes(pl.id), false);
   });
 });
+
+describe('free-plan quota (the incentive to make extra free accounts)', () => {
+  let q;
+  before(async () => { q = await boot(fake, { freeMaxClips: 2, freeStorageBytes: 30 * MiB }); });
+  after(async () => { await q.close(); });
+  const go = (u, size) => call(q.base, u, 'POST', '/api/recordings', { mimeType: 'video/webm', sizeBytes: size });
+
+  test('a free account stops at its clip count and its byte allowance; the message says what to do', async () => {
+    const { m1, m2 } = await world(q.base);
+    assert.equal((await go(m1, 10 * MiB)).status, 201);
+    assert.equal((await go(m1, 10 * MiB)).status, 201);
+    const third = await go(m1, 1 * MiB); assert.equal(third.status, 403); assert.equal(third.body.error, 'quota_exceeded'); assert.match(third.body.message, /free plan/);
+    assert.equal((await go(m2, 31 * MiB)).status, 403, 'over the byte allowance in one go');
+    assert.equal((await go(m2, 30 * MiB)).status, 201, 'exactly at the allowance is fine');
+  });
+
+  test('quota is per account, a paid organization has none, and failed uploads do not count', async () => {
+    const free = await world(q.base), paid = await world(q.base, { plan: 'pro' });
+    assert.equal((await go(free.m1, 20 * MiB)).status, 201);
+    assert.equal((await go(free.m2, 20 * MiB)).status, 201, 'a teammate has their own allowance');
+    for (let i = 0; i < 4; i++) assert.equal((await go(paid.m1, 20 * MiB)).status, 201, 'paid ' + i);
+    const first = await go(free.a, 5 * MiB); assert.equal(first.status, 201);
+    await prisma.clip.update({ where: { id: first.body.clip.id }, data: { status: 'FAILED' } });
+    assert.equal((await go(free.a, 5 * MiB)).status, 201); assert.equal((await go(free.a, 5 * MiB)).status, 201, 'the failed clip no longer counts');
+    assert.equal((await go(free.a, 5 * MiB)).status, 403);
+  });
+});

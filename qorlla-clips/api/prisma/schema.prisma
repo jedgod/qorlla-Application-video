@@ -21,6 +21,7 @@ enum ClipSource {
   AVATAR_GENERATION
   SLIDE_CONVERSION
   UPLOAD
+  QORLLA_MEETING
 }
 
 // A clip is created first and becomes READY only when its media exists. No placeholder URL is ever stored.
@@ -99,6 +100,8 @@ model Clip {
   partSize       Int?
   mimeType       String?
   durationMs     Int?
+  // the meeting id when a clip was ingested from Qorlla Meeting (unique per organization: a repeat delivery finds the same clip)
+  externalId     String?
   source         ClipSource   @default(RECORDING)
   status         ClipStatus   @default(PROCESSING)
   isStarred      Boolean      @default(false)
@@ -117,6 +120,7 @@ model Clip {
 
   @@index([organizationId, ownerId, isTrashed, updatedAt])
   @@index([ownerId, isStarred])
+  @@unique([organizationId, externalId])
 }
 
 // "Shared with me": one row per (clip, recipient)

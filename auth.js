@@ -13,6 +13,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const store = require('./store');
 const createPortalTokens = require('./portal-token');
+const guard = require('./signup-guard');
 
 const COOKIE = 'qs';
 const PORTAL_COOKIE = 'qorlla_portal_session';
@@ -251,6 +252,20 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthe
     const forgotIpLimit = limiter('forgotIp', 5, HOUR);
     const forgotUserLimit = limiter('forgotUser', 3, HOUR);
     const mailLimit = limiter('mail', 5, HOUR);
+    // Bulk sign-up throttle: at most REGISTER_PER_SUBNET_PER_HOUR new accounts per hour from one /24 (IPv4) or /48 (IPv6). It is a sliding
+    // window, so a school or office recovers by itself, and deleting an account never "uses up" anything. Networks in REGISTER_ALLOW_NETWORKS
+    // (comma separated, e.g. 198.51.100.0/24 or one address) are not limited. Loopback/private addresses (no real client address) are
+    // not limited unless REGISTER_LIMIT_PRIVATE=1. The client address is req.ip, which is correct only because server.js sets "trust proxy".
+    const registerLimit = limiter('registerSubnet', Math.max(1, Number(process.env.REGISTER_PER_SUBNET_PER_HOUR || 10)), HOUR);
+    const allowNetworks = String(process.env.REGISTER_ALLOW_NETWORKS || '').split(',').map((s) => s.trim()).filter(Boolean);
+    let extraDisposable = [];
+    try { if (process.env.DISPOSABLE_DOMAINS_FILE) extraDisposable = require('fs').readFileSync(process.env.DISPOSABLE_DOMAINS_FILE, 'utf8').split(String.fromCharCode(10)); } catch (err) { console.error('[Auth]: could not read DISPOSABLE_DOMAINS_FILE:', err.message); }
+    const disposable = guard.disposableSet(extraDisposable);
+    const subnetKey = (ip) => {
+        if (guard.isAllowedNetwork(ip, allowNetworks)) return null;
+        if (guard.isLocalAddress(ip) && process.env.REGISTER_LIMIT_PRIVATE !== '1') return null;
+        return guard.subnetOf(ip);
+    };
 
     // ---------- email sending ----------
     async function sendVerification(user) {
@@ -290,6 +305,10 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthe
         if (pwError) return res.status(400).json({ error: pwError });
         if (email && !validEmail(email)) return res.status(400).json({ error: 'That email address does not look valid.' });
 
+        if (email && guard.isDisposableEmail(email, disposable)) return res.status(400).json({ error: 'Please use a permanent email address. Temporary-mail services are not accepted.' });
+        const netKey = subnetKey(req.ip);
+        if (netKey && registerLimit.blocked(netKey)) return res.status(429).json({ error: 'Too many accounts were created from your network recently. Try again in an hour, or contact support if you are on a shared network.' });
+
         const users = loadUsers();
         if (users.some((u) => u.username === username)) return res.status(409).json({ error: 'That username is taken.' });
 
@@ -298,6 +317,7 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthe
         const recoveryCodes = newRecoveryCodes(user);
         users.push(user);
         saveUsers(users);
+        if (netKey) registerLimit.record(netKey);                  // counted only when an account was really created, in the same tick as the check above
         startSession(req, res, user.id);
         notify(user);
 

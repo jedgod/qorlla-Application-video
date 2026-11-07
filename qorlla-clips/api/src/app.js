@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { createAuth } from './auth.js';
 import { registerUploads } from './uploads.js';
 import { registerInsights } from './insights.js';
+import { registerIngest } from './ingest.js';
 
 const SOURCES = ['RECORDING', 'AVATAR_GENERATION', 'SLIDE_CONVERSION', 'UPLOAD'];
 const uuid = z.string().uuid();
@@ -13,7 +14,7 @@ const schemas = {
   list: z.object({
     view: z.enum(['recent', 'mine', 'starred', 'trash', 'shared', 'playlist']).default('recent'),
     playlistId: uuid.optional(),
-    source: z.enum(SOURCES).optional(),
+    source: z.enum([...SOURCES, 'QORLLA_MEETING']).optional(),
     q: z.string().trim().max(100).optional(),
     cursor: uuid.optional(),
     limit: z.coerce.number().int().min(1).max(100).default(30),
@@ -42,7 +43,7 @@ export function createApp({ prisma, config, fetchImpl, storage = null }) {
   app.use((req, res, next) => { res.set({ 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }); next(); });
   const allowed = new Set(config.corsOrigins);
   app.use(cors({ origin: (origin, cb) => cb(null, !origin || allowed.has(origin)), credentials: true, allowedHeaders: ['content-type', 'x-requested-with', 'x-dev-user', 'x-dev-org', 'x-dev-role', 'x-service-key'] }));
-  app.use(express.json({ limit: '32kb' }));
+  app.use(express.json({ limit: '32kb', verify: (req, res, buf) => { req.rawBody = buf; } }));   // the webhook signs the exact bytes
 
   const ci = config.provider === 'postgresql' ? { mode: 'insensitive' } : {};
 
@@ -67,6 +68,8 @@ export function createApp({ prisma, config, fetchImpl, storage = null }) {
     const updated = await prisma.clip.update({ where: { id: clip.id }, data: { status: body.status, videoUrl: body.status === 'READY' ? body.videoUrl : null } });
     res.json({ id: updated.id, status: updated.status });
   }));
+
+  registerIngest({ app, prisma, config });
 
   // ---- everything below needs a signed-in user ---------------------------------------------------------------------------------
   const rate = new Map();

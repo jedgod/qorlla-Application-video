@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, Flag, CloudUpload, Circle, Play, FolderMinus, FolderPlus, Loader2, MoreVertical, Pencil, Presentation, RotateCcw, Share2, Sparkles, Star, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, Flag, CloudUpload, Circle, Play, FolderMinus, FolderPlus, Loader2, MoreVertical, Pencil, Presentation, RotateCcw, Share2, Sparkles, Star, Trash2, Upload, Video } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn, timeAgo } from '@/lib/utils';
 import type { Clip, ClipSource } from '@/lib/api';
@@ -17,6 +17,7 @@ export const SOURCE: Record<ClipSource, { label: string; icon: typeof Circle }> 
   AVATAR_GENERATION: { label: 'Avatar', icon: Sparkles },
   SLIDE_CONVERSION: { label: 'From slides', icon: Presentation },
   UPLOAD: { label: 'Upload', icon: Upload },
+  QORLLA_MEETING: { label: 'Qorlla meeting', icon: Video },
 };
 
 export function StatusBadge({ clip }: { clip: Clip }) {

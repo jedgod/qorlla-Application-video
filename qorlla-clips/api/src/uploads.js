@@ -50,9 +50,16 @@ export function registerUploads({ api, prisma, config, storage, wrap, notFound, 
     if (!storage) return unavailable(res);
     const b = schemas.start.parse(req.body);
     if (b.sizeBytes > config.maxUploadBytes) return res.status(400).json({ error: 'too_large', message: `Recordings can be up to ${Math.floor(config.maxUploadBytes / 1048576)} MB.` });
-    if (b.source === 'UPLOAD') {                                                    // picking a file from disk is a paid feature; recording is not
-      const org = await prisma.organization.findUnique({ where: { id: me.orgId }, select: { plan: true } });
-      if (org.plan === 'free') return res.status(403).json({ error: 'feature_locked', feature: 'upload', message: 'Uploading video is available on paid plans.' });
+    const org = await prisma.organization.findUnique({ where: { id: me.orgId }, select: { plan: true } });
+    if (b.source === 'UPLOAD' && org.plan === 'free') {                             // picking a file from disk is a paid feature; recording is not
+      return res.status(403).json({ error: 'feature_locked', feature: 'upload', message: 'Uploading video is available on paid plans.' });
+    }
+    if (org.plan === 'free') {                                                      // free-plan quota, per account (trash counts until it is emptied)
+      const used = await prisma.clip.aggregate({ where: { ownerId: me.id, storageKey: { not: null }, status: { not: 'FAILED' } }, _count: { _all: true }, _sum: { sizeBytes: true } });
+      const bytes = Number(used._sum.sizeBytes || 0);
+      if (used._count._all >= config.freeMaxClips || bytes + b.sizeBytes > config.freeStorageBytes) {
+        return res.status(403).json({ error: 'quota_exceeded', feature: 'storage', message: `The free plan holds up to ${config.freeMaxClips} recordings and ${Math.floor(config.freeStorageBytes / 1048576)} MB. Delete some clips (and empty the trash) or upgrade.` });
+      }
     }
     if ((await prisma.clip.count({ where: { ownerId: me.id, status: 'UPLOADING' } })) >= MAX_ACTIVE_UPLOADS) return res.status(429).json({ error: 'too_many_uploads', message: 'Finish or cancel your current uploads first.' });
 
