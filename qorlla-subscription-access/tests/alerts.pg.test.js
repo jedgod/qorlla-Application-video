@@ -131,10 +131,11 @@ describe('operations alerting (PostgreSQL + HTTP)', { skip }, () => {
   // ---- the monitor -------------------------------------------------------------------------------------------------------------
   test('the monitor turns recorded signals into alerts, does not repeat them, and resolves them when the condition clears', async () => {
     reset();
-    const flag = { name: 'test_flag', sql: `SELECT 1 AS n WHERE EXISTS (SELECT 1 FROM security_events WHERE event_type='flag_x' AND occurred_at > now() - interval '1500 milliseconds')`,
+    const flag = { name: 'test_flag', sql: `SELECT 1 AS n FROM billing_outbox WHERE dedupe_key = 'monitor-flag-x' AND published_at IS NULL`,        // set and cleared explicitly: no timing involved
       map: () => ({ key: 'flag:x', severity: 'critical', summary: 'flag is up', details: {} }) };
     const m = new Monitor({ alerts, checks: [...CHECKS, flag] });
-    await db.owner.query(`INSERT INTO security_events (event_type, severity, details) VALUES ('audit_write_failed','critical','{}'), ('flag_x','info','{}')`);
+    await db.owner.query(`INSERT INTO security_events (event_type, severity, details) VALUES ('audit_write_failed','critical','{}')`);
+    await db.owner.query(`INSERT INTO billing_outbox (dedupe_key, topic, payload) VALUES ('monitor-flag-x','t','{}')`);                               // the flag is UP
     await db.owner.query(`INSERT INTO billing_inbox (provider, event_id, event_type, raw_sha256, payload, status) VALUES ('acme','mon-dead-1','t','x','{}','dead')`);
     await db.owner.query(`INSERT INTO billing_outbox (dedupe_key, topic, payload, created_at) VALUES ('mon-stuck-1','t','{}', now() - interval '1 hour')`);
     const cid = '00000000-0000-4000-8000-0000000000aa';
@@ -150,10 +151,10 @@ describe('operations alerting (PostgreSQL + HTTP)', { skip }, () => {
     assert.equal(second.resolved, 0);
     assert.equal(Number((await db.owner.query(`SELECT count(*) AS n FROM ops_alerts WHERE dedupe_key='sec:audit_write_failed'`)).rows[0].n), 1, 'no duplicate alert for a condition that is still true');
     await alerts.dispatch(); assert.ok([...received.values()].some((v) => v.body.dedupeKey === 'stepup:failures:u_attacker'), 'and it reached the endpoint');
-    await sleep(1800);
+    await db.owner.query(`UPDATE billing_outbox SET published_at = now() WHERE dedupe_key = 'monitor-flag-x'`);                                          // the flag goes DOWN
     const third = await m.run();
-    assert.ok(third.resolved >= 1);
-    assert.equal((await alerts.list({ status: 'resolved' })).some((a) => a.dedupe_key === 'flag:x'), true, 'the cleared condition was resolved');
+    assert.equal(third.resolved, 1, 'exactly the cleared condition was resolved');
+    assert.equal((await alerts.list({ status: 'resolved' })).some((a) => a.dedupe_key === 'flag:x'), true, 'and it is the flag');
   });
 
   test('the ops role is confined: it reads the signals and manages alerts, and nothing else; no other role can read alerts', async () => {

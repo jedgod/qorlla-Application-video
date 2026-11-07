@@ -305,10 +305,11 @@ describe('Meet subscription enforcement (real server, PostgreSQL)', { skip }, ()
     server = await startMeet({ meetUrl: meet.url, env: enforceEnv() }); h = http(server.base);
     assert.equal((await meet.pool.query('SELECT count(*)::int AS n FROM participants WHERE meeting_id=$1 AND left_at IS NULL', [m.meetingId])).rows[0].n, 0, 'no stale seats');
     const intruder = (await h.join(m.meetingId, 'Intruder')).body;                       // joins in the window before the others reconnect (seat count restarts at 0)
-    const back = await Promise.all([m.hostToken, g[0].token, g[1].token, intruder.token].map((t) => connectSocket(server.base, t)));
-    assert.equal(back.filter((c) => c.socket).length, 3, 'three seats: host + two of the three guests');
+    const hostBack = await connectSocket(server.base, m.hostToken); assert.ok(hostBack.socket, 'the host re-enters first');
+    const back = await Promise.all([g[0].token, g[1].token, intruder.token].map((t) => connectSocket(server.base, t)));
+    assert.equal(back.filter((c) => c.socket).length, 2, 'three seats in total: the host + two of the three guests');
     assert.equal(back.filter((c) => c.error === 'Meeting is full').length, 1);
-    back.forEach((c) => c.socket?.close());
+    [hostBack, ...back].forEach((c) => c.socket?.close());
   });
   test('OVERDUE ON THE REQUEST PATH: with the sweeper not running at all, a join, a reconnect and an authenticated request each see that the meeting is over', async () => {
     const mdb = await createMeetDb(); const rowOn = async (id) => (await mdb.pool.query('SELECT * FROM meetings WHERE id=$1', [id])).rows[0];
@@ -344,6 +345,18 @@ describe('Meet subscription enforcement (real server, PostgreSQL)', { skip }, ()
     assert.equal((await sh.join(m.meetingId, 'Host', m.hostSecret)).status, 403, 'not even the host of a suspended account');
     assert.equal((await connectSocket(slow.base, g.token)).error, 'Account suspended');
     await slow.stop(); await mdb.drop();
+  });
+
+  test('THE HOST EXEMPTION, stated precisely: a host is never locked out of their own meeting, so when the host re-enters AFTER the guests filled the limit the meeting holds limit + host', async () => {
+    const m = await owned({ overrides: { 'meetings.participants': 3 } });
+    const g = [(await h.join(m.meetingId, 'A')).body, (await h.join(m.meetingId, 'B')).body];
+    const gs = await Promise.all(g.map((x) => connectSocket(server.base, x.token))); assert.ok(gs.every((c) => c.socket));
+    const hostSock = await connectSocket(server.base, m.hostToken);
+    assert.ok(hostSock.socket, 'host admitted');
+    assert.equal((await h.join(m.meetingId, 'C')).status, 403, 'but no GUEST gets past the limit');
+    const seated = Number((await meet.pool.query('SELECT count(*) AS n FROM participants WHERE meeting_id=$1 AND left_at IS NULL', [m.meetingId])).rows[0].n);
+    assert.ok(seated <= 4, 'at most the limit plus host sessions: ' + seated);
+    [hostSock, ...gs].forEach((c) => c.socket?.close());
   });
 
 });

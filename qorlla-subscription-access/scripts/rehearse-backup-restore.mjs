@@ -115,8 +115,11 @@ try {
   const { join } = await import('node:path');
   const { fileURLToPath } = await import('node:url');
   const SCHEMA_DIR = fileURLToPath(new URL('../schema', import.meta.url));
+  const { readdirSync } = await import('node:fs');
+  const ALL = readdirSync(SCHEMA_DIR).filter((f) => /^\d{3}_[a-z0-9_]+\.sql$/.test(f)).sort();
+  const BEFORE = ALL.filter((f) => f <= '004_roles_and_grants.sql'), RELEASE = ALL.filter((f) => f > '004_roles_and_grants.sql');   // the release under rehearsal = everything after 004
   const old = await mkdtemp(join(tmpdir(), 'subacc-old-'));
-  for (const f of ['001_subscriptions.sql', '002_hardening.sql', '003_billing.sql', '004_roles_and_grants.sql']) await cp(join(SCHEMA_DIR, f), join(old, f));   // the release BEFORE 005
+  for (const f of BEFORE) await cp(join(SCHEMA_DIR, f), join(old, f));                                        // the schema BEFORE the release
 
   const rb = await createTestDb({ migrateAndSeed: false });
   const rbRestored = rb.name + '_rolledback';
@@ -126,10 +129,10 @@ try {
     const c = newCustomer(); await seedSubscription(rb.owner, c, { plan: 'pro' });
     const before = await fingerprint4(rb.owner);
     const dump = tool('pg_dump', [...conn, '-Fc', '-d', rb.name]);                                     // backup taken immediately before the release
-    log(`rollback rehearsal: backup before 005 (${dump.length} bytes), versions ${before.versions}`);
+    log(`rollback rehearsal: backup before the release [${RELEASE}] (${dump.length} bytes), versions ${before.versions}`);
 
     const applied = await migrate({ pool: rb.owner });                                                   // the release goes out
-    if (applied.join() !== '005_directory.sql') throw new Error('expected only 005 to apply, got ' + applied);
+    if (applied.join() !== RELEASE.join()) throw new Error(`expected exactly the release (${RELEASE}) to apply, got ${applied}`);
     await rb.owner.query(`INSERT INTO customers (name, created_by) VALUES ('after-release', 't')`);      // real life continues on the new schema...
 
     await adminPool.query(`CREATE DATABASE ${rbRestored}`);                                              // ...then the release is rolled back
@@ -138,9 +141,9 @@ try {
     const after = await fingerprint4(rr);
     const check = async (name, cond) => { if (cond) log(`ok   ${name}`); else { ok = false; log(`FAIL ${name}`); } };
     await check('restored data identical to the pre-release backup', after.hash === before.hash);
-    await check('migration 005 is not recorded after the rollback', after.versions === before.versions);
-    await check('the 005 tables are gone (customers)', (await rr.query(`SELECT to_regclass('customers') AS t`)).rows[0].t === null);
-    await check('the release can be re-applied cleanly after the rollback', (await migrate({ pool: rr })).join() === '005_directory.sql');
+    await check('the release migrations are not recorded after the rollback', after.versions === before.versions);
+    await check('the release tables are gone (customers, webauthn_credentials, ops_alerts)', (await rr.query(`SELECT to_regclass('customers') AS a, to_regclass('webauthn_credentials') AS b, to_regclass('ops_alerts') AS c`)).rows[0].a === null && (await rr.query(`SELECT to_regclass('ops_alerts') AS c`)).rows[0].c === null);
+    await check('the release can be re-applied cleanly after the rollback', (await migrate({ pool: rr })).join() === RELEASE.join());
     await rr.end();
   } finally {
     await rb.drop().catch(() => {});
