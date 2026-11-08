@@ -67,8 +67,17 @@ describe('Workspace Overview assistant: private model only, gated, verified, ent
 
   test('GATE: with the feature off (the default) the routes do not exist for callers, and no model is contacted', async () => {
     const a = await boot({ ...withPrivate() }); reset();
-    const r = await ask(a, U); assert.equal(r.status, 404); assert.equal(r.body.code, 'feature_disabled');
-    assert.equal((await a.client(U).get('/api/v1/ai/overview/status', { 'x-workspace-id': W })).status, 404);
+    const stranger = await main.mint();                                                            // signed in, member of no workspace
+    const unknown = await a.client(U).get('/api/v1/no/such/route', { 'x-workspace-id': W });         // what a path that does not exist answers
+    assert.equal(unknown.status, 404);
+    const r = await ask(a, U); assert.equal(r.status, 404); assert.deepEqual(r.body, unknown.body, 'a disabled route answers exactly like an unknown one');
+    const callers = { 'a workspace member': a.client(U), 'a signed-in non-member': a.client(stranger), 'someone signed out': a.client(null) };
+    for (const [who, c] of Object.entries(callers)) {
+      for (const [verb, path, body] of [['get', '/api/v1/ai/overview/status'], ['post', '/api/v1/ai/overview', { question: 'x', history: [], packet: 'p'.repeat(40), idempotency_key: key() }]]) {
+        const x = await c[verb](path, ...(verb === 'post' ? [body] : []));
+        assert.equal(x.status, 404, `${who}: ${verb.toUpperCase()} ${path}`); assert.deepEqual(x.body, unknown.body, `${who}: same body as an unknown path`);
+      }
+    }
     assert.equal(hitsOf(ext, priv), 0);
   });
 

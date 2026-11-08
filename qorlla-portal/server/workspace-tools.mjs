@@ -467,13 +467,15 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     'If the data does not contain the answer, say so plainly and suggest what the user could ask instead. Never guess or invent names, dates, numbers or events.',
     'You cannot take actions or change anything. Reply as JSON: {"answer": "<your answer>"}.'
   ].join('\n');
-  const overviewOn = (req, res, next) => (cfg.ai.overviewEnabled ? next() : res.status(404).json({ error: 'Not found', code: 'feature_disabled' }));
-  app.get('/api/v1/ai/overview/status', member, overviewOn, h(async (req, res) => {
+  // The gate comes FIRST, before sign-in and membership: while the feature is off every caller (signed out, not a member, a member) gets the same plain 404 an
+  // unknown path gets, so the routes cannot even be told apart from routes that do not exist.
+  const overviewOn = (req, res, next) => (cfg.ai.overviewEnabled ? next() : res.status(404).json({ error: 'Not found' }));
+  app.get('/api/v1/ai/overview/status', overviewOn, member, h(async (req, res) => {
     const priv = (llm.models ? llm.models() : []).find((m) => m.id === 'qorlla-ai-private');
     const on = flags ? await flags.enabled('ai') : true;
     res.set('Cache-Control', 'no-store').json({ enabled: on, private_model_available: !!(priv && priv.available) && on, assistant: 'Qorlla AI', model: 'qorlla-ai-private' });
   }));
-  app.post('/api/v1/ai/overview', member, overviewOn, aiOn, lim('ai'), h(async (req, res) => {
+  app.post('/api/v1/ai/overview', overviewOn, member, aiOn, lim('ai'), h(async (req, res) => {
     const p = OverviewBody.parse(req.body);
     let claims;
     try { claims = verifyOverviewPacket(cfg.introspectionSecret, p.packet, { actor: req.actor }); }
