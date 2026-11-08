@@ -1226,6 +1226,94 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         res.json(out);
     });
 
+    // ---------- Workspace Overview assistant, phase 2: the context for the PRIVATE AI model (FEATURE-GATED, OFF by default) ----------
+    // ASSISTANT_AI_ENABLED=true (and PORTAL_INTROSPECTION_SECRET set) turns this on; until then both routes answer 404 / enabled:false and the text box keeps
+    // answering only what phase 1 understands. When on: the page asks THIS server for a packet, and this server builds it from the person's own data with their
+    // Qorlla Sources switches applied (a source that is off contributes nothing), caps its size, and signs it for the portal, which alone talks to the private
+    // model. The question is used only to choose which of the person's own items to include. Every build is recorded in aireads.<account> (never the content).
+    const overviewPacket = require('./overview-packet');
+    const assistantSecret = () => String(process.env.PORTAL_INTROSPECTION_SECRET || '');
+    const assistantReady = () => process.env.ASSISTANT_AI_ENABLED === 'true' && assistantSecret().length >= 32;
+    const AI_LABELS = { meetings: 'Meetings', canvas: 'Canvas', chat: 'Chat', my_notes: 'My Notes', mail: 'Mail' };
+    const AI_STOP = new Set(['the', 'and', 'for', 'with', 'what', 'when', 'where', 'who', 'which', 'that', 'this', 'have', 'has', 'from', 'about', 'are', 'was', 'were', 'you', 'your', 'can', 'could', 'would', 'should', 'any', 'all', 'did', 'does', 'how', 'why', 'not', 'but', 'out', 'get', 'got', 'see', 'tell', 'give', 'show', 'list', 'find', 'need', 'want', 'into', 'than', 'then', 'them', 'they', 'their', 'there', 'these', 'those', 'mine']);
+    const AI_PACKET_TTL_MS = 2 * 60 * 1000;
+    const AI_CONTEXT_CHARS = 30000;
+
+    router.get('/ai/assistant/status', requireUser, (req, res) => res.json({ enabled: assistantReady() }));
+    router.post('/ai/assistant/context', requireUser, requireCsrf, (req, res) => {
+        if (!assistantReady()) return res.status(404).json({ error: 'Not found', code: 'feature_disabled' });
+        const question = oneLine(req.body && req.body.question, 1000);
+        if (!question) return bad(res, 'Send a question.');
+        const subject = auth.portalTokens.subjectFor(req.user.id);
+        if (!subject) return res.status(409).json({ error: 'This account cannot use the assistant yet.' });
+        const sw = aiLoad(req.user), on = {};
+        AI_SOURCES.forEach((k) => { on[k] = !!(sw.master && sw[k]); });
+        const used = AI_SOURCES.filter((k) => on[k]), off = AI_SOURCES.filter((k) => !on[k]);
+        if (!used.length) return res.status(403).json({ error: 'All sources are switched off in Qorlla Sources.', source: 'all' });
+
+        const terms = Array.from(new Set((question.toLowerCase().match(/[a-z0-9][a-z0-9'-]{2,}/g) || []).filter((t) => !AI_STOP.has(t)))).slice(0, 8);
+        const hit = (s) => terms.length > 0 && terms.some((t) => String(s || '').toLowerCase().includes(t));
+        const day = (iso) => String(iso || '').slice(0, 10);
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const around = (n) => ymdOf(new Date(today.getFullYear(), today.getMonth(), today.getDate() + n));
+        const sections = [];
+
+        if (on.meetings) {
+            const lo = around(-14), hi = around(30);
+            const items = load(userKey('calendar', req.user), 'calendar').map((e) => ({ title: e.title, date: e.date, at: e.start }))
+                .concat(load(userKey('schedule', req.user), 'schedule').map((x) => ({ title: x.title, date: x.date, at: x.time })))
+                .filter((i) => typeof i.date === 'string' && i.date >= lo && i.date <= hi)
+                .sort((a, b) => (a.date + (a.at || '')).localeCompare(b.date + (b.at || ''))).slice(0, 40);
+            sections.push('[Meetings: from ' + lo + ' to ' + hi + ']\n' + (items.length ? items.map((i) => '- ' + i.date + (i.at ? ' ' + i.at : '') + ' ' + oneLine(i.title, 160)).join('\n') : '(none)'));
+        }
+        if (on.mail) {
+            const mail = load(userKey('mail', req.user), 'mail').filter((m) => m.createdAt).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+            const lines = mail.slice(0, 30).map((m) => '- ' + day(m.createdAt) + ' ' + (m.folder || 'inbox') + ': ' + oneLine(m.subject, 120) + ' (from ' + oneLine(m.from, 80) + ')');
+            const matches = mail.filter((m) => hit(m.subject) || hit(m.body)).slice(0, 5).map((m) => '- ' + oneLine(m.subject, 120) + ': ' + oneLine(m.body, 300));
+            sections.push('[Mail: latest messages]\n' + (lines.length ? lines.join('\n') : '(none)') + (matches.length ? '\n[Mail: messages matching the question]\n' + matches.join('\n') : ''));
+        }
+        if (on.my_notes) {
+            const notes = load(userKey('notes', req.user), 'notes').slice().sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+            const open = [], done = [];
+            notes.forEach((n) => String(n.content || '').split('\n').forEach((line) => {
+                let m = line.match(/^\s*(?:[-*]\s*)?(?:\[\s?\]|todo:?|action:?)\s*(.+)$/i);
+                if (m && open.length < 20) open.push('- ' + oneLine(m[1], 160) + ' (' + oneLine(n.title, 60) + ')');
+                m = line.match(/^\s*(?:[-*]\s*)?(?:\[[xX]\]|done:?)\s*(.+)$/i);
+                if (m && done.length < 20) done.push('- ' + oneLine(m[1], 160) + ' (' + oneLine(n.title, 60) + ')');
+            }));
+            const matches = notes.filter((n) => hit(n.title) || hit(n.content)).slice(0, 5).map((n) => '- ' + oneLine(n.title, 80) + ': ' + oneLine(n.content, 600));
+            sections.push('[My Notes: recent titles]\n' + (notes.length ? notes.slice(0, 20).map((n) => '- ' + oneLine(n.title, 80) + ' (' + day(n.updatedAt) + ')').join('\n') : '(none)')
+                + '\n[My Notes: outstanding tasks]\n' + (open.join('\n') || '(none)') + '\n[My Notes: completed tasks]\n' + (done.join('\n') || '(none)')
+                + (matches.length ? '\n[My Notes: matching the question]\n' + matches.join('\n') : ''));
+        }
+        if (on.chat) {
+            const since = Date.now() - 14 * 86400000, users = userMap(), lines = [];
+            load('chat').filter((c) => memberOf(c, req.user)).forEach((c) => {
+                const msgs = c.messages.filter((m) => typeof m.text === 'string' && !String(m.userId).startsWith('bot:') && Date.parse(m.at) >= since);
+                if (!msgs.length) return;
+                const others = c.members.filter((id) => id !== req.user.id);
+                const name = c.type === 'dm' ? (others.length ? (users.get(others[0]) || { displayName: 'Former member' }).displayName : req.user.displayName + ' (You)') : c.name;
+                const pick = msgs.filter((m) => hit(m.text)).concat(msgs.slice(-8)).filter((m, i, a) => a.indexOf(m) === i).slice(0, 10);
+                pick.forEach((m) => lines.push({ at: m.at, text: '- [' + oneLine(name, 60) + '] ' + oneLine(m.name, 40) + ' (' + day(m.at) + '): ' + oneLine(m.text, 300) }));
+            });
+            lines.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+            sections.push('[Chat: last 14 days]\n' + (lines.length ? lines.slice(0, 40).map((l) => l.text).join('\n') : '(none)'));
+        }
+        if (on.canvas) {
+            const boards = load(userKey('whiteboard', req.user), 'whiteboard').slice(0, 20);
+            sections.push('[Canvas: boards]\n' + (boards.length ? boards.map((b) => '- ' + oneLine(b.name || 'Untitled', 80) + ' (' + day(b.updatedAt || b.createdAt) + ')').join('\n') : '(none)'));
+        }
+        const text = ('Today is ' + ymdOf(today) + '.\n' + sections.join('\n\n')).slice(0, Math.min(AI_CONTEXT_CHARS, overviewPacket.MAX_TEXT));
+        const labels = used.map((k) => AI_LABELS[k]);
+        const now = Date.now();
+        const packet = overviewPacket.sign(assistantSecret(), { v: 1, sub: subject, iat: now, exp: now + AI_PACKET_TTL_MS, sources: labels, text });
+        const readsKey = 'aireads.' + req.user.id;
+        const reads = store.readJson(file(readsKey), []);
+        reads.push({ at: nowIso(), kind: 'assistant', sources: used });
+        save(readsKey, reads.slice(-200));
+        res.json({ packet, sources: labels, off: off.map((k) => AI_LABELS[k]) });
+    });
+
     // ---------- assistant chat history (per account, stored on the server) ----------
     // Delete is a soft delete: the record stays on disk, marked deletedAt, and is never listed again.
     const CHAT_ID = /^c[a-z0-9]{3,40}$/;

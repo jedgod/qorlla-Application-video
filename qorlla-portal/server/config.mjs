@@ -41,6 +41,9 @@ export function loadConfig(env = process.env) {
   const aiKey = trim(env.AI_LLM_API_KEY);
   cfg.ai = {
     gateway: resolveAiConfig(env),                     // Qorlla AI Gateway contract (OFF unless QORLLA_AI_ENABLED=true); a bad combination stops the server from starting
+    // Workspace Overview assistant (free-form questions in the overview text box). OFF by default. When on it still answers ONLY through the private,
+    // self-hosted model (profile "private"): with no healthy private model it refuses, it never falls back to an external provider.
+    overviewEnabled: env.QORLLA_AI_OVERVIEW_ENABLED === 'true',
     workerEnabled: env.AI_WORKER_ENABLED !== 'false',
     leaseSeconds: Number(env.AI_WORKER_LEASE_SECONDS || 120),                    // a crashed worker's job is picked up again after this long
     llm: { provider: 'anthropic', apiKey: aiKey, model: trim(env.AI_LLM_MODEL) || 'claude-sonnet-5-5',

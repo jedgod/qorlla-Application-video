@@ -4328,6 +4328,9 @@
   }
   // answers one typed request: a loading line while it works, the answer when it arrives, and on a failure an error with Try again (errors are not saved to history)
   function aiRunIntent(chat, it) {
+    aiRunJob(chat, function () { return it.kind === 'week' ? aiWeekText() : it.kind === 'period' ? aiPeriodAnswer(it) : it.kind === 'meetings' ? aiMeetingsAnswer(it) : aiTasksAnswer(); });
+  }
+  function aiRunJob(chat, makeJob) {
     var box = $('aiThread'), pending = h('div', { class: 'bubble ai pending', role: 'status', 'aria-live': 'polite', text: 'Looking through your workspace\u2026' });
     if (aiCurrent === chat.id) { box.appendChild(pending); box.scrollTop = box.scrollHeight; }
     aiSetAsking(true);
@@ -4337,12 +4340,12 @@
       if (aiCurrent !== chat.id) return;
       var retry = h('button', { class: 'retry', type: 'button', text: 'Try again' });
       var bubble = h('div', { class: 'bubble ai error', role: 'alert' }, [h('span', { text: msg }), retry]);
-      retry.addEventListener('click', function () { bubble.remove(); aiRunIntent(chat, it); });
+      retry.addEventListener('click', function () { bubble.remove(); aiRunJob(chat, makeJob); });
       box.appendChild(bubble); box.scrollTop = box.scrollHeight; retry.focus();
     }
     aiWhenSignedInKnown(function () {
       if (!state.user) { fail('Sign in first. Answers are built from your own mail, notes and calendar.'); return; }
-      var job = it.kind === 'week' ? aiWeekText() : it.kind === 'period' ? aiPeriodAnswer(it) : it.kind === 'meetings' ? aiMeetingsAnswer(it) : aiTasksAnswer();
+      var job = makeJob();
       job.then(function (text) { done(); aiAddTo(chat, 'ai', text); }).catch(function (e) { fail((e && e.message) || 'Something went wrong.'); });
     });
   }
@@ -4352,9 +4355,63 @@
     if (!chat) return;
     if (it.kind === 'empty') return;
     if (it.kind === 'baddate') { aiAddTo(chat, 'ai', QorllaAssistant.BAD_DATE); return; }
-    if (it.kind === 'unsupported') { aiAddTo(chat, 'ai', QorllaAssistant.GUIDANCE); return; }
+    if (it.kind === 'unsupported') { aiUnsupported(chat, text); return; }
     if (it.kind === 'askperiod') { aiAskPeriod(); return; }
     aiRunIntent(chat, it);
+  }
+
+  // =====================================================================
+  // Workspace assistant, phase 2: free-form questions and follow-ups go to Qorlla AI PRIVATE (a self-hosted model; nothing reaches a third-party provider).
+  // FEATURE-GATED: the server reports whether it is on (GET /ai/assistant/status). When it is off, or cannot be asked, an unrecognised question simply gets
+  // the phase 1 guidance and everything above works exactly as before. Requests phase 1 recognises are always answered by phase 1 (exact, from your data).
+  // The page never sends your data itself: this server builds a signed packet from your own sources (your Qorlla Sources switches applied) and the portal,
+  // which verifies it, is the only caller of the model. If the private model is unavailable the answer is a refusal, never an answer from anywhere else.
+  // =====================================================================
+  var aiAssistantOn = { at: 0, value: false };
+  function aiAssistantEnabled() {
+    if (Date.now() - aiAssistantOn.at < 300000) return Promise.resolve(aiAssistantOn.value);
+    return api('/ai/assistant/status').then(function (d) { aiAssistantOn = { at: Date.now(), value: !!d.enabled }; return aiAssistantOn.value; }).catch(function () { return false; });
+  }
+  function aiCookie(name) { var m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : ''; }
+  function aiNonce() {
+    var a = new Uint8Array(12); (window.crypto || window.msCrypto).getRandomValues(a);
+    return 'ov-' + Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+  }
+  var AI_NOT_ENABLED = 'Qorlla AI is not enabled on this server, so I can only answer summary, meeting and task requests. ' + QorllaAssistant.GUIDANCE;
+  // portal answer -> text to show (an answer, or an explanation that is not an error), or a thrown error that offers Try again
+  function aiPrivateText(r) {
+    var b = r.body || {}, code = b.code;
+    if (r.status === 200) return b.answer + '\n\nBased on: ' + r.sources.join(', ') + '. Answered by Qorlla AI Private from your own authorized data; check important details.';
+    if (r.status === 404 || code === 'feature_disabled') { aiAssistantOn = { at: Date.now(), value: false }; return AI_NOT_ENABLED; }
+    if (r.status === 402) return 'Your plan\u2019s Qorlla AI message limit has been reached for this month. Summaries, meetings and tasks still work.';
+    if (r.status === 403 && /member/i.test(b.error || '')) return 'Qorlla AI is not set up for your workspace yet. Summaries, meetings and tasks still work.';
+    if (code === 'private_unavailable' || code === 'no_ai_provider' || code === 'not_configured' || r.status === 503) throw new Error('Qorlla AI Private is not available right now. Nothing was sent anywhere else. You can still ask for summaries, meetings and tasks.');
+    if (code === 'ai_rate_limited' || r.status === 429) throw new Error('Qorlla AI is busy. Try again in a minute.');
+    if (code === 'context_invalid') throw new Error('Your workspace data could not be verified. Try again.');
+    if (r.status === 401 || r.status === 403) throw new Error('Your Qorlla AI session needs refreshing. Reload the page and try again.');
+    throw new Error(b.error || 'Qorlla AI could not answer. Nothing was saved or charged.');
+  }
+  function aiAskPrivate(question, history) {
+    return api('/ai/assistant/context', { method: 'POST', body: { question: question } }).then(function (ctx) {
+      return fetch('/api/v1/ai/overview', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': aiCookie('qorlla_csrf') },
+        body: JSON.stringify({ question: question, history: history, packet: ctx.packet, idempotency_key: aiNonce() })
+      }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (body) { return aiPrivateText({ status: r.status, body: body, sources: ctx.sources }); }); });
+    }, function (e) {
+      if (e && e.status === 404) { aiAssistantOn = { at: Date.now(), value: false }; return AI_NOT_ENABLED; }
+      if (e && e.status === 403) return e.message;                                  // every source is switched off: an answer, not an error
+      throw e;
+    });
+  }
+  function aiUnsupported(chat, text) {
+    aiSetAsking(true);
+    aiAssistantEnabled().then(function (on) {
+      aiSetAsking(false);
+      if (!on) { aiAddTo(chat, 'ai', QorllaAssistant.GUIDANCE); return; }
+      var history = chat.messages.slice(0, -1).slice(-6).map(function (m) { return { role: m.role, text: String(m.text).slice(0, 1500) }; });   // the earlier turns, for follow-ups
+      aiRunJob(chat, function () { return aiAskPrivate(text, history); });
+    });
   }
   function aiSend() {
     var ta = $('aiInput'), v = ta.value.trim();
