@@ -1,7 +1,7 @@
-import { ClipsCollection } from '@/components/clips/clips-collection';
+import { AvatarsWorkspace } from '@/components/clips/avatars-workspace';
 
 export const metadata = { title: 'Avatars · Clips · Qorlla' };
 
 export default function CreationAvatarsPage() {
-  return <ClipsCollection title="Avatars" query={{ view: 'mine', source: 'AVATAR_GENERATION' }} empty={'No avatar clips yet. Choose "Create with avatars" from the + menu.'} />;
+  return <AvatarsWorkspace />;
 }

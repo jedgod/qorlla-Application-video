@@ -93,7 +93,7 @@ describe('authentication', () => {
 describe('clips', () => {
   test('create: every source; a clip starts PROCESSING with NO media URL (nothing is invented); title defaults; input is validated strictly', async () => {
     const { a } = await world(base, { plan: 'pro' });
-    for (const source of ['RECORDING', 'AVATAR_GENERATION', 'SLIDE_CONVERSION', 'UPLOAD']) {
+    for (const source of ['RECORDING', 'SLIDE_CONVERSION', 'UPLOAD']) {
       const r = await call(base, a, 'POST', '/api/clips', { source, title: ' ' + source + ' ' });
       assert.equal(r.status, 201, source); assert.equal(r.body.source, source); assert.equal(r.body.status, 'PROCESSING'); assert.equal(r.body.videoUrl, null);
       assert.equal(r.body.title, source, 'trimmed');
@@ -143,8 +143,8 @@ describe('clips', () => {
     do { const r = await list(m1, `?view=mine&limit=3${cursor ? '&cursor=' + cursor : ''}`); seen.push(...ids(r)); cursor = r.nextCursor; pages++; } while (cursor && pages < 10);
     assert.equal(pages, 3); assert.deepEqual([...seen].sort(), [...made].sort(), 'every clip exactly once'); assert.equal(new Set(seen).size, 7);
     assert.equal((await list(m1, '?view=mine&q=alpha')).clips.length, 3);
-    await clip(m1, { title: 'avatar one', source: 'AVATAR_GENERATION' });
-    assert.deepEqual((await list(m1, '?view=mine&source=AVATAR_GENERATION')).clips.map((c) => c.title), ['avatar one'], 'filter by how a clip was made');
+    await clip(m1, { title: 'slides one', source: 'SLIDE_CONVERSION' });
+    assert.deepEqual((await list(m1, '?view=mine&source=SLIDE_CONVERSION')).clips.map((c) => c.title), ['slides one'], 'filter by how a clip was made');
     assert.equal((await call(base, m1, 'GET', '/api/clips?source=NOPE')).status, 400);
     assert.equal((await call(base, m1, 'GET', '/api/clips?limit=0')).status, 400); assert.equal((await call(base, m1, 'GET', '/api/clips?limit=101')).status, 400);
     assert.equal((await call(base, m1, 'GET', '/api/clips?view=everything')).status, 400); assert.equal((await call(base, m1, 'GET', '/api/clips?cursor=zzz')).status, 400);

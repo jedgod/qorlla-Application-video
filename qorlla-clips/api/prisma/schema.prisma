@@ -47,6 +47,7 @@ model Organization {
   plan      String     @default("free")
   users     User[]
   clips     Clip[]
+  avatarDrafts AvatarDraft[]
   playlists Playlist[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
@@ -62,6 +63,7 @@ model User {
   organizationId String
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   clips          Clip[]
+  avatarDrafts   AvatarDraft[]
   playlists      Playlist[]
   shares         ClipShare[]
   notifications  Notification[]
@@ -115,6 +117,7 @@ model Clip {
   shares         ClipShare[]
   views          PlaybackEvent[]
   reports        ClipReport[]
+  avatarDraft    AvatarDraft?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -190,4 +193,50 @@ model AuditLog {
   createdAt      DateTime @default(now())
 
   @@index([organizationId, createdAt])
+}
+
+// ---- Avatars ---------------------------------------------------------------------------------------------------------------------
+// Subscription tiers for pre-built avatars. The tier a person may use comes from their ORGANIZATION'S PLAN (see src/avatars.js), never
+// from their role: an admin of a free organization does not get paid avatars.
+enum AvatarTier {
+  BASIC
+  MODERATE
+  ELITE
+}
+
+// Immutable reference catalog. No API writes it; only scripts/seed-avatars.mjs inserts rows, and never changes one that exists.
+// A look that changes is a NEW row (new slug), so a draft always points at exactly the avatar it was made with.
+model InbuiltAvatar {
+  id           String        @id @default(uuid())
+  slug         String        @unique
+  name         String
+  thumbnailUrl String?
+  // key of the reference media in the media worker's store; never sent to browsers
+  modelKey     String
+  tier         AvatarTier    @default(BASIC)
+  drafts       AvatarDraft[]
+  createdAt    DateTime      @default(now())
+}
+
+// A draft made with a pre-built avatar. It lives ONLY here (the Avatars workspace). It becomes a Clip, and appears in My Clips, only
+// when its owner explicitly promotes it; promotedClipId is then the link and the draft can never be promoted twice.
+model AvatarDraft {
+  id             String        @id @default(uuid())
+  title          String
+  avatarId       String
+  avatar         InbuiltAvatar @relation(fields: [avatarId], references: [id], onDelete: Restrict)
+  status         ClipStatus    @default(PROCESSING)
+  // set by the media worker (https, allow-listed host) when the render is READY
+  videoUrl       String?
+  isPromoted     Boolean       @default(false)
+  promotedClipId String?       @unique
+  promotedClip   Clip?         @relation(fields: [promotedClipId], references: [id], onDelete: SetNull)
+  ownerId        String
+  owner          User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([ownerId, organizationId, isPromoted])
 }

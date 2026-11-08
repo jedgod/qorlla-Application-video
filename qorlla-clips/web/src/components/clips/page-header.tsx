@@ -28,6 +28,7 @@ export function PageHeader({ title, back, children, playlistId, hideCreate }: {
   async function create(source: ClipSource) {
     if (source === 'RECORDING') { openRecorder(); return; }          // recording happens in the browser; it uploads when you save
     if (source === 'UPLOAD') { picker.current?.click(); return; }
+    if (source === 'AVATAR_GENERATION') { router.push('/dashboard/creation/avatars'); return; }   // avatar drafts live in their own workspace, not in My clips
     try {
       await api.createClip({ source, playlistId });
       say('Clip created. It stays "Processing" until its media is attached.');

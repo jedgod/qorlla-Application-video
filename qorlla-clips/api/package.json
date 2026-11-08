@@ -10,7 +10,8 @@
     "db:migrate": "node scripts/db.mjs migrate",
     "test": "node scripts/run-tests.mjs",
     "check:migrations": "node scripts/check-migrations.mjs",
-    "db:new-migration": "node scripts/new-migration.mjs"
+    "db:new-migration": "node scripts/new-migration.mjs",
+    "seed:avatars": "node scripts/seed-avatars.mjs"
   },
   "engines": {
     "node": ">=20"

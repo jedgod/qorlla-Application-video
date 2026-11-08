@@ -5,6 +5,7 @@ import { createAuth } from './auth.js';
 import { registerUploads } from './uploads.js';
 import { registerInsights } from './insights.js';
 import { registerIngest } from './ingest.js';
+import { registerAvatars } from './avatars.js';
 
 const SOURCES = ['RECORDING', 'AVATAR_GENERATION', 'SLIDE_CONVERSION', 'UPLOAD'];
 const uuid = z.string().uuid();
@@ -19,7 +20,8 @@ const schemas = {
     cursor: uuid.optional(),
     limit: z.coerce.number().int().min(1).max(100).default(30),
   }),
-  create: z.object({ title: title.optional(), source: z.enum(SOURCES), playlistId: uuid.optional() }).strict(),
+  // avatar results are NOT created here: they are drafts (POST /avatars/drafts) and become clips only by an explicit promote
+  create: z.object({ title: title.optional(), source: z.enum(SOURCES.filter((s) => s !== 'AVATAR_GENERATION')), playlistId: uuid.optional() }).strict(),
   patch: z.object({ title: title.optional(), isStarred: z.boolean().optional() }).strict().refine((v) => Object.keys(v).length > 0, 'nothing to change'),
   share: z.object({ email: z.string().trim().toLowerCase().email().max(254) }).strict(),
   playlist: z.object({ title, isOrganization: z.boolean().optional() }).strict(),
@@ -67,6 +69,23 @@ export function createApp({ prisma, config, fetchImpl, storage = null }) {
     if (!clip) return notFound(res);
     const updated = await prisma.clip.update({ where: { id: clip.id }, data: { status: body.status, videoUrl: body.status === 'READY' ? body.videoUrl : null } });
     res.json({ id: updated.id, status: updated.status });
+  }));
+
+  // Same contract for an avatar draft: the worker attaches the render. The draft stays in the Avatars workspace; it is not a clip.
+  app.post('/api/internal/avatar-drafts/:id/complete', wrap(async (req, res) => {
+    if (!config.serviceKey) return notFound(res);
+    const given = String(req.headers['x-service-key'] || '');
+    if (given.length !== config.serviceKey.length || !timingSafe(given, config.serviceKey)) return res.status(401).json({ error: 'unauthenticated' });
+    const id = uuid.safeParse(req.params.id); if (!id.success) return notFound(res);
+    const body = schemas.complete.parse(req.body);
+    if (body.status === 'READY') {
+      let u; try { u = new URL(body.videoUrl || ''); } catch (e) { u = null; }
+      if (!u || u.protocol !== 'https:' || u.username || u.password || !config.mediaHosts.includes(u.hostname.toLowerCase())) return res.status(400).json({ error: 'invalid_media_host', message: 'videoUrl must be an https URL on an allowed media host.' });
+    }
+    // a promoted draft is already a clip; its media is frozen
+    const r = await prisma.avatarDraft.updateMany({ where: { id: id.data, isPromoted: false }, data: { status: body.status, videoUrl: body.status === 'READY' ? body.videoUrl : null } });
+    if (r.count === 0) return notFound(res);
+    res.json({ id: id.data, status: body.status });
   }));
 
   registerIngest({ app, prisma, config });
@@ -305,6 +324,8 @@ export function createApp({ prisma, config, fetchImpl, storage = null }) {
   registerUploads({ api, prisma, config, storage, wrap, notFound, clipDto, myClip, viewable, uuid });
 
   registerInsights({ api, prisma, wrap, notFound, uuid, viewable });
+
+  registerAvatars({ api, prisma, config, wrap, notFound, clipDto });
 
   app.use('/api', api);
   app.use('/api', (req, res) => notFound(res));
