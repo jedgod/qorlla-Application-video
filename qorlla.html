@@ -569,6 +569,10 @@
   #aiThread .bubble { padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; max-width: 92%; white-space: pre-wrap; text-align: left; }
   #aiThread .bubble.me { align-self: flex-end; background: var(--brand); color: #fff; }
   #aiThread .bubble.ai { align-self: flex-start; background: var(--soft); }
+  #aiThread .bubble.pending { color: var(--muted); font-style: italic; }
+  #aiThread .bubble.error { background: #fff1f2; border: 1px solid #fecdd3; color: #9f1239; }
+  #aiThread .bubble .retry { display: block; margin-top: 8px; padding: 6px 12px; border-radius: 8px; border: 1px solid #fda4af; background: #fff; color: #9f1239; font-weight: 600; font-size: 13px; }
+  .send[aria-disabled="true"] { opacity: .5; cursor: default; }
   .send { border: 0; cursor: pointer; }
   .ai-body { justify-content: flex-start; }
   .ai-intro { display: flex; flex-direction: column; align-items: center; width: 100%; flex: 1; }
@@ -4173,15 +4177,194 @@
     });
   }
   $('sugPast').addEventListener('click', aiAskPeriod);
+
+  // =====================================================================
+  // Workspace assistant, phase 1: the text box understands a fixed set of requests and answers them from your own authorized data, through the
+  // same endpoints the quick actions use (so the Qorlla Sources switches and permissions apply exactly as before). No AI model is involved here.
+  // Anything it cannot recognise gets the guidance sentence below, which says what it CAN do; it is never shown as if it answered the question.
+  // =====================================================================
+  var QorllaAssistant = (function () {
+    var GUIDANCE = 'I can help summarize your activities, meetings, tasks, and recent Workspace information. Try asking about a specific period or activity.';
+    var BAD_DATE = 'I could not read that date. Try a format like 2026-11-05, 11/5 or Nov 5.';
+    var MON = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+    var DATE = '(\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}/\\d{1,2}(?:/\\d{2,4})?|' + MON + '\\.? \\d{1,2}(?:st|nd|rd|th)?(?: \\d{4})?|\\d{1,2}(?:st|nd|rd|th)? ' + MON + '(?: \\d{4})?)';
+    var MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+    var NUM = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12 };
+    var SEP = '(?: to | through | thru | until | till | - )';
+    var RE_TASKS = /\b(action items?|outstanding tasks?|open tasks?|pending tasks?|unfinished tasks?|to-?dos?|todo|tasks? (?:i have|i need|due|left|remaining)|what do i need to do|what is left|what s left)\b/;
+    var RE_DONE = /\b(completed|finished|done)\b/;
+    var RE_MEET = /\b(meetings?|calendar|appointments?|events?|agenda|schedule)\b/;
+    var RE_SUM = /\b(summar\w*|recap|overview|activit\w*|what did i|what have i|what i did|how was|catch me up|report|highlights?)\b/;
+    var RE_ACTION = /^(?:please |can you |could you )?(?:schedule|create|add|send|write|draft|delete|remove|book|set up|setup|invite|cancel|reschedule|join|start|call|email|reply)\b/;
+    var RE_WEEKQUICK = /^(?:please )?(?:summari[sz]e|recap) (?:my |the |this )?week$|^(?:give me |show me )?(?:a )?(?:summary|recap) of my week$|^my week(?: s)? (?:summary|recap)$/;
+
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+    function ymdOf(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+    function day(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+    function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+    function monday(d) { return addDays(d, -((d.getDay() + 6) % 7)); }
+    function mk(y, m, d) { var x = new Date(y, m, d); return x.getFullYear() === y && x.getMonth() === m && x.getDate() === d ? x : null; }
+    function norm(text) {
+      return String(text || '').toLowerCase().replace(/[\u2019']/g, ' ').replace(/[^a-z0-9\/\- ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    // one written date to a Date (or null when it is not a real date)
+    function dateOf(s, now) {
+      var m, y;
+      if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s))) return mk(+m[1], +m[2] - 1, +m[3]);
+      if ((m = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/.exec(s))) { y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : now.getFullYear(); return mk(y, +m[1] - 1, +m[2]); }
+      if ((m = new RegExp('^(' + MON + ')\\.? (\\d{1,2})(?:st|nd|rd|th)?(?: (\\d{4}))?$').exec(s))) return mk(m[3] ? +m[3] : now.getFullYear(), MONTHS[m[1].slice(0, 3)], +m[2]);
+      if ((m = new RegExp('^(\\d{1,2})(?:st|nd|rd|th)? (' + MON + ')(?: (\\d{4}))?$').exec(s))) return mk(m[3] ? +m[3] : now.getFullYear(), MONTHS[m[2].slice(0, 3)], +m[1]);
+      return null;
+    }
+    function span(a, b, label) { return a <= b ? { from: ymdOf(a), to: ymdOf(b), label: label } : { error: true }; }
+    // the period a request names: your own dates, "past N days/weeks/months/years", or a named one (today, last week, this month ...); null when it names none
+    function rangeOf(t, now) {
+      var today = day(now), m, a, b;
+      var two = new RegExp('(?:^| )(?:from |between )?' + DATE + '(?: and |' + SEP + ')' + DATE + '(?: |$)').exec(t);
+      if (two) { a = dateOf(two[1], now); b = dateOf(two[2], now); return a && b ? span(a, b, two[1] + ' to ' + two[2]) : { error: true }; }
+      if ((m = new RegExp('(?:^| )since ' + DATE + '(?: |$)').exec(t))) { a = dateOf(m[1], now); return a ? span(a, today, 'since ' + m[1]) : { error: true }; }
+      if ((m = new RegExp('(?:^| )(?:on|for|of|during) ' + DATE + '(?: |$)').exec(t))) { a = dateOf(m[1], now); return a ? span(a, a, m[1]) : { error: true }; }
+      if ((m = /(?:past|last|previous|prior) (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|twelve) (day|week|month|year)s?\b/.exec(t))) {
+        var n = /^\d+$/.test(m[1]) ? +m[1] : NUM[m[1]], u = m[2];
+        if (!n) return { error: true };
+        if (u === 'day') a = addDays(today, -(n - 1));
+        else if (u === 'week') a = addDays(today, -(7 * n - 1));
+        else a = new Date(today.getFullYear(), today.getMonth() - (u === 'month' ? n : 12 * n), today.getDate() + 1);
+        return span(a, today, 'the past ' + n + ' ' + u + (n === 1 ? '' : 's'));
+      }
+      if (/\btoday\b/.test(t)) return span(today, today, 'today');
+      if (/\byesterday\b/.test(t)) { a = addDays(today, -1); return span(a, a, 'yesterday'); }
+      if (/\btomorrow\b/.test(t)) { a = addDays(today, 1); return span(a, a, 'tomorrow'); }
+      if (/\bnext week\b/.test(t)) { a = addDays(monday(today), 7); return span(a, addDays(a, 6), 'next week'); }
+      if (/\b(?:last|previous|prior|past) week\b/.test(t)) { a = addDays(monday(today), -7); return span(a, addDays(a, 6), 'last week'); }
+      if (/\b(?:this|the|current) week\b|\bweek to date\b/.test(t)) { a = monday(today); return span(a, addDays(a, 6), 'this week'); }
+      if (/\b(?:last|previous|prior|past) month\b/.test(t)) return span(new Date(today.getFullYear(), today.getMonth() - 1, 1), new Date(today.getFullYear(), today.getMonth(), 0), 'last month');
+      if (/\bthis month\b|\bmonth to date\b/.test(t)) return span(new Date(today.getFullYear(), today.getMonth(), 1), new Date(today.getFullYear(), today.getMonth() + 1, 0), 'this month');
+      if (/\b(?:last|previous|prior) year\b/.test(t)) return span(new Date(today.getFullYear() - 1, 0, 1), new Date(today.getFullYear() - 1, 11, 31), 'last year');
+      if (/\bthis year\b|\byear to date\b|\bytd\b/.test(t)) return span(new Date(today.getFullYear(), 0, 1), today, 'this year so far');
+      return null;
+    }
+    // text -> { kind, range?, label? }. kind: week | period | meetings | tasks | askperiod | baddate | unsupported | empty
+    function parse(text, now) {
+      now = now || new Date();
+      var t = norm(text), r, today = day(now);
+      if (!t) return { kind: 'empty' };
+      if (RE_ACTION.test(t)) return { kind: 'unsupported' };
+      if (RE_WEEKQUICK.test(t)) return { kind: 'week' };
+      r = rangeOf(t, now);
+      if (r && r.error) return { kind: 'baddate' };
+      if (RE_TASKS.test(t) && !RE_DONE.test(t)) return { kind: 'tasks' };
+      if (RE_MEET.test(t) && !(RE_SUM.test(t) && /\bactivit/.test(t))) {
+        if (!r) {
+          if (/\b(upcoming|next|coming|soon)\b/.test(t)) r = span(today, addDays(today, 6), 'the next 7 days');
+          else { var mon = monday(today); r = span(mon, addDays(mon, 6), 'this week'); }
+        }
+        return { kind: 'meetings', range: { from: r.from, to: r.to }, label: r.label };
+      }
+      if (RE_SUM.test(t) || RE_TASKS.test(t) || r) {
+        if (!r) {
+          if (/\bweek\b/.test(t)) { var mo = monday(today); r = span(mo, addDays(mo, 6), 'this week'); }
+          else return { kind: 'askperiod' };
+        }
+        return { kind: 'period', range: { from: r.from, to: r.to }, label: r.label };
+      }
+      return { kind: 'unsupported' };
+    }
+    return { parse: parse, GUIDANCE: GUIDANCE, BAD_DATE: BAD_DATE };
+  })();
+  window.QorllaAssistant = QorllaAssistant;                               // read-only handle; the tests drive the recogniser with it
+
+  var aiAsking = false;
+  function aiDaysBetween(a, b) { return Math.round((parseYmd(b) - parseYmd(a)) / 86400000) + 1; }
+  function aiOffText(label, what) { return label + ' is switched off in Qorlla Sources. Turn it on to ' + what + '.'; }
+  // a source switched off (here or in another tab) is an answer, not an error
+  function aiOr403(promise, text) { return promise.catch(function (e) { if (e && e.status === 403) return text || e.message; throw e; }); }
+
+  function aiPeriodAnswer(it) {
+    var today = ymd(new Date()), from = it.range.from, to = it.range.to;
+    if (from > today) return Promise.resolve('That period has not happened yet. For upcoming events, try "What meetings do I have next week?"');
+    if (to > today) to = today;
+    if (aiDaysBetween(from, to) > 366) return Promise.resolve('Please choose a period of up to one year.');
+    return aiOr403(api('/ai/context/activity?from=' + from + '&to=' + to).then(function (d) { return aiActivityText(d, 'Summary, ' + it.label); }));
+  }
+  function aiMeetingsAnswer(it) {
+    if (!aiSourceOn('meetings')) return Promise.resolve(aiOffText('Meetings', 'see your meetings'));
+    var from = it.range.from, to = it.range.to;
+    return aiOr403(aiMeetings().then(function (items) {
+      var inside = items.filter(function (i) { return i.date >= from && i.date <= to; });
+      var span = prettyDate(from) + (from === to ? '' : ' \u2013 ' + prettyDate(to));
+      if (!inside.length) return 'No meetings or events found for ' + it.label + ' (' + span + ').';
+      var lines = ['Meetings and events, ' + it.label + ' (' + span + '): ' + inside.length + '.'];
+      inside.slice(0, 15).forEach(function (i) { lines.push('\u2022 ' + prettyDate(i.date) + (i.start ? ' ' + t12(i.start) : '') + ' \u2013 ' + i.title); });
+      if (inside.length > 15) lines.push('\u2026 and ' + (inside.length - 15) + ' more.');
+      return lines.join('\n');
+    }), aiOffText('Meetings', 'see your meetings'));
+  }
+  function aiTasksAnswer() {
+    if (!aiSourceOn('my_notes')) return Promise.resolve(aiOffText('My Notes', 'list outstanding tasks'));
+    return aiOr403(api('/ai/context/my_notes').then(function (notes) {
+      var items = [];
+      notes.forEach(function (n) {
+        (n.content || '').split('\n').forEach(function (line) {
+          var m = line.match(/^\s*(?:[-*]\s*)?(?:\[\s?\]|todo:?|action:?)\s*(.+)$/i);
+          if (m) items.push('\u2022 ' + m[1].trim() + '  (' + n.title + ')');
+        });
+      });
+      if (!items.length) return 'No outstanding tasks found. Add lines like "[ ] Send report" or "TODO: call Sam" to a note and ask again.';
+      var lines = ['Outstanding tasks: ' + items.length + '.'].concat(items.slice(0, 15));
+      if (items.length > 15) lines.push('\u2026 and ' + (items.length - 15) + ' more.');
+      return lines.join('\n');
+    }), aiOffText('My Notes', 'list outstanding tasks'));
+  }
+  function aiAddTo(chat, role, text) {
+    if (aiChats.indexOf(chat) < 0) return;                                  // the chat was deleted while the answer was on its way
+    chat.messages.push({ role: role, text: text }); chat.ts = Date.now();
+    aiSync(chat);
+    if (aiCurrent === chat.id) aiPaint(role, text);
+  }
+  function aiSetAsking(on) {
+    aiAsking = on;
+    $('aiSend').setAttribute('aria-disabled', on ? 'true' : 'false');
+  }
+  // answers one typed request: a loading line while it works, the answer when it arrives, and on a failure an error with Try again (errors are not saved to history)
+  function aiRunIntent(chat, it) {
+    var box = $('aiThread'), pending = h('div', { class: 'bubble ai pending', role: 'status', 'aria-live': 'polite', text: 'Looking through your workspace\u2026' });
+    if (aiCurrent === chat.id) { box.appendChild(pending); box.scrollTop = box.scrollHeight; }
+    aiSetAsking(true);
+    function done() { pending.remove(); aiSetAsking(false); }
+    function fail(msg) {
+      done();
+      if (aiCurrent !== chat.id) return;
+      var retry = h('button', { class: 'retry', type: 'button', text: 'Try again' });
+      var bubble = h('div', { class: 'bubble ai error', role: 'alert' }, [h('span', { text: msg }), retry]);
+      retry.addEventListener('click', function () { bubble.remove(); aiRunIntent(chat, it); });
+      box.appendChild(bubble); box.scrollTop = box.scrollHeight; retry.focus();
+    }
+    aiWhenSignedInKnown(function () {
+      if (!state.user) { fail('Sign in first. Answers are built from your own mail, notes and calendar.'); return; }
+      var job = it.kind === 'week' ? aiWeekText() : it.kind === 'period' ? aiPeriodAnswer(it) : it.kind === 'meetings' ? aiMeetingsAnswer(it) : aiTasksAnswer();
+      job.then(function (text) { done(); aiAddTo(chat, 'ai', text); }).catch(function (e) { fail((e && e.message) || 'Something went wrong.'); });
+    });
+  }
+  // a typed message has just been added to the chat: work out what it asks for
+  function aiAnswer(text) {
+    var chat = aiChat(false), it = QorllaAssistant.parse(text);
+    if (!chat) return;
+    if (it.kind === 'empty') return;
+    if (it.kind === 'baddate') { aiAddTo(chat, 'ai', QorllaAssistant.BAD_DATE); return; }
+    if (it.kind === 'unsupported') { aiAddTo(chat, 'ai', QorllaAssistant.GUIDANCE); return; }
+    if (it.kind === 'askperiod') { aiAskPeriod(); return; }
+    aiRunIntent(chat, it);
+  }
   function aiSend() {
     var ta = $('aiInput'), v = ta.value.trim();
-    if (!v) return;
+    if (!v || aiAsking) return;                                             // one question at a time
     ta.value = '';
     var names = aiFiles.map(function (f) { return f.name; });
     aiFiles = []; aiPaintChips();
     aiSay('me', names.length ? v + '\n\ud83d\udcce ' + names.join(', ') : v);
     if (names.length) { aiSay('ai', 'Attached files are not read yet, so they were not used.'); }
-    aiSay('ai', 'Free-form chat is not connected yet. Try "Summarize my week" or "List my recent action items".');
+    aiAnswer(v);
   }
   $('aiSend').addEventListener('click', aiSend);
   $('aiInput').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiSend(); } });
