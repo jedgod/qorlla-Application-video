@@ -73,7 +73,7 @@ export function AvatarsWorkspace() {
 
       <div role="note" className="mt-4 flex max-w-2xl items-start gap-3 rounded-xl border border-amber-100 bg-amber-50/40 p-4" data-testid="avatar-renderer-notice">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
-        <p className="text-xs leading-relaxed text-amber-800"><strong className="font-bold">Rendering is not available yet.</strong> Avatar video rendering has not been built, so a new draft stays here as &quot;Rendering unavailable&quot; and cannot be saved to My clips until a render is attached.</p>
+        <p className="text-xs leading-relaxed text-amber-800"><strong className="font-bold">Avatar rendering isn&apos;t available yet.</strong> You can create drafts and choose a presenter, but a draft can&apos;t be saved to My clips until rendering is switched on.</p>
       </div>
 
       <div className="mt-4 flex flex-wrap items-end gap-3">

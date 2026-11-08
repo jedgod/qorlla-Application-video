@@ -9,13 +9,20 @@ import { PrismaClient } from '@prisma/client';
 export const CATALOG = [
   { slug: 'alex-corporate-presenter', name: 'Alex (Corporate Presenter)', tier: 'BASIC', modelKey: 'avatars/models/alex-corporate-presenter' },
   { slug: 'elena-casual-instructor', name: 'Elena (Casual Instructor)', tier: 'BASIC', modelKey: 'avatars/models/elena-casual-instructor' },
-  { slug: 'marcus-studio-cinematic', name: 'Marcus (Studio Cinematic)', tier: 'MODERATE', modelKey: 'avatars/models/marcus-studio-cinematic' },
-  { slug: 'chloe-studio-cinematic', name: 'Chloe (Studio Cinematic)', tier: 'MODERATE', modelKey: 'avatars/models/chloe-studio-cinematic' },
-  { slug: 'zephyr-premium-anchor', name: 'Zephyr (Premium Anchor)', tier: 'ELITE', modelKey: 'avatars/models/zephyr-premium-anchor' },
-  { slug: 'amara-ultra-presenter', name: 'Amara (Ultra Presenter)', tier: 'ELITE', modelKey: 'avatars/models/amara-ultra-presenter' },
+  { slug: 'marcus-studio-cinematic', name: 'Marcus (Studio Cinematic)', tier: 'PRO', modelKey: 'avatars/models/marcus-studio-cinematic' },
+  { slug: 'chloe-studio-cinematic', name: 'Chloe (Studio Cinematic)', tier: 'PRO', modelKey: 'avatars/models/chloe-studio-cinematic' },
+  { slug: 'priya-business-presenter', name: 'Priya (Business Presenter)', tier: 'BUSINESS', modelKey: 'avatars/models/priya-business-presenter' },
+  { slug: 'daniel-business-presenter', name: 'Daniel (Business Presenter)', tier: 'BUSINESS', modelKey: 'avatars/models/daniel-business-presenter' },
+  { slug: 'zephyr-premium-anchor', name: 'Zephyr (Premium Anchor)', tier: 'ENTERPRISE', modelKey: 'avatars/models/zephyr-premium-anchor' },
+  { slug: 'amara-ultra-presenter', name: 'Amara (Ultra Presenter)', tier: 'ENTERPRISE', modelKey: 'avatars/models/amara-ultra-presenter' },
 ];
 
 export async function seedAvatars(prisma) {
+  // A database made before the 4-tier model (for example a local SQLite file) may still hold the old tier names; PostgreSQL is renamed by
+  // migration 0006, where this statement simply fails and is ignored. It only renames values, it never touches a row's identity.
+  for (const [from, to] of [['MODERATE', 'PRO'], ['ELITE', 'ENTERPRISE']]) {
+    try { await prisma.$executeRawUnsafe(`UPDATE "InbuiltAvatar" SET "tier" = '${to}' WHERE "tier" = '${from}'`); } catch (e) { /* already on the new names */ }
+  }
   let added = 0;
   for (const a of CATALOG) {
     const have = await prisma.inbuiltAvatar.findUnique({ where: { slug: a.slug } });

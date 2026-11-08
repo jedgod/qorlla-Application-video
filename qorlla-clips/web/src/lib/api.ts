@@ -10,7 +10,7 @@ export interface Clip {
   /** true when the clip has playable media (an uploaded recording or an external URL) */
   playable: boolean; sizeBytes: number | null; mimeType: string | null; durationMs: number | null;
 }
-export type AvatarTier = 'BASIC' | 'MODERATE' | 'ELITE';
+export type AvatarTier = 'BASIC' | 'PRO' | 'BUSINESS' | 'ENTERPRISE';
 export interface AvatarTemplate { id: string; slug: string; name: string; thumbnailUrl: string | null; tier: AvatarTier }
 export interface AvatarDraft {
   id: string; title: string; status: ClipStatus; isPromoted: boolean; promotedClipId: string | null; playable: boolean;

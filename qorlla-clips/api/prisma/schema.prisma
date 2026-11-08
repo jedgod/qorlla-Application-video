@@ -198,10 +198,12 @@ model AuditLog {
 // ---- Avatars ---------------------------------------------------------------------------------------------------------------------
 // Subscription tiers for pre-built avatars. The tier a person may use comes from their ORGANIZATION'S PLAN (see src/avatars.js), never
 // from their role: an admin of a free organization does not get paid avatars.
+// Same names as the plans, lowest to highest. A plan unlocks its own tier and every tier below it.
 enum AvatarTier {
   BASIC
-  MODERATE
-  ELITE
+  PRO
+  BUSINESS
+  ENTERPRISE
 }
 
 // Immutable reference catalog. No API writes it; only scripts/seed-avatars.mjs inserts rows, and never changes one that exists.

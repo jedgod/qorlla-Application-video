@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Lock, ShieldCheck, Sparkles, User } from 'lucide-react';
+import { Building2, ChevronDown, Crown, Lock, Sparkles, User } from 'lucide-react';
 import type { AvatarTemplate } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-const TIER_LABEL = { BASIC: 'Basic', MODERATE: 'Moderate', ELITE: 'Elite' } as const;
+const TIER_LABEL = { BASIC: 'Basic', PRO: 'Pro', BUSINESS: 'Business', ENTERPRISE: 'Enterprise' } as const;
 
 /**
  * Picks one pre-built avatar. The server decides what the person may use: `templates` are the allowed ones, `locked` are shown
@@ -29,7 +29,7 @@ export function AvatarPicker({ templates, locked, value, onChange }: {
     <li key={a.id} role="option" aria-selected={value?.id === a.id} aria-disabled={isLocked}>
       <button
         type="button" disabled={isLocked} onClick={() => { if (!isLocked) { onChange(a); setOpen(false); } }}
-        title={isLocked ? `Needs the ${TIER_LABEL[a.tier]} avatar tier: upgrade your plan` : undefined}
+        title={isLocked ? `Included in the ${TIER_LABEL[a.tier]} plan and above: upgrade to use it` : undefined}
         className={cn('flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium',
           isLocked ? 'cursor-not-allowed bg-gray-50/60 text-gray-400' : value?.id === a.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50')}
       >
@@ -38,7 +38,7 @@ export function AvatarPicker({ templates, locked, value, onChange }: {
           <span className="truncate">{a.name}</span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5 pl-2">
-          {isLocked ? <Lock className="h-3 w-3" aria-hidden="true" /> : a.tier === 'ELITE' ? <ShieldCheck className="h-3.5 w-3.5 text-purple-500" aria-hidden="true" /> : a.tier === 'MODERATE' ? <Sparkles className="h-3.5 w-3.5 text-blue-500" aria-hidden="true" /> : null}
+          {isLocked ? <Lock className="h-3 w-3" aria-hidden="true" /> : a.tier === 'ENTERPRISE' ? <Crown className="h-3.5 w-3.5 text-purple-500" aria-hidden="true" /> : a.tier === 'BUSINESS' ? <Building2 className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" /> : a.tier === 'PRO' ? <Sparkles className="h-3.5 w-3.5 text-blue-500" aria-hidden="true" /> : null}
           <span className="text-[9px] font-bold uppercase text-gray-400">{TIER_LABEL[a.tier]}</span>
         </span>
       </button>

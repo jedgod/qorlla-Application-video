@@ -22,10 +22,10 @@ const render = (id, body = { status: 'READY', videoUrl: 'https://media.example.t
 const myClips = async (u) => (await call(base, u, 'GET', '/api/clips?view=mine')).body.clips;
 
 describe('avatar tiers', () => {
-  test('the tier comes from the organization plan: basic/free -> BASIC, pro -> MODERATE, business/enterprise -> ELITE; unknown plans fail closed', () => {
+  test('the tier comes from the organization plan: basic/free -> BASIC, pro -> PRO, business -> BUSINESS, enterprise -> ENTERPRISE; unknown plans (and the old "elite") fail closed', () => {
     assert.equal(tierForPlan('free'), 'BASIC'); assert.equal(tierForPlan(undefined), 'BASIC');
     assert.equal(tierForPlan('basic'), 'BASIC'); assert.equal(tierForPlan('Basic'), 'BASIC'); assert.equal(tierForPlan('mystery-plan'), 'BASIC');
-    assert.equal(tierForPlan('pro'), 'MODERATE'); assert.equal(tierForPlan('Business'), 'ELITE'); assert.equal(tierForPlan('enterprise'), 'ELITE');
+    assert.equal(tierForPlan('pro'), 'PRO'); assert.equal(tierForPlan('Business'), 'BUSINESS'); assert.equal(tierForPlan('Enterprise'), 'ENTERPRISE'); assert.equal(tierForPlan('elite'), 'BASIC');
   });
 
   test('seeding is idempotent and never changes an existing avatar', async () => {
@@ -44,22 +44,27 @@ describe('avatar tiers', () => {
       const r = await templates(u); assert.equal(r.status, 200);
       assert.equal(r.body.tier, 'BASIC');
       assert.ok(r.body.templates.length >= 2 && r.body.templates.every((t) => t.tier === 'BASIC'));
-      assert.ok(r.body.locked.length >= 4 && r.body.locked.every((t) => t.tier !== 'BASIC'));
+      assert.ok(r.body.locked.length >= 6 && r.body.locked.every((t) => t.tier !== 'BASIC'));
       assert.ok(!/modelKey|avatars\/models/.test(r.text), 'the media key never leaves the server');
     }
   });
 
-  test('templates: moderate plan sees BASIC+MODERATE; elite plan sees all', async () => {
-    const pro = await world(base, { plan: 'pro' });
-    const t = (await templates(pro.m1)).body;
-    assert.deepEqual([...new Set(t.templates.map((x) => x.tier))].sort(), ['BASIC', 'MODERATE']); assert.ok(t.locked.every((x) => x.tier === 'ELITE'));
-    const biz = await world(base, { plan: 'business' });
-    const e = (await templates(biz.m1)).body; assert.equal(e.locked.length, 0); assert.ok(e.templates.some((x) => x.tier === 'ELITE'));
+  test('templates: each plan sees its own tier and every tier below it, and the tiers above are listed as locked', async () => {
+    const ORDER = ['BASIC', 'PRO', 'BUSINESS', 'ENTERPRISE'];
+    for (const [plan, top] of [['basic', 'BASIC'], ['pro', 'PRO'], ['business', 'BUSINESS'], ['enterprise', 'ENTERPRISE']]) {
+      const w = await world(base, { plan });
+      const t = (await templates(w.a)).body;                              // w.a is an ADMIN: the role must not change the result
+      const have = ORDER.slice(0, ORDER.indexOf(top) + 1);
+      assert.equal(t.tier, top, plan);
+      assert.deepEqual([...new Set(t.templates.map((x) => x.tier))].sort(), [...have].sort(), `${plan} sees ${have}`);
+      assert.ok(t.locked.every((x) => ORDER.indexOf(x.tier) > ORDER.indexOf(top)), `${plan} locked list holds only higher tiers`);
+      assert.deepEqual(t.templates.map((x) => ORDER.indexOf(x.tier)), t.templates.map((x) => ORDER.indexOf(x.tier)).sort((p, q) => p - q), 'lowest tier first');
+    }
   });
 
   test('a draft with an avatar above the plan tier is refused (403) and nothing is created; an unknown avatar is 404', async () => {
     const free = await world(base);
-    const r = await mkDraft(free.a, 'zephyr-premium-anchor'); assert.equal(r.status, 403); assert.equal(r.body.error, 'feature_locked'); assert.equal(r.body.requiredTier, 'ELITE');
+    const r = await mkDraft(free.a, 'zephyr-premium-anchor'); assert.equal(r.status, 403); assert.equal(r.body.error, 'feature_locked'); assert.equal(r.body.requiredTier, 'ENTERPRISE');
     assert.equal((await mkDraft(free.m1, 'marcus-studio-cinematic')).status, 403);
     assert.equal((await call(base, free.m1, 'GET', '/api/avatars/drafts')).body.drafts.length, 0);
     assert.equal((await call(base, free.m1, 'POST', '/api/avatars/drafts', { avatarId: '00000000-0000-4000-8000-000000000000' })).status, 404);
@@ -67,7 +72,12 @@ describe('avatar tiers', () => {
     assert.equal((await call(base, free.m1, 'POST', '/api/avatars/drafts', { avatarId: await slugId('alex-corporate-presenter'), extra: 1 })).status, 400, 'strict input');
     const pro = await world(base, { plan: 'pro' });
     assert.equal((await mkDraft(pro.m1, 'marcus-studio-cinematic')).status, 201);
-    assert.equal((await mkDraft(pro.m1, 'zephyr-premium-anchor')).status, 403, 'moderate cannot reach elite');
+    assert.equal((await mkDraft(pro.m1, 'priya-business-presenter')).status, 403, 'pro cannot reach business');
+    assert.equal((await mkDraft(pro.m1, 'zephyr-premium-anchor')).status, 403, 'pro cannot reach enterprise');
+    const biz = await world(base, { plan: 'business' });
+    assert.equal((await mkDraft(biz.m1, 'priya-business-presenter')).status, 201); assert.equal((await mkDraft(biz.m1, 'zephyr-premium-anchor')).status, 403, 'business cannot reach enterprise');
+    const ent = await world(base, { plan: 'enterprise' });
+    assert.equal((await mkDraft(ent.m1, 'zephyr-premium-anchor')).status, 201);
   });
 });
 

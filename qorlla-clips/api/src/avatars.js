@@ -12,19 +12,22 @@
  * exactly one clip.
  *
  * Tiers come from the ORGANIZATION'S PLAN, not from the role: an admin of a free organization does not get paid avatars.
- *   free / basic -> BASIC     pro -> MODERATE     business / enterprise -> ELITE     an unknown plan name -> BASIC (fail closed)
+ *   free / basic -> BASIC     pro -> PRO     business -> BUSINESS     enterprise -> ENTERPRISE     an unknown plan name -> BASIC (fail closed)
+ * A plan unlocks its own tier and every tier below it. Role never unlocks anything: an admin of a Basic organization still sees Basic only.
  * The catalog (InbuiltAvatar) has no write route; scripts/seed-avatars.mjs only inserts rows that do not exist yet.
  */
 import { z } from 'zod';
 
-export const TIER_RANK = { BASIC: 0, MODERATE: 1, ELITE: 2 };
+export const TIER_RANK = { BASIC: 0, PRO: 1, BUSINESS: 2, ENTERPRISE: 3 };
+const TIER_PLAN = { PRO: 'Pro', BUSINESS: 'Business', ENTERPRISE: 'Enterprise' };
 export const MAX_OPEN_DRAFTS = 50;
 
 /** The highest avatar tier an organization plan unlocks. */
 export function tierForPlan(plan) {
   const p = String(plan || 'free').trim().toLowerCase();
-  if (['business', 'enterprise', 'elite'].includes(p)) return 'ELITE';
-  if (p === 'pro') return 'MODERATE';
+  if (p === 'enterprise') return 'ENTERPRISE';
+  if (p === 'business') return 'BUSINESS';
+  if (p === 'pro') return 'PRO';
   return 'BASIC';                                                                   // free, basic, empty, or any plan name we do not know: fail closed
 }
 
@@ -46,7 +49,7 @@ export function registerAvatars({ api, prisma, config, wrap, notFound, clipDto, 
 
   api.get('/avatars/templates', wrap(async (req, res) => {
     const { tier } = await myTier(req.user);
-    const all = await prisma.inbuiltAvatar.findMany({ orderBy: [{ tier: 'asc' }, { name: 'asc' }] });
+    const all = (await prisma.inbuiltAvatar.findMany({ orderBy: { name: 'asc' } })).sort((x, y) => TIER_RANK[x.tier] - TIER_RANK[y.tier]);   // by rank, not by database enum order
     const allowed = all.filter((a) => TIER_RANK[a.tier] <= TIER_RANK[tier]);
     const locked = all.filter((a) => TIER_RANK[a.tier] > TIER_RANK[tier]);
     res.json({ tier, templates: allowed.map(avatarDto), locked: locked.map(avatarDto) });
@@ -66,7 +69,7 @@ export function registerAvatars({ api, prisma, config, wrap, notFound, clipDto, 
     if (!avatar) return notFound(res);
     const { tier } = await myTier(me);
     if (TIER_RANK[avatar.tier] > TIER_RANK[tier]) {
-      return res.status(403).json({ error: 'feature_locked', feature: 'avatar_tier', requiredTier: avatar.tier, message: `This avatar needs the ${avatar.tier.toLowerCase()} avatar tier. Upgrade your plan to use it.` });
+      return res.status(403).json({ error: 'feature_locked', feature: 'avatar_tier', requiredTier: avatar.tier, message: `This avatar is included in the ${TIER_PLAN[avatar.tier] || avatar.tier} plan and above. Upgrade your plan to use it.` });
     }
     const open = await prisma.avatarDraft.count({ where: { ownerId: me.id, organizationId: me.orgId, isPromoted: false } });
     if (open >= MAX_OPEN_DRAFTS) return res.status(403).json({ error: 'quota_exceeded', feature: 'avatar_drafts', message: `You can keep up to ${MAX_OPEN_DRAFTS} unsaved avatar drafts. Save or delete some first.` });
