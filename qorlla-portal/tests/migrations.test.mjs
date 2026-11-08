@@ -115,6 +115,7 @@ describe('PostgreSQL migration and rollback', () => {
     const docCols = await cols(p, 'documents'); const before = await tables(p);
     await p.query(sqlFile('015_docs_extension.sql')); await p.query(sqlFile('015_docs_extension.sql'));
     assert.deepEqual(await cols(p, 'documents'), docCols, 'portal.documents is not altered');
+    assert.equal(Number((await p.query("SELECT count(*) FROM portal.entitlements WHERE feature='documents.comments'")).rows[0].count), 4, 'comments are granted to all four plans, so nothing changes today (and re-running adds no duplicates)');
     for (const t of ['doc_folders', 'doc_metadata', 'doc_stars', 'doc_comments']) assert.ok((await tables(p)).includes(t), t);
     const f = (await p.query("INSERT INTO portal.doc_folders(workspace_id,owner_id,name) VALUES($1,$2,'Projects') RETURNING id", [ws, u])).rows[0].id;
     await assert.rejects(p.query("INSERT INTO portal.doc_folders(workspace_id,owner_id,name) VALUES($1,$2,' projects ')", [ws, u]), /duplicate|unique/i, 'names are unique per owner, ignoring case and spaces');
@@ -124,6 +125,7 @@ describe('PostgreSQL migration and rollback', () => {
     await assert.rejects(p.query("INSERT INTO portal.doc_comments(document_id,workspace_id,author_id,body) VALUES($1,$2,$3,'  ')", [d, ws, u]), /check/i);
     await p.query(sqlFile('rollback', '015_docs_extension.down.sql')); await p.query(sqlFile('rollback', '015_docs_extension.down.sql'));
     assert.deepEqual(await tables(p), before, 'only the Docs extension tables are removed');
+    assert.equal(Number((await p.query("SELECT count(*) FROM portal.entitlements WHERE feature='documents.comments'")).rows[0].count), 0, 'and its entitlement rows');
     assert.equal((await p.query("SELECT content->>'text' t FROM portal.document_versions WHERE document_id=$1", [d])).rows[0].t, 'kept');
     await p.query(sqlFile('015_docs_extension.sql')); assert.ok((await tables(p)).includes('doc_folders'));
   });

@@ -42,4 +42,11 @@ CREATE TABLE IF NOT EXISTS portal.doc_comments (
   resolved_at timestamptz, resolved_by uuid
 );
 CREATE INDEX IF NOT EXISTS doc_comments_doc_idx ON portal.doc_comments(document_id, created_at);
+
+-- Comments are a plan feature enforced by the server (portal.entitlements: a plan with no row is not granted). Seeded for EVERY plan, so nothing changes today;
+-- a tier rule that is formally approved later is a data change (delete the row for that plan), not a code change.
+INSERT INTO portal.entitlements(plan_slug, feature, quota, description) VALUES
+  ('basic','documents.comments',NULL,'Document comments'), ('pro','documents.comments',NULL,'Document comments'),
+  ('business','documents.comments',NULL,'Document comments'), ('enterprise','documents.comments',NULL,'Document comments')
+ON CONFLICT (plan_slug, feature) DO NOTHING;
 COMMIT;

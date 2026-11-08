@@ -30,7 +30,7 @@ test.describe('navigation - links, keyboard, mobile', () => {
     const phone = page.locator('.nav-item[data-route="/app/phone"]'); await phone.focus(); await page.keyboard.press('Enter');
     await page.waitForURL(/\/app\/phone$/); await expect(page.getByRole('heading', { name: 'Qorlla Phone' })).toBeVisible();
     await expect(page).toHaveTitle(/Phone \| Qorlla/);
-    for (const [route, heading] of [['mate', 'QorllaMate'], ['suite', 'AI Productivity Suite'], ['notes', 'My Notes'], ['receptionist', 'AI Receptionist']]) {
+    for (const [route, heading] of [['mate', 'QorllaMate'], ['suite', 'Qorlla Docs'], ['notes', 'My Notes'], ['receptionist', 'AI Receptionist']]) {
       await page.goto('/pricing/'); await page.locator(`.nav-item[data-route="/app/${route}"]`).click(); await page.waitForURL(new RegExp(`/app/${route}$`));
       await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible();
     }

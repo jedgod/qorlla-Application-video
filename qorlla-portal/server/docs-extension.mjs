@@ -8,15 +8,19 @@
 // Needs sql/015_docs_extension.sql. Routes that existed before this file are unchanged apart from the optional `view`/`folder` list filters.
 import { z } from 'zod';
 import { UUID_RE } from './auth.mjs';
-import { PlanLimitError, quotaFor, withWorkspaceLock } from './entitlements.mjs';
+import { quotaFor, withWorkspaceLock } from './entitlements.mjs';
 
 const err = (status, error, code, extra = {}) => Object.assign(new Error(error), { http: { status, body: { error, code, ...extra } } });
 const uuid = z.string().regex(UUID_RE);
 export const VIEWS = ['recent', 'mine', 'shared', 'starred', 'templates', 'trash'];
 const MAX_FOLDERS = 200;
+export const COMMENTS_FEATURE = 'documents.comments';
+/** Comments are a plan feature. The plan row in portal.entitlements is the authority (no row = not granted = refused, so a missing or unreadable entitlement fails closed);
+ *  the page only mirrors it. Reading existing comments stays allowed after a downgrade; adding and resolving them does not. */
+const requireComments = async (c, ws) => { const q = await quotaFor(c, ws, COMMENTS_FEATURE); if (!q.granted) throw err(403, 'Comments are not included in your plan', 'entitlement_required', { feature: COMMENTS_FEATURE, plan: q.plan }); };
 const slug = (t) => String(t || 'document').normalize('NFKD').replace(/[^\x20-\x7e]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'document';
 
-export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc, docMeta, audit, createDocument, plainText, tsTerms }) {
+export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc, docMeta, audit, createDocument, assertDocumentRoom, plainText, tsTerms }) {
   const { member } = auth;
 
   // ---- list with views (the old list route delegates here when ?view= or ?folder= is present) ----
@@ -90,8 +94,7 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
     await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = (await c.query('SELECT id, owner_id FROM portal.documents WHERE id=$1 AND workspace_id=$2 AND deleted_at IS NOT NULL FOR UPDATE', [req.params.id, req.workspace])).rows[0];
       if (!d || d.owner_id !== req.actor) throw err(404, 'Document not found');
-      const q = await quotaFor(c, req.workspace, 'documents.max'); const n = Number((await c.query('SELECT count(*) FROM portal.documents WHERE workspace_id=$1 AND deleted_at IS NULL', [req.workspace])).rows[0].count);
-      if (q.quota !== null && n >= q.quota) throw new PlanLimitError('documents.max', q.quota, q.plan);
+      await assertDocumentRoom(c, req.workspace);                       // the same check, under the same workspace lock, as every other route that adds a live document
       await c.query('UPDATE portal.documents SET deleted_at=NULL, updated_at=now() WHERE id=$1', [d.id]); await audit(c, req.workspace, req.actor, 'document.undeleted', d.id);
     });
     res.json({ restored: true });
@@ -154,6 +157,7 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
     const row = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id); if (!d) throw err(404, 'Document not found');
       if (!['owner', 'editor'].includes(d.my_role)) throw err(403, 'You can view but not comment on this document', 'read_only');
+      await requireComments(c, req.workspace);
       const r = (await c.query('INSERT INTO portal.doc_comments(document_id,workspace_id,author_id,body) VALUES($1,$2,$3,$4) RETURNING id, author_id, body, created_at, resolved_at', [d.id, req.workspace, req.actor, p.body])).rows[0];
       await audit(c, req.workspace, req.actor, 'document.commented', d.id); return r;
     });
@@ -163,6 +167,7 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
     await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id); if (!d) throw err(404, 'Document not found');
       if (!['owner', 'editor'].includes(d.my_role)) throw err(403, 'You can view but not edit this document', 'read_only');
+      await requireComments(c, req.workspace);
       const r = UUID_RE.test(req.params.cid) ? await c.query('UPDATE portal.doc_comments SET resolved_at=now(), resolved_by=$3 WHERE id=$1 AND document_id=$2 AND resolved_at IS NULL', [req.params.cid, d.id, req.actor]) : { rowCount: 0 };
       if (!r.rowCount) throw err(404, 'Comment not found');
       await audit(c, req.workspace, req.actor, 'document.comment_resolved', d.id);

@@ -170,9 +170,14 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     res.set('Cache-Control', 'no-store').json(rows.map(docMeta));
   }));
 
-  async function createDocument(c, { ws, actor, kind, title, content, source = 'user', key = null, note = null }) {
+  /** THE document-limit check. Every route that adds a live document (create, AI draft, AI apply, assistant task, duplicate, restore from trash) calls this
+   *  inside withWorkspaceLock, so concurrent requests are serialised by the workspace row lock and cannot both pass the count. */
+  async function assertDocumentRoom(c, ws) {
     const q = await quotaFor(c, ws, 'documents.max'); const n = Number((await c.query('SELECT count(*) FROM portal.documents WHERE workspace_id=$1 AND deleted_at IS NULL', [ws])).rows[0].count);
     if (q.quota !== null && n >= q.quota) throw new PlanLimitError('documents.max', q.quota, q.plan);
+  }
+  async function createDocument(c, { ws, actor, kind, title, content, source = 'user', key = null, note = null }) {
+    await assertDocumentRoom(c, ws);
     const d = (await c.query(`INSERT INTO portal.documents(workspace_id,owner_id,kind,title,current_version,search_text,creation_key) VALUES($1,$2,$3,$4,1,$5,$6) RETURNING *`, [ws, actor, kind, title, plainText(kind, content), key])).rows[0];
     await c.query(`INSERT INTO portal.document_versions(document_id,version_no,content,source,note,created_by) VALUES($1,1,$2,$3,$4,$5)`, [d.id, JSON.stringify(content), source, note, actor]);
     return { ...d, my_role: 'owner' };
@@ -397,7 +402,7 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     res.status(r.rowCount ? 204 : 404).end();
   }));
 
-  docsExt = registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc, docMeta, audit, createDocument, plainText, tsTerms });
+  docsExt = registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc, docMeta, audit, createDocument, assertDocumentRoom, plainText, tsTerms });
 
   // ---- search across what the caller may read (notes + documents) ----
   app.get('/api/v1/search', member, h(async (req, res) => {

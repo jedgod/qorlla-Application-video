@@ -14,7 +14,7 @@ const modules = [
   ['phone', '📞', 'Phone', 'Business dialer, numbers, extensions, voicemail and call history.'],
   ['notes', '📝', 'My Notes', 'Create notes, review meeting summaries and organize your knowledge.'],
   ['mate', '🤖', 'QorllaMate', 'Your AI companion for meeting preparation and workplace tasks.'],
-  ['suite', '✨', 'AI Productivity Suite', 'Docs, Sheets, Slides, Paper and shared team workspaces.'],
+  ['suite', '✨', 'Qorlla Docs','Docs, Sheets, Slides, Paper and shared team workspaces.'],
   ['ai', '🧠', 'AI Meeting Intelligence', 'Transcription, summaries, action items and report sharing.'],
   ['solutions', '🏢', 'Solutions', 'Qorlla solutions for education, business, healthcare and events.'],
   ['support', '🛟', 'Support', 'Help center, service requests and technical assistance.']
@@ -32,7 +32,7 @@ const routes = {
   receptionist: () => heading('AI Receptionist', 'An intelligent front desk for your organization.', '🎧') + '<div id="receptionist-root"></div>',
   phone: () => heading('Qorlla Phone', 'Business calling and telephony management.', '📞') + '<div id="phone-root"></div>',
   mate: () => heading('QorllaMate', 'An AI assistant for your workplace.', '🤖') + '<div id="mate-root"></div>',
-  suite: () => heading('AI Productivity Suite', 'Create, organize and collaborate in a single workspace.', '✨') + '<div id="suite-root"></div>',
+  suite: () => heading('Qorlla Docs','Create, organize and collaborate in a single workspace.', '✨') + '<div id="suite-root"></div>',
   ai: () => heading('AI Meeting Intelligence', 'Consent-based summaries, decisions and action items from your meetings.', '🧠') + '<div id="ai-root"></div>',
   solutions: () => heading('Solutions for Every Team', 'Purpose-built workflows across organizations.', '🏢') + tiles([['Education', 'Classes, tutoring and office hours'], ['Healthcare', 'Administrative communication and scheduling'], ['Small Business', 'Customer engagement and meetings'], ['Enterprise', 'Security, governance and scale'], ['Events', 'Webinars, registration and reporting'], ['Remote Teams', 'Async collaboration and meetings']]),
   support: () => heading('Support Center', 'Get help, report problems and track requests.', '🛟') + `<div class="cards">${[['Help Center', 'Documentation and troubleshooting'], ['Technical Diagnostics', 'Browser, connection and meeting checks'], ['Billing Support', 'Plan, invoice and payment questions']].map(([a, b]) => `<article class="card"><h3>${a}</h3><p>${b}</p></article>`).join('')}</div>` +

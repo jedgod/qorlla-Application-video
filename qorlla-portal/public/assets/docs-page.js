@@ -5,6 +5,7 @@
 import { $, esc, api, notice, describe, panel } from './core.js';
 import { mountAiPanel } from './ai-panel.js';
 
+const say = (e) => (e.body?.code === 'entitlement_required' ? 'That is not included in your plan.' : describe(e));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
 const when = (iso) => (iso ? new Date(iso).toLocaleString() : '-');
 const KIND = { doc: ['📄', 'Document'], sheet: ['📊', 'Sheet'], slides: ['🎞️', 'Slides'] };
@@ -129,7 +130,7 @@ async function renderHome(root) {
   $('#doc-search [name=q]').addEventListener('input', (e) => { if (e.target.value === '' && st.q) go({ q: '' }); });
   $('#doc-kind').addEventListener('change', () => $('#doc-search').requestSubmit());
   $('#doc-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button'); btn.disabled = true;
-    try { const d = await api('/documents', { method: 'POST', body: JSON.stringify({ kind: f.kind, title: f.title, idempotency_key: uid() }) }); location.href = `/app/suite?doc=${d.id}`; } catch (err) { notice(describe(err)); btn.disabled = false; } };
+    try { const d = await api('/documents', { method: 'POST', body: JSON.stringify({ kind: f.kind, title: f.title, idempotency_key: uid() }) }); location.href = `/app/suite?doc=${d.id}`; } catch (err) { notice(say(err)); btn.disabled = false; } };
   $('#ai-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button'); btn.disabled = true; notice('Drafting…');
     try { const d = await api('/documents/ai-draft', { method: 'POST', body: JSON.stringify({ kind: f.kind, prompt: f.prompt, idempotency_key: uid() }) }); location.href = `/app/suite?doc=${d.id}`; } catch (err) { notice(err.body?.code === 'no_ai_provider' ? 'No AI provider is configured.' : [502, 503].includes(err.status) ? 'The AI service is unavailable right now. Nothing was saved or charged.' : describe(err)); btn.disabled = false; } };
   $('#docs').addEventListener('click', async (e) => {
@@ -140,11 +141,11 @@ async function renderHome(root) {
       else if (b.dataset.act === 'dup') { await api(`/documents/${id}/duplicate`, { method: 'POST', body: '{}' }); notice('A private copy was added to your documents.'); await load(); }
       else if (b.dataset.act === 'trash') { if (confirm('Move this document to the trash? You can restore it from the Trash view.')) { await api('/documents/' + id, { method: 'DELETE' }); notice('Moved to the trash.'); await load(); } else b.disabled = false; }
       else if (b.dataset.act === 'restore') { await api(`/documents/${id}/undelete`, { method: 'POST', body: '{}' }); notice('Document restored.'); await load(); }
-    } catch (err) { notice(describe(err)); b.disabled = false; }
+    } catch (err) { notice(say(err)); b.disabled = false; }
   });
   $('#docs').addEventListener('change', async (e) => {
     const s = e.target.closest('select[data-act=move]'); if (!s) return; const id = s.closest('[data-doc]').dataset.doc;
-    try { await api(`/documents/${id}/move`, { method: 'POST', body: JSON.stringify({ folder_id: s.value || null }) }); notice('Moved.'); await load(); } catch (err) { notice(describe(err)); await load(); }
+    try { await api(`/documents/${id}/move`, { method: 'POST', body: JSON.stringify({ folder_id: s.value || null }) }); notice('Moved.'); await load(); } catch (err) { notice(say(err)); await load(); }
   });
   await load();
 }
@@ -211,15 +212,16 @@ async function renderEditor(root, id) {
   $('#docs-back').addEventListener('click', (e) => { if (canEdit && dirty() && !confirm('You have unsaved changes. Leave without saving?')) e.preventDefault(); });
   $('#doc-title').addEventListener('change', async (e) => {
     const title = e.target.value.trim(); if (!title) { e.target.value = d.title; return; }
-    try { await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ title }) }); d.title = title; notice('Renamed.'); } catch (err) { e.target.value = d.title; notice(describe(err)); }
+    try { await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ title }) }); d.title = title; notice('Renamed.'); } catch (err) { e.target.value = d.title; notice(say(err)); }
   });
-  $('#doc-star').addEventListener('click', async (e) => { try { starred = !starred; await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ starred }) }); e.currentTarget.setAttribute('aria-pressed', String(starred)); e.currentTarget.textContent = starred ? '★ Starred' : '☆ Star'; } catch (err) { starred = !starred; notice(describe(err)); } });
-  $('#doc-dup').addEventListener('click', async (e) => { e.currentTarget.disabled = true; try { const c = await api(`/documents/${id}/duplicate`, { method: 'POST', body: '{}' }); location.href = `/app/suite?doc=${c.id}`; } catch (err) { notice(describe(err)); e.currentTarget.disabled = false; } });
-  $('#doc-folder')?.addEventListener('change', async (e) => { try { await api(`/documents/${id}/move`, { method: 'POST', body: JSON.stringify({ folder_id: e.target.value || null }) }); notice('Moved.'); } catch (err) { notice(describe(err)); } });
-  $('#del-doc')?.addEventListener('click', async () => { if (!confirm('Move this document to the trash? You can restore it from the Trash view.')) return; try { await api(`/documents/${id}`, { method: 'DELETE' }); location.href = '/app/suite'; } catch (err) { notice(describe(err)); } });
+  $('#doc-star').addEventListener('click', async (e) => { try { starred = !starred; await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ starred }) }); e.currentTarget.setAttribute('aria-pressed', String(starred)); e.currentTarget.textContent = starred ? '★ Starred' : '☆ Star'; } catch (err) { starred = !starred; notice(say(err)); } });
+  $('#doc-dup').addEventListener('click', async (e) => { e.currentTarget.disabled = true; try { const c = await api(`/documents/${id}/duplicate`, { method: 'POST', body: '{}' }); location.href = `/app/suite?doc=${c.id}`; } catch (err) { notice(say(err)); e.currentTarget.disabled = false; } });
+  $('#doc-folder')?.addEventListener('change', async (e) => { try { await api(`/documents/${id}/move`, { method: 'POST', body: JSON.stringify({ folder_id: e.target.value || null }) }); notice('Moved.'); } catch (err) { notice(say(err)); } });
+  $('#del-doc')?.addEventListener('click', async () => { if (!confirm('Move this document to the trash? You can restore it from the Trash view.')) return; try { await api(`/documents/${id}`, { method: 'DELETE' }); location.href = '/app/suite'; } catch (err) { notice(say(err)); } });
 
   const side = async () => {
-    const box = $('#doc-side'); const [versions, comments, members] = await Promise.all([api(`/documents/${id}/versions`), api(`/documents/${id}/comments`).catch(() => []), api('/members').catch(() => [])]);
+    const box = $('#doc-side'); const [versions, comments, members, ent] = await Promise.all([api(`/documents/${id}/versions`), api(`/documents/${id}/comments`).catch(() => []), api('/members').catch(() => []), api('/entitlements').catch(() => null)]);
+    const commentsOn = !ent?.features || 'documents.comments' in ent.features;      // the page mirrors the plan; the server decides (403 entitlement_required)
     const name = (u) => (u === me.user_id ? 'You' : members.find((m) => m.user_id === u)?.display_name || 'A workspace member');
     let share = '';
     if (owner) {
@@ -229,16 +231,16 @@ async function renderEditor(root, id) {
     }
     const open = comments.filter((c) => !c.resolved_at); const done = comments.filter((c) => c.resolved_at);
     const cm = (c) => `<li data-comment="${esc(c.id)}"><strong>${esc(name(c.author_id))}</strong> <span class="muted">${esc(when(c.created_at))}</span><p class="docs-comment">${esc(c.body)}</p>${!c.resolved_at && canEdit ? '<button type="button" class="secondary" data-act="resolve-comment">Resolve</button>' : c.resolved_at ? '<span class="muted">Resolved</span>' : ''}</li>`;
-    const comm = panel(`Comments${open.length ? ` (${open.length})` : ''}`, `${canEdit ? '<form id="comment-form"><label>Add a comment<textarea name="body" rows="2" maxlength="4000" required></textarea></label><button class="secondary">Add comment</button></form>' : '<p class="muted">You can read comments but not add them.</p>'}
+    const comm = panel(`Comments${open.length ? ` (${open.length})` : ''}`, `${canEdit && commentsOn ? '<form id="comment-form"><label>Add a comment<textarea name="body" rows="2" maxlength="4000" required></textarea></label><button class="secondary">Add comment</button></form>' : `<p class="muted">${canEdit ? 'Comments are not included in your plan.' : 'You can read comments but not add them.'}</p>`}
       <ul class="docs-comments" id="doc-comments">${open.length ? open.map(cm).join('') : '<li class="muted">No open comments.</li>'}</ul>${done.length ? `<details><summary>${done.length} resolved</summary><ul class="docs-comments">${done.map(cm).join('')}</ul></details>` : ''}`);
     box.innerHTML = share + comm + panel('Version history', `<div class="docs-table"><table><thead><tr><th>Version</th><th>When</th><th>Source</th><th></th></tr></thead><tbody>${versions.map((v) => `<tr data-v="${esc(v.version_no)}"><td>v${esc(v.version_no)}</td><td>${esc(when(v.created_at))}</td><td>${esc(v.source)}${v.note ? ' · ' + esc(v.note) : ''}</td><td>${canEdit && v.version_no !== version ? '<button class="secondary" data-act="restore">Restore as new version</button>' : ''}</td></tr>`).join('')}</tbody></table></div>`);
     $('#share-form')?.addEventListener('submit', async (e) => {
       e.preventDefault(); const users = [...e.target.querySelectorAll('[data-user]')].filter((s) => s.value).map((s) => ({ user_id: s.dataset.user, role: s.value }));
-      try { await api(`/documents/${id}/permissions`, { method: 'PUT', body: JSON.stringify({ general_access: e.target.elements.general.value, users }) }); notice('Sharing updated.'); } catch (err) { notice(describe(err)); }
+      try { await api(`/documents/${id}/permissions`, { method: 'PUT', body: JSON.stringify({ general_access: e.target.elements.general.value, users }) }); notice('Sharing updated.'); } catch (err) { notice(say(err)); }
     });
     $('#comment-form')?.addEventListener('submit', async (e) => { e.preventDefault(); const body = new FormData(e.target).get('body').trim(); if (!body) return;
-      try { await api(`/documents/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }); notice('Comment added.'); await side(); } catch (err) { notice(describe(err)); } });
-    box.querySelectorAll('[data-act=resolve-comment]').forEach((b) => b.addEventListener('click', async () => { try { await api(`/documents/${id}/comments/${b.closest('[data-comment]').dataset.comment}/resolve`, { method: 'POST', body: '{}' }); await side(); } catch (err) { notice(describe(err)); } }));
+      try { await api(`/documents/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }); notice('Comment added.'); await side(); } catch (err) { notice(say(err)); } });
+    box.querySelectorAll('[data-act=resolve-comment]').forEach((b) => b.addEventListener('click', async () => { try { await api(`/documents/${id}/comments/${b.closest('[data-comment]').dataset.comment}/resolve`, { method: 'POST', body: '{}' }); await side(); } catch (err) { notice(say(err)); } }));
     box.querySelectorAll('[data-act=restore]').forEach((b) => b.addEventListener('click', async () => { try { await api(`/documents/${id}/restore`, { method: 'POST', body: JSON.stringify({ version_no: Number(b.closest('tr').dataset.v), base_version: version }) }); location.reload(); } catch (err) { notice(err.body?.code === 'version_conflict' ? 'The document changed meanwhile. Reload and try again.' : describe(err)); } }));
   };
   await side();

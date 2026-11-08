@@ -35,7 +35,7 @@ try {
   // ---------------------------------------------------------------- home
   const { ctx, page } = await openAs(H);
   await page.goto(app.base + '/app/suite'); await page.locator('#docs-views [data-view]').first().waitFor();
-  check('home: heading, six views, folders panel and the create form are present', (await page.locator('h1').first().textContent()) === 'AI Productivity Suite' && (await page.locator('#docs-views [data-view]').count()) === 6 && (await page.locator('#folder-form').count()) === 1 && (await page.locator('#doc-form [name=kind] option').count()) === 3);
+  check('home: heading, six views, folders panel and the create form are present', (await page.locator('h1').first().textContent()) === 'Qorlla Docs' && (await page.locator('#docs-views [data-view]').count()) === 6 && (await page.locator('#folder-form').count()) === 1 && (await page.locator('#doc-form [name=kind] option').count()) === 3);
   check('home: an empty workspace shows the empty state for the current view, not a blank page', await until(async () => /No documents yet/.test(await page.locator('#docs-state').textContent())));
   check('home: Recent is the current view (aria-current)', (await page.locator('#docs-views [aria-current=true]').textContent()).includes('Recent'));
 

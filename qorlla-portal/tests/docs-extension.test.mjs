@@ -222,4 +222,93 @@ describe('Docs extension (API against PostgreSQL)', () => {
       assert.ok(!ids(await outsider().get('/api/v1/documents?view=recent')).includes(d.id)); assert.equal((await q('SELECT count(*)::int n FROM portal.documents WHERE workspace_id=$1', [W2]))[0].n, 0);
     });
   });
+  describe('plan limits: every way of adding a live document shares one workspace-locked check', () => {
+    const seedDocs = (ws, owner, n, deleted = false) => n > 0 ? db.pool.query(`INSERT INTO portal.documents(workspace_id,owner_id,kind,title,current_version,search_text,deleted_at) SELECT $1,$2,'doc','Seed '||g,1,'',${deleted ? 'now()' : 'NULL'} FROM generate_series(1,$3) g`, [ws, owner, n]) : null;
+    const live = async (ws) => Number((await q('SELECT count(*) FROM portal.documents WHERE workspace_id=$1 AND deleted_at IS NULL', [ws]))[0].count);
+    for (const [plan, limit] of [['basic', 5], ['pro', 500], ['business', 5000], ['enterprise', null]]) {
+      test(`${plan} (${limit ?? 'unlimited'}): twelve simultaneous creates, duplicates, template copies and restores ${limit === null ? 'all succeed' : 'fill exactly the three free places'}`, async () => {
+        const { u, w, cl } = await newWorkspace(plan); const base = limit ?? 25;
+        const src = await mk(cl, 'Template source'); await cl.patch(`/api/v1/documents/${src.id}`, { template: true });
+        await seedDocs(w, u.sub, base - 1 - 3); await seedDocs(w, u.sub, 6, true);
+        const trashed = (await q('SELECT id FROM portal.documents WHERE workspace_id=$1 AND deleted_at IS NOT NULL', [w])).map((r) => r.id);
+        assert.equal(await live(w), base - 3);
+        const ops = [...Array.from({ length: 4 }, (_, i) => cl.post('/api/v1/documents', { kind: 'doc', title: 'Race ' + i })), ...Array.from({ length: 4 }, () => cl.post(`/api/v1/documents/${src.id}/duplicate`, {})), ...trashed.slice(0, 4).map((id) => cl.post(`/api/v1/documents/${id}/undelete`, {}))];
+        const rows = await Promise.all(ops); const ok = rows.filter((r) => [200, 201].includes(r.status)).length;
+        assert.equal(ok, limit === null ? 12 : 3, rows.map((r) => r.status).join());
+        assert.ok(rows.filter((r) => ![200, 201].includes(r.status)).every((r) => r.status === 402 && r.body.code === 'plan_limit'));
+        if (limit !== null) assert.equal(await live(w), limit, 'never above the limit');
+      });
+    }
+    test('a downgrade below current usage blocks every way of adding a document but never touches existing ones', async () => {
+      const { w, cl } = await newWorkspace('pro'); const docs = []; for (let i = 0; i < 7; i++) docs.push(await mk(cl, 'Keep ' + i)); const gone = docs.pop(); await cl.del(`/api/v1/documents/${gone.id}`);
+      await db.pool.query(`UPDATE portal.subscriptions SET plan_slug='basic' WHERE workspace_id=$1`, [w]);                       // 6 live documents on a 5-document plan
+      assert.equal((await cl.post('/api/v1/documents', { kind: 'doc', title: 'new' })).status, 402); assert.equal((await cl.post(`/api/v1/documents/${docs[0].id}/duplicate`, {})).status, 402); assert.equal((await cl.post(`/api/v1/documents/${gone.id}/undelete`, {})).status, 402);
+      assert.equal((await cl.put(`/api/v1/documents/${docs[0].id}`, { base_version: 1, content: { format: 'markdown', text: 'still editable' } })).status, 200); assert.equal((await cl.get(`/api/v1/documents/${docs[1].id}`)).status, 200);
+      assert.equal((await cl.del(`/api/v1/documents/${docs[1].id}`)).status, 204); assert.equal((await cl.del(`/api/v1/documents/${docs[2].id}`)).status, 204); await cl.del(`/api/v1/documents/${docs[3].id}`);   // 3 live now
+      assert.equal((await cl.post(`/api/v1/documents/${gone.id}/undelete`, {})).status, 200, 'below the limit again, restoring works');
+    });
+  });
+
+  describe('permission revocation takes effect on the very next request', () => {
+    const edited = async (cl, id) => (await cl.put(`/api/v1/documents/${id}`, { base_version: (await cl.get(`/api/v1/documents/${id}`)).body.current_version, content: { format: 'markdown', text: 'x' + rid() } })).status;
+    test('an editor who is removed from the document loses save, comment, export, restore, sharing and read at once', async () => {
+      const d = await mk(host(), 'Revocable'); await share(host(), d.id, 'restricted', [{ user_id: N.sub, role: 'editor' }]);
+      const c = (await other().post(`/api/v1/documents/${d.id}/comments`, { body: 'mine' })); assert.equal(c.status, 201); assert.equal(await edited(other(), d.id), 200); assert.equal((await other().get(`/api/v1/documents/${d.id}/export.txt`)).status, 200);
+      await share(host(), d.id, 'restricted', []);
+      const after = [await other().put(`/api/v1/documents/${d.id}`, { base_version: 2, content: { format: 'markdown', text: 'late' } }), await other().post(`/api/v1/documents/${d.id}/comments`, { body: 'late' }), await other().post(`/api/v1/documents/${d.id}/comments/${c.body.id}/resolve`, {}),
+        await other().get(`/api/v1/documents/${d.id}/export.txt`), await other().get(`/api/v1/documents/${d.id}/export.md`), await other().post(`/api/v1/documents/${d.id}/restore`, { version_no: 1, base_version: 2 }), await other().get(`/api/v1/documents/${d.id}/versions`),
+        await other().get(`/api/v1/documents/${d.id}/permissions`), await other().post(`/api/v1/documents/${d.id}/duplicate`, {}), await other().patch(`/api/v1/documents/${d.id}`, { title: 'late' }), await other().get(`/api/v1/documents/${d.id}`)];
+      assert.ok(after.every((r) => r.status === 404), after.map((r) => r.status).join());
+      assert.equal((await host().get(`/api/v1/documents/${d.id}`)).body.content.text.startsWith('x'), true, 'the owner\'s document is intact');
+    });
+    test('editor -> viewer is enforced at once on save, comment, resolve and restore, while reading and exporting continue', async () => {
+      const d = await mk(host(), 'Demoted'); await share(host(), d.id, 'restricted', [{ user_id: A.sub, role: 'editor' }]); const c = (await admin().post(`/api/v1/documents/${d.id}/comments`, { body: 'c' })).body;
+      await share(host(), d.id, 'restricted', [{ user_id: A.sub, role: 'viewer' }]);
+      const after = [await admin().put(`/api/v1/documents/${d.id}`, { base_version: 1, content: { format: 'markdown', text: 'x' } }), await admin().post(`/api/v1/documents/${d.id}/comments`, { body: 'x' }), await admin().post(`/api/v1/documents/${d.id}/comments/${c.id}/resolve`, {}), await admin().post(`/api/v1/documents/${d.id}/restore`, { version_no: 1, base_version: 1 }), await admin().patch(`/api/v1/documents/${d.id}`, { title: 'x' })];
+      assert.ok(after.every((r) => r.status === 403 && r.body.code === 'read_only'), after.map((r) => r.status + ':' + r.body.code).join());
+      assert.equal((await admin().get(`/api/v1/documents/${d.id}`)).status, 200); assert.equal((await admin().get(`/api/v1/documents/${d.id}/export.txt`)).status, 200);
+    });
+    test('workspace-wide edit access is withdrawn the moment the owner restricts it', async () => {
+      const d = await mk(host(), 'Wide'); await share(host(), d.id, 'workspace_edit'); assert.equal(await edited(member(), d.id), 200);
+      await share(host(), d.id, 'workspace_view'); assert.equal(await edited(member(), d.id), 403); assert.equal((await member().get(`/api/v1/documents/${d.id}`)).status, 200);
+      await share(host(), d.id, 'restricted'); assert.equal((await member().get(`/api/v1/documents/${d.id}`)).status, 404); assert.equal((await member().post(`/api/v1/documents/${d.id}/comments`, { body: 'x' })).status, 404);
+    });
+    test('workspace-wide access never reaches anyone who is not a current member: removed members and other workspaces lose everything at once', async () => {
+      const gone = await main.mint(); await addMember(db.pool, W, gone.sub, 'member'); const gc = app.client(gone);
+      const d = await mk(host(), 'For members only'); await share(host(), d.id, 'workspace_edit'); assert.equal((await gc.get(`/api/v1/documents/${d.id}`)).status, 200); assert.equal(await edited(gc, d.id), 200);
+      await db.pool.query('DELETE FROM portal.members WHERE workspace_id=$1 AND user_id=$2', [W, gone.sub]);
+      for (const [m, p, b] of [['get', `/api/v1/documents/${d.id}`], ['get', '/api/v1/documents?view=recent'], ['put', `/api/v1/documents/${d.id}`, { base_version: 1, content: { format: 'markdown', text: 'x' } }], ['post', `/api/v1/documents/${d.id}/comments`, { body: 'x' }], ['get', `/api/v1/documents/${d.id}/export.txt`], ['post', `/api/v1/documents/${d.id}/duplicate`, {}]]) {
+        const r = await gc[m](p, b); assert.ok([403, 404].includes(r.status), `${m} ${p} -> ${r.status}`);
+      }
+      assert.equal((await outsider().get(`/api/v1/documents/${d.id}`)).status, 404);
+    });
+    test('a deleted document cannot be saved, commented on, exported or duplicated by anyone, the owner included, until it is restored from the trash', async () => {
+      const d = await mk(host(), 'Binned'); await share(host(), d.id, 'workspace_edit'); await host().del(`/api/v1/documents/${d.id}`);
+      for (const [m, p, b] of [['put', `/api/v1/documents/${d.id}`, { base_version: 1, content: { format: 'markdown', text: 'x' } }], ['post', `/api/v1/documents/${d.id}/comments`, { body: 'x' }], ['get', `/api/v1/documents/${d.id}/export.txt`], ['post', `/api/v1/documents/${d.id}/restore`, { version_no: 1, base_version: 1 }], ['post', `/api/v1/documents/${d.id}/duplicate`, {}]]) {
+        assert.equal((await member()[m](p, b)).status, 404, 'member ' + p); assert.equal((await host()[m](p, b)).status, 404, 'even the owner, until restored: ' + p);
+      }
+    });
+  });
+
+  describe('comments are a plan feature enforced by the server', () => {
+    const drop = () => q(`DELETE FROM portal.entitlements WHERE plan_slug='pro' AND feature='documents.comments'`);
+    const put = () => q(`INSERT INTO portal.entitlements(plan_slug,feature,quota,description) VALUES('pro','documents.comments',NULL,'Document comments') ON CONFLICT DO NOTHING`);
+    test('with no entitlement row the plan cannot add or resolve comments (403 entitlement_required) but existing comments stay readable; restoring the row restores the feature', async () => {
+      const d = await mk(host(), 'Plan gated'); const c = (await host().post(`/api/v1/documents/${d.id}/comments`, { body: 'before' })).body;
+      await drop();
+      try {
+        const add = await host().post(`/api/v1/documents/${d.id}/comments`, { body: 'after' }); assert.equal(add.status, 403); assert.equal(add.body.code, 'entitlement_required'); assert.equal(add.body.plan, 'pro');
+        assert.equal((await host().post(`/api/v1/documents/${d.id}/comments/${c.id}/resolve`, {})).body.code, 'entitlement_required');
+        assert.equal((await host().get(`/api/v1/documents/${d.id}/comments`)).body.length, 1, 'reading stays allowed'); assert.equal((await q('SELECT count(*)::int n FROM portal.doc_comments WHERE document_id=$1', [d.id]))[0].n, 1, 'nothing was written');
+        const b = await newWorkspace('basic'); const bd = await mk(b.cl, 'Basic doc'); assert.equal((await b.cl.post(`/api/v1/documents/${bd.id}/comments`, { body: 'basic still has it' })).status, 201, 'other plans are unaffected');
+      } finally { await put(); }
+      assert.equal((await host().post(`/api/v1/documents/${d.id}/comments`, { body: 'back' })).status, 201);
+    });
+    test('the permission check still comes first: a viewer on a plan without comments is told it is read-only, a stranger still gets 404', async () => {
+      const d = await mk(host(), 'Order'); await share(host(), d.id, 'restricted', [{ user_id: N.sub, role: 'viewer' }]);
+      await drop();
+      try { assert.equal((await other().post(`/api/v1/documents/${d.id}/comments`, { body: 'x' })).body.code, 'read_only'); assert.equal((await member().post(`/api/v1/documents/${d.id}/comments`, { body: 'x' })).status, 404); }
+      finally { await put(); }
+    });
+  });
 });
