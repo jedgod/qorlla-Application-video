@@ -19,8 +19,11 @@ const uname = () => 'ai' + Math.random().toString(36).slice(2, 12);
 const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 
+let nextPort = 5200 + Math.floor(Math.random() * 40);
 async function startServer(env) {
-  const port = String(5200 + Math.floor(Math.random() * 700));
+  // 5200-5249: the repo gives each spec file that starts servers its own port range (passcode 5310-5449, scheduler 5500-5639, meet-detect 5640+, password-reset 5750-5889,
+  // voice 5282-5288); a random port across 5200-5899 could land on another spec's server while specs run in parallel.
+  const port = String(nextPort++);
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qorlla-ai-'));
   const child = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '..'), stdio: 'ignore',
     env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, PORT: port, DATA_DIR: dataDir, GUEST_RATE_LIMIT_MAX: '5000', MEET_DETECT: 'off', ...env } });
