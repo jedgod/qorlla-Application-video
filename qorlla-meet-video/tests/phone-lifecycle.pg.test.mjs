@@ -29,7 +29,7 @@ let schema, admin; const pools = [], closers = [];
 const poolFor = () => { const p = new pg.Pool({ connectionString: URL_, options: '-c search_path=' + schema, max: 12 }); pools.push(p); return p; };
 test.before(async () => {
   if (!URL_) return; schema = 'mp_' + Math.random().toString(36).slice(2, 9); admin = new pg.Pool({ connectionString: URL_ }); await admin.query('CREATE SCHEMA ' + schema);
-  const c = await admin.connect(); try { await c.query('SET search_path=' + schema); for (const f of [...ORDER, 'v4_24_phone_lifecycle.sql']) await c.query(fs.readFileSync(path.join(SQL, f), 'utf8')); await c.query(fs.readFileSync(path.join(SQL, 'v4_24_phone_lifecycle.sql'), 'utf8')); await c.query(fs.readFileSync(path.join(SQL, 'v4_26_phone_event_outbox.sql'), 'utf8')); } finally { c.release(); }   // v4.24 remains idempotent
+  const c = await admin.connect(); try { await c.query('SET search_path=' + schema); for (const f of [...ORDER, 'v4_24_phone_lifecycle.sql']) await c.query(fs.readFileSync(path.join(SQL, f), 'utf8')); await c.query(fs.readFileSync(path.join(SQL, 'v4_24_phone_lifecycle.sql'), 'utf8')); for (const f of ['v4_26_phone_event_outbox.sql', 'v4_27_phone_event_delivery.sql', 'v4_28_phone_event_batches.sql']) await c.query(fs.readFileSync(path.join(SQL, f), 'utf8')); } finally { c.release(); }   // v4.24 remains idempotent
 });
 test.after(async () => { for (const c of closers) await c().catch(() => {}); if (!URL_) return; for (const p of pools) await p.end().catch(() => {}); await admin.query('DROP SCHEMA ' + schema + ' CASCADE'); await admin.end(); });
 
@@ -103,7 +103,7 @@ test('Meet lifecycle outbox captures committed authoritative events in order', {
   assert.ok(rows.every(row => row.call_id === ref && row.meeting_id === m.id && row.timestamp_matches && row.source_matches));
   await assert.rejects(h.db.query('UPDATE phone_lifecycle_outbox SET event_type=$2 WHERE call_id=$1', [ref, 'MEDIA_CONNECTED']), /immutable/);
   await assert.rejects(h.db.query('DELETE FROM phone_lifecycle_outbox WHERE call_id=$1', [ref]), /immutable/);
-  await assert.rejects(h.db.query('TRUNCATE phone_lifecycle_outbox'), /immutable/);
+  await assert.rejects(h.db.query('TRUNCATE phone_lifecycle_outbox, phone_lifecycle_delivery'), /immutable/);
 });
 
 test('uncommitted Meet lifecycle snapshots are not visible and disappear on rollback', { skip }, async () => {
@@ -242,6 +242,7 @@ test('unconfirmed hang-ups are retried, and past the limit become ORPHANED with 
   const reports = []; const h = await harness({ env: { PHONE_PROVIDER: '', PHONE_HANGUP_CONFIRM_MS: '300', PHONE_ORPHAN_AFTER_MS: '2500' }, shield: { enforce: false, report: async (k, ref) => { reports.push([k, ref]); return true; } } }); await clean(h);
   const m = await h.meeting(), pid = crypto.randomUUID(), cid = crypto.randomUUID(); await h.db.query("INSERT INTO participants(id,meeting_id,display_name,role,admission,kind) VALUES($1,$2,'Phone','guest','denied','phone')", [pid, m.id]);
   await h.db.query("INSERT INTO phone_calls(id,meeting_id,provider,provider_call_id,caller_hash,status,state,participant_id,terminated_at,ended_at) VALUES($1,$2,'gateway','call_unconf_0001','h','ended','TIMED_OUT',$3,now(),now())", [cid, m.id, pid]);
+  await h.db.query("INSERT INTO phone_call_events(call_id,from_state,to_state) VALUES($1,NULL,'REQUESTED'),($1,'REQUESTED','TIMED_OUT')", [cid]);
   await sleep(500); assert.equal((await h.phone.sweep()).retried, 1); assert.equal((await h.row(cid)).state, 'TIMED_OUT'); await sleep(2300); const s = await h.phone.sweep(); assert.equal(s.orphaned, 1);
   assert.equal((await h.row(cid)).state, 'ORPHANED'); assert.deepEqual(reports, [['phone_termination_failed', cid]], 'A5.5: the kind the Shield accepts for a leg that could not be terminated'); assert.ok(h.log.audits.some((a) => a.a === 'phone.orphaned'));
   await h.db.query("UPDATE phone_calls SET hangup_confirmed_at=now() WHERE id=$1", [cid]); assert.equal((await h.phone.sweep()).retried, 0, 'once the gateway confirms, nothing is retried');

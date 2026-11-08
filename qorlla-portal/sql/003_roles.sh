@@ -9,6 +9,18 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'qorlla_portal_app') \g
 GRANT CONNECT ON DATABASE qorlla_main TO qorlla_portal_app;
 GRANT USAGE ON SCHEMA portal TO qorlla_portal_app;
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA portal TO qorlla_portal_app;
+-- Reapply migration 015's provisioning restrictions after the broad grant.
+DO $$ BEGIN
+  IF to_regclass('portal.a412_workspace_meetings') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON portal.a412_workspace_meetings FROM qorlla_portal_app;
+  END IF;
+  IF to_regclass('portal.a412_binding_requests') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON portal.a412_binding_requests FROM qorlla_portal_app;
+  END IF;
+  IF to_regclass('portal.a412_binding_audit') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON portal.a412_binding_audit FROM qorlla_portal_app;
+  END IF;
+END $$;
 GRANT DELETE ON portal.members, portal.meeting_action_items, portal.business_hours, portal.business_closures, portal.call_routes, portal.document_permissions, portal.notebooks TO qorlla_portal_app;
 -- read-only window onto Meet's scheduled meetings (the view hides every other MAIN column; the base tables stay inaccessible)
 GRANT USAGE ON SCHEMA public TO qorlla_portal_app;

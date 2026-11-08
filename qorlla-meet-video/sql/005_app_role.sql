@@ -47,4 +47,10 @@ DO $$ BEGIN
   IF to_regclass('public.phone_lifecycle_outbox') IS NOT NULL THEN
     REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON phone_lifecycle_outbox FROM qorlla_meet_app;
   END IF;
+  IF to_regclass('public.phone_lifecycle_delivery') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON phone_lifecycle_delivery FROM qorlla_meet_app;
+  END IF;
+  IF to_regclass('public.phone_lifecycle_legacy_baseline') IS NOT NULL THEN
+    REVOKE ALL ON phone_lifecycle_legacy_baseline FROM qorlla_meet_app;
+  END IF;
 END $$;
