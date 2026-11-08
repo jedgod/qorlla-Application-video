@@ -20,3 +20,21 @@ fieldset[data-slide]{border:1px solid #d4dbe8;border-radius:10px;margin:0 0 12px
 .ai-add{background:#e6f7ee;color:#0d5c32}.ai-del{background:#fdecec;color:#8a1c1c;text-decoration:line-through}.ai-same{color:#475569}
 .ai-confirm{background:#fff8e1;border:1px solid #f5c26b;border-radius:10px;padding:10px 14px;margin:8px 0}.ai-actions{margin-top:8px}
 .cite{background:#eef4ff;color:#0756c5;border:1px solid #b8d2fb;border-radius:999px;padding:2px 10px;font-size:.78rem;font-weight:600;margin:2px 2px 2px 0}.cite:hover{background:#dbe9ff}[data-cite-view]{border-left:4px solid #0866e9;background:#f4f7fc;padding:8px 14px;margin:10px 0;border-radius:6px}[data-cite-view] h3{margin:0 0 4px}
+/* Qorlla Docs page (docs-page.js) */
+[hidden]{display:none!important}
+.docs-shell{display:grid;grid-template-columns:232px minmax(0,1fr);gap:20px;align-items:start}
+.docs-side{background:#fff;border:1px solid #e4e9f2;border-radius:14px;padding:14px;position:sticky;top:92px}
+.docs-side ul{list-style:none;margin:0 0 10px;padding:0}.docs-h{font-size:.95rem;margin:14px 0 6px;color:#44546f}
+.docs-view{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:0;border-radius:10px;padding:9px 10px;color:#16253d;font-weight:600;cursor:pointer}
+.docs-view:hover{background:#f1f5fd}.docs-view[aria-current=true]{background:#e8f0fe;color:#0756c5}
+.docs-folder{display:flex;flex-wrap:wrap;align-items:center}.docs-folder .docs-view{flex:1 1 100%}
+.docs-search{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:16px 0}.docs-search label{flex:1 1 220px}
+.doc-actions{align-items:center;flex-wrap:wrap;gap:8px}.docs-move{display:inline-flex;align-items:center;gap:6px;font-size:.85rem}.docs-move select{width:auto}
+.docs-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:10px 0}.docs-tools button{padding:7px 11px;min-width:40px}.docs-tools button[aria-pressed=true]{background:#e8f0fe}
+#doc-text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.55}
+.docs-preview{border:1px solid #e4e9f2;border-radius:12px;padding:18px 24px;background:#fff;min-height:200px;line-height:1.65;overflow-wrap:anywhere}
+.docs-preview pre{background:#f4f7fc;padding:12px;border-radius:8px;overflow:auto}.docs-preview blockquote{margin:8px 0;padding-left:12px;border-left:3px solid #cfe0fb;color:#44546f}
+.docs-comments{list-style:none;padding:0;margin:12px 0 0}.docs-comments li{padding:10px 0;border-top:1px solid #e4e9f2}.docs-comment{white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0 8px}
+@media(max-width:820px){.docs-shell{grid-template-columns:1fr}.docs-side{position:static}}
+.docs-table{overflow-x:auto;max-width:100%}.docs-table table{min-width:0}.docs-preview,.docs-main,.panel{min-width:0}
+.layout>main{min-width:0}
