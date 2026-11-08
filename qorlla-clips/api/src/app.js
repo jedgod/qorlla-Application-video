@@ -5,7 +5,7 @@ import { createAuth } from './auth.js';
 import { registerUploads } from './uploads.js';
 import { registerInsights } from './insights.js';
 import { registerIngest } from './ingest.js';
-import { registerAvatars } from './avatars.js';
+import { registerAvatars, draftObjectKey, jobPayload, maxSecondsFor } from './avatars.js';
 
 const SOURCES = ['RECORDING', 'AVATAR_GENERATION', 'SLIDE_CONVERSION', 'UPLOAD'];
 const uuid = z.string().uuid();
@@ -29,6 +29,7 @@ const schemas = {
   addToPlaylist: z.object({ clipId: uuid }).strict(),
   read: z.object({ ids: z.array(uuid).max(200).optional() }).strict(),
   complete: z.object({ status: z.enum(['READY', 'FAILED']), videoUrl: z.string().url().max(2000).optional() }).strict(),
+  avatarComplete: z.object({ status: z.enum(['READY', 'FAILED']), videoUrl: z.string().url().max(2000).optional(), stored: z.boolean().optional(), durationMs: z.number().int().min(1).optional() }).strict(),
 };
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -38,7 +39,7 @@ const forbidden = (res, message = 'You do not have permission to do that.') => r
 /**
  * @param {{prisma: import('@prisma/client').PrismaClient, config: ReturnType<import('./config.js').loadConfig>, fetchImpl?: typeof fetch, storage?: ReturnType<import('./storage.js').createStorage> | null}} deps
  */
-export function createApp({ prisma, config, fetchImpl, storage = null }) {
+export function createApp({ prisma, config, fetchImpl, storage = null, renderQueue = null }) {
   const app = express();
   app.disable('x-powered-by');
   if (config.trustProxy) app.set('trust proxy', 1);
@@ -71,21 +72,53 @@ export function createApp({ prisma, config, fetchImpl, storage = null }) {
     res.json({ id: updated.id, status: updated.status });
   }));
 
-  // Same contract for an avatar draft: the worker attaches the render. The draft stays in the Avatars workspace; it is not a clip.
-  app.post('/api/internal/avatar-drafts/:id/complete', wrap(async (req, res) => {
-    if (!config.serviceKey) return notFound(res);
+  // ---- avatar drafts: the media worker's two calls. Both need SERVICE_KEY; neither is reachable by a browser session ----------------
+  const serviceCaller = (req, res) => {
+    if (!config.serviceKey) { notFound(res); return false; }
     const given = String(req.headers['x-service-key'] || '');
-    if (given.length !== config.serviceKey.length || !timingSafe(given, config.serviceKey)) return res.status(401).json({ error: 'unauthenticated' });
+    if (given.length !== config.serviceKey.length || !timingSafe(given, config.serviceKey)) { res.status(401).json({ error: 'unauthenticated' }); return false; }
+    return true;
+  };
+
+  // Drafts still waiting for a render (and older than 30 s, so a draft that was only just queued is not queued twice). The worker asks for
+  // these every minute, which is what makes a Redis outage or a lost job harmless: the draft is in the database, so it is found again.
+  app.get('/api/internal/avatar-drafts/pending', wrap(async (req, res) => {
+    if (!serviceCaller(req, res)) return;
+    if (config.avatarRenderer === 'none') return res.json({ drafts: [] });
+    const rows = await prisma.avatarDraft.findMany({
+      where: { status: 'PROCESSING', isPromoted: false, createdAt: { lt: new Date(Date.now() - 30000) } },
+      orderBy: { createdAt: 'asc' }, take: 50, include: { avatar: true },
+    });
+    res.json({ drafts: rows.map(jobPayload) });
+  }));
+
+  // The worker reports a finished render: { status: 'READY', stored: true } (the video is in our storage under the key the SERVER chose; the
+  // API checks that the object really exists and takes its size from storage), { status: 'FAILED' }, or a link { status: 'READY', videoUrl }
+  // on an allowed https media host. The draft stays in the Avatars workspace; it is not a clip.
+  app.post('/api/internal/avatar-drafts/:id/complete', wrap(async (req, res) => {
+    if (!serviceCaller(req, res)) return;
     const id = uuid.safeParse(req.params.id); if (!id.success) return notFound(res);
-    const body = schemas.complete.parse(req.body);
-    if (body.status === 'READY') {
+    const body = schemas.avatarComplete.parse(req.body);
+    const draft = await prisma.avatarDraft.findFirst({ where: { id: id.data, isPromoted: false }, include: { avatar: { select: { tier: true } } } });     // a promoted draft is already a clip; its media is frozen
+    if (!draft) return notFound(res);
+    let data;
+    if (body.status === 'FAILED') data = { status: 'FAILED', videoUrl: null };
+    else if (body.stored) {
+      if (!storage) return res.status(503).json({ error: 'storage_unavailable', message: 'Object storage is not configured.' });
+      const key = draftObjectKey(draft.organizationId, draft.id);
+      let head = null; try { head = await storage.head(key); } catch (e) { return res.status(503).json({ error: 'storage_unavailable', message: 'Object storage is not reachable.' }); }
+      if (!head || !(head.size > 0)) return res.status(409).json({ error: 'media_missing', message: 'No rendered video is stored for this draft.' });
+      // the render may not be longer than its avatar's tier allows; a longer report is refused, not trimmed
+      if (body.durationMs !== undefined && body.durationMs > maxSecondsFor(draft.avatar.tier) * 1000) return res.status(400).json({ error: 'too_long', message: `A ${draft.avatar.tier.toLowerCase()} avatar render may not be longer than ${maxSecondsFor(draft.avatar.tier)} seconds.` });
+      data = { status: 'READY', videoUrl: null, storageKey: key, sizeBytes: BigInt(head.size), mimeType: 'video/mp4', durationMs: body.durationMs ?? null };
+    } else {
       let u; try { u = new URL(body.videoUrl || ''); } catch (e) { u = null; }
       if (!u || u.protocol !== 'https:' || u.username || u.password || !config.mediaHosts.includes(u.hostname.toLowerCase())) return res.status(400).json({ error: 'invalid_media_host', message: 'videoUrl must be an https URL on an allowed media host.' });
+      data = { status: 'READY', videoUrl: body.videoUrl };
     }
-    // a promoted draft is already a clip; its media is frozen
-    const r = await prisma.avatarDraft.updateMany({ where: { id: id.data, isPromoted: false }, data: { status: body.status, videoUrl: body.status === 'READY' ? body.videoUrl : null } });
+    const r = await prisma.avatarDraft.updateMany({ where: { id: draft.id, isPromoted: false }, data });
     if (r.count === 0) return notFound(res);
-    res.json({ id: id.data, status: body.status });
+    res.json({ id: draft.id, status: data.status });
   }));
 
   registerIngest({ app, prisma, config });
@@ -325,7 +358,7 @@ export function createApp({ prisma, config, fetchImpl, storage = null }) {
 
   registerInsights({ api, prisma, wrap, notFound, uuid, viewable });
 
-  registerAvatars({ api, prisma, config, wrap, notFound, clipDto });
+  registerAvatars({ api, prisma, config, wrap, notFound, clipDto, storage, renderQueue });
 
   app.use('/api', api);
   app.use('/api', (req, res) => notFound(res));

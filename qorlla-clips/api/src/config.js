@@ -31,12 +31,23 @@ export function loadConfig(env = process.env) {
   };
   if (production && s3.autoCreateBucket) throw new Error('S3_AUTO_CREATE_BUCKET is for development; create and secure the bucket yourself in production');
 
+  // Avatar rendering. "none" (default): drafts wait and the UI says rendering is unavailable. "placeholder": our media worker makes a title-card
+  // video with FFmpeg (it is NOT a talking presenter; see media-worker/README.md). Needs Redis (the job queue), object storage and SERVICE_KEY.
+  const avatarRenderer = env.AVATAR_RENDERER || 'none';
+  if (!['none', 'placeholder'].includes(avatarRenderer)) throw new Error('AVATAR_RENDERER must be "none" or "placeholder"');
+  const redisUrl = env.REDIS_URL || '';
+  if (avatarRenderer !== 'none') {
+    if (!redisUrl) throw new Error('AVATAR_RENDERER needs REDIS_URL (the render job queue)');
+    if (!env.SERVICE_KEY) throw new Error('AVATAR_RENDERER needs SERVICE_KEY (the worker reports back with it)');
+    if (!(s3.bucket && s3.accessKeyId && s3.secretAccessKey)) throw new Error('AVATAR_RENDERER needs object storage (S3_BUCKET and keys) for the rendered video');
+  }
+
   const webhookSecret = env.QORLLA_WEBHOOK_SECRET || '';
   if (webhookSecret && webhookSecret.length < 32) throw new Error('QORLLA_WEBHOOK_SECRET must be at least 32 characters (generate one with: openssl rand -hex 32)');
   if (webhookSecret && !list(env.MEDIA_HOSTS).length) throw new Error('QORLLA_WEBHOOK_SECRET is set but MEDIA_HOSTS is empty: ingested links would have nowhere safe to point');
 
   return {
-    production, webhookSecret, provider, databaseUrl, authMode,
+    production, webhookSecret, provider, avatarRenderer, redisUrl, databaseUrl, authMode,
     s3, storageEnabled: !!(s3.bucket && s3.accessKeyId && s3.secretAccessKey),
     uploadPartBytes: partBytes, maxUploadBytes,
     uploadTtlMs: Math.round(Number(env.UPLOAD_TTL_HOURS || 24) * 3600 * 1000),

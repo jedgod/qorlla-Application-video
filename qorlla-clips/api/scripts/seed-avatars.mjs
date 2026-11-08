@@ -9,6 +9,12 @@ import { PrismaClient } from '@prisma/client';
 export const CATALOG = [
   { slug: 'alex-corporate-presenter', name: 'Alex (Corporate Presenter)', tier: 'BASIC', modelKey: 'avatars/models/alex-corporate-presenter' },
   { slug: 'elena-casual-instructor', name: 'Elena (Casual Instructor)', tier: 'BASIC', modelKey: 'avatars/models/elena-casual-instructor' },
+  { slug: 'sarah-technical-trainer', name: 'Sarah (Technical Trainer)', tier: 'BASIC', modelKey: 'avatars/models/sarah-technical-trainer' },
+  { slug: 'david-executive-speaker', name: 'David (Executive Speaker)', tier: 'BASIC', modelKey: 'avatars/models/david-executive-speaker' },
+  { slug: 'maya-product-evangelist', name: 'Maya (Product Evangelist)', tier: 'BASIC', modelKey: 'avatars/models/maya-product-evangelist' },
+  { slug: 'james-creative-director', name: 'James (Creative Director)', tier: 'BASIC', modelKey: 'avatars/models/james-creative-director' },
+  { slug: 'aisha-support-ambassador', name: 'Aisha (Support Ambassador)', tier: 'BASIC', modelKey: 'avatars/models/aisha-support-ambassador' },
+  { slug: 'oliver-hr-liaison', name: 'Oliver (HR Liaison)', tier: 'BASIC', modelKey: 'avatars/models/oliver-hr-liaison' },
   { slug: 'marcus-studio-cinematic', name: 'Marcus (Studio Cinematic)', tier: 'PRO', modelKey: 'avatars/models/marcus-studio-cinematic' },
   { slug: 'chloe-studio-cinematic', name: 'Chloe (Studio Cinematic)', tier: 'PRO', modelKey: 'avatars/models/chloe-studio-cinematic' },
   { slug: 'priya-business-presenter', name: 'Priya (Business Presenter)', tier: 'BUSINESS', modelKey: 'avatars/models/priya-business-presenter' },

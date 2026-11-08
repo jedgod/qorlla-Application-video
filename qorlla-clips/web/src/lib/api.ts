@@ -11,9 +11,11 @@ export interface Clip {
   playable: boolean; sizeBytes: number | null; mimeType: string | null; durationMs: number | null;
 }
 export type AvatarTier = 'BASIC' | 'PRO' | 'BUSINESS' | 'ENTERPRISE';
+/** what the server can do with a draft: "none" = nothing renders it; "placeholder" = a title card made by FFmpeg, not a talking presenter */
+export interface AvatarRendering { enabled: boolean; kind: 'none' | 'placeholder' }
 export interface AvatarTemplate { id: string; slug: string; name: string; thumbnailUrl: string | null; tier: AvatarTier }
 export interface AvatarDraft {
-  id: string; title: string; status: ClipStatus; isPromoted: boolean; promotedClipId: string | null; playable: boolean;
+  id: string; title: string; script: string; durationMs: number | null; status: ClipStatus; isPromoted: boolean; promotedClipId: string | null; playable: boolean;
   createdAt: string; updatedAt: string; avatar?: AvatarTemplate;
 }
 export interface UploadPlan { partSize: number; totalParts: number }
@@ -106,9 +108,10 @@ export const api = {
   abortUpload: (id: string) => request<{ ok: true }>('POST', `/clips/${id}/upload/abort`, {}),
   playback: (id: string) => request<{ url: string; expiresInSeconds: number; mimeType: string | null }>('GET', `/clips/${id}/playback`),
   // ---- avatars: drafts live in their own workspace and become clips only by an explicit promote ----
-  avatarTemplates: () => request<{ tier: AvatarTier; templates: AvatarTemplate[]; locked: AvatarTemplate[] }>('GET', '/avatars/templates'),
+  avatarTemplates: () => request<{ tier: AvatarTier; templates: AvatarTemplate[]; locked: AvatarTemplate[]; rendering: AvatarRendering }>('GET', '/avatars/templates'),
   avatarDrafts: () => request<{ drafts: AvatarDraft[] }>('GET', '/avatars/drafts'),
-  createAvatarDraft: (b: { avatarId: string; title?: string }) => request<AvatarDraft>('POST', '/avatars/drafts', b),
+  createAvatarDraft: (b: { avatarId: string; title?: string; script?: string }) => request<AvatarDraft>('POST', '/avatars/drafts', b),
+  avatarDraftPlayback: (id: string) => request<{ url: string; expiresInSeconds: number; mimeType: string | null }>('GET', `/avatars/drafts/${id}/playback`),
   deleteAvatarDraft: (id: string) => request<{ ok: true }>('DELETE', `/avatars/drafts/${id}`),
   promoteAvatarDraft: (id: string) => request<{ clip: Clip }>('POST', `/avatars/drafts/${id}/promote`, {}),
   notifications: () => request<{ notifications: Notice[] }>('GET', '/notifications'),

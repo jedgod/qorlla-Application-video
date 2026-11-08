@@ -225,11 +225,20 @@ model InbuiltAvatar {
 model AvatarDraft {
   id             String        @id @default(uuid())
   title          String
+  // what the presenter is to say (optional, up to 1000 characters); it goes to the media worker, never into a Clip
+  script         String?
   avatarId       String
   avatar         InbuiltAvatar @relation(fields: [avatarId], references: [id], onDelete: Restrict)
   status         ClipStatus    @default(PROCESSING)
   // set by the media worker (https, allow-listed host) when the render is READY
   videoUrl       String?
+  // a render made by our own media worker lives in object storage under a key the SERVER builds (see draftObjectKey); promoting
+  // the draft hands the same object to the new Clip
+  storageKey     String?       @unique
+  sizeBytes      BigInt?
+  mimeType       String?
+  // length of the render, reported by the media worker and capped by the avatar's tier (see TIER_MAX_SECONDS)
+  durationMs     Int?
   isPromoted     Boolean       @default(false)
   promotedClipId String?       @unique
   promotedClip   Clip?         @relation(fields: [promotedClipId], references: [id], onDelete: SetNull)

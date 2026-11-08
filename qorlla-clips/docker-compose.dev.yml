@@ -1,4 +1,4 @@
-# Local development services: PostgreSQL and an S3-compatible object store (MinIO).
+# Local development services: PostgreSQL, an S3-compatible object store (MinIO), Redis (the render queue) and the avatar media worker.
 #   cp .env.example .env   (set the passwords)   then   docker compose -f docker-compose.dev.yml up -d
 # Everything listens on 127.0.0.1 only. The ports differ from the usual 5432/9000 so this never collides with other local services.
 name: qorlla-clips-dev
@@ -34,6 +34,38 @@ services:
     volumes: [clips_miniodata:/data]
     restart: unless-stopped
 
+  redis:
+    # the queue for avatar renders (BullMQ). No eviction: a queued job must never be dropped to save memory.
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    ports: ["127.0.0.1:56379:6379"]
+    volumes: [clips_redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  media-worker:
+    # renders avatar drafts with FFmpeg and reports to the Clips API running on this machine (see media-worker/README.md)
+    build: ./media-worker
+    environment:
+      REDIS_URL: redis://redis:6379
+      API_URL: http://host.docker.internal:5400
+      SERVICE_KEY: ${SERVICE_KEY:?set SERVICE_KEY in .env (32+ characters, the same value as api/.env)}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET:-qorlla-clips}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: "1"
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      redis: { condition: service_healthy }
+      minio: { condition: service_started }
+    restart: unless-stopped
+
 volumes:
   clips_pgdata:
   clips_miniodata:
+  clips_redisdata:

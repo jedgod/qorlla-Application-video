@@ -1,0 +1,18 @@
+{
+  "name": "@qorlla/clips-media-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Qorlla Clips media worker: takes avatar render jobs from a Redis queue (BullMQ), renders with FFmpeg, uploads to object storage and reports back to the Clips API. It has no database access.",
+  "scripts": {
+    "start": "node src/worker.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1164.0",
+    "bullmq": "^5.34.0"
+  }
+}

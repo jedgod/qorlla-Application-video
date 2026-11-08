@@ -99,6 +99,22 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: '1'
 
+  media-worker:
+    name: Media worker (unit tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: qorlla-clips/media-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: qorlla-clips/media-worker/package-lock.json
+      - run: npm ci
+      - run: npm test
+
   resilience:
     name: Upload resilience, mocked network (${{ matrix.browser }})
     needs: [web]
@@ -164,7 +180,7 @@ jobs:
 
   images:
     name: Build and publish images
-    needs: [api, web, resilience, e2e]
+    needs: [api, web, media-worker, resilience, e2e]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -206,6 +222,16 @@ jobs:
             ${{ steps.vars.outputs.repo }}/clips-web:latest
           cache-from: type=gha,scope=clips-web
           cache-to: type=gha,mode=max,scope=clips-web
+      - name: clips-media-worker
+        uses: docker/build-push-action@v6
+        with:
+          context: qorlla-clips/media-worker
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.repo }}/clips-media-worker:${{ steps.vars.outputs.tag }}
+            ${{ steps.vars.outputs.repo }}/clips-media-worker:latest
+          cache-from: type=gha,scope=clips-media-worker
+          cache-to: type=gha,mode=max,scope=clips-media-worker
 
   deploy:
     name: Deploy to production

@@ -22,6 +22,7 @@
     "@aws-sdk/lib-storage": "^3.1164.0",
     "@aws-sdk/s3-request-presigner": "^3.1164.0",
     "@prisma/client": "6",
+    "bullmq": "^5.81.5",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "pdfkit": "^0.15.2",

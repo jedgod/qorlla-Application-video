@@ -14,6 +14,9 @@ services:
       DATABASE_URL: postgresql://clips:${POSTGRES_PASSWORD}@postgres:5432/qorlla_clips
       PORT: "5400"
       TRUST_PROXY: "1"
+      # avatar rendering: "none" (the default) means drafts wait and the page says rendering is unavailable
+      AVATAR_RENDERER: ${AVATAR_RENDERER:-none}
+      REDIS_URL: redis://redis:6379
     depends_on:
       postgres: { condition: service_healthy }
     networks: [internal]
@@ -23,6 +26,32 @@ services:
     image: ${CLIPS_IMAGE_REPO:?set CLIPS_IMAGE_REPO}/clips-web:${IMAGE_TAG:?set IMAGE_TAG}
     depends_on: [api]
     ports: ["127.0.0.1:3400:3400"]     # your reverse proxy (nginx) terminates TLS and forwards here
+    networks: [internal]
+    restart: unless-stopped
+
+  redis:
+    # the queue for avatar renders. Internal network only, no published port. No eviction: a queued job must never be dropped.
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    volumes: [clips_redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks: [internal]
+    restart: unless-stopped
+
+  media-worker:
+    # renders avatar drafts (see media-worker/README.md). It has no database access: only the queue, object storage and the API.
+    image: ${CLIPS_IMAGE_REPO:?set CLIPS_IMAGE_REPO}/clips-media-worker:${IMAGE_TAG:?set IMAGE_TAG}
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      API_URL: http://api:5400
+    depends_on:
+      redis: { condition: service_healthy }
+      api: { condition: service_started }
     networks: [internal]
     restart: unless-stopped
 
@@ -46,3 +75,4 @@ networks:
 
 volumes:
   clips_pgdata:
+  clips_redisdata:
