@@ -22,8 +22,9 @@ const render = (id, body = { status: 'READY', videoUrl: 'https://media.example.t
 const myClips = async (u) => (await call(base, u, 'GET', '/api/clips?view=mine')).body.clips;
 
 describe('avatar tiers', () => {
-  test('the tier comes from the organization plan; unknown paid plans get the middle tier', () => {
+  test('the tier comes from the organization plan: basic/free -> BASIC, pro -> MODERATE, business/enterprise -> ELITE; unknown plans fail closed', () => {
     assert.equal(tierForPlan('free'), 'BASIC'); assert.equal(tierForPlan(undefined), 'BASIC');
+    assert.equal(tierForPlan('basic'), 'BASIC'); assert.equal(tierForPlan('Basic'), 'BASIC'); assert.equal(tierForPlan('mystery-plan'), 'BASIC');
     assert.equal(tierForPlan('pro'), 'MODERATE'); assert.equal(tierForPlan('Business'), 'ELITE'); assert.equal(tierForPlan('enterprise'), 'ELITE');
   });
 

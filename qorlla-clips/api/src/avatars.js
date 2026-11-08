@@ -12,7 +12,7 @@
  * exactly one clip.
  *
  * Tiers come from the ORGANIZATION'S PLAN, not from the role: an admin of a free organization does not get paid avatars.
- *   free -> BASIC     business / enterprise / elite -> ELITE     any other paid plan -> MODERATE
+ *   free / basic -> BASIC     pro -> MODERATE     business / enterprise -> ELITE     an unknown plan name -> BASIC (fail closed)
  * The catalog (InbuiltAvatar) has no write route; scripts/seed-avatars.mjs only inserts rows that do not exist yet.
  */
 import { z } from 'zod';
@@ -23,9 +23,9 @@ export const MAX_OPEN_DRAFTS = 50;
 /** The highest avatar tier an organization plan unlocks. */
 export function tierForPlan(plan) {
   const p = String(plan || 'free').trim().toLowerCase();
-  if (p === 'free' || p === '') return 'BASIC';
   if (['business', 'enterprise', 'elite'].includes(p)) return 'ELITE';
-  return 'MODERATE';
+  if (p === 'pro') return 'MODERATE';
+  return 'BASIC';                                                                   // free, basic, empty, or any plan name we do not know: fail closed
 }
 
 const uuid = z.string().uuid();
