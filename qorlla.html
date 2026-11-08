@@ -4105,6 +4105,7 @@
         : api('/ai/context/activity?from=' + range.from + '&to=' + range.to).then(function (d) { return aiActivityText(d, "Past week's summary"); });
       text.then(function (t) {
         c.messages.push({ role: 'ai', text: t }); c.ts = Date.now(); c.updatedAt = new Date().toISOString();
+        aiChats = aiChats.filter(function (x) { return x.id !== c.id; }); aiChats.unshift(c);        // a history refresh may have replaced it meanwhile
         aiSync(c); if (aiCurrent === c.id) aiPaint('ai', t);
         aiPaintHistory();
       }).catch(function (e) {
@@ -4317,10 +4318,13 @@
     }), aiOffText('My Notes', 'list outstanding tasks'));
   }
   function aiAddTo(chat, role, text) {
-    if (aiChats.indexOf(chat) < 0) return;                                  // the chat was deleted while the answer was on its way
-    chat.messages.push({ role: role, text: text }); chat.ts = Date.now();
-    aiSync(chat);
-    if (aiCurrent === chat.id) aiPaint(role, text);
+    // Find the chat by its id, not by the object this request started with: a refresh of the history from the server (the account finishing loading, opening the
+    // drawer) replaces the chat objects while an answer is on its way, and an answer must not be lost because of that.
+    var live = aiChats.filter(function (x) { return x.id === chat.id; })[0];
+    if (!live) return;                                                      // the chat was deleted while the answer was on its way
+    live.messages.push({ role: role, text: text }); live.ts = Date.now();
+    aiSync(live);
+    if (aiCurrent === live.id) aiPaint(role, text);
   }
   function aiSetAsking(on) {
     aiAsking = on;

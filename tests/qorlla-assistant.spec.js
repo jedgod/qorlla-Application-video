@@ -191,6 +191,21 @@ test.describe('the text box answers from real data', () => {
     await expect(page.locator('#aiSend')).toHaveAttribute('aria-disabled', 'false');
   });
 
+  test('an answer still arrives and is saved when the history is refreshed from the server while it is on its way (the race that used to drop it)', async ({ page }) => {
+    await signUp(page.request);
+    let release; const gate = new Promise((r) => { release = r; });
+    await page.route('**/ai/context/activity**', async (route) => { await gate; await route.continue(); });
+    await page.goto('/qorlla.html');
+    await ask(page, 'summarize last week');
+    await expect(page.locator('#aiThread .bubble.pending')).toBeVisible();
+    await expect.poll(async () => (await chats(page.request)).length).toBe(1);                // the server already holds the chat
+    await Promise.all([page.waitForResponse((r) => /\/ai\/chats$/.test(r.url()) && r.request().method() === 'GET'), page.locator('#aiMenu').click()]);   // opening the drawer refreshes the history and replaces the chat objects
+    await page.locator('#aiDrawerClose').click();
+    release();
+    await expect(lastAi(page)).toContainText('Summary, last week:');
+    await expect.poll(async () => (await chats(page.request))[0].messages.map((m) => m.role)).toEqual(['me', 'ai']);
+  });
+
   test('an error is shown with Try again, is not saved to history, and Try again works once the server is back', async ({ page }) => {
     await signUp(page.request);
     await page.route('**/ai/context/activity**', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'The data service is down.' }) }));

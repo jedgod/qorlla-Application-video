@@ -124,11 +124,11 @@ test.describe('ON: the context packet (API)', () => {
   });
 
   test('every packet is recorded (when, which sources) and the record never holds the question or the data', async ({ playwright }) => {
-    const c = await ctx(playwright); await signUp(c); await seed(c);
+    const c = await ctx(playwright); const U = await signUp(c); await seed(c);
     expect((await ctxPost(c, 'SECRET-QUESTION-8812 budget')).status()).toBe(200);
-    const files = [];
-    (function walk(d) { for (const f of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, f.name); if (f.isDirectory()) walk(p); else if (/aireads\./.test(f.name)) files.push(p); } })(srv.dataDir);
-    expect(files.length).toBeGreaterThan(0);
+    const files = [];                                                                          // this account's record only: the server directory is shared by several tests
+    (function walk(d) { for (const f of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, f.name); if (f.isDirectory()) walk(p); else if (/aireads\./.test(f.name) && f.name.includes(U.id)) files.push(p); } })(srv.dataDir);
+    expect(files.length).toBe(1);
     const log = JSON.parse(fs.readFileSync(files[0], 'utf8'));
     expect(log[log.length - 1]).toMatchObject({ kind: 'assistant' }); expect(log[log.length - 1].sources.length).toBe(5);
     const raw = JSON.stringify(log); expect(raw).not.toContain('SECRET-QUESTION'); expect(raw).not.toContain('Sprint retro'); expect(raw).not.toContain('Call Sam');
