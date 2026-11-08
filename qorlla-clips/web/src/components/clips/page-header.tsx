@@ -38,12 +38,12 @@ export function PageHeader({ title, back, children, playlistId, hideCreate }: {
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-gray-100 pb-4">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-4">
       <div className="flex min-w-0 items-center gap-2">
         {back ? <Link href={back.href} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"><ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />{back.label}</Link> : null}
         <h1 className="truncate text-xl font-bold text-gray-900" data-testid="view-title">{title}</h1>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {children}
         {hideCreate ? null : <CreateMenu uploadEnabled={!!summary?.features.upload} onCreate={create} />}
         <input ref={picker} type="file" accept="video/webm,video/mp4" hidden data-testid="upload-input" onChange={(e) => picked(e.target.files)} />
