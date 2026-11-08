@@ -53,6 +53,10 @@ test.describe('quick card first, full dialog on More Options', () => {
     await page.fill('dialog.sf input[placeholder="Add a room"]', 'Room 12'); await page.fill('dialog.sf textarea[aria-label="Add description"]', 'Bring the budget.');
     await page.getByRole('button', { name: 'Create agenda' }).click(); await page.fill('dialog.sf textarea[aria-label="Agenda"]', '1. Budget');
     await page.selectOption('dialog.sf select[aria-label="Show as"]', 'free'); await page.selectOption('dialog.sf select[aria-label="Time zone"]', 'Europe/London');
+    // A clearly future day. The event's time is read in the zone chosen above (Europe/London), so an event for "today, the next hour" can already be in the past there
+    // (London is hours ahead of the Americas) and is rightly not listed as upcoming; this test is about the fields it saves, not about the clock.
+    const later = new Date(); later.setDate(later.getDate() + 3); const day = later.getFullYear() + '-' + String(later.getMonth() + 1).padStart(2, '0') + '-' + String(later.getDate()).padStart(2, '0');
+    await page.locator('dialog.sf input[aria-label="Date"]').first().fill(day);
     await page.getByRole('button', { name: 'Save' }).click(); await expect(page.locator('.card.ev', { hasText: 'Quarterly planning' })).toBeVisible();
     const [s] = await list(context);
     expect(s).toMatchObject({ title: 'Quarterly planning', location: 'HQ 4th floor', room: 'Room 12', timezone: 'Europe/London', busy: false, invitees: ['a@example.com', 'b@example.com'] });

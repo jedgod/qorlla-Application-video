@@ -186,7 +186,7 @@ body[data-page=meeting] #slotRows { line-height:1.6; }
   body[data-page=workspace] .sidebar .nav-item .count { right:8px; }
   body[data-page=workspace] .sidebar .nav-item:is([data-view=mail], [data-view=whiteboard], [data-view=calendar], [data-view=schedule], [data-view=history], [data-view=notes], [data-view=settings]) { display:none; }
   body[data-page=workspace] .sidebar .nav-item[data-view=home] { order:1; } body[data-page=workspace] .sidebar .nav-item[data-act=chat] { order:2; } body[data-page=workspace] .sidebar .nav-item[data-view=phone] { order:3; }
-  body[data-page=workspace] .sidebar .nav-item[data-href='/app/suite'] { order:4; } body[data-page=workspace] .sidebar .nav-item[data-href='/app/meet'] { order:5; } body[data-page=workspace] .sidebar .nav-item[data-view=more] { order:6; }
+  body[data-page=workspace] .sidebar .nav-item[data-href='/app/suite'] { order:4; } body[data-page=workspace] .sidebar .nav-item[data-href='/clips/'] { order:5; } body[data-page=workspace] .sidebar .nav-item[data-view=more] { order:6; }
   body[data-page=workspace] .nav-item.active::before { display:none; }
   body[data-page=workspace] .topbar { min-height:64px; height:auto; padding:12px 14px; flex-wrap:wrap; gap:10px; }
   body[data-page=workspace] .search { flex:1; max-width:none; min-width:130px; height:38px; padding:0 10px; }
