@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle, Loader2, Share2, Sparkles, Trash2 } from 'lucide-react';
+import { CheckCircle, Info, Loader2, Share2, Sparkles, Trash2 } from 'lucide-react';
 import { api, type AvatarDraft, type AvatarTemplate } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -71,6 +71,11 @@ export function AvatarsWorkspace() {
       <PageHeader title="Avatars" hideCreate />
       <p className="mt-3 text-xs text-gray-500">Make avatar clips here. They stay in this workspace and appear in <Link href="/dashboard/my-clips" className="font-medium text-blue-600 hover:underline">My clips</Link> only when you save them.</p>
 
+      <div role="note" className="mt-4 flex max-w-2xl items-start gap-3 rounded-xl border border-amber-100 bg-amber-50/40 p-4" data-testid="avatar-renderer-notice">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+        <p className="text-xs leading-relaxed text-amber-800"><strong className="font-bold">Rendering is not available yet.</strong> Avatar video rendering has not been built, so a new draft stays here as &quot;Rendering unavailable&quot; and cannot be saved to My clips until a render is attached.</p>
+      </div>
+
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <AvatarPicker templates={templates} locked={locked} value={picked} onChange={setPicked} />
         <Button onClick={create} disabled={!picked || creating} data-testid="avatar-create">
@@ -90,7 +95,7 @@ export function AvatarsWorkspace() {
                   <h4 className="truncate text-xs font-bold text-gray-900">{d.title}</h4>
                   <p className="mt-0.5 truncate text-[11px] text-gray-500">{d.avatar?.name}</p>
                   <span className={cn('mt-1 inline-block rounded px-1.5 text-[10px] font-bold uppercase',
-                    d.status === 'READY' ? 'bg-green-50 text-green-600' : d.status === 'FAILED' ? 'bg-red-50 text-red-600' : 'animate-pulse bg-amber-50 text-amber-600')}>{d.status.toLowerCase()}</span>
+                    d.status === 'READY' ? 'bg-green-50 text-green-600' : d.status === 'FAILED' ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-500')}>{d.status === 'PROCESSING' ? 'Rendering unavailable' : d.status.toLowerCase()}</span>
                 </div>
               </div>
               <div className="flex items-center justify-between border-t border-gray-50 pt-3">
@@ -100,7 +105,8 @@ export function AvatarsWorkspace() {
                 ) : (
                   <span className="flex items-center gap-1.5">
                     <Button variant="ghost" size="icon" aria-label={`Discard ${d.title}`} disabled={busyId !== null} onClick={() => discard(d)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" /></Button>
-                    <Button size="sm" disabled={d.status !== 'READY' || busyId !== null} onClick={() => promote(d)} data-testid="avatar-promote">
+                    <Button size="sm" disabled={d.status !== 'READY' || busyId !== null} onClick={() => promote(d)} data-testid="avatar-promote"
+                      title={d.status === 'READY' ? 'Save this avatar clip to My clips' : d.status === 'FAILED' ? 'The render failed, so it cannot be saved' : 'Locked: no render has been attached to this draft yet'}>
                       {busyId === d.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Share2 className="h-3.5 w-3.5" aria-hidden="true" />}Save to My clips
                     </Button>
                   </span>

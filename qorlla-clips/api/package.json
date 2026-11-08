@@ -11,7 +11,8 @@
     "test": "node scripts/run-tests.mjs",
     "check:migrations": "node scripts/check-migrations.mjs",
     "db:new-migration": "node scripts/new-migration.mjs",
-    "seed:avatars": "node scripts/seed-avatars.mjs"
+    "seed:avatars": "node scripts/seed-avatars.mjs",
+    "dev:simulate-render": "node scripts/simulate-render.mjs"
   },
   "engines": {
     "node": ">=20"
