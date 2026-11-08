@@ -233,6 +233,7 @@ services:
       - MAIN_UPSTREAM=${MAIN_UPSTREAM:-workspace-signaling-engine:5000}
       - PORTAL_UPSTREAM=${PORTAL_UPSTREAM:-qorlla-portal:5500}
       - MEET_UPSTREAM=${MEET_UPSTREAM:-meet:3000}
+      - CLIPS_UPSTREAM=${CLIPS_UPSTREAM:-host.docker.internal:3400}
       - NGINX_ENVSUBST_FILTER=_UPSTREAM
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz || exit 1"]

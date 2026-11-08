@@ -14,6 +14,7 @@ const nextConfig = {
   outputFileTracingRoot: here,                 // this folder is its own project, even though a parent folder has a lockfile
   // When the app is mounted under a path of the main site (for example https://host/clips) set CLIPS_BASE_PATH=/clips at BUILD time.
   basePath: process.env.CLIPS_BASE_PATH || undefined,
+  env: { NEXT_PUBLIC_BASE_PATH: process.env.CLIPS_BASE_PATH || '' },   // lets browser code build /clips/api/... URLs
   async rewrites() {
     return [{ source: '/api/:path*', destination: `${API_URL}/api/:path*` }];
   },

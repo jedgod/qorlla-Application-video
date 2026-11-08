@@ -726,7 +726,7 @@
       <span data-i18n="Mail">Mail</span>
       <span class="count" id="mailBadge" style="display:none">0</span>
     </div>
-    <div class="nav-item" data-href="/app/meet" role="link" tabindex="0">
+    <div class="nav-item" data-href="/clips/" role="link" tabindex="0">
       <svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 9 5 3-5 3Z"/></svg>
       <span data-i18n="Clips">Clips</span>
     </div>
@@ -1638,7 +1638,7 @@
           ])
         ]));
         reader.appendChild(h('p', { class: 'muted', text: 'From ' + m.from + (m.to ? ' · To ' + m.to : '') + ' · ' + new Date(m.createdAt).toLocaleString(I18n.locale) }));
-        reader.appendChild(h('div', { class: 'mail-body', text: m.body }));
+        reader.appendChild(linkify(h('div', { class: 'mail-body' }), m.body));
         if (m.external && m.external.length) {
           reader.appendChild(h('div', { class: 'delivery' }, [h('b', { text: 'Email delivery' })].concat(m.external.map(function (x) {
             return h('div', { text: x.to + ' \u2014 ' + (DELIVERY_TEXT[x.status] || x.status) });
@@ -1958,6 +1958,19 @@
     return duration;
   }
   /** Edits one existing scheduled meeting. Invitations are NOT re-sent on edit. */
+  /** Fills `el` with `text`, turning links to THIS Qorlla site (such as a meeting invitation link) into real links. Anything else stays plain text, so a message cannot send people to another site. */
+  function linkify(el, text) {
+    var re = /https?:\/\/[^\s<>"']+/g, last = 0, mt;
+    while ((mt = re.exec(text))) {
+      var url = mt[0].replace(/[.,;:!?)\]]+$/, ''), same = false;
+      try { same = new URL(url).origin === location.origin; } catch (e) { same = false; }
+      el.appendChild(document.createTextNode(text.slice(last, mt.index)));
+      if (same) el.appendChild(h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', text: url })); else el.appendChild(document.createTextNode(url));
+      last = mt.index + url.length; re.lastIndex = last;
+    }
+    el.appendChild(document.createTextNode(text.slice(last)));
+    return el;
+  }
   function updateSchedule(id, m) {
     var duration; try { duration = validateSched(m); } catch (e) { return Promise.reject(e); }
     return api('/schedule/' + encodeURIComponent(id), { method: 'PATCH', body: {

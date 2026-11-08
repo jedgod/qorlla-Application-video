@@ -10,6 +10,12 @@ export interface Clip {
   /** true when the clip has playable media (an uploaded recording or an external URL) */
   playable: boolean; sizeBytes: number | null; mimeType: string | null; durationMs: number | null;
 }
+export type AvatarTier = 'BASIC' | 'MODERATE' | 'ELITE';
+export interface AvatarTemplate { id: string; slug: string; name: string; thumbnailUrl: string | null; tier: AvatarTier }
+export interface AvatarDraft {
+  id: string; title: string; status: ClipStatus; isPromoted: boolean; promotedClipId: string | null; playable: boolean;
+  createdAt: string; updatedAt: string; avatar?: AvatarTemplate;
+}
 export interface UploadPlan { partSize: number; totalParts: number }
 export interface UploadState { status: ClipStatus; partSize: number; totalParts: number; uploadedParts: { partNumber: number; size: number }[] }
 export interface PlaylistSummary { id: string; title: string; clipCount: number; isOrganization?: boolean }
@@ -31,13 +37,15 @@ export class ApiError extends Error {
 const DEV_USER = process.env.NEXT_PUBLIC_DEV_USER || '';
 const DEV_ORG = process.env.NEXT_PUBLIC_DEV_ORG || '';
 const DEV_ROLE = process.env.NEXT_PUBLIC_DEV_ROLE || '';
+// When Clips is mounted under a path of the main site (CLIPS_BASE_PATH=/clips) its API calls must go to /clips/api, never to the main app's /api.
+const API_PREFIX = `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api`;
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { 'x-requested-with': 'qorlla-clips' };
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (DEV_USER) { headers['x-dev-user'] = DEV_USER; if (DEV_ORG) headers['x-dev-org'] = DEV_ORG; if (DEV_ROLE) headers['x-dev-role'] = DEV_ROLE; }
   let res: Response;
-  try { res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store' }); }
+  try { res = await fetch(`${API_PREFIX}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store' }); }
   catch { throw new ApiError(0, 'network', 'Cannot reach the server. Check your connection.'); }
   const data = await res.json().catch(() => null) as (Record<string, unknown> | null);
   if (!res.ok) throw new ApiError(res.status, String(data?.error ?? 'error'), String(data?.message ?? `Request failed (${res.status})`), data?.feature as string | undefined);
@@ -70,7 +78,7 @@ export const api = {
     const headers: Record<string, string> = {};
     if (DEV_USER) { headers['x-dev-user'] = DEV_USER; if (DEV_ORG) headers['x-dev-org'] = DEV_ORG; if (DEV_ROLE) headers['x-dev-role'] = DEV_ROLE; }
     let res: Response;
-    try { res = await fetch(`/api/analytics/report.pdf${qs({ days, title })}`, { headers, cache: 'no-store' }); }
+    try { res = await fetch(`${API_PREFIX}/analytics/report.pdf${qs({ days, title })}`, { headers, cache: 'no-store' }); }
     catch { throw new ApiError(0, 'network', 'Cannot reach the server. Check your connection.'); }
     if (!res.ok) throw new ApiError(res.status, 'error', `Could not create the report (${res.status}).`);
     return res.blob();
@@ -97,6 +105,12 @@ export const api = {
   completeUpload: (id: string) => request<{ clip: Clip }>('POST', `/clips/${id}/upload/complete`, {}),
   abortUpload: (id: string) => request<{ ok: true }>('POST', `/clips/${id}/upload/abort`, {}),
   playback: (id: string) => request<{ url: string; expiresInSeconds: number; mimeType: string | null }>('GET', `/clips/${id}/playback`),
+  // ---- avatars: drafts live in their own workspace and become clips only by an explicit promote ----
+  avatarTemplates: () => request<{ tier: AvatarTier; templates: AvatarTemplate[]; locked: AvatarTemplate[] }>('GET', '/avatars/templates'),
+  avatarDrafts: () => request<{ drafts: AvatarDraft[] }>('GET', '/avatars/drafts'),
+  createAvatarDraft: (b: { avatarId: string; title?: string }) => request<AvatarDraft>('POST', '/avatars/drafts', b),
+  deleteAvatarDraft: (id: string) => request<{ ok: true }>('DELETE', `/avatars/drafts/${id}`),
+  promoteAvatarDraft: (id: string) => request<{ clip: Clip }>('POST', `/avatars/drafts/${id}/promote`, {}),
   notifications: () => request<{ notifications: Notice[] }>('GET', '/notifications'),
   markNotificationsRead: () => request<{ updated: number }>('POST', '/notifications/read', {}),
 };
