@@ -11,6 +11,7 @@ import { UUID_RE } from './auth.mjs';
 import { PlanLimitError, quotaFor, withWorkspaceLock } from './entitlements.mjs';
 import { verifiedEvidence, extract, sha as hashOf } from './ai/citations.mjs';
 import { verifyOverviewPacket } from './ai/overview-packet.mjs';
+import { registerDocsExtension, VIEWS as DOC_VIEWS } from './docs-extension.mjs';
 
 const isManager = (r) => r === 'owner' || r === 'admin';
 const err = (status, error, code, extra = {}) => Object.assign(new Error(error), { http: { status, body: { error, code, ...extra } } });
@@ -157,8 +158,12 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
   }
   const docMeta = (d) => ({ id: d.id, kind: d.kind, title: d.title, owner_id: d.owner_id, current_version: d.current_version, general_access: d.general_access, my_role: d.my_role, created_at: d.created_at, updated_at: d.updated_at });
 
+  let docsExt = null;                                                  // the Docs extension (views, stars, folders, trash, comments); needs sql/015
   app.get('/api/v1/documents', member, h(async (req, res) => {
-    const q = z.object({ kind: z.enum(['doc', 'sheet', 'slides']).optional(), q: z.string().trim().max(200).optional() }).parse(req.query); const terms = tsTerms(q.q);
+    const q = z.object({ kind: z.enum(['doc', 'sheet', 'slides']).optional(), q: z.string().trim().max(200).optional(),
+      view: z.enum(DOC_VIEWS).optional(), folder: z.union([z.literal('none'), uuid]).optional() }).parse(req.query);
+    if (q.view || q.folder) return res.set('Cache-Control', 'no-store').json(await docsExt.listDocuments(req, { kind: q.kind ?? null, q: q.q ?? null, view: q.view ?? 'recent', folder: q.folder ?? null }));
+    const terms = tsTerms(q.q);
     const rows = (await pool.query(`SELECT * FROM (SELECT d.*, ${docRightSql} AS my_role FROM portal.documents d WHERE d.workspace_id=$1 AND d.deleted_at IS NULL AND ($3::text IS NULL OR d.kind=$3)
         AND ($4::text IS NULL OR d.search @@ to_tsquery('simple', $4))) d WHERE my_role IS NOT NULL ORDER BY updated_at DESC LIMIT 200`,
       [req.workspace, req.actor, q.kind ?? null, q.q ? (terms.replace(/ \| /g, ' & ') || 'zzzznomatch') : null])).rows;
@@ -391,6 +396,8 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     if (r.rowCount) await audit(pool, req.workspace, req.actor, 'document.deleted', req.params.id);
     res.status(r.rowCount ? 204 : 404).end();
   }));
+
+  docsExt = registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc, docMeta, audit, createDocument, plainText, tsTerms });
 
   // ---- search across what the caller may read (notes + documents) ----
   app.get('/api/v1/search', member, h(async (req, res) => {

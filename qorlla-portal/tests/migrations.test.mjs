@@ -106,6 +106,27 @@ describe('PostgreSQL migration and rollback', () => {
     assert.equal(Number((await p.query("SELECT count(*) FROM portal.entitlements WHERE feature IN ('documents.max','ai.assistant_messages_per_month')")).rows[0].count), 0);
     await p.query(sqlFile('006_workspace_tools.sql')); assert.ok((await tables(p)).includes('documents'));
   });
+  test('015 (Docs extension): additive and re-runnable, never alters portal.documents, folders cannot cross workspaces, rollback drops only its own tables and keeps every document', async () => {
+    const db = await freshDatabase({ migrate: false }); dbs.push(db); const p = db.pool;
+    for (const f of ['002_billing.sql', '004_meeting_ai.sql', '005_phone.sql', '006_workspace_tools.sql']) await p.query(sqlFile(f));
+    const ws = (await p.query("INSERT INTO portal.workspaces(name) VALUES('A') RETURNING id")).rows[0].id; const ws2 = (await p.query("INSERT INTO portal.workspaces(name) VALUES('B') RETURNING id")).rows[0].id; const u = crypto.randomUUID();
+    const d = (await p.query("INSERT INTO portal.documents(workspace_id,owner_id,kind,title,current_version) VALUES($1,$2,'doc','Existing',1) RETURNING id", [ws, u])).rows[0].id;
+    await p.query("INSERT INTO portal.document_versions(document_id,version_no,content,created_by) VALUES($1,1,$2,$3)", [d, '{"format":"markdown","text":"kept"}', u]);
+    const docCols = await cols(p, 'documents'); const before = await tables(p);
+    await p.query(sqlFile('015_docs_extension.sql')); await p.query(sqlFile('015_docs_extension.sql'));
+    assert.deepEqual(await cols(p, 'documents'), docCols, 'portal.documents is not altered');
+    for (const t of ['doc_folders', 'doc_metadata', 'doc_stars', 'doc_comments']) assert.ok((await tables(p)).includes(t), t);
+    const f = (await p.query("INSERT INTO portal.doc_folders(workspace_id,owner_id,name) VALUES($1,$2,'Projects') RETURNING id", [ws, u])).rows[0].id;
+    await assert.rejects(p.query("INSERT INTO portal.doc_folders(workspace_id,owner_id,name) VALUES($1,$2,' projects ')", [ws, u]), /duplicate|unique/i, 'names are unique per owner, ignoring case and spaces');
+    await assert.rejects(p.query("INSERT INTO portal.doc_folders(workspace_id,owner_id,name) VALUES($1,$2,'   ')", [ws, u]), /check/i);
+    await assert.rejects(p.query("INSERT INTO portal.doc_metadata(document_id,workspace_id,folder_id) VALUES($1,$2,$3)", [d, ws2, f]), /foreign key/i, 'a folder cannot be used from another workspace');
+    await p.query("INSERT INTO portal.doc_metadata(document_id,workspace_id,folder_id) VALUES($1,$2,$3)", [d, ws, f]);
+    await assert.rejects(p.query("INSERT INTO portal.doc_comments(document_id,workspace_id,author_id,body) VALUES($1,$2,$3,'  ')", [d, ws, u]), /check/i);
+    await p.query(sqlFile('rollback', '015_docs_extension.down.sql')); await p.query(sqlFile('rollback', '015_docs_extension.down.sql'));
+    assert.deepEqual(await tables(p), before, 'only the Docs extension tables are removed');
+    assert.equal((await p.query("SELECT content->>'text' t FROM portal.document_versions WHERE document_id=$1", [d])).rows[0].t, 'kept');
+    await p.query(sqlFile('015_docs_extension.sql')); assert.ok((await tables(p)).includes('doc_folders'));
+  });
   test('007 (billing launch): re-runnable; constraints hold; legacy sales statuses survive; rollback restores the 006 schema and keeps invoices and refunds', async () => {
     const db = await freshDatabase({ migrate: false }); dbs.push(db); const p = db.pool;
     for (const f of ['002_billing.sql', '004_meeting_ai.sql', '005_phone.sql', '006_workspace_tools.sql']) await p.query(sqlFile(f));

@@ -1,0 +1,225 @@
+// Qorlla Docs extension (server/docs-extension.mjs + sql/015): views, stars, templates, folders, duplicate, trash, comments, export.
+// Real PostgreSQL, real permission checks. The point of these tests is what must NOT happen: another person's documents, folders, stars and trash
+// staying invisible, the plan's document limit holding under concurrency, and the old documents API keeping its shape.
+import test, { describe, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { freshDatabase, startMainStandIn, testConfig, startApp, seedWorkspace, addMember } from './helpers.mjs';
+
+const rid = () => crypto.randomUUID();
+
+describe('Docs extension (API against PostgreSQL)', () => {
+  let db, main, app, W, H, A, M, N, O, W2;
+  const host = () => app.client(H); const admin = () => app.client(A); const member = () => app.client(M); const other = () => app.client(N); const outsider = () => app.client(O);
+  const q = async (sql, args = []) => (await db.pool.query(sql, args)).rows;
+  const mk = async (cl, title = 'Doc ' + rid().slice(0, 6), kind = 'doc') => (await cl.post('/api/v1/documents', { kind, title })).body;
+  const ids = (r) => r.body.map((d) => d.id);
+  const share = (cl, id, general_access, users = []) => cl.put(`/api/v1/documents/${id}/permissions`, { general_access, users });
+  const newWorkspace = async (plan = 'basic') => { const u = await main.mint(); const w = await seedWorkspace(db.pool, u.sub, 'Docs ' + rid().slice(0, 6)); if (plan !== 'basic') await db.pool.query(`UPDATE portal.subscriptions SET plan_slug=$2,status='active',current_period_end=now()+interval '20 days' WHERE workspace_id=$1`, [w, plan]); return { u, w, cl: app.client(u) }; };
+
+  before(async () => {
+    db = await freshDatabase(); main = await startMainStandIn();
+    app = await startApp({ pool: db.pool, cfg: testConfig({}, main), jwks: main.jwks });
+    H = await main.mint(); A = await main.mint(); M = await main.mint(); N = await main.mint(); O = await main.mint();
+    W = await seedWorkspace(db.pool, H.sub, 'Docs Co');
+    await db.pool.query(`UPDATE portal.subscriptions SET plan_slug='pro',status='active',current_period_end=now()+interval '20 days' WHERE workspace_id=$1`, [W]);
+    await addMember(db.pool, W, A.sub, 'admin'); await addMember(db.pool, W, M.sub, 'member'); await addMember(db.pool, W, N.sub, 'member');
+    W2 = await seedWorkspace(db.pool, O.sub, 'Elsewhere');
+  });
+  after(async () => { await app?.close(); await main?.close(); await db?.drop(); });
+
+  describe('the old list route keeps its shape; views are opt-in', () => {
+    test('GET /documents without a view is still a plain array with the old fields; with ?view= it adds the new fields', async () => {
+      const d = await mk(host(), 'Shape check');
+      const old = await host().get('/api/v1/documents'); assert.equal(old.status, 200); assert.ok(Array.isArray(old.body));
+      const row = old.body.find((x) => x.id === d.id); assert.deepEqual(Object.keys(row).sort(), ['created_at', 'current_version', 'general_access', 'id', 'kind', 'my_role', 'owner_id', 'title', 'updated_at']);
+      const v = await host().get('/api/v1/documents?view=recent'); const r2 = v.body.find((x) => x.id === d.id);
+      assert.equal(r2.starred, false); assert.equal(r2.template, false); assert.equal(r2.folder_id, null); assert.equal(r2.my_role, 'owner');
+    });
+    test('an unknown view, a bad folder id and a bad kind are 400, not a silent empty list', async () => {
+      for (const qs of ['view=everything', 'folder=not-a-uuid', 'view=recent&kind=pdf']) assert.equal((await host().get('/api/v1/documents?' + qs)).status, 400, qs);
+    });
+    test('signed out is 401 on every new route', async () => {
+      const anon = app.client(null); const id = rid();
+      for (const [m, p] of [['get', '/api/v1/documents?view=trash'], ['get', `/api/v1/documents/${id}/meta`], ['get', `/api/v1/documents/${id}/comments`], ['get', `/api/v1/documents/${id}/export.txt`], ['get', '/api/v1/document-folders']]) assert.equal((await anon[m](p)).status, 401, p);
+    });
+  });
+
+  describe('views, stars and templates', () => {
+    test('mine / shared / starred / templates / recent contain exactly the right documents', async () => {
+      const mine = await mk(member(), 'M mine'); const sharedToM = await mk(host(), 'H shared with workspace'); await share(host(), sharedToM.id, 'workspace_view');
+      const hidden = await mk(host(), 'H private');
+      assert.ok(ids(await member().get('/api/v1/documents?view=mine')).includes(mine.id)); assert.ok(!ids(await member().get('/api/v1/documents?view=mine')).includes(sharedToM.id));
+      const shared = ids(await member().get('/api/v1/documents?view=shared')); assert.ok(shared.includes(sharedToM.id)); assert.ok(!shared.includes(mine.id)); assert.ok(!shared.includes(hidden.id));
+      const recent = ids(await member().get('/api/v1/documents?view=recent')); assert.ok(recent.includes(mine.id) && recent.includes(sharedToM.id)); assert.ok(!recent.includes(hidden.id), 'an unshared document of someone else never appears, not even to the person next to the owner');
+      assert.equal((await member().patch(`/api/v1/documents/${sharedToM.id}`, { starred: true })).status, 200);
+      assert.deepEqual(ids(await member().get('/api/v1/documents?view=starred')), [sharedToM.id]);
+      assert.deepEqual(ids(await host().get('/api/v1/documents?view=starred')).filter((x) => x === sharedToM.id), [], 'a star is personal: the owner does not see M\'s star');
+      assert.equal((await member().patch(`/api/v1/documents/${sharedToM.id}`, { starred: false })).status, 200); assert.deepEqual(ids(await member().get('/api/v1/documents?view=starred')), []);
+      assert.equal((await host().patch(`/api/v1/documents/${hidden.id}`, { template: true })).status, 200); assert.deepEqual(ids(await host().get('/api/v1/documents?view=templates')), [hidden.id]);
+      assert.deepEqual(ids(await member().get('/api/v1/documents?view=templates')), [], 'a private template is not listed for others');
+    });
+    test('search narrows a view; the kind filter works with views', async () => {
+      const a = await mk(host(), 'Quarterly pelican plan'); await mk(host(), 'Unrelated giraffe', 'sheet');
+      assert.deepEqual(ids(await host().get('/api/v1/documents?view=recent&q=pelican')), [a.id]);
+      assert.ok((await host().get('/api/v1/documents?view=recent&kind=sheet')).body.every((d) => d.kind === 'sheet'));
+    });
+    test('GET /documents/:id/meta reports my star, the template flag, my folder and open comments, and is a 404 for someone who cannot read it', async () => {
+      const d = await mk(host(), 'Meta'); await host().patch(`/api/v1/documents/${d.id}`, { starred: true, template: true });
+      const m = await host().get(`/api/v1/documents/${d.id}/meta`); assert.deepEqual(m.body, { starred: true, template: true, folder_id: null, open_comments: 0 });
+      assert.equal((await other().get(`/api/v1/documents/${d.id}/meta`)).status, 404); assert.equal((await outsider().get(`/api/v1/documents/${d.id}/meta`)).status, 404);
+    });
+  });
+
+  describe('rename, star and template: who may do what', () => {
+    test('an editor can rename, a viewer cannot, a stranger gets 404, and the title change keeps the content and stays searchable', async () => {
+      const d = await mk(host(), 'Before rename'); await host().put(`/api/v1/documents/${d.id}`, { base_version: 1, content: { format: 'markdown', text: 'body about walruses' } });
+      await share(host(), d.id, 'restricted', [{ user_id: A.sub, role: 'editor' }, { user_id: N.sub, role: 'viewer' }]);
+      assert.equal((await other().patch(`/api/v1/documents/${d.id}`, { title: 'viewer rename' })).body.code, 'read_only');
+      assert.equal((await member().patch(`/api/v1/documents/${d.id}`, { title: 'stranger rename' })).status, 404);
+      assert.equal((await admin().patch(`/api/v1/documents/${d.id}`, { title: 'Zebra crossing notes' })).status, 200);
+      const now = (await host().get(`/api/v1/documents/${d.id}`)).body; assert.equal(now.title, 'Zebra crossing notes'); assert.equal(now.content.text, 'body about walruses'); assert.equal(now.current_version, 2, 'renaming is not a new version');
+      assert.ok((await host().get('/api/v1/search?q=zebra')).body.some((x) => x.id === d.id), 'search follows the new title');
+      assert.equal((await other().patch(`/api/v1/documents/${d.id}`, { starred: true })).status, 200, 'a viewer may star what they can read');
+      assert.equal((await admin().patch(`/api/v1/documents/${d.id}`, { template: true })).body.code, 'owner_only');
+    });
+    test('bad bodies are 400: empty, unknown field, blank title, wrong type', async () => {
+      const d = await mk(host());
+      for (const b of [{}, { owner_id: rid() }, { title: '   ' }, { starred: 'yes' }, { title: 'x'.repeat(201) }]) assert.equal((await host().patch(`/api/v1/documents/${d.id}`, b)).status, 400, JSON.stringify(b).slice(0, 40));
+    });
+    test('a request without the CSRF token is refused', async () => {
+      const d = await mk(host()); assert.equal((await host().patch(`/api/v1/documents/${d.id}`, { starred: true }, { 'x-csrf-token': 'wrong' })).status, 403);
+    });
+  });
+
+  describe('duplicate', () => {
+    test('a reader can copy; the copy is private, owned by the copier, and carries the content', async () => {
+      const d = await mk(host(), 'Original'); await host().put(`/api/v1/documents/${d.id}`, { base_version: 1, content: { format: 'markdown', text: 'copy me' } }); await share(host(), d.id, 'workspace_view');
+      const r = await member().post(`/api/v1/documents/${d.id}/duplicate`, {}); assert.equal(r.status, 201); assert.equal(r.body.title, 'Copy of Original'); assert.equal(r.body.owner_id, M.sub); assert.equal(r.body.general_access, 'restricted');
+      assert.equal((await member().get(`/api/v1/documents/${r.body.id}`)).body.content.text, 'copy me'); assert.equal((await other().get(`/api/v1/documents/${r.body.id}`)).status, 404, 'the copy is not shared');
+      assert.equal((await other().post(`/api/v1/documents/${rid()}/duplicate`, {})).status, 404);
+    });
+    test('someone who cannot read a document cannot copy it (404), including from another workspace', async () => {
+      const d = await mk(host(), 'Secret'); assert.equal((await member().post(`/api/v1/documents/${d.id}/duplicate`, {})).status, 404); assert.equal((await outsider().post(`/api/v1/documents/${d.id}/duplicate`, {})).status, 404);
+    });
+    test('the plan limit holds when many copies race: 5 allowed, 4 in use, ten at once => exactly one succeeds', async () => {
+      const b = await newWorkspace('basic'); const first = await mk(b.cl, 'Base'); for (let i = 0; i < 3; i++) await mk(b.cl);
+      const rows = await Promise.all(Array.from({ length: 10 }, () => b.cl.post(`/api/v1/documents/${first.id}/duplicate`, {})));
+      assert.equal(rows.filter((r) => r.status === 201).length, 1); assert.ok(rows.filter((r) => r.status !== 201).every((r) => r.status === 402 && r.body.code === 'plan_limit'));
+      assert.equal(Number((await q('SELECT count(*) FROM portal.documents WHERE workspace_id=$1 AND deleted_at IS NULL', [b.w]))[0].count), 5);
+    });
+  });
+
+  describe('trash and restore', () => {
+    test('a deleted document leaves every list, shows in the owner\'s trash only, and comes back with its versions', async () => {
+      const d = await mk(member(), 'Short lived'); await member().put(`/api/v1/documents/${d.id}`, { base_version: 1, content: { format: 'markdown', text: 'v2' } }); await share(member(), d.id, 'workspace_view');
+      assert.equal((await member().del(`/api/v1/documents/${d.id}`)).status, 204);
+      assert.ok(!ids(await member().get('/api/v1/documents?view=recent')).includes(d.id)); assert.equal((await member().get(`/api/v1/documents/${d.id}`)).status, 404);
+      assert.ok(ids(await member().get('/api/v1/documents?view=trash')).includes(d.id)); assert.ok(!ids(await other().get('/api/v1/documents?view=trash')).includes(d.id), 'others never see your trash');
+      assert.ok(!ids(await host().get('/api/v1/documents?view=trash')).includes(d.id), 'not even the workspace owner');
+      assert.equal((await other().post(`/api/v1/documents/${d.id}/undelete`, {})).status, 404); assert.equal((await admin().post(`/api/v1/documents/${d.id}/undelete`, {})).status, 404, 'a workspace admin may delete but not restore other people\'s documents');
+      assert.equal((await member().post(`/api/v1/documents/${d.id}/undelete`, {})).status, 200);
+      const back = (await member().get(`/api/v1/documents/${d.id}`)).body; assert.equal(back.content.text, 'v2'); assert.equal(back.current_version, 2);
+      assert.equal((await member().post(`/api/v1/documents/${d.id}/undelete`, {})).status, 404, 'restoring something that is not in the trash is a 404');
+    });
+    test('restoring is blocked at the plan limit and the document stays in the trash; a document from another workspace is a 404', async () => {
+      const b = await newWorkspace('basic'); const gone = await mk(b.cl, 'Trashed'); await b.cl.del(`/api/v1/documents/${gone.id}`); for (let i = 0; i < 5; i++) await mk(b.cl);
+      const r = await b.cl.post(`/api/v1/documents/${gone.id}/undelete`, {}); assert.equal(r.status, 402); assert.equal(r.body.code, 'plan_limit');
+      assert.ok(ids(await b.cl.get('/api/v1/documents?view=trash')).includes(gone.id));
+      assert.equal((await outsider().post(`/api/v1/documents/${gone.id}/undelete`, {})).status, 404);
+    });
+    test('restores racing at the limit cannot exceed it', async () => {
+      const b = await newWorkspace('basic'); const trashed = []; for (let i = 0; i < 3; i++) { const d = await mk(b.cl); await b.cl.del(`/api/v1/documents/${d.id}`); trashed.push(d.id); }
+      for (let i = 0; i < 3; i++) await mk(b.cl);
+      const rows = await Promise.all(trashed.map((id) => b.cl.post(`/api/v1/documents/${id}/undelete`, {})));
+      assert.equal(rows.filter((r) => r.status === 200).length, 2, 'room for exactly two more'); assert.equal(Number((await q('SELECT count(*) FROM portal.documents WHERE workspace_id=$1 AND deleted_at IS NULL', [b.w]))[0].count), 5);
+    });
+  });
+
+  describe('folders', () => {
+    test('create, rename, name clash, list with counts, delete unfiles the documents', async () => {
+      const f = await member().post('/api/v1/document-folders', { name: 'Projects' }); assert.equal(f.status, 201);
+      assert.equal((await member().post('/api/v1/document-folders', { name: '  projects ' })).body.code, 'name_taken', 'names clash regardless of case and spacing');
+      assert.equal((await host().post('/api/v1/document-folders', { name: 'Projects' })).status, 201, 'another person may use the same name');
+      const d = await mk(member(), 'Filed'); assert.equal((await member().post(`/api/v1/documents/${d.id}/move`, { folder_id: f.body.id })).status, 200);
+      assert.deepEqual(ids(await member().get('/api/v1/documents?view=recent&folder=' + f.body.id)), [d.id]);
+      assert.equal((await member().get('/api/v1/document-folders')).body.find((x) => x.id === f.body.id).documents, 1);
+      assert.ok(!ids(await member().get('/api/v1/documents?view=recent&folder=none')).includes(d.id));
+      assert.equal((await member().patch(`/api/v1/document-folders/${f.body.id}`, { name: 'Client work' })).status, 200);
+      assert.equal((await member().del(`/api/v1/document-folders/${f.body.id}`)).status, 204);
+      assert.ok(ids(await member().get('/api/v1/documents?view=recent&folder=none')).includes(d.id), 'the document is kept and unfiled'); assert.equal((await member().get(`/api/v1/documents/${d.id}`)).status, 200);
+      assert.equal((await member().post('/api/v1/document-folders', { name: 'Projects' })).status, 201, 'a deleted folder\'s name can be reused');
+    });
+    test('folders are private: nobody else can list, rename, delete, file into or filter by them', async () => {
+      const f = (await member().post('/api/v1/document-folders', { name: 'Private ' + rid().slice(0, 5) })).body; const theirs = await mk(host(), 'Host doc'); const mine = await mk(member(), 'My doc');
+      assert.ok(!(await other().get('/api/v1/document-folders')).body.some((x) => x.id === f.id));
+      assert.equal((await other().patch(`/api/v1/document-folders/${f.id}`, { name: 'x' })).status, 404); assert.equal((await other().del(`/api/v1/document-folders/${f.id}`)).status, 404); assert.equal((await outsider().del(`/api/v1/document-folders/${f.id}`)).status, 404);
+      assert.equal((await host().post(`/api/v1/documents/${theirs.id}/move`, { folder_id: f.id })).status, 404, 'cannot file into someone else\'s folder');
+      await share(member(), mine.id, 'workspace_edit'); assert.equal((await other().post(`/api/v1/documents/${mine.id}/move`, { folder_id: null })).body.code, 'owner_only', 'only the owner files a document');
+      await member().post(`/api/v1/documents/${mine.id}/move`, { folder_id: f.id }); assert.deepEqual(ids(await other().get('/api/v1/documents?view=recent&folder=' + f.id)), [], 'the folder filter only ever shows the caller\'s own documents');
+    });
+    test('validation: blank and over-long names, unknown fields, bad ids', async () => {
+      for (const b of [{ name: '   ' }, { name: 'x'.repeat(121) }, { name: 'ok', owner_id: rid() }, {}]) assert.equal((await member().post('/api/v1/document-folders', b)).status, 400);
+      const d = await mk(member()); assert.equal((await member().post(`/api/v1/documents/${d.id}/move`, { folder_id: 'nope' })).status, 400); assert.equal((await member().post(`/api/v1/documents/${d.id}/move`, { folder_id: rid() })).status, 404);
+      assert.equal((await member().del('/api/v1/document-folders/not-a-uuid')).status, 404);
+    });
+  });
+
+  describe('comments', () => {
+    test('editors comment and resolve; readers can read; viewers cannot write; strangers get 404', async () => {
+      const d = await mk(host(), 'Reviewed'); await share(host(), d.id, 'restricted', [{ user_id: A.sub, role: 'editor' }, { user_id: N.sub, role: 'viewer' }]);
+      const c = await admin().post(`/api/v1/documents/${d.id}/comments`, { body: '  Please check the numbers  ' }); assert.equal(c.status, 201); assert.equal(c.body.body, 'Please check the numbers'); assert.equal(c.body.author_id, A.sub);
+      assert.equal((await other().post(`/api/v1/documents/${d.id}/comments`, { body: 'x' })).body.code, 'read_only'); assert.equal((await member().post(`/api/v1/documents/${d.id}/comments`, { body: 'x' })).status, 404);
+      assert.equal((await other().get(`/api/v1/documents/${d.id}/comments`)).body.length, 1); assert.equal((await member().get(`/api/v1/documents/${d.id}/comments`)).status, 404);
+      assert.equal((await host().get(`/api/v1/documents/${d.id}/meta`)).body.open_comments, 1);
+      assert.equal((await other().post(`/api/v1/documents/${d.id}/comments/${c.body.id}/resolve`, {})).body.code, 'read_only');
+      assert.equal((await host().post(`/api/v1/documents/${d.id}/comments/${c.body.id}/resolve`, {})).status, 200); assert.equal((await host().post(`/api/v1/documents/${d.id}/comments/${c.body.id}/resolve`, {})).status, 404, 'already resolved');
+      assert.equal((await host().get(`/api/v1/documents/${d.id}/meta`)).body.open_comments, 0); assert.ok((await host().get(`/api/v1/documents/${d.id}/comments`)).body[0].resolved_at);
+    });
+    test('a comment id from another document cannot be resolved through this one; bad bodies are 400; a trashed document has no comments', async () => {
+      const a = await mk(host(), 'A'); const b = await mk(host(), 'B'); const c = (await host().post(`/api/v1/documents/${a.id}/comments`, { body: 'on A' })).body;
+      assert.equal((await host().post(`/api/v1/documents/${b.id}/comments/${c.id}/resolve`, {})).status, 404); assert.equal((await host().post(`/api/v1/documents/${b.id}/comments/zzz/resolve`, {})).status, 404);
+      for (const body of [{ body: '' }, { body: ' ' }, { body: 'x'.repeat(4001) }, { body: 'ok', author_id: rid() }, {}]) assert.equal((await host().post(`/api/v1/documents/${a.id}/comments`, body)).status, 400);
+      await host().del(`/api/v1/documents/${a.id}`); assert.equal((await host().get(`/api/v1/documents/${a.id}/comments`)).status, 404); assert.equal((await host().post(`/api/v1/documents/${a.id}/comments`, { body: 'late' })).status, 404);
+    });
+    test('comment text is stored and returned as plain data (no HTML is interpreted by the API)', async () => {
+      const d = await mk(host()); const c = await host().post(`/api/v1/documents/${d.id}/comments`, { body: '<img src=x onerror=alert(1)>' }); assert.equal(c.body.body, '<img src=x onerror=alert(1)>');
+      assert.match((await host().get(`/api/v1/documents/${d.id}/comments`)).headers.get('content-type'), /application\/json/);
+    });
+  });
+
+  describe('export', () => {
+    test('txt and md download with safe headers, from anyone who can read; strangers get 404', async () => {
+      const d = await mk(host(), 'Plan "Q3"\r\nSet-Cookie: x=1'); await host().put(`/api/v1/documents/${d.id}`, { base_version: 1, content: { format: 'markdown', text: '# Heading\n\nSome **bold** text' } }); await share(host(), d.id, 'workspace_view');
+      for (const [ext, type] of [['txt', 'text/plain'], ['md', 'text/markdown']]) {
+        const r = await member().get(`/api/v1/documents/${d.id}/export.${ext}`); assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), new RegExp(type)); assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+        assert.equal(r.body, '# Heading\n\nSome **bold** text'); const cd = r.headers.get('content-disposition'); assert.match(cd, new RegExp(`^attachment; filename="[A-Za-z0-9._-]+\\.${ext}"$`)); assert.ok(!/[\r\n]/.test(cd));
+      }
+      await share(host(), d.id, 'restricted'); assert.equal((await member().get(`/api/v1/documents/${d.id}/export.txt`)).status, 404); assert.equal((await outsider().get(`/api/v1/documents/${d.id}/export.txt`)).status, 404);
+    });
+    test('sheets and slides export as plain text; markdown export is for documents only', async () => {
+      const s = await mk(host(), 'Stock', 'sheet'); await host().put(`/api/v1/documents/${s.id}`, { base_version: 1, content: { columns: ['Item', 'Qty'], rows: [['Giraffes', 12]] } });
+      assert.match((await host().get(`/api/v1/documents/${s.id}/export.txt`)).body, /Giraffes 12/); assert.equal((await host().get(`/api/v1/documents/${s.id}/export.md`)).status, 400);
+    });
+  });
+
+  describe('audit and tenant isolation', () => {
+    test('every consequential action is audited with the actor and the document, and no document text is written to the audit log', async () => {
+      const d = await mk(host(), 'Audited'); await host().put(`/api/v1/documents/${d.id}`, { base_version: 1, content: { format: 'markdown', text: 'SECRET-BODY-TEXT' } });
+      await host().patch(`/api/v1/documents/${d.id}`, { title: 'Audited 2' }); await host().post(`/api/v1/documents/${d.id}/comments`, { body: 'SECRET-COMMENT-TEXT' });
+      const dup = (await host().post(`/api/v1/documents/${d.id}/duplicate`, {})).body; await host().get(`/api/v1/documents/${d.id}/export.txt`); await host().del(`/api/v1/documents/${d.id}`); await host().post(`/api/v1/documents/${d.id}/undelete`, {});
+      const rows = await q('SELECT action, actor_id, object_id FROM portal.audit_events WHERE workspace_id=$1 AND (object_id=$2 OR object_id=$3)', [W, d.id, dup.id]); const actions = rows.map((r) => r.action);
+      for (const a of ['document.created', 'document.renamed', 'document.commented', 'document.duplicated', 'document.exported', 'document.deleted', 'document.undeleted']) assert.ok(actions.includes(a), a);
+      assert.ok(rows.every((r) => r.actor_id === H.sub)); assert.ok(!JSON.stringify(await q('SELECT * FROM portal.audit_events WHERE workspace_id=$1', [W])).includes('SECRET'));
+    });
+    test('a person in another workspace cannot reach any of these routes for this workspace\'s ids', async () => {
+      const d = await mk(host(), 'Tenant A'); const f = (await host().post('/api/v1/document-folders', { name: 'TenantFolder' })).body; const c = (await host().post(`/api/v1/documents/${d.id}/comments`, { body: 'hi' })).body;
+      for (const [m, p, b] of [['get', `/api/v1/documents/${d.id}/meta`], ['patch', `/api/v1/documents/${d.id}`, { title: 'hijack' }], ['get', `/api/v1/documents/${d.id}/comments`], ['post', `/api/v1/documents/${d.id}/comments`, { body: 'x' }],
+        ['post', `/api/v1/documents/${d.id}/comments/${c.id}/resolve`, {}], ['post', `/api/v1/documents/${d.id}/duplicate`, {}], ['post', `/api/v1/documents/${d.id}/move`, { folder_id: null }], ['get', `/api/v1/documents/${d.id}/export.txt`], ['get', `/api/v1/documents/${d.id}/export.md`], ['patch', `/api/v1/document-folders/${f.id}`, { name: 'x' }], ['del', `/api/v1/document-folders/${f.id}`]]) {
+        const r = await outsider()[m](p, b); assert.equal(r.status, 404, m + ' ' + p);
+      }
+      assert.equal((await host().get(`/api/v1/documents/${d.id}`)).body.title, 'Tenant A');
+      assert.ok(!ids(await outsider().get('/api/v1/documents?view=recent')).includes(d.id)); assert.equal((await q('SELECT count(*)::int n FROM portal.documents WHERE workspace_id=$1', [W2]))[0].n, 0);
+    });
+  });
+});
