@@ -233,7 +233,6 @@ services:
       - MAIN_UPSTREAM=${MAIN_UPSTREAM:-workspace-signaling-engine:5000}
       - PORTAL_UPSTREAM=${PORTAL_UPSTREAM:-qorlla-portal:5500}
       - MEET_UPSTREAM=${MEET_UPSTREAM:-meet:3000}
-      - CLIPS_UPSTREAM=${CLIPS_UPSTREAM:-host.docker.internal:3400}
       - NGINX_ENVSUBST_FILTER=_UPSTREAM
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz || exit 1"]
@@ -248,6 +247,7 @@ services:
     volumes:
       - ./Qorlla-Logo.jpg:/usr/share/nginx/html/Qorlla-Logo.jpg:ro
       - ./deploy/nginx/snippets:/etc/nginx/snippets:ro
+      - ./deploy/nginx/optional/clips.conf:/etc/nginx/optional/clips.conf:ro   # Qorlla Clips route (opt-in; remove this line if Clips is not run)
       - ./deploy/nginx/templates:/etc/nginx/templates:ro
       - ./Web_qorlla-pricing:/usr/share/nginx/pricing:ro
       - ${PROXY_TLS_CONF:-./deploy/nginx/tls-disabled.conf}:/etc/nginx/conf.d/tls.conf:ro
