@@ -42,6 +42,20 @@ function recurrenceOf(i) {
     return { repeat: i.seriesRepeat, count: n, index: idx + 1, label: 'Recurring (' + n + ' occurrences)', detail: every + ', until ' + until + ' (' + n + ' occurrences)', occurrence: (idx + 1) + ' of ' + n };
 }
 
+// A meeting's date and time are what the host saw on their own clock, in item.timezone (an IANA name such as America/New_York). The server may run in another zone
+// (the containers run in UTC), so the real start instant is worked out from that zone, never from the server's. Without a zone the old behaviour (server time) is kept.
+function instantOf(date, time, tz) {
+    const legacy = () => new Date(`${date}T${time}:00`);
+    if (!tz) return legacy();
+    const wall = Date.parse(`${date}T${time}:00Z`); if (isNaN(wall)) return legacy();
+    try {
+        const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const offsetAt = (ms) => { const p = {}; for (const x of fmt.formatToParts(new Date(ms))) p[x.type] = x.value; return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - Math.floor(ms / 1000) * 1000; };
+        let guess = wall - offsetAt(wall); guess = wall - offsetAt(guess);            // twice: the offset at the answer can differ from the offset at the first guess (daylight saving)
+        return new Date(guess);
+    } catch (e) { return legacy(); }                                                  // an unknown zone name
+}
+
 module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, updateMeeting, closeMeeting, isMeetingFinished, auth, mailer, notify, phoneSettingsChanged }) {
     const dir = path.join(dataDir, 'workplace');
     const seedDir = path.join(__dirname, 'seed');
@@ -108,7 +122,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         const pool = new Pool({ connectionString: process.env.DATABASE_URL });
         const store = () => import('./meet-sync/src/store.mjs');
         const isoOf = (s) => {
-            const t = new Date(`${s.date}T${s.time}:00`);
+            const t = instantOf(s.date, s.time, s.timezone);
             return isNaN(t) ? null : t.toISOString();
         };
         const failed = (err) => { console.error('Meet sync failed:', err.message); return new Error('Could not queue the meeting for Qorlla Meet. Try again shortly.'); };
@@ -464,7 +478,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         afterUpdate: async (next, prev, user, body) => {
             const metaChanged = ['topic', 'category', 'description'].some((k) => (next[k] || '') !== (prev[k] || '')) || JSON.stringify(next.agenda || []) !== JSON.stringify(prev.agenda || []);
             if (typeof updateMeeting === 'function' && prev.meetingId && (metaChanged || next.title !== prev.title || next.date !== prev.date || next.time !== prev.time || next.duration !== prev.duration)) {
-                const st = new Date(`${next.date}T${next.time}:00`);
+                const st = instantOf(next.date, next.time, next.timezone);
                 updateMeeting(prev.meetingId, { topic: next.title, startTime: isNaN(st) ? undefined : st.toISOString(), durationMinutes: next.duration,
                     meta: { ...cleanMeta({ topic: next.topic, description: next.description, agenda: next.agenda, category: next.category }), scheduledStartAt: isNaN(st) ? undefined : st.toISOString() } });   // a finished meeting ignores this
             }
@@ -488,7 +502,7 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
             return (req && req.query && req.query.include === 'finished' ? all.map((i) => (done(i) ? { ...i, finished: true } : i)) : all.filter((i) => !done(i))).map(rec);
         },
         create: async (item, body, user) => {
-            const startTime = new Date(`${item.date}T${item.time}:00`);
+            const startTime = instantOf(item.date, item.time, item.timezone);
             const meeting = allocateMeeting({
                 topic: item.title,
                 startTime: isNaN(startTime) ? undefined : startTime.toISOString(),
@@ -504,8 +518,20 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
                 const when = item.date + ' ' + item.time + (item.timezone ? ' (' + item.timezone + ')' : '') + ', ' + item.duration + ' min';
                 const pcOk = typeof body.passcode === 'string' && body.passcode.length >= 8 && body.passcode.length <= 128;
                 const text = invitationText({ host: user.displayName, recurrence: (recurrenceOf(item) || {}).detail, title: item.title, topic: item.topic, when, where: item.location, meetingId: meeting.meetingId, link: base ? base + '/guest/meeting/' + encodeURIComponent(meeting.meetingId) + '/prejoin' : '', passcode: pcOk ? body.passcode : '', needsPasscode: !!body.passcode, agenda: item.agenda, description: item.description });
-                try { out.inviteResults = await sendExternal(item.invitees, { subject: user.displayName + ' invited you: ' + item.title, body: text }, user); }
-                catch (err) { out.inviteResults = item.invitees.map((to) => ({ to, status: 'failed' })); }
+                // Invitees who are Qorlla users (name@qorlla.local, or the verified email of an account) get the invitation in their Qorlla inbox first; it needs no SMTP.
+                // Everyone else is emailed. Both are reported as "sent" so the host cannot tell which addresses belong to accounts.
+                const subject = user.displayName + ' invited you: ' + item.title;
+                const accounts = listUsers(), inboxed = new Map(), outside = [];
+                for (const to of item.invitees) {
+                    const local = /@qorlla\.local$/.test(to) ? to.replace(/@qorlla\.local$/, '') : null;
+                    const target = (local && accounts.find((a) => a.username === local)) || (auth.findByVerifiedEmail ? auth.findByVerifiedEmail(to) : null);
+                    if (target && target.id !== user.id) { if (![...inboxed.values()].some((x) => x.id === target.id)) { const key = userKey('mail', target); const inbox = load(key, 'mail'); inbox.unshift({ id: uuidv4(), subject, from: user.displayName + ' (@' + user.username + ')', to: to, body: text, folder: 'inbox', read: false, starred: false, createdAt: nowIso() }); save(key, inbox); ping([target.id], 'mail_changed'); } inboxed.set(to, target); }
+                    else outside.push(to);
+                }
+                let ext = [];
+                try { ext = await sendExternal(outside, { subject, body: text }, user); }
+                catch (err) { ext = outside.map((to) => ({ to, status: 'failed' })); }
+                out.inviteResults = item.invitees.map((to) => (inboxed.has(to) ? { to, status: 'sent' } : (ext.find((r) => r.to === to) || { to, status: 'failed' })));
             }
             const pc = passcodeChange(body);
             if (pc.error) throw new Error(pc.error);

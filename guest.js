@@ -86,6 +86,7 @@
     $('pjForm').addEventListener('submit', function (e) {
       e.preventDefault(); var name = $('pjName').value.trim();
       if (!name) { $('pjMsg').textContent = T('Enter a display name.'); $('pjMsg').className = 'msg err'; $('pjName').focus(); return; }
+      if (name.split(/\s+/).length < 2) { $('pjMsg').textContent = T('Enter your full name: first and last name.'); $('pjMsg').className = 'msg err'; $('pjName').focus(); return; }
       try { localStorage.setItem('zw_name', name); } catch (er) { /* storage unavailable */ }
       if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); cancelAnimationFrame(raf);
       // The server decides whether this person may join: it issues a short-lived session bound to this meeting (HttpOnly cookie).

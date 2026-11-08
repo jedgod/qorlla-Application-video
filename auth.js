@@ -586,5 +586,5 @@ module.exports = function createAuth({ dataDir, mailer, onAccountChange, onAuthe
         const users = loadUsers(), u = users.find((x) => x.id === userId); if (!u) return false;
         u.suspended = !!suspended; saveUsers(users); if (suspended) dropSessions(userId); notify(u); return true;
     }
-    return { router, portalTokens, deviceLinks, setSuspended, allAccounts: () => loadUsers().map((u) => ({ id: u.id, verified: !!u.emailVerified, suspended: !!u.suspended })), getUser, requireUser, requireCsrf, listUsers: () => loadUsers().map(publicUser), getUserById: (id) => { const u = loadUsers().find((y) => y.id === id); return u ? selfUser(u) : null; } };
+    return { router, portalTokens, deviceLinks, setSuspended, allAccounts: () => loadUsers().map((u) => ({ id: u.id, verified: !!u.emailVerified, suspended: !!u.suspended })), getUser, requireUser, requireCsrf, listUsers: () => loadUsers().map(publicUser), findByVerifiedEmail: (email) => { const e = normEmail(email); if (!e) return null; const u = loadUsers().find((y) => y.emailVerified && y.email === e && !y.suspended); return u ? publicUser(u) : null; }, getUserById: (id) => { const u = loadUsers().find((y) => y.id === id); return u ? selfUser(u) : null; } };
 };
