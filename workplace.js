@@ -1155,12 +1155,91 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         res.json(load(userKey('notes', req.user), 'notes'));
     });
 
+    // Activity over a period, for "Past Week's Summary" and "Summarize My Past Activities". Read-only, your own data only. Each source is
+    // included only while its Qorlla Sources switch is on: a source that is off is left out and named in "off" (all of them off is a 403, like
+    // the other assistant endpoints). Every read is recorded in aireads.<account> (when, period, which sources; never the content).
+    // Dates are calendar days; timestamps are compared in the server's time zone. Chat covers the messages kept in the live history.
+    const YMD = /^\d{4}-\d{2}-\d{2}$/;
+    const AI_ACTIVITY_MAX_DAYS = 366;
+    const ymdOf = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const oneLine = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
+    router.get('/ai/context/activity', requireUser, (req, res) => {
+        const from = String(req.query.from || ''), to = String(req.query.to || '');
+        if (!YMD.test(from) || !YMD.test(to)) return bad(res, 'Send from and to as YYYY-MM-DD.');
+        const f = new Date(from + 'T00:00:00'), t = new Date(to + 'T23:59:59.999');
+        if (isNaN(f) || isNaN(t) || ymdOf(f) !== from || ymdOf(new Date(to + 'T00:00:00')) !== to) return bad(res, 'That is not a real date.');
+        if (t < f) return bad(res, 'The end of the period is before its start.');
+        if (f > new Date()) return bad(res, 'Past activities start today or earlier.');
+        const days = Math.round((new Date(to + 'T00:00:00') - f) / 86400000) + 1;
+        if (days > AI_ACTIVITY_MAX_DAYS) return bad(res, 'Choose a period of at most ' + AI_ACTIVITY_MAX_DAYS + ' days.');
+
+        const sw = aiLoad(req.user), on = {};
+        AI_SOURCES.forEach((k) => { on[k] = !!(sw.master && sw[k]); });
+        const used = AI_SOURCES.filter((k) => on[k]), off = AI_SOURCES.filter((k) => !on[k]);
+        if (!used.length) return res.status(403).json({ error: 'All sources are switched off in Qorlla Sources.', source: 'all' });
+        const inRange = (iso) => { const x = Date.parse(iso); return x >= f.getTime() && x <= t.getTime(); };
+        const out = { from, to, days, used, off, sources: {} };
+
+        if (on.meetings) {
+            const items = load(userKey('calendar', req.user), 'calendar').map((e) => ({ title: e.title, date: e.date, start: e.start, kind: 'event' }))
+                .concat(load(userKey('schedule', req.user), 'schedule').map((x) => ({ title: x.title, date: x.date, start: x.time, kind: 'meeting' })))
+                .filter((i) => typeof i.date === 'string' && i.date >= from && i.date <= to)
+                .sort((a, b) => (a.date + (a.start || '')).localeCompare(b.date + (b.start || '')));
+            out.sources.meetings = { total: items.length, items: items.slice(0, 50).map((i) => ({ title: oneLine(i.title, 160), date: i.date, start: i.start || '', kind: i.kind })) };
+        }
+        if (on.mail) {
+            const mail = load(userKey('mail', req.user), 'mail').filter((m) => m.createdAt && inRange(m.createdAt));
+            const received = mail.filter((m) => (m.folder || 'inbox') === 'inbox');
+            out.sources.mail = { received: received.length, sent: mail.filter((m) => m.folder === 'sent').length, subjects: received.slice(0, 10).map((m) => oneLine(m.subject, 120)) };
+        }
+        if (on.chat) {
+            const users = userMap(), chats = [];
+            load('chat').filter((c) => memberOf(c, req.user)).forEach((c) => {
+                const msgs = c.messages.filter((m) => typeof m.text === 'string' && !String(m.userId).startsWith('bot:') && inRange(m.at));
+                if (!msgs.length) return;
+                const others = c.members.filter((id) => id !== req.user.id);
+                const name = c.type === 'dm' ? (others.length ? (users.get(others[0]) || { displayName: 'Former member' }).displayName : req.user.displayName + ' (You)') : c.name;
+                chats.push({ name: oneLine(name, 80), count: msgs.length, mentions: msgs.filter((m) => mentionsUser(m.text, req.user.username)).length });
+            });
+            chats.sort((a, b) => b.count - a.count);
+            out.sources.chat = { messages: chats.reduce((n, c) => n + c.count, 0), conversations: chats.length, mentions: chats.reduce((n, c) => n + c.mentions, 0), top: chats.slice(0, 5) };
+        }
+        if (on.my_notes) {
+            const notes = load(userKey('notes', req.user), 'notes').filter((n) => n.updatedAt && inRange(n.updatedAt));
+            const completed = []; let completedTotal = 0;
+            notes.forEach((n) => String(n.content || '').split('\n').forEach((line) => {
+                const m = line.match(/^\s*(?:[-*]\s*)?(?:\[[xX]\]|done:?)\s*(.+)$/i);
+                if (!m) return;
+                completedTotal++;
+                if (completed.length < 20) completed.push({ text: oneLine(m[1], 160), note: oneLine(n.title, 80) });
+            }));
+            out.sources.my_notes = { updated: notes.length, titles: notes.slice(0, 10).map((n) => oneLine(n.title || 'Untitled', 80)), completedTotal, completed };
+        }
+        if (on.canvas) {
+            const boards = load(userKey('whiteboard', req.user), 'whiteboard').filter((b) => inRange(b.updatedAt || b.createdAt));
+            out.sources.canvas = { updated: boards.length, names: boards.slice(0, 10).map((b) => oneLine(b.name || 'Untitled', 80)) };
+        }
+        const readsKey = 'aireads.' + req.user.id;
+        const reads = store.readJson(file(readsKey), []);
+        reads.push({ at: nowIso(), kind: 'activity', from, to, sources: used });
+        save(readsKey, reads.slice(-200));
+        res.json(out);
+    });
+
     // ---------- assistant chat history (per account, stored on the server) ----------
     // Delete is a soft delete: the record stays on disk, marked deletedAt, and is never listed again.
     const CHAT_ID = /^c[a-z0-9]{3,40}$/;
     const chatsKey = (user) => 'aichats.' + userKey('x', user).slice(2);
     const chatsLoad = (user) => { const l = store.readJson(file(chatsKey(user)), []); return Array.isArray(l) ? l : []; };
-    const chatPublic = (c) => ({ id: c.id, title: c.title, messages: c.messages, createdAt: c.createdAt, updatedAt: c.updatedAt });
+    // A chat can be a saved summary: kind "week" (My Week's Summary), "pastweek" (Past Week's Summary) or "activity" (Summarize My Past Activities),
+    // with the period it covers. The page keeps one fixed chat id per pinned kind, so deleting it must not make its id unusable (see the revive below).
+    const SUMMARY_KINDS = ['week', 'pastweek', 'activity'];
+    const chatPublic = (c) => {
+        const o = { id: c.id, title: c.title, messages: c.messages, createdAt: c.createdAt, updatedAt: c.updatedAt };
+        if (c.kind) o.kind = c.kind;
+        if (c.range) o.range = c.range;
+        return o;
+    };
 
     router.get('/ai/chats', requireUser, (req, res) => {
         const live = chatsLoad(req.user).filter((c) => !c.deletedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 100);
@@ -1177,10 +1256,16 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
             messages.push({ role: m.role, text: m.text });
         }
         const title = typeof body.title === 'string' ? body.title.trim().slice(0, 120) : '';
+        if (body.kind !== undefined && !SUMMARY_KINDS.includes(body.kind)) return bad(res, 'Unknown summary kind.');
+        const r = body.range;
+        if (r !== undefined && !(r && typeof r === 'object' && YMD.test(String(r.from)) && YMD.test(String(r.to)) && String(r.from) <= String(r.to))) return bad(res, 'Send range as {from, to} in YYYY-MM-DD.');
         const list = chatsLoad(req.user);
         const now = nowIso();
         let c = list.find((x) => x.id === req.params.id);
-        if (c && c.deletedAt) return missing(res);
+        if (c && c.deletedAt) {
+            if (!body.kind) return missing(res);                                    // an ordinary deleted chat stays deleted
+            delete c.deletedAt; c.title = ''; c.createdAt = now;                    // a saved summary can be made again after it was deleted
+        }
         if (!c) {
             if (list.filter((x) => !x.deletedAt).length >= 100) return bad(res, 'Chat history is full. Delete a chat first.');
             c = { id: req.params.id, title: '', messages: [], createdAt: now, updatedAt: now };
@@ -1188,6 +1273,8 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
         }
         c.messages = messages; c.updatedAt = now;
         if (title) c.title = title;
+        if (body.kind) c.kind = body.kind;
+        if (r) c.range = { from: String(r.from), to: String(r.to) };
         save(chatsKey(req.user), list);
         res.json(chatPublic(c));
     });

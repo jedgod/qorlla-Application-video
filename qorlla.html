@@ -433,6 +433,31 @@
   .switch[aria-checked="true"] { background: #1a6bf0; }
   .switch[aria-checked="true"]::after { transform: translateX(16px); }
   .switch:focus-visible, .ai-pop .mi:focus-visible, .tool:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  /* pinned summaries in the history drawer: same look as a chat row, with the options button always visible (touch screens have no hover) */
+  .ai-drawer .ai-sec { padding: 10px 12px 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .sum-row { position: relative; display: flex; align-items: center; border-radius: 10px; background: transparent; }
+  .sum-row:hover, .sum-row.open, .sum-row.current { background: #eef1f6; }
+  .sum-row .t { flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left; padding: 8px 12px; border: 0; background: transparent; font-size: 14px; }
+  .sum-row .t .n, .sum-row .t .s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sum-row .t .s { margin-top: 2px; font-size: 12px; color: var(--muted); }
+  .sum-row .more { width: 30px; height: 30px; margin-right: 6px; flex: none; border: 0; border-radius: 8px; display: grid; place-items: center; color: var(--ink, #131a2a); background: #f0f1f3; }
+  .sum-row:hover .more:not([disabled]), .sum-row.open .more { background: #dfe6f3; }
+  .sum-row .more[disabled] { opacity: .4; cursor: default; }
+  .sum-row .rename { flex: 1; margin: 4px 6px; height: 32px; border: 1px solid var(--brand); border-radius: 8px; padding: 0 8px; font: inherit; font-size: 14px; outline: none; }
+  .sum-row .t:focus-visible, .sum-row .more:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+  /* the period chooser shown by "Summarize my past activities" */
+  .range-card { align-self: stretch; display: flex; flex-direction: column; gap: 10px; background: var(--soft); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+  .range-card .rt { font-weight: 600; font-size: 14px; }
+  .range-card select, .range-card input[type="date"] { width: 100%; min-width: 0; height: 38px; border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; font: inherit; font-size: 14px; background: #fff; }
+  .range-card .range-dates { display: flex; flex-wrap: wrap; gap: 8px; }
+  .range-card .range-dates[hidden] { display: none; }
+  .range-card .range-dates label { flex: 1 1 130px; min-width: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .range-card .range-err { color: #e11d48; font-size: 13px; }
+  .range-card .range-err:empty { display: none; }
+  .range-card .range-acts { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .range-card .range-acts button { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line); background: #fff; font-size: 13.5px; font-weight: 600; }
+  .range-card .range-acts .go { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .range-card select:focus-visible, .range-card input:focus-visible, .range-card button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   @media (max-width: 1100px) { .ai-panel { display: none; } }
   @media (max-width: 700px) {
     .center { padding: 24px 18px; } .time { font-size: 46px; } .actions { gap: 18px; }
@@ -816,6 +841,7 @@
             <div class="suggestions">
               <button class="suggestion" id="sugWeek" type="button"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Summarize my week</button>
               <button class="suggestion" id="sugActions" type="button"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>List my recent action items</button>
+              <button class="suggestion" id="sugPast" type="button"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Summarize my past activities</button>
             </div>
           </div>
         </div>
@@ -3665,7 +3691,7 @@
   function aiSync(c) {
     aiCache();
     if (!c || !state.user) return;
-    api('/ai/chats/' + c.id, { method: 'PUT', body: { title: c.title, messages: c.messages } }).catch(function (e) { toast(e.message || 'Could not save the chat'); });
+    api('/ai/chats/' + c.id, { method: 'PUT', body: { title: c.title, messages: c.messages, kind: c.kind, range: c.range } }).catch(function (e) { toast(e.message || 'Could not save the chat'); });
   }
   // pull the account's history from the server; chats that only exist in this browser are uploaded once
   function aiFetchChats() {
@@ -3741,9 +3767,10 @@
   }
   function aiDeleteChat(c) {
     var scrim = h('div', { class: 'ai-confirm' });
-    var box = h('div', { class: 'box', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': 'Delete conversation?' }, [
-      h('h3', { text: 'Delete conversation?' }),
-      h('p', { text: 'This conversation will be removed from your history.' }),
+    var isSummary = c.kind === 'week' || c.kind === 'pastweek';
+    var box = h('div', { class: 'box', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': isSummary ? 'Delete summary?' : 'Delete conversation?' }, [
+      h('h3', { text: isSummary ? 'Delete summary?' : 'Delete conversation?' }),
+      h('p', { text: isSummary ? 'This saved summary will be removed. Select it again to create a new one.' : 'This conversation will be removed from your history.' }),
       h('div', { class: 'acts' }, [
         h('button', { type: 'button', text: 'Cancel', onclick: function () { scrim.remove(); } }),
         h('button', { type: 'button', class: 'danger', text: 'Delete', onclick: function () {
@@ -3783,7 +3810,7 @@
     }, 0);
   }
   function aiRename(row, c) {
-    var input = h('input', { class: 'rename', type: 'text', maxlength: '80', 'aria-label': 'Chat name', value: c.title || 'New chat' });
+    var input = h('input', { class: 'rename', type: 'text', maxlength: '80', 'aria-label': 'Chat name', value: c.title || (aiSummaryDef(c.kind) || {}).label || 'New chat' });
     var finished = false;
     function commit(save) {
       if (finished) return; finished = true;
@@ -3799,7 +3826,22 @@
   }
   function aiPaintHistory() {
     var list = $('aiHistList'); list.textContent = '';
-    var shown = aiChats.filter(function (c) { return c.messages.length; });
+    list.appendChild(h('div', { class: 'ai-sec', text: 'Summaries' }));
+    AI_SUMMARIES.forEach(function (def) {
+      var c = aiSummaryChat(def.kind), name = (c && c.title) || def.label, sub;
+      if (!c) sub = 'Not created yet. Select to create it.';
+      else if (def.kind === 'pastweek' && c.range) sub = prettyDate(c.range.from) + ' \u2013 ' + prettyDate(c.range.to);
+      else { var a = ago(c.updatedAt || new Date(c.ts || Date.now()).toISOString()); sub = 'Updated ' + (/^\d+[mh]$/.test(a) ? a + ' ago' : a); }
+      var row = h('div', { class: 'sum-row' + (c && c.id === aiCurrent ? ' current' : ''), 'data-kind': def.kind });
+      row.appendChild(h('button', { class: 't', type: 'button', onclick: function () { aiOpenSummary(def); } }, [h('span', { class: 'n', text: name }), h('span', { class: 's', text: sub })]));
+      var more = h('button', { class: 'more', type: 'button', 'aria-label': 'Options for ' + name, 'aria-haspopup': 'menu' }, [h('span', { text: '\u2026', 'aria-hidden': 'true' })]);
+      if (!c) { more.disabled = true; more.title = 'Create the summary first'; }
+      more.addEventListener('click', function (e) { e.stopPropagation(); if (c) aiRowMenu(row, c, more); });
+      row.appendChild(more);
+      list.appendChild(row);
+    });
+    list.appendChild(h('div', { class: 'ai-sec', text: 'Chats' }));
+    var shown = aiChats.filter(function (c) { return c.messages.length && c.kind !== 'week' && c.kind !== 'pastweek'; });
     if (!shown.length) { list.appendChild(h('div', { class: 'empty', text: 'No chats yet.' })); return; }
     shown.forEach(function (c) {
       var row = h('div', { class: 'hist-row' + (c.id === aiCurrent ? ' current' : '') });
@@ -3920,12 +3962,12 @@
     aiSay('me', 'Summarize my week');
     aiWhenSignedInKnown(aiSummarizeNow);
   }
-  function aiSummarizeNow() {
-    if (!state.user) { aiSay('ai', 'Sign in first. Summaries are built from your own mail, notes and calendar.'); return; }
+  function aiWeekText() {
+    if (!state.user) return Promise.resolve('Sign in first. Summaries are built from your own mail, notes and calendar.');
     var today = new Date(); today.setHours(0, 0, 0, 0);
     var end = new Date(today); end.setDate(end.getDate() + 7);
     var weekAgo = Date.now() - 7 * 86400000;
-    Promise.all([
+    return Promise.all([
       aiPull('meetings', aiMeetings),
       aiPull('mail', function () { return api('/ai/context/mail'); }),
       aiPull('my_notes', function () { return api('/ai/context/my_notes'); }),
@@ -3935,7 +3977,7 @@
       var res = { meetings: r[0], mail: r[1], my_notes: r[2], chat: r[3], canvas: r[4] };
       var used = [], off = [];
       AI_SOURCES.forEach(function (x) { (res[x.key].off ? off : used).push(x.label); });
-      if (!used.length) { aiSay('ai', 'All sources are switched off in Qorlla Sources. Turn one on to build a summary.'); return; }
+      if (!used.length) return 'All sources are switched off in Qorlla Sources. Turn one on to build a summary.';
       var lines = [];
       if (!res.meetings.off) {
         var week = res.meetings.data.filter(function (i) { var d = parseYmd(i.date); return d >= today && d < end; });
@@ -3963,8 +4005,11 @@
       lines.push('');
       lines.push('Based on: ' + used.join(', ') + '.');
       if (off.length) lines.push('Switched off: ' + off.join(', ') + '.');
-      aiSay('ai', lines.join('\n'));
-    }).catch(function (e) { aiSay('ai', e.message); });
+      return lines.join('\n');
+    });
+  }
+  function aiSummarizeNow() {
+    aiWeekText().then(function (text) { aiSay('ai', text); }).catch(function (e) { aiSay('ai', e.message); });
   }
   function listActions() {
     aiSay('me', 'List my recent action items');
@@ -3986,6 +4031,148 @@
   }
   $('sugWeek').addEventListener('click', summarizeWeek);
   $('sugActions').addEventListener('click', listActions);
+
+  // ---- saved summaries pinned in the history drawer, and "Summarize my past activities" ----
+  // The drawer always shows My Week's Summary and Past Week's Summary. Each is one saved chat with a fixed id, made when you select it (not before),
+  // renamed, opened in the browser or deleted like any chat. A deleted summary can be created again.
+  var AI_SUMMARIES = [
+    { kind: 'week', id: 'cweek', label: "My Week's Summary" },
+    { kind: 'pastweek', id: 'cpastweek', label: "Past Week's Summary" }
+  ];
+  function aiSummaryDef(kind) { return AI_SUMMARIES.filter(function (d) { return d.kind === kind; })[0]; }
+  function aiSummaryChat(kind) { return aiChats.filter(function (c) { return c.kind === kind && c.messages && c.messages.length > 1; })[0]; }
+  function aiSrcLabel(k) { var x = AI_SOURCES.filter(function (y) { return y.key === k; })[0]; return x ? x.label : k; }
+  function aiPlural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+  // the calendar week (Monday to Sunday) that is `back` weeks before this one
+  function aiWeekRange(back) {
+    var d = new Date(); d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7 * back);
+    var e = new Date(d); e.setDate(e.getDate() + 6);
+    return { from: ymd(d), to: ymd(e) };
+  }
+  // what /ai/context/activity returned, as the same kind of plain summary the week button gives
+  function aiActivityText(d, label) {
+    var s = d.sources, lines = [label + ': ' + prettyDate(d.from) + ' \u2013 ' + prettyDate(d.to) + ' (' + aiPlural(d.days, 'day', 'days') + ').'], any = 0;
+    if (s.meetings) {
+      any += s.meetings.total;
+      lines.push('Meetings and events: ' + s.meetings.total + '.');
+      s.meetings.items.slice(0, 6).forEach(function (i) { lines.push('\u2022 ' + prettyDate(i.date) + (i.start ? ' ' + t12(i.start) : '') + ' \u2013 ' + i.title); });
+      if (s.meetings.total > 6) lines.push('\u2026 and ' + (s.meetings.total - 6) + ' more.');
+    }
+    if (s.my_notes) {
+      any += s.my_notes.updated;
+      lines.push('Notes: ' + aiPlural(s.my_notes.updated, 'note', 'notes') + ' updated. Completed tasks: ' + s.my_notes.completedTotal + '.');
+      s.my_notes.completed.slice(0, 6).forEach(function (x) { lines.push('\u2022 ' + x.text + '  (' + x.note + ')'); });
+    }
+    if (s.canvas) {
+      any += s.canvas.updated;
+      lines.push('Documents (Canvas): ' + aiPlural(s.canvas.updated, 'board', 'boards') + ' updated.');
+      s.canvas.names.slice(0, 3).forEach(function (n) { lines.push('\u2022 ' + n); });
+    }
+    if (s.chat) {
+      any += s.chat.messages;
+      lines.push('Chat: ' + aiPlural(s.chat.messages, 'message', 'messages') + ' in ' + aiPlural(s.chat.conversations, 'conversation', 'conversations') + (s.chat.mentions ? ', ' + s.chat.mentions + ' mentioning you' : '') + '.');
+      s.chat.top.slice(0, 3).forEach(function (c) { lines.push('\u2022 ' + c.name + ' \u2013 ' + c.count); });
+    }
+    if (s.mail) {
+      any += s.mail.received + s.mail.sent;
+      lines.push('Mail: ' + s.mail.received + ' received, ' + s.mail.sent + ' sent.');
+    }
+    if (!any) lines.push('No recorded activity in this period.');
+    lines.push('');
+    lines.push('Based on: ' + d.used.map(aiSrcLabel).join(', ') + '.');
+    if (d.off.length) lines.push('Switched off: ' + d.off.map(aiSrcLabel).join(', ') + '.');
+    return lines.join('\n');
+  }
+  var aiBusy = false;
+  function aiGenerateSummary(def) {
+    if (aiBusy) return;
+    aiBusy = true;
+    var range = def.kind === 'pastweek' ? aiWeekRange(1) : null;
+    var prompt = range ? def.label + ' (' + prettyDate(range.from) + ' \u2013 ' + prettyDate(range.to) + ')' : def.label;
+    var old = aiChats.filter(function (x) { return x.id === def.id; })[0];
+    var c = { id: def.id, title: (old && old.title) || '', kind: def.kind, messages: [{ role: 'me', text: prompt }], ts: Date.now() };
+    if (range) c.range = range;
+    aiChats = aiChats.filter(function (x) { return x.id !== def.id; }); aiChats.unshift(c); aiCurrent = c.id;
+    $('aiThread').textContent = ''; $('aiIntro').style.display = 'none'; aiPaint('me', prompt);
+    aiWhenSignedInKnown(function () {
+      var text = !state.user ? Promise.reject(new Error('Sign in first. Summaries are built from your own mail, notes and calendar.'))
+        : def.kind === 'week' ? aiWeekText()
+        : api('/ai/context/activity?from=' + range.from + '&to=' + range.to).then(function (d) { return aiActivityText(d, "Past week's summary"); });
+      text.then(function (t) {
+        c.messages.push({ role: 'ai', text: t }); c.ts = Date.now(); c.updatedAt = new Date().toISOString();
+        aiSync(c); if (aiCurrent === c.id) aiPaint('ai', t);
+        aiPaintHistory();
+      }).catch(function (e) {
+        if (aiCurrent === c.id) aiPaint('ai', e.message);
+        aiChats = aiChats.filter(function (x) { return x !== c; }); aiCache();          // an error is never saved as a summary
+      }).then(function () { aiBusy = false; });
+    });
+  }
+  // selecting a summary opens the saved one when it is still current (this week's: made within the hour; last week's: for the week that just ended), otherwise makes it again
+  function aiOpenSummary(def) {
+    var c = aiSummaryChat(def.kind), fresh = false;
+    if (c) {
+      if (def.kind === 'pastweek') { var w = aiWeekRange(1); fresh = !!c.range && c.range.from === w.from && c.range.to === w.to; }
+      else fresh = Date.now() - (Date.parse(c.updatedAt || '') || c.ts || 0) < 3600000;
+    }
+    aiCloseDrawer();
+    if (fresh) aiOpenChat(c.id); else aiGenerateSummary(def);
+  }
+
+  // "Summarize my past activities": choose a period (ready-made or your own dates, up to a year), then summarize it
+  function aiAskPeriod() {
+    var existing = $('aiPeriod');
+    if (existing) { existing.querySelector('select').focus(); return; }
+    $('aiIntro').style.display = 'none';
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    function back(n) { var d = new Date(today); d.setDate(d.getDate() - n); return d; }
+    var presets = [
+      { k: '30', label: 'Last 30 days', get: function () { return { from: ymd(back(29)), to: ymd(today) }; } },
+      { k: '90', label: 'Last 90 days', get: function () { return { from: ymd(back(89)), to: ymd(today) }; } },
+      { k: 'month', label: 'Previous month', get: function () { return { from: ymd(new Date(today.getFullYear(), today.getMonth() - 1, 1)), to: ymd(new Date(today.getFullYear(), today.getMonth(), 0)) }; } },
+      { k: 'year', label: 'This year so far', get: function () { return { from: today.getFullYear() + '-01-01', to: ymd(today) }; } },
+      { k: 'custom', label: 'Choose dates\u2026', get: null }
+    ];
+    var sel = h('select', { id: 'aiPeriodSel', 'aria-label': 'Period' }, presets.map(function (x) { return h('option', { value: x.k, text: x.label }); }));
+    var from = h('input', { type: 'date', id: 'aiPeriodFrom', max: ymd(today) }), to = h('input', { type: 'date', id: 'aiPeriodTo', max: ymd(today) });
+    var dates = h('div', { class: 'range-dates', hidden: true }, [h('label', { text: 'From' }, [from]), h('label', { text: 'To' }, [to])]);
+    var err = h('div', { class: 'range-err', role: 'alert' });
+    var card = h('div', { class: 'range-card', id: 'aiPeriod', role: 'group', 'aria-label': 'Choose a period' });
+    function close() { card.remove(); if (!$('aiThread').children.length) $('aiIntro').style.display = ''; }
+    sel.addEventListener('change', function () { dates.hidden = sel.value !== 'custom'; err.textContent = ''; });
+    function go() {
+      var pick = presets.filter(function (x) { return x.k === sel.value; })[0], r;
+      if (pick.get) r = pick.get();
+      else {
+        if (!from.value || !to.value) { err.textContent = 'Choose both dates.'; return; }
+        if (from.value > to.value) { err.textContent = 'The end date is before the start date.'; return; }
+        if (to.value > ymd(today)) { err.textContent = 'Choose dates up to today.'; return; }
+        if (Math.round((parseYmd(to.value) - parseYmd(from.value)) / 86400000) + 1 > 366) { err.textContent = 'Choose a period of at most one year.'; return; }
+        r = { from: from.value, to: to.value };
+      }
+      card.remove();
+      aiRunPast(r.from, r.to);
+    }
+    card.appendChild(h('div', { class: 'rt', text: 'Which period should I summarize?' }));
+    card.appendChild(sel); card.appendChild(dates); card.appendChild(err);
+    card.appendChild(h('div', { class: 'range-acts' }, [
+      h('button', { type: 'button', text: 'Cancel', onclick: close }),
+      h('button', { type: 'button', class: 'go', text: 'Summarize', onclick: go })
+    ]));
+    card.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
+    $('aiThread').appendChild(card); sel.focus();
+  }
+  function aiRunPast(from, to) {
+    aiSay('me', 'Summarize my past activities (' + prettyDate(from) + ' \u2013 ' + prettyDate(to) + ')');
+    var c = aiChat(false);
+    if (c) { c.kind = 'activity'; c.range = { from: from, to: to }; }
+    aiWhenSignedInKnown(function () {
+      if (!state.user) { aiSay('ai', 'Sign in first. Summaries are built from your own mail, notes and calendar.'); return; }
+      api('/ai/context/activity?from=' + from + '&to=' + to).then(function (d) { aiSay('ai', aiActivityText(d, 'Past activities')); }).catch(function (e) { aiSay('ai', e.message); });
+    });
+  }
+  $('sugPast').addEventListener('click', aiAskPeriod);
   function aiSend() {
     var ta = $('aiInput'), v = ta.value.trim();
     if (!v) return;
