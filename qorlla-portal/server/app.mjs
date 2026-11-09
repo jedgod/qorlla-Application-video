@@ -55,7 +55,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   const { identity, member, roles } = auth;
   // limits are per signed-in user (these run after `member`), so one noisy or compromised account cannot burn the model budget or the phone bill
   const perUser = (name, limit) => rateLimit({ windowMs: 60_000, limit: cfg.rateLimits?.[name] ?? limit, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: (req) => `${name}:${req.actor}`, message: { error: 'Too many requests. Please slow down.', code: 'rate_limited' } });
-  const limiters = { ai: perUser('ai', 30), draft: perUser('draft', 10), job: perUser('job', 10), call: perUser('call', 6), refund: perUser('refund', 10),
+  const limiters = { docsWrite: perUser('docsWrite', 90), docsComment: perUser('docsComment', 30), ai: perUser('ai', 30), draft: perUser('draft', 10), job: perUser('job', 10), call: perUser('call', 6), refund: perUser('refund', 10),
     webhook: rateLimit({ windowMs: 60_000, limit: cfg.rateLimits?.webhook ?? 1200, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many requests' }) };
   const directory = aiOverride.directory || createDirectory({ baseUrl: cfg.ai.directoryUrl, secret: cfg.introspectionSecret, fetchImpl, now });
   // every model call goes through the Qorlla AI Gateway: provider choice, failover, external-processing consent per workspace, quotas and an audit trail without prompt text

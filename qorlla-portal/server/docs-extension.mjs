@@ -14,23 +14,35 @@ const err = (status, error, code, extra = {}) => Object.assign(new Error(error),
 const uuid = z.string().regex(UUID_RE);
 export const VIEWS = ['recent', 'mine', 'shared', 'starred', 'templates', 'trash'];
 const MAX_FOLDERS = 200;
+const MAX_COMMENTS = 500;                      // per document, open and resolved together
+export const DEFAULT_PAGE = 50;
+export const MAX_PAGE = 200;
 export const COMMENTS_FEATURE = 'documents.comments';
 /** Comments are a plan feature. The plan row in portal.entitlements is the authority (no row = not granted = refused, so a missing or unreadable entitlement fails closed);
  *  the page only mirrors it. Reading existing comments stays allowed after a downgrade; adding and resolving them does not. */
 const requireComments = async (c, ws) => { const q = await quotaFor(c, ws, COMMENTS_FEATURE); if (!q.granted) throw err(403, 'Comments are not included in your plan', 'entitlement_required', { feature: COMMENTS_FEATURE, plan: q.plan }); };
 const slug = (t) => String(t || 'document').normalize('NFKD').replace(/[^\x20-\x7e]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'document';
 
-export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc, docMeta, audit, createDocument, assertDocumentRoom, plainText, tsTerms }) {
+export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc, docMeta, audit, createDocument, assertDocumentRoom, plainText, tsTerms, limiters = {} }) {
   const { member } = auth;
+  const lim = (k) => limiters[k] || ((req, res, next) => next());      // per-person request limits (see app.mjs); absent in unit setups
 
   // ---- list with views (the old list route delegates here when ?view= or ?folder= is present) ----
   /** One row per document the caller may see, with the caller's own star and the template/folder flags. */
-  async function listDocuments(req, { kind = null, q = null, view = 'recent', folder = null }) {
+  // Keyset pagination on (updated_at, id): stable while documents change, no OFFSET scans, and no 200-row ceiling. The cursor is only a POSITION: it carries no rights,
+  // and every page is filtered by the caller's rights again, so a cursor taken from someone else's page reveals nothing.
+  const TS_RE = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/;
+  const encodeCursor = (ts, id) => Buffer.from(JSON.stringify([ts, id])).toString('base64url');
+  const decodeCursor = (c) => { try { const [ts, id] = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')); if (typeof ts === 'string' && TS_RE.test(ts) && typeof id === 'string' && UUID_RE.test(id)) return [ts, id.toLowerCase()]; } catch { /* malformed: falls through */ } return null; };
+  /** One page of documents the caller may see, with the caller's own star and the template/folder flags. Returns { rows, next } (next = cursor or null). */
+  async function listDocuments(req, { kind = null, q = null, view = 'recent', folder = null, limit = DEFAULT_PAGE, cursor = null }) {
     const terms = tsTerms(q);
     const trash = view === 'trash';
+    const pos = cursor ? decodeCursor(cursor) : null; if (cursor && !pos) throw err(400, 'Invalid cursor', 'invalid_cursor');
     const rows = (await pool.query(
       `SELECT * FROM (
-         SELECT d.*, ${docRightSql} AS my_role, COALESCE(s.starred, false) AS starred, COALESCE(m.template, false) AS template, m.folder_id
+         SELECT d.*, ${docRightSql} AS my_role, COALESCE(s.starred, false) AS starred, COALESCE(m.template, false) AS template, m.folder_id,
+                to_char(d.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
          FROM portal.documents d
          LEFT JOIN portal.doc_metadata m ON m.document_id = d.id
          LEFT JOIN portal.doc_stars s ON s.document_id = d.id AND s.user_id = $2
@@ -43,9 +55,11 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
            AND ($5 <> 'starred' OR COALESCE(s.starred, false))
            AND ($5 <> 'templates' OR COALESCE(m.template, false))
            AND ($6::text IS NULL OR (d.owner_id = $2 AND ($6 = 'none' AND m.folder_id IS NULL OR $6 <> 'none' AND m.folder_id::text = $6)))
-       ) d WHERE my_role IS NOT NULL ORDER BY updated_at DESC LIMIT 200`,
-      [req.workspace, req.actor, kind, q ? (terms.replace(/ \| /g, ' & ') || 'zzzznomatch') : null, view, folder])).rows;
-    return rows.map((r) => ({ ...docMeta(r), starred: r.starred, template: r.template, folder_id: r.folder_id, deleted_at: r.deleted_at }));
+           AND ($7::timestamptz IS NULL OR (d.updated_at, d.id) < ($7::timestamptz, $8::uuid))
+       ) d WHERE my_role IS NOT NULL ORDER BY updated_at DESC, id DESC LIMIT $9`,
+      [req.workspace, req.actor, kind, q ? (terms.replace(/ \| /g, ' & ') || 'zzzznomatch') : null, view, folder, pos ? pos[0] : null, pos ? pos[1] : null, limit + 1])).rows;
+    const page = rows.slice(0, limit); const last = page[page.length - 1];
+    return { rows: page.map((r) => ({ ...docMeta(r), starred: r.starred, template: r.template, folder_id: r.folder_id, deleted_at: r.deleted_at })), next: rows.length > limit && last ? encodeCursor(last.cursor_ts, last.id) : null };
   }
   /** What the editor needs beyond the document itself: my star, the template flag, the folder, open comments. */
   app.get('/api/v1/documents/:id/meta', member, h(async (req, res) => {
@@ -58,7 +72,7 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
   }));
 
   // ---- rename / star / template ----
-  app.patch('/api/v1/documents/:id', member, h(async (req, res) => {
+  app.patch('/api/v1/documents/:id', member, lim('docsWrite'), h(async (req, res) => {
     const p = z.object({ title: z.string().trim().min(1).max(200).optional(), starred: z.boolean().optional(), template: z.boolean().optional() }).strict()
       .refine((o) => Object.keys(o).length > 0, 'nothing to change').parse(req.body);
     await withWorkspaceLock(pool, req.workspace, async (c) => {
@@ -78,7 +92,7 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
   }));
 
   // ---- duplicate: a new PRIVATE document owned by the caller, copied from the version the caller can read. Counts against the document quota. ----
-  app.post('/api/v1/documents/:id/duplicate', member, h(async (req, res) => {
+  app.post('/api/v1/documents/:id/duplicate', member, lim('docsWrite'), h(async (req, res) => {
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id); if (!d) throw err(404, 'Document not found');
       const v = (await c.query('SELECT content FROM portal.document_versions WHERE document_id=$1 AND version_no=$2', [d.id, d.current_version])).rows[0]; if (!v) throw err(409, 'The document has no readable version', 'missing_version');
@@ -89,7 +103,7 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
   }));
 
   // ---- trash: the existing DELETE is a soft delete; this brings a document back. Owner only, and the plan's document limit is re-checked. ----
-  app.post('/api/v1/documents/:id/undelete', member, h(async (req, res) => {
+  app.post('/api/v1/documents/:id/undelete', member, lim('docsWrite'), h(async (req, res) => {
     if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Document not found' });
     await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = (await c.query('SELECT id, owner_id FROM portal.documents WHERE id=$1 AND workspace_id=$2 AND deleted_at IS NOT NULL FOR UPDATE', [req.params.id, req.workspace])).rows[0];
@@ -108,7 +122,7 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
       `SELECT f.id, f.name, f.created_at, (SELECT count(*)::int FROM portal.doc_metadata m JOIN portal.documents d ON d.id=m.document_id WHERE m.folder_id=f.id AND d.deleted_at IS NULL) AS documents
        FROM portal.doc_folders f WHERE f.workspace_id=$1 AND f.owner_id=$2 AND f.deleted_at IS NULL ORDER BY lower(f.name) LIMIT ${MAX_FOLDERS}`, [req.workspace, req.actor])).rows);
   }));
-  app.post('/api/v1/document-folders', member, h(async (req, res) => {
+  app.post('/api/v1/document-folders', member, lim('docsWrite'), h(async (req, res) => {
     const p = z.object({ name: folderName }).strict().parse(req.body);
     const f = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const n = Number((await c.query('SELECT count(*) FROM portal.doc_folders WHERE workspace_id=$1 AND owner_id=$2 AND deleted_at IS NULL', [req.workspace, req.actor])).rows[0].count);
@@ -118,7 +132,7 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
     });
     res.status(201).json({ ...f, documents: 0 });
   }));
-  app.patch('/api/v1/document-folders/:id', member, h(async (req, res) => {
+  app.patch('/api/v1/document-folders/:id', member, lim('docsWrite'), h(async (req, res) => {
     const p = z.object({ name: folderName }).strict().parse(req.body);
     await withWorkspaceLock(pool, req.workspace, async (c) => {
       if (!(await ownFolder(c, req, req.params.id))) throw err(404, 'Folder not found');
@@ -127,7 +141,7 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
     });
     res.json({ updated: true });
   }));
-  app.delete('/api/v1/document-folders/:id', member, h(async (req, res) => {          // soft delete; the documents in it are kept and become unfiled
+  app.delete('/api/v1/document-folders/:id', member, lim('docsWrite'), h(async (req, res) => {          // soft delete; the documents in it are kept and become unfiled
     await withWorkspaceLock(pool, req.workspace, async (c) => {
       if (!(await ownFolder(c, req, req.params.id))) throw err(404, 'Folder not found');
       await c.query('UPDATE portal.doc_metadata SET folder_id=NULL WHERE folder_id=$1', [req.params.id]);
@@ -135,7 +149,7 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
     });
     res.status(204).end();
   }));
-  app.post('/api/v1/documents/:id/move', member, h(async (req, res) => {
+  app.post('/api/v1/documents/:id/move', member, lim('docsWrite'), h(async (req, res) => {
     const p = z.object({ folder_id: uuid.nullable() }).strict().parse(req.body);
     await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id, { forUpdate: true }); if (!d) throw err(404, 'Document not found');
@@ -152,18 +166,19 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
     const d = await loadDoc(pool, req, req.params.id); if (!d) return res.status(404).json({ error: 'Document not found' });
     res.set('Cache-Control', 'no-store').json((await pool.query('SELECT id, author_id, body, created_at, resolved_at FROM portal.doc_comments WHERE document_id=$1 ORDER BY created_at DESC LIMIT 200', [d.id])).rows);
   }));
-  app.post('/api/v1/documents/:id/comments', member, h(async (req, res) => {
+  app.post('/api/v1/documents/:id/comments', member, lim('docsComment'), h(async (req, res) => {
     const p = z.object({ body: z.string().trim().min(1).max(4000) }).strict().parse(req.body);
     const row = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id); if (!d) throw err(404, 'Document not found');
       if (!['owner', 'editor'].includes(d.my_role)) throw err(403, 'You can view but not comment on this document', 'read_only');
       await requireComments(c, req.workspace);
+      if (Number((await c.query('SELECT count(*) FROM portal.doc_comments WHERE document_id=$1', [d.id])).rows[0].count) >= MAX_COMMENTS) throw err(409, `A document can hold up to ${MAX_COMMENTS} comments`, 'comment_limit');
       const r = (await c.query('INSERT INTO portal.doc_comments(document_id,workspace_id,author_id,body) VALUES($1,$2,$3,$4) RETURNING id, author_id, body, created_at, resolved_at', [d.id, req.workspace, req.actor, p.body])).rows[0];
       await audit(c, req.workspace, req.actor, 'document.commented', d.id); return r;
     });
     res.status(201).json(row);
   }));
-  app.post('/api/v1/documents/:id/comments/:cid/resolve', member, h(async (req, res) => {
+  app.post('/api/v1/documents/:id/comments/:cid/resolve', member, lim('docsComment'), h(async (req, res) => {
     await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id); if (!d) throw err(404, 'Document not found');
       if (!['owner', 'editor'].includes(d.my_role)) throw err(403, 'You can view but not edit this document', 'read_only');

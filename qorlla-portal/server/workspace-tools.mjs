@@ -161,8 +161,13 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
   let docsExt = null;                                                  // the Docs extension (views, stars, folders, trash, comments); needs sql/015
   app.get('/api/v1/documents', member, h(async (req, res) => {
     const q = z.object({ kind: z.enum(['doc', 'sheet', 'slides']).optional(), q: z.string().trim().max(200).optional(),
-      view: z.enum(DOC_VIEWS).optional(), folder: z.union([z.literal('none'), uuid]).optional() }).parse(req.query);
-    if (q.view || q.folder) return res.set('Cache-Control', 'no-store').json(await docsExt.listDocuments(req, { kind: q.kind ?? null, q: q.q ?? null, view: q.view ?? 'recent', folder: q.folder ?? null }));
+      view: z.enum(DOC_VIEWS).optional(), folder: z.union([z.literal('none'), uuid]).optional(),
+      limit: z.coerce.number().int().min(1).max(200).optional(), cursor: z.string().max(200).regex(/^[A-Za-z0-9_-]+$/).optional() }).parse(req.query);
+    if (q.view || q.folder || q.limit || q.cursor) {                          // the paged API: a page of rows, and the cursor for the next page in the X-Next-Cursor header
+      const out = await docsExt.listDocuments(req, { kind: q.kind ?? null, q: q.q ?? null, view: q.view ?? 'recent', folder: q.folder ?? null, limit: q.limit ?? 50, cursor: q.cursor ?? null });
+      if (out.next) res.set('X-Next-Cursor', out.next);
+      return res.set('Cache-Control', 'no-store').json(out.rows);
+    }
     const terms = tsTerms(q.q);
     const rows = (await pool.query(`SELECT * FROM (SELECT d.*, ${docRightSql} AS my_role FROM portal.documents d WHERE d.workspace_id=$1 AND d.deleted_at IS NULL AND ($3::text IS NULL OR d.kind=$3)
         AND ($4::text IS NULL OR d.search @@ to_tsquery('simple', $4))) d WHERE my_role IS NOT NULL ORDER BY updated_at DESC LIMIT 200`,
@@ -182,7 +187,7 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     await c.query(`INSERT INTO portal.document_versions(document_id,version_no,content,source,note,created_by) VALUES($1,1,$2,$3,$4,$5)`, [d.id, JSON.stringify(content), source, note, actor]);
     return { ...d, my_role: 'owner' };
   }
-  app.post('/api/v1/documents', member, h(async (req, res) => {
+  app.post('/api/v1/documents', member, lim('docsWrite'), h(async (req, res) => {
     const p = z.object({ kind: z.enum(['doc', 'sheet', 'slides']), title: z.string().trim().min(1).max(200), content: z.unknown().optional(), idempotency_key: z.string().min(8).max(100).optional() }).parse(req.body);
     const content = ContentSchemas[p.kind].parse(p.content ?? emptyContent(p.kind));
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
@@ -347,7 +352,7 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     await c.query('UPDATE portal.documents SET current_version=$2, search_text=$3, title=COALESCE($4,title), updated_at=now() WHERE id=$1', [d.id, next, plainText(d.kind, content), title ?? null]);
     return next;
   }
-  app.put('/api/v1/documents/:id', member, h(async (req, res) => {
+  app.put('/api/v1/documents/:id', member, lim('docsWrite'), h(async (req, res) => {
     const p = z.object({ base_version: z.number().int().min(1), content: z.unknown(), title: z.string().trim().min(1).max(200).optional(), note: z.string().max(200).optional() }).parse(req.body);
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id, { forUpdate: true }); if (!d) throw err(404, 'Document not found');
@@ -366,7 +371,7 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     const v = (await pool.query('SELECT version_no, content, source, note, created_by, created_at FROM portal.document_versions WHERE document_id=$1 AND version_no=$2', [d.id, Number(req.params.n)])).rows[0];
     v ? res.json(v) : res.status(404).json({ error: 'Version not found' });
   }));
-  app.post('/api/v1/documents/:id/restore', member, h(async (req, res) => {
+  app.post('/api/v1/documents/:id/restore', member, lim('docsWrite'), h(async (req, res) => {
     const p = z.object({ version_no: z.number().int().min(1), base_version: z.number().int().min(1) }).parse(req.body);
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id, { forUpdate: true }); if (!d) throw err(404, 'Document not found');
@@ -381,7 +386,7 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     if (d.my_role !== 'owner') return res.status(403).json({ error: 'Only the owner manages sharing', code: 'owner_only' });
     res.json({ general_access: d.general_access, users: (await pool.query('SELECT user_id, role, created_at FROM portal.document_permissions WHERE document_id=$1 ORDER BY created_at', [d.id])).rows });
   }));
-  app.put('/api/v1/documents/:id/permissions', member, h(async (req, res) => {
+  app.put('/api/v1/documents/:id/permissions', member, lim('docsWrite'), h(async (req, res) => {
     const p = z.object({ general_access: z.enum(['restricted', 'workspace_view', 'workspace_edit']), users: z.array(z.object({ user_id: uuid, role: z.enum(['viewer', 'editor']) })).max(100) }).parse(req.body);
     await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id, { forUpdate: true }); if (!d) throw err(404, 'Document not found');
@@ -395,14 +400,14 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     });
     res.json({ updated: true });
   }));
-  app.delete('/api/v1/documents/:id', member, h(async (req, res) => {
+  app.delete('/api/v1/documents/:id', member, lim('docsWrite'), h(async (req, res) => {
     if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
     const r = await pool.query(`UPDATE portal.documents SET deleted_at=now() WHERE id=$1 AND workspace_id=$2 AND deleted_at IS NULL AND (owner_id=$3 OR $4::boolean)`, [req.params.id, req.workspace, req.actor, isManager(req.role)]);
     if (r.rowCount) await audit(pool, req.workspace, req.actor, 'document.deleted', req.params.id);
     res.status(r.rowCount ? 204 : 404).end();
   }));
 
-  docsExt = registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc, docMeta, audit, createDocument, assertDocumentRoom, plainText, tsTerms });
+  docsExt = registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc, docMeta, audit, createDocument, assertDocumentRoom, plainText, tsTerms, limiters });
 
   // ---- search across what the caller may read (notes + documents) ----
   app.get('/api/v1/search', member, h(async (req, res) => {
