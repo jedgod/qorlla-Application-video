@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('node:fs');
 const path = require('node:path');
-const { BASE, dbq, signUp, signUpWithWorkspace } = require('./helpers');
+const { BASE, dbq, signUp, signUpWithWorkspace, createDoc } = require('./helpers');
 
 // Controlled-restart persistence on the ISOLATED compose project. Creates documents, a sheet, slides, sharing, a native and a scheduled Meet meeting and a consented recording with known bytes,
 // restarts the applications one at a time, verifies everything, then restarts the databases WITHOUT touching the applications, and verifies again. Active calls are not expected to survive a restart.
@@ -82,7 +82,7 @@ test.describe('persistence across controlled restarts', () => {
     // ---------------------------------------------------------------- state before any restart
     const ctx = await browser.newContext({ baseURL: BASE }); const page = await ctx.newPage(); const owner = await signUpWithWorkspace(ctx, 'persist');
     const H = { 'x-csrf-token': owner.csrf, origin: BASE, 'x-workspace-id': owner.workspaceId };
-    const create = async (kind, title) => { await page.goto('/app/suite'); await page.selectOption('#doc-form [name=kind]', kind); await page.fill('#doc-form [name=title]', title); await page.getByRole('button', { name: 'Create', exact: true }).click(); await page.waitForURL(/\/app\/suite\?doc=/); return page.url().split('=')[1]; };
+    const create = async (kind, title) => { await page.goto('/app/suite'); return createDoc(page, kind, title); };
     const docId = await create('doc', 'Persist doc'); await page.fill('#doc-text', 'First draft about giraffes'); await page.locator('#save-doc').click(); await expect(page.locator('#doc-version')).toHaveText('version 2'); await page.fill('#doc-text', 'Second draft about pelicans'); await page.locator('#save-doc').click(); await expect(page.locator('#doc-version')).toHaveText('version 3');
     const sheetId = await create('sheet', 'Persist sheet'); await page.locator('#add-row').click(); await page.locator('[data-cell="0:0"]').fill('Giraffes'); await page.locator('[data-cell="0:1"]').fill('12'); await page.locator('#save-doc').click(); await expect(page.locator('#doc-version')).toHaveText('version 2');
     const slidesId = await create('slides', 'Persist slides'); await page.locator('[data-slide="0"] [data-f=title]').fill('Why now'); await page.locator('[data-slide="0"] [data-f=bullets]').fill('Market\nTiming'); await page.locator('#save-doc').click(); await expect(page.locator('#doc-version')).toHaveText('version 2');

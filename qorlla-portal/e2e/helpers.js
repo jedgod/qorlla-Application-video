@@ -38,4 +38,11 @@ async function redeliver(ev) {
   return { status: r.status, body: await r.json().catch(() => ({})) };
 }
 const money = (cents) => '$' + (cents / 100).toFixed(2);
-module.exports = { BASE, dbq, fakeJson, signUp, signUpWithWorkspace, providerPays, redeliver, money };
+/** Creates a document the way the page does now: "+ New" menu -> item opens an untitled document; then names it. Works on /app/suite and inside the Workspace. Returns the id. */
+async function createDoc(page, kind, title) {
+  await page.locator('#new-doc').click(); await page.locator('#new-menu [data-new=' + kind + ']').click();
+  await page.waitForURL(/(\/app\/suite\?doc=|#docs\/)[0-9a-f-]{36}$/); await page.locator('#doc-title').waitFor();
+  if (title) { const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && /\/documents\//.test(r.url())); await page.fill('#doc-title', title); await page.locator('#doc-title').blur(); await saved; }
+  return page.url().split(/[=/]/).pop();
+}
+module.exports = { createDoc, BASE, dbq, fakeJson, signUp, signUpWithWorkspace, providerPays, redeliver, money };

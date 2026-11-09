@@ -1,12 +1,12 @@
 const { test, expect } = require('@playwright/test');
-const { BASE, dbq, signUp, signUpWithWorkspace } = require('./helpers');
+const { BASE, dbq, signUp, signUpWithWorkspace, createDoc } = require('./helpers');
 
 // Qorlla AI Review Panel in a real browser against the real stack and PostgreSQL. The answers come from the labelled deterministic TEST ADAPTER
 // (run only when E2E_AI_TEST_PROVIDER=1 against the AI test project), so this proves the review workflow and its safety rules, not the quality of any model.
 const needsAi = () => test.skip(!process.env.E2E_AI_TEST_PROVIDER, 'needs the AI test project (E2E_AI_TEST_PROVIDER=1)');
 const headers = (csrf, ws) => ({ 'x-csrf-token': csrf, origin: BASE, 'x-workspace-id': ws });
 async function addMember(ownerCtx, owner, userId) { const r = await ownerCtx.request.post('/api/v1/members', { data: { user_id: String(userId).replace(/^u_/, ''), role: 'member' }, headers: headers(owner.csrf, owner.workspaceId) }); if (r.status() !== 201) throw new Error('add member failed ' + r.status()); }
-async function newDoc(page, kind, title) { await page.goto('/app/suite'); await page.selectOption('#doc-form [name=kind]', kind); await page.fill('#doc-form [name=title]', title); await page.getByRole('button', { name: 'Create', exact: true }).click(); await page.waitForURL(/\/app\/suite\?doc=/); return page.url().split('=')[1]; }
+async function newDoc(page, kind, title) { await page.goto('/app/suite'); return createDoc(page, kind, title); }
 const panel = (page) => page.locator('[data-ai-panel]').first();
 const versions = (ws, id) => dbq(`SELECT current_version FROM portal.documents WHERE id='${id}' AND workspace_id='${ws}'`);
 const source = (id, v) => dbq(`SELECT source FROM portal.document_versions WHERE document_id='${id}' AND version_no=${v}`);

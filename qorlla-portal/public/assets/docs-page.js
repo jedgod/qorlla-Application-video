@@ -18,9 +18,27 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random(
 const when = (iso) => (iso ? new Date(iso).toLocaleString() : '-');
 const ago = (iso) => { const s = (Date.now() - new Date(iso).getTime()) / 1000; if (!(s >= 0)) return when(iso); if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + ' min ago'; if (s < 86400) return Math.floor(s / 3600) + ' h ago'; if (s < 172800) return 'yesterday'; return new Date(iso).toLocaleDateString(); };
 const KIND = { doc: ['📄', 'Document'], sheet: ['📊', 'Sheet'], slides: ['🎞️', 'Slides'] };
-const VIEWS = [['home', '🏠', 'Home'], ['recent', '🕘', 'Recent'], ['mine', '📄', 'My documents'], ['shared', '🤝', 'Shared'], ['starred', '⭐', 'Starred'], ['templates', '📑', 'Templates'], ['trash', '🗑️', 'Trash']];
+// Line icons (inline SVG, decorative: every control that uses one also has a text label or an aria-label).
+const ICON = {
+  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  file: '<path d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5M8 13h8M8 17h5"/>', doc: '<path d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5M8 13h8M8 17h5"/>',
+  sheet: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 15h16M10 4v16"/>', slides: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  users: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.2a3.2 3.2 0 0 1 0 5.6M21 20a6 6 0 0 0-4-5.6"/>', star: '<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8L3.5 9.7l5.9-.9Z"/>',
+  template: '<path d="m12 3 9 5-9 5-9-5Z"/><path d="m3 13 9 5 9-5"/>', trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>', search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m6 9 6 6 6-6"/>', more: '<circle cx="12" cy="5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  spark: '<path d="m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8Z"/>'
+};
+const svg = (name, cls = '', fill = false) => `<svg class="ic ${cls}" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="${fill ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</svg>`;
+const VIEWS = [['home', 'home', 'Home'], ['recent', 'clock', 'Recent'], ['mine', 'file', 'My documents'], ['shared', 'users', 'Shared'], ['starred', 'star', 'Starred'], ['templates', 'template', 'Templates'], ['trash', 'trash', 'Trash']];
+const UNTITLED = { doc: 'Untitled document', sheet: 'Untitled sheet', slides: 'Untitled slides' };
+const initials = (n) => String(n || '').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+const fmtWhen = (iso) => {
+  if (!iso) return '-'; const d = new Date(iso), now = new Date(); const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); const diff = Math.round((day(now) - day(d)) / 86400000);
+  const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); if (diff === 0) return 'Today, ' + t; if (diff === 1) return 'Yesterday, ' + t;
+  return d.toLocaleDateString([], d.getFullYear() === now.getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' }) + ', ' + t;
+};
 const TITLES = { home: 'Recent documents', recent: 'Recent', mine: 'My documents', shared: 'Shared with me', starred: 'Starred', templates: 'Templates', trash: 'Trash' };
-const EMPTY = { home: 'No documents yet. Choose + New to create one.', recent: 'No documents yet. Choose + New to create one.', mine: 'You have not created any documents yet.', shared: 'Nothing has been shared with you yet.', starred: 'Star a document to find it here quickly.', templates: 'Mark one of your documents as a template to list it here.', trash: 'The trash is empty.' };
 
 // ------------------------------------------------------------------ safe markdown preview
 const inline = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
@@ -62,7 +80,7 @@ const store = { get(k, d) { try { return sessionStorage.getItem('qdocs.' + k) ??
 
 export async function renderSuite(root) {
   ctx = { embedded: false, urls: { home: () => '/app/suite', doc: (id) => '/app/suite?doc=' + id } };
-  root.closest('main')?.classList.add('docs-page');       // lets the page's wide tables scroll inside themselves on phones; scoped here so no other portal page's layout changes
+  root.classList.add('docs-ui'); root.closest('main')?.classList.add('docs-page');       // lets the page's wide tables scroll inside themselves on phones; scoped here so no other portal page's layout changes
   const params = new URLSearchParams(location.search);
   if (params.get('doc')) return renderEditor(root, params.get('doc'));
   return renderHome(root);
@@ -74,13 +92,13 @@ export async function renderSuite(root) {
 let generation = 0;                                                      // a newer mount supersedes an older one that is still loading
 export async function mountDocsWorkspace(host, { docId = '' } = {}) {
   const gen = ++generation; const shadow = host.shadowRoot || host.attachShadow({ mode: 'open' });
-  shadow.innerHTML = '<link rel="stylesheet" href="/app/assets/styles.css"><style>:host{display:block;font:14px/1.5 Inter,ui-sans-serif,system-ui,Arial,sans-serif;color:#16253d}.docs-embed{min-width:0}</style><div class="docs-embed"></div>';
+  shadow.innerHTML = '<link rel="stylesheet" href="/app/assets/styles.css"><style>:host{display:block;font:14px/1.5 Inter,ui-sans-serif,system-ui,Arial,sans-serif;color:#16253d}.docs-embed{min-width:0}</style><div class="docs-embed docs-ui"></div>';
   await new Promise((done) => { const l = shadow.querySelector('link'); const t = setTimeout(done, 4000); const fin = () => { clearTimeout(t); done(); }; if (l.sheet) fin(); else { l.addEventListener('load', fin, { once: true }); l.addEventListener('error', fin, { once: true }); } });
   if (gen !== generation) return { open() {}, destroy() {} };
   const root = shadow.querySelector('.docs-embed'); offs.splice(0).forEach((f) => f());
   ctx = { embedded: true, urls: { home: () => '#docs', doc: (id) => '#docs/' + id } };
   // The Workspace closes the current page on Escape. Inside Docs, Escape belongs to the field or menu you are in, so it must never throw away an open document.
-  root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && (root.querySelector('.doc-menu[open]') || /^(INPUT|TEXTAREA|SELECT)$/.test(((e.composedPath && e.composedPath()[0]) || e.target).tagName || ''))) e.stopPropagation(); });
+  root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && (root.querySelector('.doc-menu[open]') || root.querySelector('#new-menu:not([hidden])') || /^(INPUT|TEXTAREA|SELECT)$/.test(((e.composedPath && e.composedPath()[0]) || e.target).tagName || ''))) e.stopPropagation(); });
   // Every navigation renders into its OWN container and takes over the screen at once. A page that is still loading its secondary parts (comments, history, the AI panel) when you
   // move on simply finishes in a container nobody can see, so it can neither delay the next page nor write into it.
   let closed = false; let hasWorkspace = false;
@@ -106,72 +124,108 @@ export async function mountDocsWorkspace(host, { docId = '' } = {}) {
 }
 
 // ================================================================== home
-// Layout: view tabs, search + filters, folder chips, THEN the document list, then New document, then one AI assistance area.
-// The list is cursor-paged (50 at a time; the Home tab shows the 8 most recent). Rights are applied by the server on every page.
+// Layout: view tabs, then search + type filter + a "+ New" menu, then the DOCUMENT LIBRARY (a table of the person's real documents), with a narrow side column for quick
+// creation and one compact, collapsible AI panel. Nothing here invents a document: every row comes from the API. The list is cursor-paged (50 at a time; Home shows the 8 most
+// recent). Rights, quotas and plan limits are enforced by the server on every request.
 async function renderHome(root) {
   const $ = (s) => root.querySelector(s);
   const stored = store.get('view');
   const st = { view: VIEWS.some((v) => v[0] === stored) ? stored : 'home', folder: store.get('folder', ''), q: '', kind: '' };
-  const status = await api('/assistant/status').catch(() => ({ ai_provider_configured: false }));
-  const aiOn = !!status.ai_provider_configured;
-  const kindOptions = Object.entries(KIND).map(([k, v]) => `<option value="${k}">${v[0]} ${v[1]}</option>`).join('');
+  const [status, meInfo, ppl] = await Promise.all([api('/assistant/status').catch(() => ({ ai_provider_configured: false })), api('/me').catch(() => ({})), api('/members').catch(() => [])]);
+  const aiOn = !!status.ai_provider_configured; const me = meInfo.user_id; const people = Object.fromEntries((ppl || []).map((m) => [m.user_id, m.display_name]));
+  const nameOf = (id) => (id === me ? 'You' : people[id] || 'Workspace member');
+  const kindOptions = Object.entries(KIND).map(([k, v]) => `<option value="${k}">${v[1]}</option>`).join('');
+  const newItem = (k, label) => `<button type="button" class="menu-item" role="menuitem" data-new="${k}">${svg(k === 'folder' ? 'folder' : k, 'kind-' + k)}<span>${label}</span></button>`;
+  const aiBody = aiOn
+    ? `<p class="muted">Create, summarize, rewrite and translate documents with your private AI.</p>
+       <form id="ai-form"><label>Type<select name="kind">${kindOptions}</select></label><label>What should it contain?<textarea name="prompt" required minlength="3" maxlength="4000" rows="4"></textarea></label>
+         <button class="btn primary">${svg('spark')}<span>Draft with AI</span></button></form>
+       <div id="draft-ai-host"></div><p class="muted">AI drafts are starting points. Review them before relying on them.</p>`
+    : `<p class="muted">Create, summarize, rewrite and translate documents when private AI is available.</p>
+       <p class="docs-notice" role="note">${svg('lock')}<span>AI assistance is turned off until an approved private model is connected.</span></p>
+       <button type="button" class="btn secondary" disabled>${svg('spark')}<span>Draft with AI</span></button>`;
   root.innerHTML = `<div class="docs-home">
     <nav class="docs-tabs" aria-label="Document views"><ul id="docs-views"></ul></nav>
-    <form id="doc-search" class="docs-search" role="search">
-      <label>Search documents<input name="q" type="search" maxlength="200" placeholder="Search by title or content"></label>
-      <label>Type<select name="kind" id="doc-kind"><option value="">All types</option>${kindOptions}</select></label>
-      <button class="secondary">Search</button><button type="button" id="new-doc">+ New</button></form>
-    <div class="docs-folderbar"><ul id="docs-folders" class="chips" aria-label="Folders"></ul>
-      <details class="docs-manage"><summary>Manage folders</summary>
-        <form id="folder-form"><label>New folder<input name="name" maxlength="120" required></label><button class="secondary">Add folder</button></form>
-        <ul id="docs-folder-manage" class="docs-folder-manage"></ul></details></div>
-    <h2 id="docs-title" class="docs-h" aria-live="polite"></h2>
-    <div id="docs-state" role="status"></div>
-    <div id="docs" class="cards docs-list"></div>
-    <div class="docs-more"><button type="button" class="secondary" id="docs-more" hidden>Load more documents</button><button type="button" class="secondary" id="docs-viewall" hidden>View all recent documents →</button><span id="docs-count" class="muted"></span></div>
-    <div id="docs-new">${panel('New document', `<form id="doc-form" class="row"><label>Type<select name="kind">${kindOptions}</select></label><label>Title<input name="title" required maxlength="200"></label><button>Create</button></form>`)}</div>
-    <section class="panel docs-ai" id="docs-ai" aria-labelledby="docs-ai-h"><h2 id="docs-ai-h">AI assistance</h2>
-      <p class="muted">Create, summarize, rewrite and translate documents when private AI is available.</p>
-      ${aiOn ? '' : '<p class="warn" role="note">AI assistance is turned off until an approved private model is connected. Nothing is simulated.</p>'}
-      <form id="ai-form" class="row"><label>Type<select name="kind">${kindOptions}</select></label><label>What should it contain?<textarea name="prompt" required minlength="3" maxlength="4000" rows="2"></textarea></label><button ${aiOn ? '' : 'disabled'}>Draft</button></form>
-      <div id="draft-ai-host"></div>
-      <p class="muted">AI drafts are starting points. Review them before relying on them.</p></section></div>`;
-  const host = $('#draft-ai-host');
-  await mountAiPanel(host, { id: 'draft-ai', embedded: true, mode: 'task', tasks: [{ task: 'docs_draft', label: 'Draft a new document', needs: ['text'] }], input: () => ({}), current: () => '',
-    newTitle: () => (host.querySelector('[data-ai-text]').value.trim().slice(0, 60) || 'AI draft'), confirmText: () => 'It will be created as a new private document, labelled as AI-assisted.',
-    onApplied: (out) => { location.href = ctx.urls.doc(out.id); } });
+    <div class="docs-bar">
+      <form id="doc-search" class="docs-search" role="search">
+        <label class="docs-field docs-field-search"><span class="sr-only">Search documents</span>${svg('search')}<input name="q" type="search" maxlength="200" autocomplete="off" placeholder="Search documents by title or content…"></label>
+        <label class="docs-field docs-field-type"><span class="sr-only">Type</span><select name="kind" id="doc-kind"><option value="">All types</option>${kindOptions}</select></label>
+        <button class="sr-only" type="submit" tabindex="-1">Search</button>
+      </form>
+      <div class="docs-newwrap"><button type="button" id="new-doc" class="btn primary" aria-haspopup="menu" aria-expanded="false" aria-controls="new-menu">${svg('plus')}<span>New</span>${svg('chev')}</button>
+        <div id="new-menu" class="docs-popmenu" role="menu" aria-label="Create new" hidden>${newItem('doc', 'Document')}${newItem('sheet', 'Sheet')}${newItem('slides', 'Slides')}${newItem('folder', 'Folder')}</div></div>
+    </div>
+    <div class="docs-grid">
+      <section class="docs-card docs-library" aria-labelledby="docs-title">
+        <div class="docs-card-head"><h2 id="docs-title" aria-live="polite"></h2><button type="button" class="linkbtn" id="docs-viewall" hidden>See all →</button></div>
+        <div class="docs-folderbar"><ul id="docs-folders" class="chips" aria-label="Folders"></ul>
+          <details class="docs-manage"><summary>Manage folders</summary>
+            <form id="folder-form"><label>New folder<input name="name" maxlength="120" required></label><button class="secondary compact">Add folder</button></form>
+            <ul id="docs-folder-manage" class="docs-folder-manage"></ul></details></div>
+        <div class="docs-tablehead" aria-hidden="true"><span>Name</span><span>Owner</span><span>Last edited</span><span>Actions</span></div>
+        <div id="docs-state" role="status"></div>
+        <div id="docs" class="docs-list" role="list"></div>
+        <div class="docs-more"><button type="button" class="secondary" id="docs-more" hidden>Load more documents</button><span id="docs-count" class="muted"></span></div>
+      </section>
+      <div class="docs-aside" role="complementary" aria-label="Create and AI assistance">
+        <section class="docs-card docs-quick" aria-labelledby="docs-quick-h"><h2 id="docs-quick-h">Create new</h2>
+          <div class="docs-quick-grid"><button type="button" class="docs-quick-btn" data-new="doc">${svg('doc', 'kind-doc')}<span>Document</span></button><button type="button" class="docs-quick-btn" data-new="sheet">${svg('sheet', 'kind-sheet')}<span>Sheet</span></button><button type="button" class="docs-quick-btn" data-new="slides">${svg('slides', 'kind-slides')}<span>Slides</span></button></div></section>
+        <section class="docs-card docs-ai" id="docs-ai"><details ${aiOn ? 'open' : ''}><summary>${svg('spark')}<h2 id="docs-ai-h">AI assistance</h2><span class="pill ${aiOn ? 'on' : 'off'}">${aiOn ? 'On' : 'Off'}</span>${svg('chev', 'caret')}</summary>${aiBody}</details></section>
+      </div>
+    </div></div>`;
+  if (aiOn) {
+    const host = $('#draft-ai-host');
+    await mountAiPanel(host, { id: 'draft-ai', embedded: true, mode: 'task', tasks: [{ task: 'docs_draft', label: 'Draft a new document', needs: ['text'] }], input: () => ({}), current: () => '',
+      newTitle: () => (host.querySelector('[data-ai-text]').value.trim().slice(0, 60) || 'AI draft'), confirmText: () => 'It will be created as a new private document, labelled as AI-assisted.',
+      onApplied: (out) => { location.href = ctx.urls.doc(out.id); } });
+  }
 
-  let folders = []; let docs = []; let cursor = null; let seq = 0;
+  let folders = []; let docs = []; let cursor = null; let seq = 0; let creating = false;
   const folderName = (id) => folders.find((f) => f.id === id)?.name;
   const homeMode = () => st.view === 'home' && !st.folder && !st.q && !st.kind;
-  const place = (d) => (d.my_role === 'owner' ? 'My Documents' : 'Shared with you') + (d.folder_id && folderName(d.folder_id) ? ' · ' + esc(folderName(d.folder_id)) : '');
+  const place = (d) => (d.my_role === 'owner' ? 'My documents' : 'Shared with you') + (d.folder_id && folderName(d.folder_id) ? ' · ' + esc(folderName(d.folder_id)) : '');
   const drawNav = () => {
-    $('#docs-views').innerHTML = VIEWS.map(([k, icon, label]) => `<li><button type="button" class="docs-tab" data-view="${k}" ${!st.folder && st.view === k ? 'aria-current="true"' : ''}><span aria-hidden="true">${icon}</span> ${label}</button></li>`).join('');
-    $('#docs-folders').innerHTML = `<li><button type="button" class="chip" data-folder-all aria-pressed="${!st.folder}">All folders</button></li><li><button type="button" class="chip" data-folder="none" aria-pressed="${st.folder === 'none'}"><span aria-hidden="true">📂</span> Not in a folder</button></li>` +
-      folders.map((f) => `<li><button type="button" class="chip" data-folder="${esc(f.id)}" aria-pressed="${st.folder === f.id}"><span aria-hidden="true">📁</span> ${esc(f.name)} <span class="muted">${esc(f.documents)}</span></button></li>`).join('');
+    $('#docs-views').innerHTML = VIEWS.map(([k, icon, label]) => `<li><button type="button" class="docs-tab" data-view="${k}" ${!st.folder && st.view === k ? 'aria-current="true"' : ''}>${svg(icon)}<span>${label}</span></button></li>`).join('');
+    $('#docs-folders').innerHTML = `<li><button type="button" class="chip" data-folder-all aria-pressed="${!st.folder}">All folders</button></li><li><button type="button" class="chip" data-folder="none" aria-pressed="${st.folder === 'none'}">${svg('folder')}<span>Not in a folder</span></button></li>` +
+      folders.map((f) => `<li><button type="button" class="chip" data-folder="${esc(f.id)}" aria-pressed="${st.folder === f.id}">${svg('folder')}<span>${esc(f.name)}</span> <span class="muted">${esc(f.documents)}</span></button></li>`).join('');
     $('#docs-folder-manage').innerHTML = folders.map((f) => `<li><span>${esc(f.name)}</span> <button type="button" class="linkbtn" data-act="rename-folder" data-id="${esc(f.id)}" aria-label="Rename folder ${esc(f.name)}">Rename</button><button type="button" class="linkbtn" data-act="delete-folder" data-id="${esc(f.id)}" aria-label="Delete folder ${esc(f.name)}">Delete</button></li>`).join('') || '<li class="muted">No folders yet.</li>';
     $('#docs-title').textContent = st.q ? `Results for “${st.q}”` : st.folder ? (st.folder === 'none' ? 'Not in a folder' : folderName(st.folder) || 'Folder') : TITLES[st.view];
+    $('.docs-aside').hidden = st.view === 'trash' && !st.folder;
   };
   const row = (d) => {
-    const trash = st.view === 'trash' && !st.folder; const owner = d.my_role === 'owner';
+    const trash = st.view === 'trash' && !st.folder; const owner = d.my_role === 'owner'; const oname = nameOf(d.owner_id);
     const title = trash ? esc(d.title) : `<a class="doc-link" href="${esc(ctx.urls.doc(d.id))}">${esc(d.title)}</a>`;
-    return `<article class="card doc-card doc-row" data-doc="${esc(d.id)}"><span class="doc-ico" aria-hidden="true">${KIND[d.kind][0]}</span>
-      <div class="doc-main"><h3>${title}${d.template ? ' <span class="pill">template</span>' : ''}</h3><span class="muted">${KIND[d.kind][1]} · ${place(d)} · ${trash ? 'Deleted ' : 'Edited '}${esc(ago(trash ? d.deleted_at : d.updated_at))} · v${esc(d.current_version)}</span></div>
-      ${trash ? (owner ? '<button class="secondary" data-act="restore">Restore</button>' : '') : `<button type="button" class="icon-btn" data-act="star" aria-pressed="${d.starred}" aria-label="${d.starred ? 'Remove star from' : 'Star'} ${esc(d.title)}">${d.starred ? '★' : '☆'}</button>
-        <details class="doc-menu"><summary aria-label="More actions for ${esc(d.title)}">⋯</summary><div class="doc-menu-items">
-          <button type="button" data-act="dup">Duplicate</button>
+    return `<article class="doc-card docs-row" role="listitem" data-doc="${esc(d.id)}">
+      <div class="docs-name"><span class="docs-type kind-${esc(d.kind)}" title="${esc(KIND[d.kind][1])}">${svg(d.kind)}</span><div class="docs-name-text"><h3>${title}${d.template ? ' <span class="pill">template</span>' : ''}</h3><span class="muted">${esc(KIND[d.kind][1])} · ${place(d)}</span></div></div>
+      <div class="docs-owner"><span class="docs-avatar" title="${esc(oname)}" aria-hidden="true">${esc(initials(oname))}</span><span class="sr-only">Owner: ${esc(oname)}</span></div>
+      <div class="docs-when muted">${esc(fmtWhen(trash ? d.deleted_at : d.updated_at))}</div>
+      <div class="docs-actions">${trash ? (owner ? '<button type="button" class="secondary compact" data-act="restore">Restore</button>' : '') : `<button type="button" class="icon-btn ${d.starred ? 'on' : ''}" data-act="star" aria-pressed="${d.starred}" aria-label="${d.starred ? 'Remove star from' : 'Star'} ${esc(d.title)}">${svg('star', '', d.starred)}</button>
+        <details class="doc-menu"><summary aria-label="More actions for ${esc(d.title)}">${svg('more')}</summary><div class="doc-menu-items">
+          <button type="button" class="menu-item" data-act="dup">Duplicate</button>
           ${owner ? `<label class="docs-move">Folder<select data-act="move" aria-label="Folder for ${esc(d.title)}"><option value="">None</option>${folders.map((f) => `<option value="${esc(f.id)}" ${d.folder_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
-          <button type="button" data-act="template" aria-pressed="${d.template}">${d.template ? 'Not a template' : 'Make template'}</button><button type="button" data-act="trash">Move to trash</button>` : ''}</div></details>`}</article>`;
+          <button type="button" class="menu-item" data-act="template" aria-pressed="${d.template}">${d.template ? 'Not a template' : 'Make template'}</button><button type="button" class="menu-item" data-act="trash">Move to trash</button>` : ''}</div></details>`}</div></article>`;
+  };
+  const emptyBox = (icon, title, text, action) => `<div class="docs-empty"><span class="ico">${svg(icon)}</span><h3>${esc(title)}</h3><p class="muted">${esc(text)}</p>${action}</div>`;
+  const emptyFor = () => {
+    if (st.q || st.kind) return emptyBox('search', st.q ? `No documents match “${st.q}”` : 'No documents of that type', 'Try a different search or type.', '<button type="button" class="secondary" data-clear>Clear search</button>');
+    if (st.folder) return emptyBox('folder', 'This folder is empty', 'Move a document here from its ⋯ menu.', '');
+    switch (st.view) {
+      case 'shared': return emptyBox('users', 'Nothing shared with you yet', 'Documents that colleagues share with you will appear here.', '');
+      case 'starred': return emptyBox('star', 'No starred documents', 'Star a document to find it here quickly.', '<button type="button" class="secondary" data-goview="mine">View my documents</button>');
+      case 'templates': return emptyBox('template', 'No templates yet', 'Mark one of your documents as a template from its ⋯ menu, then copy it whenever you start something similar.', '<button type="button" class="secondary" data-goview="mine">View my documents</button>');
+      case 'trash': return emptyBox('trash', 'The trash is empty', 'Deleted documents stay here until you restore them.', '');
+      default: return emptyBox('doc', 'No documents yet', 'Create your first document to start writing.', `<button type="button" class="btn primary" data-new="doc">${svg('plus')}<span>Create document</span></button>`);
+    }
   };
   const drawList = () => {
     $('#docs').innerHTML = docs.map(row).join('');
-    $('#docs-state').innerHTML = docs.length ? '' : `<div class="empty">${esc(st.q || st.kind ? 'No documents match your search.' : st.folder ? 'This folder is empty.' : EMPTY[st.view])}</div>`;
+    $('#docs-state').innerHTML = docs.length ? '' : emptyFor(); $('.docs-tablehead').hidden = !docs.length;
     $('#docs-more').hidden = !cursor || homeMode(); $('#docs-more').disabled = false; $('#docs-viewall').hidden = !(cursor && homeMode());
     $('#docs-count').textContent = docs.length && !homeMode() ? `Showing ${docs.length} document${docs.length === 1 ? '' : 's'}${cursor ? ' (more available)' : ''}` : '';
   };
   const load = async (append = false) => {
     const mine = ++seq;
-    if (!append) { $('#docs-state').innerHTML = '<p class="muted">Loading documents…</p>'; $('#docs').innerHTML = ''; $('#docs-more').hidden = true; $('#docs-viewall').hidden = true; }
+    if (!append) { $('#docs-state').innerHTML = '<p class="sr-only">Loading documents…</p>'; $('#docs').innerHTML = '<div class="docs-skel" aria-hidden="true"></div>'.repeat(4); $('.docs-tablehead').hidden = false; $('#docs-more').hidden = true; $('#docs-viewall').hidden = true; }
     const qs = new URLSearchParams({ view: st.folder || st.view === 'home' ? 'recent' : st.view, limit: homeMode() ? '8' : '50' });
     if (st.q) qs.set('q', st.q); if (st.kind) qs.set('kind', st.kind); if (st.folder) qs.set('folder', st.folder); if (append && cursor) qs.set('cursor', cursor);
     try {
@@ -181,10 +235,39 @@ async function renderHome(root) {
     } catch (e) {
       if (mine !== seq) return;
       if (append) { notice(describe(e)); $('#docs-more').disabled = false; return; }
-      $('#docs-state').innerHTML = `<div class="empty">Could not load documents: ${esc(describe(e))} <button type="button" class="secondary" id="docs-retry">Try again</button></div>`; $('#docs-retry').onclick = () => load();
+      $('#docs').innerHTML = ''; $('.docs-tablehead').hidden = true;
+      $('#docs-state').innerHTML = `<div class="docs-empty"><span class="ico">${svg('search')}</span><h3>Could not load documents</h3><p class="muted">${esc(describe(e))}</p><button type="button" class="secondary" id="docs-retry">Try again</button></div>`; $('#docs-retry').onclick = () => load();
     }
   };
   const go = (patch) => { Object.assign(st, patch); store.set('view', st.view); store.set('folder', st.folder); return load(); };
+
+  // ---- "+ New": one click creates an untitled document and opens it; the menu is keyboard operable (arrows, Home/End, Escape, Tab) ----
+  const menu = $('#new-menu'); const newBtn = $('#new-doc');
+  const items = () => [...menu.querySelectorAll('[role=menuitem]')];
+  const closeNew = (focusBack = false) => { menu.hidden = true; newBtn.setAttribute('aria-expanded', 'false'); if (focusBack) newBtn.focus(); };
+  const openNew = (focusFirst = false) => { menu.hidden = false; newBtn.setAttribute('aria-expanded', 'true'); if (focusFirst) items()[0]?.focus(); };
+  const setBusy = (on) => root.querySelectorAll('[data-new], #new-doc').forEach((b) => { b.disabled = on; if (on) b.setAttribute('aria-busy', 'true'); else b.removeAttribute('aria-busy'); });
+  const createNew = async (kind) => {
+    closeNew();
+    if (kind === 'folder') { const m = $('.docs-manage'); m.open = true; $('#folder-form [name=name]').focus(); return; }
+    if (creating) return; creating = true; setBusy(true);                                                    // repeated clicks create exactly one document
+    try { const d = await api('/documents', { method: 'POST', body: JSON.stringify({ kind, title: UNTITLED[kind], idempotency_key: uid() }) }); location.href = ctx.urls.doc(d.id); }
+    catch (err) { notice(err.status === 429 ? 'You are creating documents too quickly. Try again in a minute.' : say(err)); creating = false; setBusy(false); }
+  };
+  newBtn.addEventListener('click', () => (menu.hidden ? openNew(false) : closeNew()));
+  newBtn.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown') { e.preventDefault(); openNew(true); } else if (e.key === 'Escape' && !menu.hidden) { e.preventDefault(); e.stopPropagation(); closeNew(true); } });
+  menu.addEventListener('keydown', (e) => {
+    const list = items(); const i = list.indexOf(root.getRootNode().activeElement || document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); list[(i + 1) % list.length].focus(); } else if (e.key === 'ArrowUp') { e.preventDefault(); list[(i - 1 + list.length) % list.length].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); list[0].focus(); } else if (e.key === 'End') { e.preventDefault(); list[list.length - 1].focus(); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeNew(true); } else if (e.key === 'Tab') closeNew();
+  });
+  root.addEventListener('click', (e) => {
+    const n = e.target.closest('[data-new]'); if (n) { createNew(n.dataset.new); return; }
+    const g = e.target.closest('[data-goview]'); if (g) { go({ view: g.dataset.goview, folder: '', q: '', kind: '' }); return; }
+    if (e.target.closest('[data-clear]')) { $('#doc-search [name=q]').value = ''; $('#doc-kind').value = ''; go({ q: '', kind: '' }); }
+  });
+  listen(document, 'click', (e) => { const from = (e.composedPath && e.composedPath()[0]) || e.target; if (!menu.hidden && !menu.contains(from) && !newBtn.contains(from)) closeNew(); });
 
   $('#docs-views').addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) go({ view: b.dataset.view, folder: '' }); });
   $('.docs-folderbar').addEventListener('click', async (e) => {
@@ -200,14 +283,12 @@ async function renderHome(root) {
   $('#folder-form').onsubmit = async (e) => { e.preventDefault(); const name = new FormData(e.target).get('name').trim(); if (!name) return;
     try { await api('/document-folders', { method: 'POST', body: JSON.stringify({ name }) }); e.target.reset(); notice('Folder added.'); await load(); } catch (err) { notice(err.body?.code === 'name_taken' ? 'You already have a folder with that name.' : err.body?.code === 'folder_limit' ? err.message : err.status === 429 ? 'You are adding folders too quickly. Try again in a minute.' : say(err)); } };
   $('#doc-search').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); const q = f.get('q').trim(); if (q && q.length < 2) { notice('Type at least two characters to search.'); return; } notice(''); go({ q, kind: f.get('kind') }); };
-  $('#doc-search [name=q]').addEventListener('input', (e) => { if (e.target.value === '' && st.q) go({ q: '' }); });
+  let searchTimer = null;                                                                                    // typing searches by itself after a short pause; Enter searches at once
+  $('#doc-search [name=q]').addEventListener('input', (e) => { clearTimeout(searchTimer); const v = e.target.value.trim(); if (v === '' && st.q) { go({ q: '' }); return; } if (v.length >= 2) searchTimer = setTimeout(() => go({ q: v, kind: $('#doc-kind').value }), 350); });
   $('#doc-kind').addEventListener('change', () => $('#doc-search').requestSubmit());
-  $('#new-doc').addEventListener('click', () => { $('#docs-new').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' }); $('#doc-form [name=title]').focus({ preventScroll: true }); });
   $('#docs-more').addEventListener('click', (e) => { e.currentTarget.disabled = true; load(true); });
   $('#docs-viewall').addEventListener('click', () => go({ view: 'recent' }));
-  $('#doc-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button'); btn.disabled = true;
-    try { const d = await api('/documents', { method: 'POST', body: JSON.stringify({ kind: f.kind, title: f.title, idempotency_key: uid() }) }); location.href = ctx.urls.doc(d.id); } catch (err) { notice(err.status === 429 ? 'You are creating documents too quickly. Try again in a minute.' : say(err)); btn.disabled = false; } };
-  $('#ai-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button'); btn.disabled = true; notice('Drafting…');
+  if (aiOn) $('#ai-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button'); btn.disabled = true; notice('Drafting…');
     try { const d = await api('/documents/ai-draft', { method: 'POST', body: JSON.stringify({ kind: f.kind, prompt: f.prompt, idempotency_key: uid() }) }); location.href = ctx.urls.doc(d.id); } catch (err) { notice(err.body?.code === 'no_ai_provider' ? 'AI assistance is not available until an approved private model is connected.' : [502, 503].includes(err.status) ? 'The AI service is unavailable right now. Nothing was saved or charged.' : describe(err)); btn.disabled = false; } };
   $('#docs').addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-act]'); if (!b) return; const id = b.closest('[data-doc]').dataset.doc; const d = docs.find((x) => x.id === id); b.disabled = true; b.closest('details')?.removeAttribute('open');
@@ -357,6 +438,7 @@ async function renderEditor(root, id) {
     box.querySelectorAll('[data-act=resolve-comment]').forEach((b) => b.addEventListener('click', async () => { try { await api(`/documents/${id}/comments/${b.closest('[data-comment]').dataset.comment}/resolve`, { method: 'POST', body: '{}' }); await side(); } catch (err) { notice(say(err)); } }));
     box.querySelectorAll('[data-act=restore]').forEach((b) => b.addEventListener('click', async () => { try { await api(`/documents/${id}/restore`, { method: 'POST', body: JSON.stringify({ version_no: Number(b.closest('tr').dataset.v), base_version: version }) }); await renderEditor(root, id); } catch (err) { notice(err.body?.code === 'version_conflict' ? 'The document changed meanwhile. Reload and try again.' : describe(err)); } }));
   };
+  if (isDoc && canEdit && d.current_version === 1 && /^Untitled/.test(d.title) && !content.text) $('#doc-text').focus();         // a new untitled document opens ready to type in
   await side();
   // Qorlla AI works from the last SAVED version, previews first, and applies only after confirmation (the server re-checks permission and version).
   const TASKS = { doc: [{ task: 'docs_rewrite', label: 'Rewrite' }, { task: 'docs_improve', label: 'Improve' }, { task: 'docs_proofread', label: 'Proofread' }, { task: 'docs_summarize', label: 'Summarize (add to the end)' }, { task: 'docs_translate', label: 'Translate', needs: ['language'] }],

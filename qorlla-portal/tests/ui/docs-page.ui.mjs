@@ -32,17 +32,18 @@ const notice = (p) => p.locator('#notice').textContent();
 const menu = (p, id) => p.locator(`#docs [data-doc="${id}"] .doc-menu summary`).click();          // a row's actions live in its "⋯" menu
 const docsOnPage = (p) => p.locator('#docs .doc-card h3').allTextContents();
 const goHome = async (p) => { await p.goto(app.base + '/app/suite'); await p.locator('#docs-views').waitFor(); await until(async () => (await p.locator('#docs-state').textContent()) !== 'Loading documents…'); };
+const createDoc = async (p, kind, title) => { await p.locator('#new-doc').click(); await p.locator(`#new-menu [data-new=${kind}]`).click(); await p.waitForURL(/\/app\/suite\?doc=/); await p.locator('#doc-title').waitFor(); if (title) { await p.fill('#doc-title', title); await p.locator('#doc-title').blur(); await until(async () => /Renamed/.test(await notice(p))); } return p.url().split('=')[1]; };
 
 try {
   // ---------------------------------------------------------------- home
   const { ctx, page } = await openAs(H);
   await page.goto(app.base + '/app/suite'); await page.locator('#docs-views [data-view]').first().waitFor();
-  check('home: heading, seven views, folders panel and the create form are present', (await page.locator('h1').first().textContent()) === 'Qorlla Docs' && (await page.locator('#docs-views [data-view]').count()) === 7 && (await page.locator('#folder-form').count()) === 1 && (await page.locator('#doc-form [name=kind] option').count()) === 3);
+  check('home: heading, seven views, folders panel and the compact New menu (Document/Sheet/Slides/Folder) are present', (await page.locator('h1').first().textContent()) === 'Qorlla Docs' && (await page.locator('#docs-views [data-view]').count()) === 7 && (await page.locator('#folder-form').count()) === 1 && (await page.locator('#new-menu [role=menuitem]').count()) === 4 && (await page.locator('#doc-form').count()) === 0);
   check('home: an empty workspace shows the empty state for the current view, not a blank page', await until(async () => /No documents yet/.test(await page.locator('#docs-state').textContent())));
   check('home: Home is the current view (aria-current)', (await page.locator('#docs-views [aria-current=true]').textContent()).includes('Home'));
 
   // ---------------------------------------------------------------- create + editor (the flow the existing e2e specs use)
-  await page.selectOption('#doc-form [name=kind]', 'doc'); await page.fill('#doc-form [name=title]', 'Launch brief'); await page.getByRole('button', { name: 'Create', exact: true }).click(); await page.waitForURL(/\/app\/suite\?doc=/);
+  await createDoc(page, 'doc', 'Launch brief');
   const docId = page.url().split('=')[1];
   check('create: lands on /app/suite?doc=<id> exactly (other flows split the URL on "=")', /^[0-9a-f-]{36}$/.test(docId), page.url());
   await page.locator('#doc-text').waitFor(); check('editor: starts at version 1, "Saved", with a markdown toolbar of 7 tools and a word count', (await page.locator('#doc-version').textContent()) === 'version 1' && (await page.locator('#doc-status').textContent()) === 'Saved' && (await page.locator('[data-tool]').count()) === 7 && (await page.locator('#doc-count').textContent()) === '0 words');
@@ -102,9 +103,9 @@ try {
   check('restore: it is back in Recent with its history (version 4)', await until(async () => (await docsOnPage(page)).includes('Launch brief v2')) && (await api(H).get('/api/v1/documents/' + docId)).body.current_version === 4);
 
   // ---------------------------------------------------------------- search, filter, error state
-  await page.fill('#doc-search [name=q]', 'unsaved'); await page.locator('#doc-search').getByRole('button', { name: 'Search' }).click(); check('search: matches content of the saved document', await until(async () => (await docsOnPage(page)).includes('Launch brief v2')));
-  await page.fill('#doc-search [name=q]', 'zzzznothing'); await page.locator('#doc-search').getByRole('button', { name: 'Search' }).click(); check('search: no match says so', await until(async () => /No documents match/.test(await page.locator('#docs-state').textContent())));
-  await page.fill('#doc-search [name=q]', 'a'); await page.locator('#doc-search').getByRole('button', { name: 'Search' }).click(); check('search: one character is refused with a message', /two characters/.test(await notice(page)));
+  await page.fill('#doc-search [name=q]', 'unsaved'); await page.press('#doc-search [name=q]', 'Enter'); check('search: matches content of the saved document', await until(async () => (await docsOnPage(page)).includes('Launch brief v2')));
+  await page.fill('#doc-search [name=q]', 'zzzznothing'); await page.press('#doc-search [name=q]', 'Enter'); check('search: no match says so', await until(async () => /No documents match/.test(await page.locator('#docs-state').textContent())));
+  await page.fill('#doc-search [name=q]', 'a'); await page.press('#doc-search [name=q]', 'Enter'); check('search: one character is refused with a message', /two characters/.test(await notice(page)));
   await page.fill('#doc-search [name=q]', ''); check('search: clearing the box restores the list', await until(async () => (await docsOnPage(page)).includes('Launch brief v2')));
   let fail = true; await page.route('**/api/v1/documents?*', (r) => (fail ? r.abort() : r.continue())); await page.locator('[data-view=mine]').click();
   check('error state: a failed load shows the problem and a Try again button', await until(async () => /Could not load documents/.test(await page.locator('#docs-state').textContent())));
@@ -126,11 +127,11 @@ try {
   await viewer.ctx.close();
 
   // ---------------------------------------------------------------- sheets and slides still work on the new page
-  await goHome(page); await page.selectOption('#doc-form [name=kind]', 'sheet'); await page.fill('#doc-form [name=title]', 'Stock'); await page.getByRole('button', { name: 'Create', exact: true }).click(); await page.waitForURL(/\/app\/suite\?doc=/);
+  await goHome(page); await createDoc(page, 'sheet', 'Stock');
   await page.locator('#add-row').click(); await page.locator('[data-cell="0:0"]').fill('Giraffes'); await page.locator('[data-cell="0:1"]').fill('12'); await page.locator('#save-doc').click();
   check('sheet: add row, type values, Save => version 2 with a number stored as a number', await until(async () => (await page.locator('#doc-version').textContent()) === 'version 2') && (await api(H).get('/api/v1/documents?kind=sheet')).body.length === 1 && JSON.stringify((await api(H).get('/api/v1/documents/' + page.url().split('=')[1])).body.content.rows) === '[["Giraffes",12,null]]');
   check('sheet: the doc-only controls (toolbar, markdown export) are not shown', (await page.locator('[data-tool]').count()) === 0 && (await page.locator('[data-export=md]').count()) === 0 && (await page.locator('[data-export=txt]').count()) === 1);
-  await goHome(page); await page.selectOption('#doc-form [name=kind]', 'slides'); await page.fill('#doc-form [name=title]', 'Pitch'); await page.getByRole('button', { name: 'Create', exact: true }).click(); await page.waitForURL(/\/app\/suite\?doc=/);
+  await goHome(page); await createDoc(page, 'slides', 'Pitch');
   await page.locator('[data-slide="0"] [data-f=title]').fill('Why now'); await page.locator('[data-slide="0"] [data-f=bullets]').fill('One\nTwo'); await page.locator('#save-doc').click();
   check('slides: edit and Save => version 2', await until(async () => (await page.locator('#doc-version').textContent()) === 'version 2'));
   await goHome(page); await page.selectOption('#doc-kind', 'sheet'); check('type filter: only sheets', await until(async () => JSON.stringify(await docsOnPage(page)) === JSON.stringify(['Stock'])));
@@ -138,12 +139,12 @@ try {
   // ---------------------------------------------------------------- release layout: list first, one AI area, contrast, phone menu, paging, drafts, export
   {
     const o = await openAs(H, { width: 1280, height: 900 }); const p = o.page; await goHome(p);
-    const box = async (sel) => p.locator(sel).first().boundingBox(); const ys = [await box('#docs-views'), await box('#doc-search'), await box('#docs'), await box('#docs-new'), await box('#docs-ai')].map((b) => Math.round(b.y));
-    check('layout: tabs, then search and filters, then the document list, then New document, then AI assistance (top to bottom)', ys.every((y, i) => i === 0 || ys[i - 1] < y), ys.join(' < '));
-    check('AI: one clearly labelled AI assistance area with ONE "turned off" notice (no second warning inside the panel), and Draft is disabled', (await p.locator('.docs-ai').count()) === 1 && (await p.locator('#docs-ai h2').textContent()) === 'AI assistance' && (await p.locator('#docs-ai .warn').count()) === 1 && /approved private model/.test(await p.locator('#docs-ai .warn').textContent()) && (await p.locator('#draft-ai-host .warn').count()) === 0 && (await p.locator('#ai-form button').isDisabled()) && (await p.locator('#draft-ai-host [data-ai-generate]').isDisabled()));
+    const box = async (sel) => p.locator(sel).first().boundingBox(); const bs = [await box('#docs-views'), await box('#doc-search'), await box('#docs')]; const ys = bs.map((b) => Math.round(b.y)); const aside = await box('.docs-aside');
+    check('layout: tabs, then search/filter/New, then the document library (top to bottom); creation and AI sit in a smaller column BESIDE the library at desktop width', ys.every((y, i) => i === 0 || ys[i - 1] < y) && aside.x > bs[2].x + bs[2].width - 4 && aside.width < bs[2].width, ys.join(' < ') + ' aside.x=' + aside.x);
+    check('AI: ONE collapsible AI assistance area with a single "turned off" notice, no form, no external-provider text, and a disabled "Draft with AI" button', (await p.locator('.docs-ai').count()) === 1 && (await p.locator('#docs-ai summary h2').textContent()) === 'AI assistance' && (await p.locator('#docs-ai .docs-notice').count()) === 1 && /approved private model/.test(await p.locator('#docs-ai .docs-notice').textContent()) && (await p.locator('#ai-form').count()) === 0 && (await p.locator('#docs-ai summary').click(), await p.getByRole('button', { name: 'Draft with AI' }).isDisabled()));
     const ratio = await p.evaluate(() => { const lum = (r, g, b) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0); const e = document.querySelector('.hero .eyebrow'); const [r, g, b] = getComputedStyle(e).color.match(/\d+/g).map(Number); const l1 = lum(r, g, b), l2 = lum(0x0b, 0x56, 0xc9); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); });
     check('contrast: the "QORLLA WORKPLACE" line on the hero is at least 4.5:1 against the hero\'s darkest blue (was blue on blue)', ratio >= 4.5, String(ratio));
-    await p.locator('#new-doc').click(); check('+ New scrolls to the New document form and focuses its title field', await until(async () => (await p.evaluate(() => document.activeElement?.getAttribute('name'))) === 'title'));
+    await p.locator('#new-doc').click(); check('+ New opens a menu with four items (aria-haspopup, expanded), and Escape closes it and returns focus to the button', (await p.locator('#new-doc').getAttribute('aria-expanded')) === 'true' && (await p.locator('#new-menu [role=menuitem]').allTextContents()).map((x) => x.trim()).join() === 'Document,Sheet,Slides,Folder' && (await p.keyboard.press('Escape'), await until(async () => (await p.locator('#new-menu').isHidden()) && (await p.evaluate(() => document.activeElement?.id)) === 'new-doc')));
     await o.ctx.close();
 
     const m = await openAs(H, { width: 360, height: 740 }); const mp = m.page; await goHome(mp); const tog = mp.locator('#menu-toggle');
@@ -206,8 +207,8 @@ try {
   // ---------------------------------------------------------------- plan limit and phone width
   const b = await main.mint(); const bw = await seedWorkspace(db.pool, b.sub, 'Basic'); const bp = await openAs(b);
   for (let i = 0; i < 5; i++) await api(b).post('/api/v1/documents', { kind: 'doc', title: 'D' + i });
-  await bp.page.goto(app.base + '/app/suite'); await bp.page.locator('#doc-form').waitFor(); await bp.page.fill('#doc-form [name=title]', 'Sixth'); await bp.page.getByRole('button', { name: 'Create', exact: true }).click();
-  check('plan limit: the sixth document on Basic is refused with the plan message and the form stays usable', await until(async () => /plan allows/i.test(await notice(bp.page))) && (await bp.page.locator('#doc-form button').isEnabled()));
+  await bp.page.goto(app.base + '/app/suite'); await bp.page.locator('#new-doc').waitFor(); await bp.page.locator('#new-doc').click(); await bp.page.locator('#new-menu [data-new=doc]').click();
+  check('plan limit: the sixth document on Basic is refused with the plan message and the New button stays usable', await until(async () => /plan allows/i.test(await notice(bp.page))) && (await bp.page.locator('#new-doc').isEnabled()));
   await bp.ctx.close();
   const phone = await openAs(H, { width: 360, height: 740 }); await phone.page.goto(app.base + '/app/suite'); await phone.page.locator('#docs-views').waitFor(); await sleep(400);
   check('phone width: no horizontal scrolling on the home page', await phone.page.evaluate(() => document.scrollingElement.scrollWidth <= window.innerWidth + 1), await phone.page.evaluate(() => document.scrollingElement.scrollWidth + ' > ' + window.innerWidth));
@@ -261,6 +262,42 @@ try {
 
   check('no script errors, console errors or 5xx responses during the whole run', problems.length === 0, problems.join(' | '));
   await ctx.close();
+
+  // ---------------------------------------------------------------- Production UI refinement checks
+  {
+    const SHOTS = process.env.DOCS_SHOTS_DIR;
+    const o = await openAs(H, { width: 1280, height: 900 }); const p = o.page; await goHome(p);
+    const before = (await api(H).get('/api/v1/documents?limit=200')).body.length;
+    await p.locator('#new-doc').click(); await p.locator('#new-menu [data-new=doc]').dblclick();
+    await p.waitForURL(/\/app\/suite\?doc=/); await sleep(600);
+    const after = (await api(H).get('/api/v1/documents?limit=200')).body.length;
+    check('New > Document opens an untitled document immediately, and a double-click creates exactly ONE', after === before + 1 && (await p.locator('#doc-title').inputValue()) === 'Untitled document', `before ${before} after ${after}`);
+    await goHome(p);
+    await p.route('**/api/v1/documents', (r) => (r.request().method() === 'POST' ? r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'boom' }) }) : r.continue()));
+    await p.locator('#new-doc').click(); await p.locator('#new-menu [data-new=sheet]').click();
+    check('creation failure: a meaningful message, no navigation, and the New button is usable again', await until(async () => (await notice(p)).trim().length >= 4) && /app\/suite$/.test(p.url()) && (await p.locator('#new-doc').isEnabled()) && !(await p.locator('#new-doc').getAttribute('aria-busy')), 'notice=[' + (await notice(p)) + '] url=' + p.url());
+    await p.unroute('**/api/v1/documents');
+    await p.locator('#docs-views [data-view=templates]').click();
+    check('Templates: polished empty state with a next action (no invented sample documents)', await until(async () => (await p.locator('#docs-state .docs-empty').count()) === 1 && (await p.locator('#docs-state .docs-empty button').count()) >= 1 && (await p.locator('#docs .doc-card').count()) === 0));
+    await p.locator('#docs-views [data-view=home]').click();
+    await p.fill('#doc-search [name=q]', 'zzzznothing'); await p.waitForTimeout(900);
+    check('search is live (debounced): typing alone filters, no button needed', await until(async () => /No documents match/.test(await p.locator('#docs-state').textContent())));
+    const tabbed = []; await p.locator('#doc-search [name=q]').focus(); for (let i = 0; i < 2; i++) { await p.keyboard.press('Tab'); tabbed.push(await p.evaluate(() => { const e = document.activeElement; return e && (e.id || e.getAttribute('aria-label') || e.tagName); })); }
+    check('keyboard: Tab reaches the search, filter and New controls in order', tabbed[0] === 'doc-kind' && tabbed[1] === 'new-doc', tabbed.join());
+    const sizes = await p.evaluate(() => ['#doc-search [name=q]', '#doc-kind', '#new-doc'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().height)));
+    check('controls are at least 44px tall', sizes.every((h) => h >= 44), sizes.join());
+    await o.ctx.close();
+    for (const w of [360, 390, 768, 1280, 1440]) {
+      const r = await openAs(H, { width: w, height: 900 }); const q = r.page; await goHome(q);
+      const ovHome = await q.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth);
+      const stacked = await q.evaluate(() => { const a = document.querySelector('.docs-aside').getBoundingClientRect(), l = document.querySelector('.docs-library').getBoundingClientRect(); return a.top >= l.bottom - 2; });
+      if (SHOTS) await q.screenshot({ path: `${SHOTS}/home-${w}.png`, fullPage: true });
+      await q.goto(app.base + '/app/suite?doc=' + docId); await q.locator('#doc-text').waitFor(); const ovEd = await q.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth);
+      if (SHOTS) await q.screenshot({ path: `${SHOTS}/editor-${w}.png`, fullPage: true });
+      check(`${w}px: Docs home and the editor do not scroll sideways, and the side column ${w >= 1100 ? 'sits beside' : 'stacks under'} the library`, ovHome <= 1 && ovEd <= 1 && (w >= 1100 ? !stacked : stacked), `home ${ovHome} editor ${ovEd} stacked ${stacked}`);
+      await r.ctx.close();
+    }
+  }
 } catch (e) { check('the run finished without an unexpected exception', false, e.stack || e.message); }
 finally { await browser.close(); await app.close(); await main.close(); await db.drop(); }
 const pass = results.filter(Boolean).length; console.log(`\nDOCS UI: ${pass} passed, ${results.length - pass} failed, ${results.length} total`); process.exit(pass === results.length ? 0 : 2);

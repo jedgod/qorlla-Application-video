@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { BASE, dbq, signUp, signUpWithWorkspace } = require('./helpers');
+const { BASE, dbq, signUp, signUpWithWorkspace, createDoc } = require('./helpers');
 
 // Real browser, real MAIN sign-in, real PostgreSQL. The language model is the repo's labelled TEST DOUBLE (tests/fake-llm.mjs), so the
 // QorllaMate test proves our workflow (proposal -> approval -> creation) and NOT the quality or behaviour of a real model.
@@ -41,7 +41,7 @@ test.describe('notes, documents and QorllaMate', () => {
 
   test('documents: create, edit with version history and restore, optimistic-concurrency conflict, and sharing as read-only', async ({ page, browser, context }) => {
     const owner = await signUpWithWorkspace(context, 'docowner');
-    await page.goto('/app/suite'); await page.selectOption('#doc-form [name=kind]', 'doc'); await page.fill('#doc-form [name=title]', 'Launch brief'); await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await page.goto('/app/suite'); await createDoc(page, 'doc', 'Launch brief');
     await page.waitForURL(/\/app\/suite\?doc=/); await expect(page.locator('#doc-version')).toHaveText('version 1');
     await page.fill('#doc-text', 'First draft about giraffes'); await page.locator('#save-doc').click(); await expect(page.locator('#doc-version')).toHaveText('version 2');
     const docUrl = page.url();

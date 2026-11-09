@@ -3269,7 +3269,7 @@
   VIEWS.docs = function (arg) {
     if (!state.user) return gate('Docs', 'your documents');
     var DOC = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    viewEl.appendChild(pageHead('Docs', 'Documents, sheets and slides', []));
+    viewEl.appendChild(pageHead('Qorlla Docs', 'Create, manage and collaborate on documents, sheets and slides.', []));
     var host = h('div', { class: 'docs-host' }); viewEl.appendChild(host);
     var want = arg && DOC.test(arg.sub || '') ? arg.sub : '', docs = null, gone = false;
     host.appendChild(h('p', { class: 'muted pad', text: 'Loading Docs…' }));                  // shown until the module's own page replaces it: never a silent blank
