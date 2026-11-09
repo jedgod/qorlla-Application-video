@@ -1514,7 +1514,7 @@
     viewEl.textContent = '';
     viewEl.scrollTop = 0;
     var r = VIEWS[view](arg);
-    if (r && r.then) r.catch(function (e) { viewEl.textContent = ''; viewEl.appendChild(errorBox(e, view)); });
+    if (r && r.then) r.catch(function (e) { if (state.view !== view) return; viewEl.textContent = ''; viewEl.appendChild(errorBox(e, view)); });      // a page that failed to load AFTER you moved on must not paint its error over the page you are on now
     { var want = routeHash(view, state.sub, state.section); if (location.hash.slice(1) !== want) history.replaceState(null, '', '#' + want); }
     paintCrumbs();
   }
@@ -3271,12 +3271,17 @@
     var DOC = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     viewEl.appendChild(pageHead('Docs', 'Documents, sheets and slides', []));
     var host = h('div', { class: 'docs-host' }); viewEl.appendChild(host);
+    var want = arg && DOC.test(arg.sub || '') ? arg.sub : '', docs = null, gone = false;
+    host.appendChild(h('p', { class: 'muted pad', text: 'Loading Docs…' }));                  // shown until the module's own page replaces it: never a silent blank
+    var slow = setTimeout(function () { if (!docs && !gone && host.isConnected) { host.textContent = ''; host.appendChild(errorBox(new Error('Docs is taking longer than expected to load.'), 'docs')); } }, 20000);
+    // The route handler exists from the first moment (not only once the module has loaded), so a click on "All documents" or Back is never lost while Docs is still starting.
+    state.applyRoute = function (sub) { want = DOC.test(sub || '') ? sub : ''; if (docs) docs.open(want); };
+    cleanup = function () { gone = true; clearTimeout(slow); state.applyRoute = null; if (docs) docs.destroy(); };
     return import('/app/assets/docs-page.js').then(function (m) {
-      return m.mountDocsWorkspace(host, { docId: arg && DOC.test(arg.sub || '') ? arg.sub : '' });
-    }).then(function (docs) {
-      if (state.view !== 'docs') { docs.destroy(); return; }                        // the person already moved on while the module was loading
-      state.applyRoute = function (sub) { docs.open(DOC.test(sub || '') ? sub : ''); };
-      cleanup = function () { state.applyRoute = null; docs.destroy(); };
+      var started = want; return m.mountDocsWorkspace(host, { docId: started }).then(function (d) { return { d: d, started: started }; });
+    }).then(function (r) {
+      if (gone || !host.isConnected) { r.d.destroy(); return; }                      // the person moved on (or the page was re-rendered) while the module was loading
+      clearTimeout(slow); docs = r.d; if (want !== r.started) docs.open(want);                           // they navigated inside Docs while it was loading
     });
   };
 

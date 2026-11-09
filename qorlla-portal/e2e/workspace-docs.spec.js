@@ -4,7 +4,7 @@ const { test, expect } = require('@playwright/test');
 const { signUpWithWorkspace } = require('./helpers');
 
 const open = async (page, hash = '#home') => { await page.goto('/qorlla.html' + hash); await expect(page.locator('.sidebar')).toBeVisible(); };
-const crumbs = (page) => page.locator('#crumbs li, #crumbs .breadcrumb-list > *').allTextContents().then((a) => a.map((t) => t.trim()).filter(Boolean));
+const crumbs = (page) => page.locator('#crumbs li:not(.breadcrumb-separator)').allTextContents().then((a) => a.map((t) => t.trim()).filter(Boolean));       // the same extraction the breadcrumb specs use
 const docsReady = (page) => expect(page.locator('#docs-views')).toBeVisible({ timeout: 20000 });      // CSS locators reach into the Docs module's open shadow root
 
 test.describe('Docs inside the Workspace', () => {
@@ -44,7 +44,8 @@ test.describe('Docs inside the Workspace', () => {
     await page.fill('#doc-form [name=title]', 'Keys'); await page.getByRole('button', { name: 'Create', exact: true }).click(); await expect(page.locator('#doc-text')).toBeVisible();
     await page.locator('#doc-text').click(); await page.keyboard.type('Is this typed? yes'); await expect(page.locator('#doc-text')).toHaveValue('Is this typed? yes'); await expect(page.locator('dialog[open]')).toHaveCount(0);
     await page.keyboard.press('Escape'); await expect(page.locator('#doc-text')).toBeVisible(); await expect(page).toHaveURL(/#docs\/[0-9a-f-]{36}$/);              // the open document is not thrown away
-    await page.locator('#docs-back').click(); await docsReady(page);
+    page.once('dialog', (d) => d.dismiss()); await page.locator('#docs-back').click(); await expect(page.locator('#doc-text')).toHaveValue('Is this typed? yes');                   // unsaved text: Cancel keeps you in the editor
+    page.once('dialog', (d) => d.accept()); await page.locator('#docs-back').click(); await docsReady(page);                                                                      // OK leaves
     await page.locator('#docs .doc-menu summary').first().click(); await expect(page.locator('#docs .doc-menu[open]')).toHaveCount(1);
     await page.keyboard.press('Escape'); await expect(page.locator('#docs .doc-menu[open]')).toHaveCount(0); await expect(page).toHaveURL(/#docs$/);                  // closes the menu only
   });

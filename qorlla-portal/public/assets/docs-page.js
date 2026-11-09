@@ -6,8 +6,8 @@ import { esc, api, apiPaged, notice, describe, panel } from './core.js';
 import { mountAiPanel } from './ai-panel.js';
 
 // Where the page is mounted decides how it is addressed and where it looks things up: the standalone portal page (/app/suite) or the Workspace's Docs view (#docs).
-let scope = document;                                                    // every lookup is inside the mounted root, never the whole page
-const $ = (s) => scope.querySelector(s);
+// Every lookup is bound to ITS OWN mounted root (a local $ in renderHome/renderEditor), never to shared state: the Workspace can render the Docs view twice in quick succession
+// while it starts up, and two mounts must not see each other's elements.
 let ctx = { embedded: false, urls: { home: () => '/app/suite', doc: (id) => '/app/suite?doc=' + id } };
 const offs = [];                                                         // document-level listeners, removed when the Workspace leaves Docs
 const listen = (target, type, fn) => { target.addEventListener(type, fn); offs.push(() => target.removeEventListener(type, fn)); };
@@ -56,10 +56,12 @@ const slidesEditor = (c) => c.slides.map((s, i) => `<fieldset data-slide="${i}">
 const readSlides = (area) => ({ slides: [...area.querySelectorAll('[data-slide]')].map((f) => ({ title: f.querySelector('[data-f=title]').value.slice(0, 200), bullets: f.querySelector('[data-f=bullets]').value.split('\n').map((x) => x.trim().slice(0, 500)).filter(Boolean).slice(0, 20), notes: f.querySelector('[data-f=notes]').value.slice(0, 2000) })) });
 
 // ------------------------------------------------------------------ the page
+/** JSON with object keys in a fixed order. PostgreSQL returns jsonb keys in ITS order (shorter first), the page builds them in another, and "has this document changed?" must not depend on that. */
+const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
 const store = { get(k, d) { try { return sessionStorage.getItem('qdocs.' + k) ?? d; } catch { return d; } }, set(k, v) { try { sessionStorage.setItem('qdocs.' + k, v); } catch { /* private mode: the page works without it */ } } };
 
 export async function renderSuite(root) {
-  scope = root; ctx = { embedded: false, urls: { home: () => '/app/suite', doc: (id) => '/app/suite?doc=' + id } };
+  ctx = { embedded: false, urls: { home: () => '/app/suite', doc: (id) => '/app/suite?doc=' + id } };
   root.closest('main')?.classList.add('docs-page');       // lets the page's wide tables scroll inside themselves on phones; scoped here so no other portal page's layout changes
   const params = new URLSearchParams(location.search);
   if (params.get('doc')) return renderEditor(root, params.get('doc'));
@@ -69,23 +71,34 @@ export async function renderSuite(root) {
 /** The Workspace's Docs view: this same page, inside the Workspace shell (its sidebar, header, address and breadcrumb trail), in its own shadow root so the portal's stylesheet and
  *  the Workspace's cannot affect each other. It talks to the portal API on this same origin with the person's own session. Returns { open(id), destroy() }: open('') shows the
  *  home, open(id) a document; the Workspace calls open on every #docs/<id> change and destroy() when you leave Docs. */
+let generation = 0;                                                      // a newer mount supersedes an older one that is still loading
 export async function mountDocsWorkspace(host, { docId = '' } = {}) {
-  const shadow = host.shadowRoot || host.attachShadow({ mode: 'open' });
+  const gen = ++generation; const shadow = host.shadowRoot || host.attachShadow({ mode: 'open' });
   shadow.innerHTML = '<link rel="stylesheet" href="/app/assets/styles.css"><style>:host{display:block;font:14px/1.5 Inter,ui-sans-serif,system-ui,Arial,sans-serif;color:#16253d}.docs-embed{min-width:0}</style><div class="docs-embed"></div>';
   await new Promise((done) => { const l = shadow.querySelector('link'); const t = setTimeout(done, 4000); const fin = () => { clearTimeout(t); done(); }; if (l.sheet) fin(); else { l.addEventListener('load', fin, { once: true }); l.addEventListener('error', fin, { once: true }); } });
+  if (gen !== generation) return { open() {}, destroy() {} };
   const root = shadow.querySelector('.docs-embed'); offs.splice(0).forEach((f) => f());
-  scope = root; ctx = { embedded: true, urls: { home: () => '#docs', doc: (id) => '#docs/' + id } };
+  ctx = { embedded: true, urls: { home: () => '#docs', doc: (id) => '#docs/' + id } };
   // The Workspace closes the current page on Escape. Inside Docs, Escape belongs to the field or menu you are in, so it must never throw away an open document.
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && (root.querySelector('.doc-menu[open]') || /^(INPUT|TEXTAREA|SELECT)$/.test(((e.composedPath && e.composedPath()[0]) || e.target).tagName || ''))) e.stopPropagation(); });
-  const open = (id) => (DOC_ID.test(id || '') ? renderEditor(root, id) : renderHome(root));
-  await open(docId);
-  return { open, destroy() { offs.splice(0).forEach((f) => f()); root.innerHTML = ''; } };
+  // Every navigation renders into its OWN container and takes over the screen at once. A page that is still loading its secondary parts (comments, history, the AI panel) when you
+  // move on simply finishes in a container nobody can see, so it can neither delay the next page nor write into it.
+  let closed = false;
+  const open = (id) => {
+    if (closed) return Promise.resolve();
+    const view = document.createElement('div'); view.className = 'docs-view'; root.replaceChildren(view);
+    return (DOC_ID.test(id || '') ? renderEditor(view, id) : renderHome(view))
+      .catch((e) => { view.innerHTML = `<div class="empty">Could not load Docs: ${esc(describe(e))}</div>`; });          // an unexpected failure is shown in place and never escapes
+  };
+  open(docId);                                                         // the first page is STARTED, not waited for: the Workspace can follow route changes from the first moment
+  return { open, destroy() { closed = true; offs.splice(0).forEach((f) => f()); root.innerHTML = ''; } };
 }
 
 // ================================================================== home
 // Layout: view tabs, search + filters, folder chips, THEN the document list, then New document, then one AI assistance area.
 // The list is cursor-paged (50 at a time; the Home tab shows the 8 most recent). Rights are applied by the server on every page.
 async function renderHome(root) {
+  const $ = (s) => root.querySelector(s);
   const stored = store.get('view');
   const st = { view: VIEWS.some((v) => v[0] === stored) ? stored : 'home', folder: store.get('folder', ''), q: '', kind: '' };
   const status = await api('/assistant/status').catch(() => ({ ai_provider_configured: false }));
@@ -199,8 +212,8 @@ async function renderHome(root) {
     const s = e.target.closest('select[data-act=move]'); if (!s) return; const id = s.closest('[data-doc]').dataset.doc;
     try { await api(`/documents/${id}/move`, { method: 'POST', body: JSON.stringify({ folder_id: s.value || null }) }); notice('Moved.'); await load(); } catch (err) { notice(say(err)); await load(); }
   });
-  listen(document, 'click', (e) => { const from = (e.composedPath && e.composedPath()[0]) || e.target; scope.querySelectorAll('.doc-menu[open]').forEach((m) => { if (!m.contains(from)) m.removeAttribute('open'); }); });        // a row menu closes when you click elsewhere
-  root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { const m = root.querySelector('.doc-menu[open]'); if (m) { m.removeAttribute('open'); m.querySelector('summary').focus(); } } });
+  listen(document, 'click', (e) => { const from = (e.composedPath && e.composedPath()[0]) || e.target; root.querySelectorAll('.doc-menu[open]').forEach((m) => { if (!m.contains(from)) m.removeAttribute('open'); }); });        // a row menu closes when you click elsewhere
+  root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { const m = root.querySelector('.doc-menu[open]'); if (m) { m.removeAttribute('open'); m.querySelector('summary').focus(); e.stopPropagation(); } } });      // Escape that closed a menu is used up: the Workspace must not also close the page
   await load();
 }
 
@@ -222,9 +235,10 @@ const TOOLS = [['bold', 'B', 'Bold', (t) => wrapSel(t, '**')], ['italic', 'I', '
   ['numbers', '1. List', 'Numbered list', (t) => prefixLines(t, '1. ')], ['quote', '❝', 'Quote', (t) => prefixLines(t, '> ')], ['code', '</>', 'Code', (t) => wrapSel(t, '`')]];
 
 async function renderEditor(root, id) {
+  const $ = (s) => root.querySelector(s);
   let d; try { d = await api(`/documents/${id}`); } catch (e) { root.innerHTML = `<div class="empty">${e.status === 404 ? 'Document not found, or you do not have access. If you deleted it, you can restore it from the Trash view.' : esc(describe(e))}</div><p><a class="link" href="${esc(ctx.urls.home())}">← Back to documents</a></p>`; return; }
   const [meta, me, folders] = await Promise.all([api(`/documents/${id}/meta`).catch(() => ({ starred: false, template: false, folder_id: null, open_comments: 0 })), api('/me').catch(() => ({})), api('/document-folders').catch(() => [])]);
-  const canEdit = ['owner', 'editor'].includes(d.my_role); const owner = d.my_role === 'owner'; let content = d.content; let version = d.current_version; let saved = JSON.stringify(d.content); let starred = meta.starred;
+  const canEdit = ['owner', 'editor'].includes(d.my_role); const owner = d.my_role === 'owner'; let content = d.content; let version = d.current_version; let saved = canon(d.content); let starred = meta.starred;
   const isDoc = d.kind === 'doc';
   root.innerHTML = `<p><a class="link" id="docs-back" href="${esc(ctx.urls.home())}">← All documents</a></p>` + (d.version_source === 'ai' ? '<p class="warn" role="note">This version was drafted by AI. Review it before relying on it.</p>' : '') +
     panel(`${KIND[d.kind][0]} ${esc(d.title)}`, `<p class="muted">${KIND[d.kind][1]} · you are ${esc(d.my_role)} · <span id="doc-version">version ${esc(version)}</span> · <span id="doc-status" role="status">${canEdit ? 'Saved' : 'Read only'}</span></p>
@@ -238,7 +252,7 @@ async function renderEditor(root, id) {
     '<div id="ai-host"></div><div id="doc-side"></div>';
   const area = $('#editor-area');
   const collect = () => (isDoc ? { format: 'markdown', text: $('#doc-text').value } : d.kind === 'sheet' ? readSheet(area, content) : readSlides(area));
-  const dirty = () => { try { return JSON.stringify(collect()) !== saved; } catch { return false; } };
+  const dirty = () => { try { return canon(collect()) !== saved; } catch { return false; } };
   const setStatus = (t) => { $('#doc-status').textContent = t; };
   const mark = () => { if (canEdit) setStatus(dirty() ? 'Unsaved changes' : 'Saved'); };
   const rerender = (c) => { content = c; area.innerHTML = d.kind === 'sheet' ? sheetEditor(c) : slidesEditor(c); wire(); };
@@ -292,7 +306,7 @@ async function renderEditor(root, id) {
   }
   const save = async () => {
     if (!canEdit) return; const btn = $('#save-doc'); btn.disabled = true; setStatus('Saving…');
-    try { const next = collect(); const r = await api(`/documents/${id}`, { method: 'PUT', body: JSON.stringify({ base_version: version, content: next }) }); version = r.current_version; saved = JSON.stringify(next); $('#doc-version').textContent = `version ${version}`; setStatus('Saved'); notice('Saved.'); dropDraft(); await side(); }
+    try { const next = collect(); const r = await api(`/documents/${id}`, { method: 'PUT', body: JSON.stringify({ base_version: version, content: next }) }); version = r.current_version; saved = canon(next); $('#doc-version').textContent = `version ${version}`; setStatus('Saved'); notice('Saved.'); dropDraft(); await side(); }
     catch (err) { setStatus('Not saved'); notice(err.body?.code === 'version_conflict' ? 'Someone else saved a newer version. Reload to see it - your unsaved edits are still in the page, so copy them first.' : err.body?.code === 'read_only' ? 'You can view but not edit this document.' : describe(err)); }
     finally { btn.disabled = false; }
   };

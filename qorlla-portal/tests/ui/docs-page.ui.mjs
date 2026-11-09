@@ -194,6 +194,15 @@ try {
     check('export: a viewer whose access was just removed is refused with a clear message and gets no file', await until(async () => /no longer have access/.test(await notice(vx.page))));
     await vx.ctx.close();
   }
+  {
+    const np = await openAs(H); const p = np.page;
+    for (const kind of ['doc', 'sheet', 'slides']) {
+      const nd = (await api(H).post('/api/v1/documents', { kind, title: 'Untouched ' + kind })).body; await p.goto(app.base + '/app/suite?doc=' + nd.id); await p.locator('#save-doc').waitFor(); p.dialogLog.length = 0;
+      await p.locator('#docs-back').click(); await p.locator('#docs-views').waitFor();
+      check(`an untouched ${kind} (never edited) is left without any "unsaved changes" question (the stored key order must not make it look edited)`, p.dialogLog.length === 0 && /\/app\/suite$/.test(p.url()), p.dialogLog.join('|'));
+    }
+    await np.ctx.close();
+  }
   // ---------------------------------------------------------------- plan limit and phone width
   const b = await main.mint(); const bw = await seedWorkspace(db.pool, b.sub, 'Basic'); const bp = await openAs(b);
   for (let i = 0; i < 5; i++) await api(b).post('/api/v1/documents', { kind: 'doc', title: 'D' + i });
