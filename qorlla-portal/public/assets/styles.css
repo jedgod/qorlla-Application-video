@@ -196,3 +196,48 @@ aside.open a{font-size:15px;text-align:left;padding:13px 15px}aside.open a span{
 .docs-ui .docs-status[data-state=saved]{background:#e3f6ea;color:#12703a}.docs-ui .docs-status[data-state=saving]{background:#e8f0fe;color:var(--d-blue-dark)}
 .docs-ui .docs-status[data-state=unsaved]{background:#fff3df;color:#8a5a00}.docs-ui .docs-status[data-state=error],.docs-ui .docs-status[data-state=conflict]{background:#fde8e8;color:#9b1c1c}
 .docs-ui #conflict-banner .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+/* ==== Docs compact standard: ONE scale for the whole module (home, library, side cards, editor); this block comes last so it wins ====
+   text 13px, secondary 12px, table header 11px, card headings 15px, controls 34px tall (30px for in-row buttons), radius 8px fields / 12px cards. */
+.docs-ui{--d-ctl:34px;--d-rf:8px;--d-rc:12px;--d-fs:13px;--d-fs-sm:12px;--d-fs-xs:11px;--d-fs-h2:15px;font-size:var(--d-fs);line-height:1.45}
+.docs-ui h1{font-size:18px}.docs-ui h2{font-size:var(--d-fs-h2)}.docs-ui h3{font-size:var(--d-fs)}
+.docs-ui input:not([type=checkbox]):not([type=radio]):not([type=file]),.docs-ui select{min-height:var(--d-ctl);padding:5px 10px;font-size:var(--d-fs)}
+.docs-ui textarea{min-height:88px;padding:8px 10px;font-size:var(--d-fs)}.docs-ui #doc-text{font-size:12.5px}
+.docs-ui label{font-size:var(--d-fs);gap:4px}
+.docs-ui button{min-height:var(--d-ctl);padding:0 12px;gap:6px;font-size:var(--d-fs)}
+.docs-ui button.compact,.docs-ui .docs-manage summary{min-height:30px;padding:0 10px;font-size:var(--d-fs-sm)}
+.docs-ui button.linkbtn{min-height:30px;padding:0 6px;font-size:var(--d-fs)}
+.docs-ui .docs-tools button,.docs-ui .doc-actions button,.docs-ui .doc-actions a.button{min-height:30px;padding:0 10px}
+.docs-ui .docs-move select{min-height:30px}.docs-ui .docs-bulk .docs-move select{min-height:30px}
+.docs-ui .panel{padding:12px 14px;margin-bottom:10px}
+.docs-ui .pill,.docs-ui .docs-status,.docs-ui .docs-share{font-size:var(--d-fs-xs)}.docs-ui .pill{padding:1px 8px}
+.docs-ui .docs-tabs ul{gap:2px;margin:0 0 10px}.docs-ui .docs-tab{padding:0 12px;font-size:var(--d-fs)}
+.docs-ui .docs-bar{gap:8px;margin-bottom:10px}.docs-ui .docs-search{gap:8px}
+.docs-ui .docs-field.docs-field-search input:not([type=checkbox]):not([type=radio]):not([type=file]){padding-left:34px}
+.docs-ui .docs-field-search .ic{left:11px}.docs-ui .docs-field-type{width:140px}
+.docs-ui #new-doc{padding:0 12px 0 10px}.docs-ui .docs-popmenu{min-width:190px;padding:6px}.docs-ui .menu-item{min-height:32px;padding:0 10px;font-size:var(--d-fs)}
+.docs-ui .docs-grid{grid-template-columns:minmax(0,1fr) 280px;gap:12px}.docs-ui .docs-aside{gap:12px}
+.docs-ui .docs-card{padding:12px 14px}.docs-ui .docs-card h2{font-size:var(--d-fs-h2)}.docs-ui .docs-card-head{margin-bottom:6px}
+.docs-ui .docs-toolbar{gap:6px 8px;margin-bottom:6px}.docs-ui .docs-tool select{min-width:130px}
+.docs-ui .docs-tool .ic{left:10px}.docs-ui .docs-tool:has(.ic) select{padding-left:32px}
+.docs-ui .docs-seg button{min-width:34px}.docs-ui .chip{min-height:28px;font-size:var(--d-fs-sm)}
+.docs-ui .docs-bulk{padding:6px 10px;margin:6px 0;border-radius:10px}
+.docs-ui .docs-tablehead,.docs-ui .docs-row{grid-template-columns:minmax(0,1fr) 54px 112px 70px;gap:8px;padding:6px 4px}
+.docs-ui .docs-tablehead{padding-top:2px;padding-bottom:6px;font-size:var(--d-fs-xs)}
+.docs-ui .docs-name{gap:8px}.docs-ui .docs-name-text h3{font-size:var(--d-fs);margin:0 0 1px}.docs-ui .docs-name-text .muted{font-size:var(--d-fs-sm)}
+.docs-ui .docs-type{width:30px;height:30px;border-radius:8px}.docs-ui .docs-avatar{width:24px;height:24px;font-size:var(--d-fs-xs)}
+.docs-ui .docs-when,.docs-ui .docs-list[data-layout=grid] .docs-when{font-size:var(--d-fs-sm)}
+.docs-ui .icon-btn,.docs-ui .doc-menu summary{min-height:30px;min-width:30px;width:30px;height:30px;border-radius:8px}
+.docs-ui .doc-menu-items{min-width:190px;padding:6px}
+.docs-ui .docs-more{margin-top:10px}.docs-ui .docs-skel{height:46px;margin:6px 0}
+.docs-ui .docs-empty{padding:24px 12px;gap:6px}.docs-ui .docs-empty .ico{width:44px;height:44px;border-radius:12px}.docs-ui .docs-empty h3{font-size:var(--d-fs-h2)}
+.docs-ui .docs-quick-grid{gap:8px;margin-top:8px}.docs-ui .docs-quick-btn{min-height:60px;gap:5px;padding:8px 6px;font-size:var(--d-fs)}
+.docs-ui .docs-ai summary{min-height:30px;gap:8px}.docs-ui .docs-ai details>p{margin:8px 0 0}.docs-ui .docs-ai details>button{margin-top:10px}
+.docs-ui .docs-ai form{gap:8px;margin-top:8px}
+.docs-ui .docs-notice{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:var(--d-fs-sm)}
+@media(max-width:1100px){.docs-ui .docs-grid{grid-template-columns:1fr}}
+@container docslib (max-width:560px){.docs-ui .docs-when,.docs-ui .docs-owner{margin-left:38px}}
+@media(max-width:700px){.docs-ui .docs-bar{gap:8px}.docs-ui .docs-search{align-items:stretch;gap:8px;flex:0 0 auto}.docs-ui .docs-field-search,.docs-ui .docs-field-type{flex:0 0 auto;width:100%}.docs-ui .docs-aside{gap:12px}}
+@media(max-width:700px){.docs-ui .docs-search{flex-wrap:nowrap}.docs-ui .docs-bar{align-items:stretch}.docs-ui .docs-field{min-height:0}}
+.docs-ui input:not([type=checkbox]):not([type=radio]):not([type=file]),.docs-ui select,.docs-ui textarea{margin:0}
+/* touch screens and phones keep comfortable 44px touch targets; the compact 34px standard is for desktop pointers */
+@media(max-width:700px),(pointer:coarse){.docs-ui{--d-ctl:44px}.docs-ui button.compact,.docs-ui .docs-manage summary,.docs-ui .docs-tools button,.docs-ui .doc-actions button,.docs-ui .doc-actions a.button,.docs-ui .docs-move select,.docs-ui .docs-bulk .docs-move select,.docs-ui button.linkbtn,.docs-ui .menu-item{min-height:40px}.docs-ui .icon-btn,.docs-ui .doc-menu summary{min-width:40px;min-height:40px;width:40px;height:40px}.docs-ui .chip{min-height:36px}.docs-ui .docs-seg button{min-width:44px}}

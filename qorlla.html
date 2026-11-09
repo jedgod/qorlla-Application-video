@@ -467,6 +467,14 @@
 
   /* ---------- Workplace views ---------- */
   .content.wide .center { padding: 28px 32px; }
+  /* Docs: one compact scale (the module's own sizes live in the portal's styles.css, .docs-ui) */
+  body[data-page=workspace] .content.wide.docs-view { padding: 14px 18px; gap: 14px; }
+  body[data-page=workspace] .content.wide.docs-view .center { padding: 14px 18px; border-radius: 14px; }
+  .content.docs-view .docs-page-head { display: flex; align-items: center; justify-content: flex-start; gap: 10px; margin-bottom: 10px; flex-wrap: nowrap; }
+  .content.docs-view .docs-page-head .dh-ic { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: #e8f0fe; color: #0866e9; }
+  .content.docs-view .docs-page-head h1 { font-size: 20px; letter-spacing: -.3px; line-height: 1.2; margin: 0; }
+  .content.docs-view .docs-page-head p { font-size: 12.5px; margin: 1px 0 0; }
+  @media (max-width: 700px) { body[data-page=workspace] .content.wide.docs-view { padding: 8px; } body[data-page=workspace] .content.wide.docs-view .center { padding: 10px; border-radius: 12px; } .content.docs-view .docs-page-head h1 { font-size: 18px; } }
   .content.wide .ai-panel, .ai-panel.hidden { display: none; }
   .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .row.between { justify-content: space-between; }
@@ -1510,6 +1518,7 @@
       else n.removeAttribute('aria-current');
     });
     $('content').classList.toggle('wide', view !== 'home');
+    $('content').classList.toggle('docs-view', view === 'docs');          // Docs uses a compact page frame (smaller padding, title and subtitle) so the library fits the space
     document.body.classList.toggle('on-home', view === 'home');          // the Workspace overview panel (and its [ |] toggles) exist on Home only
     viewEl.textContent = '';
     viewEl.scrollTop = 0;
@@ -3269,7 +3278,9 @@
   VIEWS.docs = function (arg) {
     if (!state.user) return gate('Docs', 'your documents');
     var DOC = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    viewEl.appendChild(pageHead('Qorlla Docs', 'Create, manage and collaborate on documents, sheets and slides.', []));
+    var dh = pageHead('Qorlla Docs', 'Create, manage and collaborate on documents, sheets and slides.', []); dh.classList.add('docs-page-head');
+    var dic = h('span', { class: 'dh-ic', 'aria-hidden': 'true' }); dic.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>'; dh.insertBefore(dic, dh.firstChild);
+    viewEl.appendChild(dh);
     var host = h('div', { class: 'docs-host' }); viewEl.appendChild(host);
     var want = arg && DOC.test(arg.sub || '') ? arg.sub : '', docs = null, gone = false;
     host.appendChild(h('p', { class: 'muted pad', text: 'Loading Docs…' }));                  // shown until the module's own page replaces it: never a silent blank

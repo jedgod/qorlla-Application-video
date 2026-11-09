@@ -20,7 +20,7 @@ const api = (s) => app.client(s, { origin: app.base });                         
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const problems = [];
 async function openAs(session, viewport = { width: 1280, height: 900 }) {
-  const ctx = await browser.newContext({ viewport }); await ctx.addCookies([{ name: 'qorlla_portal_session', value: session.jwt, url: app.base, httpOnly: true }, { name: 'qorlla_csrf', value: session.csrf, url: app.base }]);
+  const ctx = await browser.newContext({ viewport }); ctx.setDefaultNavigationTimeout(120000); await ctx.addCookies([{ name: 'qorlla_portal_session', value: session.jwt, url: app.base, httpOnly: true }, { name: 'qorlla_csrf', value: session.csrf, url: app.base }]);
   const page = await ctx.newPage(); page.dialogLog = []; page.dialogPlan = { accept: true, text: undefined };
   page.on('dialog', async (d) => { page.dialogLog.push(d.type() + ':' + d.message()); if (page.dialogPlan.accept) await d.accept(page.dialogPlan.text); else await d.dismiss(); });
   page.on('pageerror', (e) => problems.push('pageerror: ' + e.message));
@@ -141,7 +141,7 @@ try {
     const o = await openAs(H, { width: 1280, height: 900 }); const p = o.page; await goHome(p);
     const box = async (sel) => p.locator(sel).first().boundingBox(); const bs = [await box('#docs-views'), await box('#doc-search'), await box('#docs')]; const ys = bs.map((b) => Math.round(b.y)); const aside = await box('.docs-aside');
     check('layout: tabs, then search/filter/New, then the document library (top to bottom); creation and AI sit in a smaller column BESIDE the library at desktop width', ys.every((y, i) => i === 0 || ys[i - 1] < y) && aside.x > bs[2].x + bs[2].width - 4 && aside.width < bs[2].width, ys.join(' < ') + ' aside.x=' + aside.x);
-    check('AI: ONE collapsible AI assistance area with a single "turned off" notice, no form, no external-provider text, and a disabled "Draft with AI" button', (await p.locator('.docs-ai').count()) === 1 && (await p.locator('#docs-ai summary h2').textContent()) === 'AI assistance' && (await p.locator('#docs-ai .docs-notice').count()) === 1 && /approved private model/.test(await p.locator('#docs-ai .docs-notice').textContent()) && (await p.locator('#ai-form').count()) === 0 && (await p.locator('#docs-ai summary').click(), await p.getByRole('button', { name: 'Draft with AI' }).isDisabled()));
+    check('AI: ONE collapsible AI assistance area with a single "turned off" notice, no form, no external-provider text, and a disabled "Draft with AI" button', (await p.locator('.docs-ai').count()) === 1 && (await p.locator('#docs-ai summary h2').textContent()) === 'AI assistance' && (await p.locator('#docs-ai .docs-notice').count()) === 1 && /approved private model/.test(await p.locator('#docs-ai .docs-notice').textContent()) && (await p.locator('#ai-form').count()) === 0 && (await p.locator('#docs-ai .docs-notice').isVisible()) && (await p.getByRole('button', { name: 'Draft with AI' }).isVisible()) && (await p.getByRole('button', { name: 'Draft with AI' }).isDisabled()) && (await p.locator('#docs-ai details').getAttribute('open')) !== null);
     const ratio = await p.evaluate(() => { const lum = (r, g, b) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0); const e = document.querySelector('.hero .eyebrow'); const [r, g, b] = getComputedStyle(e).color.match(/\d+/g).map(Number); const l1 = lum(r, g, b), l2 = lum(0x0b, 0x56, 0xc9); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); });
     check('contrast: the "QORLLA WORKPLACE" line on the hero is at least 4.5:1 against the hero\'s darkest blue (was blue on blue)', ratio >= 4.5, String(ratio));
     await p.locator('#new-doc').click(); check('+ New opens a menu with four items (aria-haspopup, expanded), and Escape closes it and returns focus to the button', (await p.locator('#new-doc').getAttribute('aria-expanded')) === 'true' && (await p.locator('#new-menu [role=menuitem]').allTextContents()).map((x) => x.trim()).join() === 'Document,Sheet,Slides,Folder' && (await p.keyboard.press('Escape'), await until(async () => (await p.locator('#new-menu').isHidden()) && (await p.evaluate(() => document.activeElement?.id)) === 'new-doc')));
@@ -274,7 +274,7 @@ try {
     await p.locator('#doc-sort').selectOption('title:asc'); await until(async () => (await docsOnPage(p))[0] === 'Bulk alpha');
     await p.locator('#layout-grid').click(); check('layout: grid view shows the same documents as cards and hides the table header', (await p.locator('#docs').getAttribute('data-layout')) === 'grid' && (await p.locator('#layout-grid').getAttribute('aria-pressed')) === 'true' && (await p.locator('.docs-tablehead').isHidden()) && (await docsOnPage(p)).length === 3);
     await p.locator('#layout-list').click(); check('layout: list view restores the table header', (await p.locator('#docs').getAttribute('data-layout')) === 'list' && (await p.locator('.docs-tablehead').isVisible()));
-    check('the "Create new" card steps aside once the library has documents', await p.locator('.docs-quick').isHidden());
+    check('the "Create new" card stays visible beside the library, with Document, Sheet and Slides tiles', (await p.locator('.docs-quick').isVisible()) && (await p.locator('.docs-quick-btn').count()) === 3 && (await p.locator('.docs-quick-btn span').allTextContents()).join() === 'Document,Sheet,Slides');
     await p.locator('#docs [data-pick]').nth(0).check(); await p.locator('#docs [data-pick]').nth(1).check();
     check('selection: two rows selected show the bulk bar with the count, and the header checkbox is mixed', (await p.locator('#docs-bulk').isVisible()) && /2 selected/.test(await p.locator('#bulk-count').textContent()) && (await p.locator('#pick-all').evaluate((e) => e.indeterminate)));
     await p.locator('[data-bulk=star]').click(); check('bulk: Star stars exactly the selected documents (server confirms) and clears the selection', await until(async () => { const l = (await api(H).get('/api/v1/documents?view=starred&q=Bulk')).body.map((d) => d.title).sort(); return JSON.stringify(l) === JSON.stringify(['Bulk Bravo', 'Bulk alpha']); }) && await until(async () => await p.locator('#docs-bulk').isHidden()));
@@ -332,16 +332,18 @@ try {
     const tabbed = []; await p.locator('#doc-search [name=q]').focus(); for (let i = 0; i < 2; i++) { await p.keyboard.press('Tab'); tabbed.push(await p.evaluate(() => { const e = document.activeElement; return e && (e.id || e.getAttribute('aria-label') || e.tagName); })); }
     check('keyboard: Tab reaches the search, filter and New controls in order', tabbed[0] === 'doc-kind' && tabbed[1] === 'new-doc', tabbed.join());
     const sizes = await p.evaluate(() => ['#doc-search [name=q]', '#doc-kind', '#new-doc'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().height)));
-    check('controls are at least 44px tall', sizes.every((h) => h >= 44), sizes.join());
+    check('controls share ONE standard height on desktop (compact scale: 34px)', sizes.every((h) => h === 34), sizes.join());
     await o.ctx.close();
     for (const w of [360, 390, 768, 1280, 1440]) {
       const r = await openAs(H, { width: w, height: 900 }); const q = r.page; await goHome(q);
       const ovHome = await q.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth);
+      const ctlH = await q.evaluate(() => ['#doc-search [name=q]', '#doc-kind', '#new-doc'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().height)));
       const stacked = await q.evaluate(() => { const a = document.querySelector('.docs-aside').getBoundingClientRect(), l = document.querySelector('.docs-library').getBoundingClientRect(); return a.top >= l.bottom - 2; });
       if (SHOTS) await q.screenshot({ path: `${SHOTS}/home-${w}.png`, fullPage: true });
       await q.goto(app.base + '/app/suite?doc=' + docId); await q.locator('#doc-text').waitFor(); const ovEd = await q.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth);
       if (SHOTS) await q.screenshot({ path: `${SHOTS}/editor-${w}.png`, fullPage: true });
       check(`${w}px: Docs home and the editor do not scroll sideways, and the side column ${w >= 1100 ? 'sits beside' : 'stacks under'} the library`, ovHome <= 1 && ovEd <= 1 && (w >= 1100 ? !stacked : stacked), `home ${ovHome} editor ${ovEd} stacked ${stacked}`);
+      check(`${w}px: ${w <= 700 ? 'phone controls keep a 44px touch target' : 'controls use the compact 34px standard'}`, ctlH.every((h) => (w <= 700 ? h >= 44 : h === 34)), ctlH.join());
       await r.ctx.close();
     }
   }
