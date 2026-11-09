@@ -22,6 +22,23 @@ export const COMMENTS_FEATURE = 'documents.comments';
 /** Comments are a plan feature. The plan row in portal.entitlements is the authority (no row = not granted = refused, so a missing or unreadable entitlement fails closed);
  *  the page only mirrors it. Reading existing comments stays allowed after a downgrade; adding and resolving them does not. */
 const requireComments = async (c, ws) => { const q = await quotaFor(c, ws, COMMENTS_FEATURE); if (!q.granted) throw err(403, 'Comments are not included in your plan', 'entitlement_required', { feature: COMMENTS_FEATURE, plan: q.plan }); };
+
+export const HISTORY_FEATURE = 'documents.history_versions';
+/** The version-history window of ONE document under the workspace's CURRENT plan (recomputed on every request, so an upgrade unlocks old versions at once and a downgrade
+ *  locks them again; nothing is ever deleted). The quota is "the N most recent versions, counted back from the latest and including it"; NULL = unlimited.
+ *  A plan with NO row is not granted (quotaFor's contract) and is NOT treated as unlimited: only the current version stays open, which is always readable anyway.
+ *  `oldest` is the lowest version number the caller may open or restore; the current version is always inside the window. */
+export async function historyWindow(db, ws, currentVersion) {
+  const q = await quotaFor(db, ws, HISTORY_FEATURE);
+  const limit = q.granted ? q.quota : 0;                                            // null = unlimited, 0 = nothing beyond the current version
+  const oldest = limit === null ? 1 : Math.min(currentVersion, Math.max(1, currentVersion - limit + 1));
+  return { plan: q.plan, granted: q.granted, limit, oldest, current: currentVersion, allows: (n) => Number.isInteger(n) && n >= oldest && n <= currentVersion };
+}
+/** Server-side gate: throws 403 entitlement_required (the same shape as comments) before any historical content is read. */
+export function assertHistoryAccess(win, n) {
+  if (win.allows(n)) return;
+  throw err(403, 'This version is outside the version history your plan includes. Upgrade to open or restore older versions.', 'entitlement_required', { feature: HISTORY_FEATURE, plan: win.plan, limit: win.limit, oldest_available: win.oldest, current_version: win.current });
+}
 const slug = (t) => String(t || 'document').normalize('NFKD').replace(/[^\x20-\x7e]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'document';
 
 export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc, docMeta, audit, createDocument, assertDocumentRoom, plainText, tsTerms, limiters = {} }) {

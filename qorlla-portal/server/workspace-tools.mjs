@@ -11,7 +11,7 @@ import { UUID_RE } from './auth.mjs';
 import { PlanLimitError, quotaFor, withWorkspaceLock } from './entitlements.mjs';
 import { verifiedEvidence, extract, sha as hashOf } from './ai/citations.mjs';
 import { verifyOverviewPacket } from './ai/overview-packet.mjs';
-import { registerDocsExtension, VIEWS as DOC_VIEWS } from './docs-extension.mjs';
+import { registerDocsExtension, VIEWS as DOC_VIEWS, historyWindow, assertHistoryAccess } from './docs-extension.mjs';
 
 const isManager = (r) => r === 'owner' || r === 'admin';
 const err = (status, error, code, extra = {}) => Object.assign(new Error(error), { http: { status, body: { error, code, ...extra } } });
@@ -326,6 +326,8 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
       if (raw.deleted_at) return res.status(410).json({ error: 'This source was deleted.', code: 'source_deleted' });
       const d = await loadDoc(pool, req, ref.id); if (!d) return res.status(403).json({ error: 'You no longer have access to this source.', code: 'citation_access_revoked' });           // the right is read NOW, not when the answer was made
       if ({ doc: 'document', sheet: 'sheet', slides: 'slides' }[raw.kind] !== ref.kind) return res.status(409).json({ error: 'This source is no longer what the citation pointed to.', code: 'source_changed' });
+      const win = await historyWindow(pool, req.workspace, raw.current_version);                       // an older cited version is historical content: it obeys the same plan window
+      if (ref.ver !== raw.current_version && !win.allows(ref.ver)) return res.status(403).json({ error: 'That version is outside the version history your plan includes.', code: 'entitlement_required', feature: 'documents.history_versions', plan: win.plan, oldest_available: win.oldest, current_version: win.current });
       const v = (await pool.query('SELECT content FROM portal.document_versions WHERE document_id=$1 AND version_no=$2', [raw.id, ref.ver])).rows[0];
       if (!v) return res.status(410).json({ error: 'That version is no longer kept.', code: 'source_expired' });
       const text = ref.loc.t === 'plain' ? plainText(raw.kind, v.content).slice(ref.loc.s, ref.loc.e) : extract(ref.kind, v.content, ref.loc);
@@ -374,11 +376,16 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
   }));
   app.get('/api/v1/documents/:id/versions', member, h(async (req, res) => {
     const d = await loadDoc(pool, req, req.params.id); if (!d) return res.status(404).json({ error: 'Document not found' });
-    res.json((await pool.query('SELECT version_no, source, note, created_by, created_at FROM portal.document_versions WHERE document_id=$1 ORDER BY version_no DESC LIMIT 200', [d.id])).rows);
+    // every stored version is listed; the ones outside the plan's history window are LOCKED: only their number, source and time are shown (no content, note or author), and the server refuses to open or restore them
+    const win = await historyWindow(pool, req.workspace, d.current_version);
+    const rows = (await pool.query('SELECT version_no, source, note, created_by, created_at FROM portal.document_versions WHERE document_id=$1 ORDER BY version_no DESC LIMIT 200', [d.id])).rows;
+    res.set('Cache-Control', 'no-store').json(rows.map((r) => win.allows(r.version_no) ? { ...r, locked: false } : { version_no: r.version_no, source: r.source, note: null, created_by: null, created_at: r.created_at, locked: true }));
   }));
   app.get('/api/v1/documents/:id/versions/:n', member, h(async (req, res) => {
     const d = await loadDoc(pool, req, req.params.id); if (!d || !/^\d+$/.test(req.params.n)) return res.status(404).json({ error: 'Version not found' });
-    const v = (await pool.query('SELECT version_no, content, source, note, created_by, created_at FROM portal.document_versions WHERE document_id=$1 AND version_no=$2', [d.id, Number(req.params.n)])).rows[0];
+    const n = Number(req.params.n); if (!Number.isSafeInteger(n) || n < 1 || n > d.current_version) return res.status(404).json({ error: 'Version not found' });
+    assertHistoryAccess(await historyWindow(pool, req.workspace, d.current_version), n);              // plan window, checked before any content is read
+    const v = (await pool.query('SELECT version_no, content, source, note, created_by, created_at FROM portal.document_versions WHERE document_id=$1 AND version_no=$2', [d.id, n])).rows[0];
     v ? res.json(v) : res.status(404).json({ error: 'Version not found' });
   }));
   app.post('/api/v1/documents/:id/restore', member, lim('docsWrite'), h(async (req, res) => {
@@ -386,6 +393,8 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id, { forUpdate: true }); if (!d) throw err(404, 'Document not found');
       if (!['owner', 'editor'].includes(d.my_role)) throw err(403, 'You can view but not edit this document', 'read_only');
+      if (p.version_no > d.current_version) throw err(404, 'Version not found');
+      assertHistoryAccess(await historyWindow(c, req.workspace, d.current_version), p.version_no);     // the same window as reading: a locked version cannot be restored either
       const old = (await c.query('SELECT content FROM portal.document_versions WHERE document_id=$1 AND version_no=$2', [d.id, p.version_no])).rows[0]; if (!old) throw err(404, 'Version not found');
       const v = await saveVersion(c, req, d, old.content, { source: 'restore', note: `Restored version ${p.version_no}`, baseVersion: p.base_version }); await audit(c, req.workspace, req.actor, 'document.restored', d.id); return { id: d.id, current_version: v };
     });

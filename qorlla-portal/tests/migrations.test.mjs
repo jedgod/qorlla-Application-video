@@ -129,6 +129,23 @@ describe('PostgreSQL migration and rollback', () => {
     assert.equal((await p.query("SELECT content->>'text' t FROM portal.document_versions WHERE document_id=$1", [d])).rows[0].t, 'kept');
     await p.query(sqlFile('015_docs_extension.sql')); assert.ok((await tables(p)).includes('doc_folders'));
   });
+  test('016 (Docs history entitlement): additive and re-runnable, seeds exactly four plan rows, never alters documents or versions, never overwrites an edited value, rollback removes only its rows', async () => {
+    const db = await freshDatabase({ migrate: false }); dbs.push(db); const p = db.pool;
+    for (const f of ['002_billing.sql', '004_meeting_ai.sql', '005_phone.sql', '006_workspace_tools.sql', '015_docs_extension.sql']) await p.query(sqlFile(f));
+    const ws = (await p.query("INSERT INTO portal.workspaces(name) VALUES('A') RETURNING id")).rows[0].id; const u = crypto.randomUUID();
+    const ids = []; for (let i = 0; i < 18; i++) { ids.push((await p.query("INSERT INTO portal.documents(workspace_id,owner_id,kind,title,current_version) VALUES($1,$2,'doc',$3,3) RETURNING id", [ws, u, 'Existing ' + i])).rows[0].id); for (let v = 1; v <= 3; v++) await p.query("INSERT INTO portal.document_versions(document_id,version_no,content,created_by) VALUES($1,$2,$3,$4)", [ids[i], v, JSON.stringify({ format: 'markdown', text: `doc ${i} v${v}` }), u]); }
+    const fingerprint = async () => ({ docs: (await p.query("SELECT md5(string_agg(d::text, '|' ORDER BY id)) h, count(*) n FROM portal.documents d")).rows[0], vers: (await p.query("SELECT md5(string_agg(v::text, '|' ORDER BY document_id, version_no)) h, count(*) n FROM portal.document_versions v")).rows[0], cols: await cols(p, 'documents'), tables: await tables(p) });
+    const before = await fingerprint(); const others = (await p.query("SELECT count(*) FROM portal.entitlements WHERE feature<>'documents.history_versions'")).rows[0].count;
+    await p.query(sqlFile('016_docs_history_entitlement.sql')); await p.query(sqlFile('016_docs_history_entitlement.sql'));
+    assert.deepEqual(await fingerprint(), before, 'the 18 existing documents, all their versions, the documents columns and every table are byte-identical');
+    assert.deepEqual((await p.query("SELECT plan_slug, quota FROM portal.entitlements WHERE feature='documents.history_versions' ORDER BY plan_slug")).rows.map((r) => [r.plan_slug, r.quota]), [['basic', 10], ['business', 500], ['enterprise', null], ['pro', 100]], 're-running adds no duplicates');
+    await p.query("UPDATE portal.entitlements SET quota=25 WHERE plan_slug='basic' AND feature='documents.history_versions'"); await p.query(sqlFile('016_docs_history_entitlement.sql'));
+    assert.equal((await p.query("SELECT quota FROM portal.entitlements WHERE plan_slug='basic' AND feature='documents.history_versions'")).rows[0].quota, 25, 'a value an operator changed is never overwritten by a re-run');
+    await p.query(sqlFile('rollback', '016_docs_history_entitlement.down.sql')); await p.query(sqlFile('rollback', '016_docs_history_entitlement.down.sql'));
+    assert.equal(Number((await p.query("SELECT count(*) FROM portal.entitlements WHERE feature='documents.history_versions'")).rows[0].count), 0);
+    assert.equal((await p.query("SELECT count(*) FROM portal.entitlements WHERE feature<>'documents.history_versions'")).rows[0].count, others, 'no other entitlement is touched');
+    assert.deepEqual(await fingerprint(), before, 'rollback leaves every document and version untouched');
+  });
   test('007 (billing launch): re-runnable; constraints hold; legacy sales statuses survive; rollback restores the 006 schema and keeps invoices and refunds', async () => {
     const db = await freshDatabase({ migrate: false }); dbs.push(db); const p = db.pool;
     for (const f of ['002_billing.sql', '004_meeting_ai.sql', '005_phone.sql', '006_workspace_tools.sql']) await p.query(sqlFile(f));

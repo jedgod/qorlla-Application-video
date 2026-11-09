@@ -345,6 +345,21 @@ try {
       await r.ctx.close();
     }
   }
+  // ---- version history window (migration 016): older versions are listed as LOCKED, with no Restore button, and an upgrade unlocks them ----
+  {
+    const setPlan = (plan) => db.pool.query(`UPDATE portal.subscriptions SET plan_slug=$2,status='active',current_period_end=now()+interval '20 days' WHERE workspace_id=$1`, [W, plan]);
+    await setPlan('pro'); const hd = (await api(H).post('/api/v1/documents', { kind: 'doc', title: 'History window', content: { format: 'markdown', text: 'HV1 first words' } })).body;
+    for (let v = 2; v <= 14; v++) await api(H).put('/api/v1/documents/' + hd.id, { base_version: v - 1, content: { format: 'markdown', text: 'HV' + v + ' words' } });
+    await setPlan('basic');                                                              // 14 versions on the Basic window (10): v1-v4 are locked
+    const hp = await openAs(H); await hp.page.goto(app.base + '/app/suite?doc=' + hd.id); await hp.page.locator('#doc-side').waitFor();
+    check('history window: the editor lists all 14 versions, the 4 oldest as locked with an upgrade note', await until(async () => (await hp.page.locator('#doc-side tr[data-v]').count()) === 14 && (await hp.page.locator('#doc-side [data-locked]').count()) === 4 && /Upgrade your plan/.test(await hp.page.locator('#history-locked-note').textContent())));
+    const lockedRows = await hp.page.locator('#doc-side tr[data-v]:has([data-locked])').evaluateAll((rows) => rows.map((r) => [r.dataset.v, !!r.querySelector('[data-act=restore]')]));
+    check('history window: locked rows are v1-v4 and none has a Restore button; v5-v13 do, the current v14 does not', JSON.stringify(lockedRows.map((r) => r[0]).sort((a, b) => a - b)) === '["1","2","3","4"]' && lockedRows.every((r) => !r[1]) && (await hp.page.locator('#doc-side [data-act=restore]').count()) === 9);
+    const locked = await api(H).get(`/api/v1/documents/${hd.id}/versions/1`); check('history window: the server refuses a locked version even though the page hides it (403, no content)', locked.status === 403 && !/HV1 first/.test(JSON.stringify(locked.body)), JSON.stringify(locked));
+    await setPlan('pro'); await hp.page.reload(); await hp.page.locator('#doc-side').waitFor();
+    check('history window: after an upgrade nothing is locked and every older version can be restored', await until(async () => (await hp.page.locator('#doc-side tr[data-v]').count()) === 14 && (await hp.page.locator('#doc-side [data-locked]').count()) === 0 && (await hp.page.locator('#doc-side [data-act=restore]').count()) === 13));
+    await hp.ctx.close();
+  }
 } catch (e) { check('the run finished without an unexpected exception', false, e.stack || e.message); }
 finally { await browser.close(); await app.close(); await main.close(); await db.drop(); }
 const pass = results.filter(Boolean).length; console.log(`\nDOCS UI: ${pass} passed, ${results.length - pass} failed, ${results.length} total`); process.exit(pass === results.length ? 0 : 2);
