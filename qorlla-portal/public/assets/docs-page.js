@@ -2,8 +2,16 @@
 // sharing, comments, export) and the existing sheet / slides editors. Mounted by app.js at /app/suite through workspace.js.
 // Wired to the portal API (/api/v1/documents, /api/v1/document-folders). All text is escaped before it reaches the page; the markdown preview
 // escapes first and only then adds a fixed set of tags, so nothing a person types can run as script. AI output is shown as plain text only.
-import { $, esc, api, apiPaged, notice, describe, panel } from './core.js';
+import { esc, api, apiPaged, notice, describe, panel } from './core.js';
 import { mountAiPanel } from './ai-panel.js';
+
+// Where the page is mounted decides how it is addressed and where it looks things up: the standalone portal page (/app/suite) or the Workspace's Docs view (#docs).
+let scope = document;                                                    // every lookup is inside the mounted root, never the whole page
+const $ = (s) => scope.querySelector(s);
+let ctx = { embedded: false, urls: { home: () => '/app/suite', doc: (id) => '/app/suite?doc=' + id } };
+const offs = [];                                                         // document-level listeners, removed when the Workspace leaves Docs
+const listen = (target, type, fn) => { target.addEventListener(type, fn); offs.push(() => target.removeEventListener(type, fn)); };
+const DOC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const say = (e) => (e.body?.code === 'entitlement_required' ? 'That is not included in your plan.' : describe(e));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
@@ -51,10 +59,27 @@ const readSlides = (area) => ({ slides: [...area.querySelectorAll('[data-slide]'
 const store = { get(k, d) { try { return sessionStorage.getItem('qdocs.' + k) ?? d; } catch { return d; } }, set(k, v) { try { sessionStorage.setItem('qdocs.' + k, v); } catch { /* private mode: the page works without it */ } } };
 
 export async function renderSuite(root) {
+  scope = root; ctx = { embedded: false, urls: { home: () => '/app/suite', doc: (id) => '/app/suite?doc=' + id } };
   root.closest('main')?.classList.add('docs-page');       // lets the page's wide tables scroll inside themselves on phones; scoped here so no other portal page's layout changes
   const params = new URLSearchParams(location.search);
   if (params.get('doc')) return renderEditor(root, params.get('doc'));
   return renderHome(root);
+}
+
+/** The Workspace's Docs view: this same page, inside the Workspace shell (its sidebar, header, address and breadcrumb trail), in its own shadow root so the portal's stylesheet and
+ *  the Workspace's cannot affect each other. It talks to the portal API on this same origin with the person's own session. Returns { open(id), destroy() }: open('') shows the
+ *  home, open(id) a document; the Workspace calls open on every #docs/<id> change and destroy() when you leave Docs. */
+export async function mountDocsWorkspace(host, { docId = '' } = {}) {
+  const shadow = host.shadowRoot || host.attachShadow({ mode: 'open' });
+  shadow.innerHTML = '<link rel="stylesheet" href="/app/assets/styles.css"><style>:host{display:block;font:14px/1.5 Inter,ui-sans-serif,system-ui,Arial,sans-serif;color:#16253d}.docs-embed{min-width:0}</style><div class="docs-embed"></div>';
+  await new Promise((done) => { const l = shadow.querySelector('link'); const t = setTimeout(done, 4000); const fin = () => { clearTimeout(t); done(); }; if (l.sheet) fin(); else { l.addEventListener('load', fin, { once: true }); l.addEventListener('error', fin, { once: true }); } });
+  const root = shadow.querySelector('.docs-embed'); offs.splice(0).forEach((f) => f());
+  scope = root; ctx = { embedded: true, urls: { home: () => '#docs', doc: (id) => '#docs/' + id } };
+  // The Workspace closes the current page on Escape. Inside Docs, Escape belongs to the field or menu you are in, so it must never throw away an open document.
+  root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && (root.querySelector('.doc-menu[open]') || /^(INPUT|TEXTAREA|SELECT)$/.test(((e.composedPath && e.composedPath()[0]) || e.target).tagName || ''))) e.stopPropagation(); });
+  const open = (id) => (DOC_ID.test(id || '') ? renderEditor(root, id) : renderHome(root));
+  await open(docId);
+  return { open, destroy() { offs.splice(0).forEach((f) => f()); root.innerHTML = ''; } };
 }
 
 // ================================================================== home
@@ -90,7 +115,7 @@ async function renderHome(root) {
   const host = $('#draft-ai-host');
   await mountAiPanel(host, { id: 'draft-ai', embedded: true, mode: 'task', tasks: [{ task: 'docs_draft', label: 'Draft a new document', needs: ['text'] }], input: () => ({}), current: () => '',
     newTitle: () => (host.querySelector('[data-ai-text]').value.trim().slice(0, 60) || 'AI draft'), confirmText: () => 'It will be created as a new private document, labelled as AI-assisted.',
-    onApplied: (out) => { location.href = `/app/suite?doc=${out.id}`; } });
+    onApplied: (out) => { location.href = ctx.urls.doc(out.id); } });
 
   let folders = []; let docs = []; let cursor = null; let seq = 0;
   const folderName = (id) => folders.find((f) => f.id === id)?.name;
@@ -105,7 +130,7 @@ async function renderHome(root) {
   };
   const row = (d) => {
     const trash = st.view === 'trash' && !st.folder; const owner = d.my_role === 'owner';
-    const title = trash ? esc(d.title) : `<a class="doc-link" href="/app/suite?doc=${esc(d.id)}">${esc(d.title)}</a>`;
+    const title = trash ? esc(d.title) : `<a class="doc-link" href="${esc(ctx.urls.doc(d.id))}">${esc(d.title)}</a>`;
     return `<article class="card doc-card doc-row" data-doc="${esc(d.id)}"><span class="doc-ico" aria-hidden="true">${KIND[d.kind][0]}</span>
       <div class="doc-main"><h3>${title}${d.template ? ' <span class="pill">template</span>' : ''}</h3><span class="muted">${KIND[d.kind][1]} · ${place(d)} · ${trash ? 'Deleted ' : 'Edited '}${esc(ago(trash ? d.deleted_at : d.updated_at))} · v${esc(d.current_version)}</span></div>
       ${trash ? (owner ? '<button class="secondary" data-act="restore">Restore</button>' : '') : `<button type="button" class="icon-btn" data-act="star" aria-pressed="${d.starred}" aria-label="${d.starred ? 'Remove star from' : 'Star'} ${esc(d.title)}">${d.starred ? '★' : '☆'}</button>
@@ -157,9 +182,9 @@ async function renderHome(root) {
   $('#docs-more').addEventListener('click', (e) => { e.currentTarget.disabled = true; load(true); });
   $('#docs-viewall').addEventListener('click', () => go({ view: 'recent' }));
   $('#doc-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button'); btn.disabled = true;
-    try { const d = await api('/documents', { method: 'POST', body: JSON.stringify({ kind: f.kind, title: f.title, idempotency_key: uid() }) }); location.href = `/app/suite?doc=${d.id}`; } catch (err) { notice(err.status === 429 ? 'You are creating documents too quickly. Try again in a minute.' : say(err)); btn.disabled = false; } };
+    try { const d = await api('/documents', { method: 'POST', body: JSON.stringify({ kind: f.kind, title: f.title, idempotency_key: uid() }) }); location.href = ctx.urls.doc(d.id); } catch (err) { notice(err.status === 429 ? 'You are creating documents too quickly. Try again in a minute.' : say(err)); btn.disabled = false; } };
   $('#ai-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button'); btn.disabled = true; notice('Drafting…');
-    try { const d = await api('/documents/ai-draft', { method: 'POST', body: JSON.stringify({ kind: f.kind, prompt: f.prompt, idempotency_key: uid() }) }); location.href = `/app/suite?doc=${d.id}`; } catch (err) { notice(err.body?.code === 'no_ai_provider' ? 'AI assistance is not available until an approved private model is connected.' : [502, 503].includes(err.status) ? 'The AI service is unavailable right now. Nothing was saved or charged.' : describe(err)); btn.disabled = false; } };
+    try { const d = await api('/documents/ai-draft', { method: 'POST', body: JSON.stringify({ kind: f.kind, prompt: f.prompt, idempotency_key: uid() }) }); location.href = ctx.urls.doc(d.id); } catch (err) { notice(err.body?.code === 'no_ai_provider' ? 'AI assistance is not available until an approved private model is connected.' : [502, 503].includes(err.status) ? 'The AI service is unavailable right now. Nothing was saved or charged.' : describe(err)); btn.disabled = false; } };
   $('#docs').addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-act]'); if (!b) return; const id = b.closest('[data-doc]').dataset.doc; const d = docs.find((x) => x.id === id); b.disabled = true; b.closest('details')?.removeAttribute('open');
     try {
@@ -174,7 +199,7 @@ async function renderHome(root) {
     const s = e.target.closest('select[data-act=move]'); if (!s) return; const id = s.closest('[data-doc]').dataset.doc;
     try { await api(`/documents/${id}/move`, { method: 'POST', body: JSON.stringify({ folder_id: s.value || null }) }); notice('Moved.'); await load(); } catch (err) { notice(say(err)); await load(); }
   });
-  document.addEventListener('click', (e) => { document.querySelectorAll('.doc-menu[open]').forEach((m) => { if (!m.contains(e.target)) m.removeAttribute('open'); }); });        // a row menu closes when you click elsewhere
+  listen(document, 'click', (e) => { const from = (e.composedPath && e.composedPath()[0]) || e.target; scope.querySelectorAll('.doc-menu[open]').forEach((m) => { if (!m.contains(from)) m.removeAttribute('open'); }); });        // a row menu closes when you click elsewhere
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { const m = root.querySelector('.doc-menu[open]'); if (m) { m.removeAttribute('open'); m.querySelector('summary').focus(); } } });
   await load();
 }
@@ -197,11 +222,11 @@ const TOOLS = [['bold', 'B', 'Bold', (t) => wrapSel(t, '**')], ['italic', 'I', '
   ['numbers', '1. List', 'Numbered list', (t) => prefixLines(t, '1. ')], ['quote', '❝', 'Quote', (t) => prefixLines(t, '> ')], ['code', '</>', 'Code', (t) => wrapSel(t, '`')]];
 
 async function renderEditor(root, id) {
-  let d; try { d = await api(`/documents/${id}`); } catch (e) { root.innerHTML = `<div class="empty">${e.status === 404 ? 'Document not found, or you do not have access. If you deleted it, you can restore it from the Trash view.' : esc(describe(e))}</div><p><a class="link" href="/app/suite">← Back to documents</a></p>`; return; }
+  let d; try { d = await api(`/documents/${id}`); } catch (e) { root.innerHTML = `<div class="empty">${e.status === 404 ? 'Document not found, or you do not have access. If you deleted it, you can restore it from the Trash view.' : esc(describe(e))}</div><p><a class="link" href="${esc(ctx.urls.home())}">← Back to documents</a></p>`; return; }
   const [meta, me, folders] = await Promise.all([api(`/documents/${id}/meta`).catch(() => ({ starred: false, template: false, folder_id: null, open_comments: 0 })), api('/me').catch(() => ({})), api('/document-folders').catch(() => [])]);
   const canEdit = ['owner', 'editor'].includes(d.my_role); const owner = d.my_role === 'owner'; let content = d.content; let version = d.current_version; let saved = JSON.stringify(d.content); let starred = meta.starred;
   const isDoc = d.kind === 'doc';
-  root.innerHTML = `<p><a class="link" id="docs-back" href="/app/suite">← All documents</a></p>` + (d.version_source === 'ai' ? '<p class="warn" role="note">This version was drafted by AI. Review it before relying on it.</p>' : '') +
+  root.innerHTML = `<p><a class="link" id="docs-back" href="${esc(ctx.urls.home())}">← All documents</a></p>` + (d.version_source === 'ai' ? '<p class="warn" role="note">This version was drafted by AI. Review it before relying on it.</p>' : '') +
     panel(`${KIND[d.kind][0]} ${esc(d.title)}`, `<p class="muted">${KIND[d.kind][1]} · you are ${esc(d.my_role)} · <span id="doc-version">version ${esc(version)}</span> · <span id="doc-status" role="status">${canEdit ? 'Saved' : 'Read only'}</span></p>
       <div class="row doc-actions"><button type="button" class="secondary" id="doc-star" aria-pressed="${starred}">${starred ? '★ Starred' : '☆ Star'}</button><button type="button" class="secondary" id="doc-dup">Duplicate</button>
         <button type="button" class="secondary" data-export="txt">Export .txt</button>${isDoc ? '<button type="button" class="secondary" data-export="md">Export .md</button>' : ''}
@@ -279,9 +304,9 @@ async function renderEditor(root, id) {
     try { await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ title }) }); d.title = title; notice('Renamed.'); } catch (err) { e.target.value = d.title; notice(say(err)); }
   });
   $('#doc-star').addEventListener('click', async (e) => { const btn = e.currentTarget; /* captured before the await: the browser clears currentTarget once the handler yields */ try { starred = !starred; await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ starred }) }); btn.setAttribute('aria-pressed', String(starred)); btn.textContent = starred ? '★ Starred' : '☆ Star'; } catch (err) { starred = !starred; notice(say(err)); } });
-  $('#doc-dup').addEventListener('click', async (e) => { const btn = e.currentTarget; /* captured before the await: the browser clears currentTarget once the handler yields */ btn.disabled = true; try { const c = await api(`/documents/${id}/duplicate`, { method: 'POST', body: '{}' }); location.href = `/app/suite?doc=${c.id}`; } catch (err) { notice(say(err)); btn.disabled = false; } });
+  $('#doc-dup').addEventListener('click', async (e) => { const btn = e.currentTarget; /* captured before the await: the browser clears currentTarget once the handler yields */ btn.disabled = true; try { const c = await api(`/documents/${id}/duplicate`, { method: 'POST', body: '{}' }); location.href = ctx.urls.doc(c.id); } catch (err) { notice(say(err)); btn.disabled = false; } });
   $('#doc-folder')?.addEventListener('change', async (e) => { try { await api(`/documents/${id}/move`, { method: 'POST', body: JSON.stringify({ folder_id: e.target.value || null }) }); notice('Moved.'); } catch (err) { notice(say(err)); } });
-  $('#del-doc')?.addEventListener('click', async () => { if (!confirm('Move this document to the trash? You can restore it from the Trash view.')) return; try { await api(`/documents/${id}`, { method: 'DELETE' }); location.href = '/app/suite'; } catch (err) { notice(say(err)); } });
+  $('#del-doc')?.addEventListener('click', async () => { if (!confirm('Move this document to the trash? You can restore it from the Trash view.')) return; try { await api(`/documents/${id}`, { method: 'DELETE' }); location.href = ctx.urls.home(); } catch (err) { notice(say(err)); } });
 
   const side = async () => {
     const box = $('#doc-side'); const [versions, comments, members, ent] = await Promise.all([api(`/documents/${id}/versions`), api(`/documents/${id}/comments`).catch(() => []), api('/members').catch(() => []), api('/entitlements').catch(() => null)]);
@@ -305,7 +330,7 @@ async function renderEditor(root, id) {
     $('#comment-form')?.addEventListener('submit', async (e) => { e.preventDefault(); const body = new FormData(e.target).get('body').trim(); if (!body) return;
       try { await api(`/documents/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }); notice('Comment added.'); await side(); } catch (err) { notice(say(err)); } });
     box.querySelectorAll('[data-act=resolve-comment]').forEach((b) => b.addEventListener('click', async () => { try { await api(`/documents/${id}/comments/${b.closest('[data-comment]').dataset.comment}/resolve`, { method: 'POST', body: '{}' }); await side(); } catch (err) { notice(say(err)); } }));
-    box.querySelectorAll('[data-act=restore]').forEach((b) => b.addEventListener('click', async () => { try { await api(`/documents/${id}/restore`, { method: 'POST', body: JSON.stringify({ version_no: Number(b.closest('tr').dataset.v), base_version: version }) }); location.reload(); } catch (err) { notice(err.body?.code === 'version_conflict' ? 'The document changed meanwhile. Reload and try again.' : describe(err)); } }));
+    box.querySelectorAll('[data-act=restore]').forEach((b) => b.addEventListener('click', async () => { try { await api(`/documents/${id}/restore`, { method: 'POST', body: JSON.stringify({ version_no: Number(b.closest('tr').dataset.v), base_version: version }) }); await renderEditor(root, id); } catch (err) { notice(err.body?.code === 'version_conflict' ? 'The document changed meanwhile. Reload and try again.' : describe(err)); } }));
   };
   await side();
   // Qorlla AI works from the last SAVED version, previews first, and applies only after confirmation (the server re-checks permission and version).

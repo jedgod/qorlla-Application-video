@@ -15,6 +15,7 @@ test.describe('breadcrumb trail: route -> labels (pure, no browser)', () => {
       [{ view: 'phone', sub: 'call-settings' }, 'Workspace / Phone / Call Settings'], [{ view: 'phone', sub: 'call-settings', section: 'calling' }, 'Workspace / Phone / Call Settings'],
       [{ view: 'phone', sub: 'call-settings', section: 'privacy-security' }, 'Workspace / Phone / Call Settings / Privacy & Security'], [{ view: 'phone', sub: 'call-settings', section: 'admin-controls' }, 'Workspace / Phone / Call Settings / Admin Controls'],
       [{ view: 'mail' }, 'Workspace / Mail'], [{ view: 'calendar' }, 'Workspace / Calendar'], [{ view: 'schedule' }, 'Workspace / Schedule'], [{ view: 'whiteboard' }, 'Workspace / Whiteboards'], [{ view: 'notes' }, 'Workspace / Notes'], [{ view: 'history' }, 'Workspace / History'], [{ view: 'settings' }, 'Workspace / Settings'],
+      [{ view: 'docs' }, 'Workspace / Docs'], [{ view: 'docs', sub: '3f2b8c1e-5d4a-4b6e-8f01-2a3b4c5d6e7f' }, 'Workspace / Docs / Document'], [{ view: 'docs', sub: 'not-a-document-id' }, 'Workspace / Docs'],
       [{ view: 'phone', sub: 'bogus' }, 'Workspace / Phone'], [{ view: 'phone', sub: 'call-settings', section: 'nope' }, 'Workspace / Phone / Call Settings'], [{ view: 'mail', sub: 'dial-pad' }, 'Workspace / Mail'], [{ view: 'nonsense' }, 'Home'], [undefined, 'Home']];
     for (const [route, want] of rows) expect(labels(Crumbs.forRoute(route)), JSON.stringify(route)).toBe(want);
   });

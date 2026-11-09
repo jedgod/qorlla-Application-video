@@ -45,9 +45,10 @@ const sandboxDisabled = (argv) => (argv || []).some((a) => SANDBOX_OFF.test(Stri
 // ---- Docs export (native Save As): who may ask and what they may ask for -------------------------------------------------------------------------------------------
 const EXPORT_MAX_BYTES = 2 * 1024 * 1024;                           // a document is at most 200 000 characters; this is a hard ceiling
 const EXPORT_TYPES = Object.freeze({ md: 'Markdown', txt: 'Text' });
-/** Only the main frame's page /app/suite (or /app/suite/) on the APP origin may use the export bridge: not Qorlla Meet, not another Workspace page, not a look-alike path. */
+/** Only the main frame of the Workspace (/ or /qorlla.html, where Docs is a view) or the standalone Docs page (/app/suite) on the APP origin may use the export bridge: not Qorlla Meet,
+ *  not another portal page, not a look-alike path. */
 function exportSenderAllowed(senderUrl, origins, opts = {}) {
-  try { const u = new URL(senderUrl); const app = asList(origins)[0]; return u.origin === app && navigationAllowed(senderUrl, app, opts) && /^\/app\/suite\/?$/.test(u.pathname); } catch { return false; }
+  try { const u = new URL(senderUrl); const app = asList(origins)[0]; return u.origin === app && navigationAllowed(senderUrl, app, opts) && /^\/(?:app\/suite\/?|qorlla\.html)?$/.test(u.pathname); } catch { return false; }
 }
 /** A safe file name ending .md or .txt (case-insensitive): directories, control characters, Windows-reserved characters and device names are removed. null = unsupported type. */
 function safeExportName(raw) {

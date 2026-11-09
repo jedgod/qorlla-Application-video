@@ -4,7 +4,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const money = (cents, cur = 'usd') => new Intl.NumberFormat(undefined, { style: 'currency', currency: cur.toUpperCase() }).format(cents / 100);
 const day = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '-');
 const cookie = (n) => decodeURIComponent((document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]+)')) || [])[1] || '');
-const notice = (t) => { $('#notice').textContent = t || ''; };
+const notice = (t) => { const el = $('#notice'); if (el) el.textContent = t || ''; else window.dispatchEvent(new CustomEvent('qorlla:notice', { detail: t || '' })); };   // the Workspace shows it as a toast
 
 class ApiError extends Error { constructor(status, body) { super(body?.error || 'Request failed'); this.status = status; this.body = body || {}; } }
 

@@ -2,7 +2,7 @@
 // Native "Save As" for Qorlla Docs exports. This is the ONLY place in the desktop shell that writes a file, and it only ever writes ONE file, chosen by the person in the
 // operating system's Save dialog, with content the Docs page just fetched with the person's own session (sign-in, document rights and plan limits were enforced by the
 // server before the text reached the page). General download protection (main.cjs "will-download") stays on for everything else.
-//   - who may ask:  the main frame of /app/suite on the app origin, nothing else (security.exportSenderAllowed)
+//   - who may ask:  the main frame of the Workspace (where Docs is a view) or of /app/suite on the app origin, nothing else (security.exportSenderAllowed)
 //   - what:         a filename ending .md or .txt and text up to 2 MB (security.validateExport); the final path is forced to .md/.txt as well
 //   - where:        wherever the person chooses in the Save dialog; the page never learns the path
 const { app, BrowserWindow, dialog } = require('electron');

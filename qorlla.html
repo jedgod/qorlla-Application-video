@@ -704,7 +704,7 @@
   body.signed-out .center { padding: 0; background: transparent; box-shadow: none; overflow: hidden; }
   body.signed-out .login-embed { height: calc(100vh - 76px); min-height: 0; }
   body.signed-out .sidebar { display: flex; flex-direction: column; }
-  body.signed-out .nav-item[data-view=home] { order: 1; } body.signed-out .nav-item[data-act=chat] { order: 2; } body.signed-out .nav-item[data-view=phone] { order: 3; } body.signed-out .nav-item[data-href='/app/suite'] { order: 4; } body.signed-out .nav-item[data-view=whiteboard] { order: 5; } body.signed-out .nav-item[data-href='/clips/'] { order: 6; }   /* the Clips tab: keyed to its link, which is /clips/ now */
+  body.signed-out .nav-item[data-view=home] { order: 1; } body.signed-out .nav-item[data-act=chat] { order: 2; } body.signed-out .nav-item[data-view=phone] { order: 3; } body.signed-out .nav-item[data-view=docs] { order: 4; } body.signed-out .nav-item[data-view=whiteboard] { order: 5; } body.signed-out .nav-item[data-href='/clips/'] { order: 6; }   /* the Clips tab: keyed to its link, which is /clips/ now */
   body.signed-out .spacer { order: 7; flex: 1; } body.signed-out .nav-item[data-view=more] { order: 8; } body.signed-out .nav-item[data-view=settings] { order: 9; }
   .login-embed { width:100%; height:calc(100vh - 170px); min-height:560px; border:0; border-radius:16px; background:#fff; display:block; }
 
@@ -746,7 +746,7 @@
       <svg class="i" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"/></svg>
       <span data-i18n="Phone">Phone</span>
     </div>
-    <div class="nav-item" data-href="/app/suite" role="link" tabindex="0">
+    <div class="nav-item" data-view="docs" role="button" tabindex="0">
       <svg class="i" viewBox="0 0 24 24"><path d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5M8 13h8M8 17h5"/></svg>
       <span data-i18n="Docs">Docs</span>
     </div>
@@ -1474,6 +1474,7 @@
   function parseHash(h) { var p = String(h || '').replace(/^#/, '').split('/'); return { view: p[0] || '', sub: p[1] || '', section: p[2] || '' }; }
   /** Unknown sections are dropped (never invented into a trail), and a section only exists under the page that has it. */
   function cleanRoute(view, sub, section) {
+    if (view === 'docs' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sub)) return { sub: sub.toLowerCase(), section: '' };      // #docs/<document id>
     var ok = (KNOWN_SUBS[view] || []).indexOf(sub) >= 0; if (!ok) return { sub: '', section: '' };
     if (!(view === 'phone' && sub === 'call-settings' && SETTINGS_SECTION_ID[section] && section !== 'calling')) section = '';
     return { sub: sub, section: section };
@@ -3263,6 +3264,22 @@
     state.applyRoute = applyRoute; if (arg && arg.sub) applyRoute(arg.sub, arg.section);
   };
 
+  // ---------- Docs: documents, sheets and slides as a normal Workspace page (same sidebar, header, address and trail as Mail or Notes). The page is the portal's Docs module, mounted in a
+  // shadow root so its stylesheet and this one cannot touch each other; it talks to the portal API on this same origin with the person's own session. #docs = home, #docs/<id> = a document.
+  VIEWS.docs = function (arg) {
+    if (!state.user) return gate('Docs', 'your documents');
+    var DOC = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    viewEl.appendChild(pageHead('Docs', 'Documents, sheets and slides', []));
+    var host = h('div', { class: 'docs-host' }); viewEl.appendChild(host);
+    return import('/app/assets/docs-page.js').then(function (m) {
+      return m.mountDocsWorkspace(host, { docId: arg && DOC.test(arg.sub || '') ? arg.sub : '' });
+    }).then(function (docs) {
+      if (state.view !== 'docs') { docs.destroy(); return; }                        // the person already moved on while the module was loading
+      state.applyRoute = function (sub) { docs.open(DOC.test(sub || '') ? sub : ''); };
+      cleanup = function () { state.applyRoute = null; docs.destroy(); };
+    });
+  };
+
   VIEWS.notes = function (opts) {
     if (!state.user) return gate('My Notes', 'your notes');
     return api('/notes').then(function (notes) {
@@ -4448,7 +4465,7 @@
       if (t.dataset.act) act(t.dataset.act); else if (t.dataset.href) location.href = t.dataset.href; else show(t.dataset.view, t.dataset.view === 'schedule' ? { open: true } : undefined);
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') { e.preventDefault(); $('searchInput').focus(); }
-    var tag = (e.target && e.target.tagName) || '';
+    var src = (e.composedPath && e.composedPath()[0]) || e.target, tag = (src && src.tagName) || '';          // the real target, also inside the Docs module's shadow root
     if (e.key === '?' && !/INPUT|TEXTAREA|SELECT/.test(tag) && !document.querySelector('dialog[open]')) { e.preventDefault(); showShortcuts(); }
   });
   function act(name) {
@@ -4547,6 +4564,7 @@
   }
 
   window.addEventListener('beforeunload', function () { if (cleanup) { try { cleanup(); } catch (e) {} } });
+  window.addEventListener('qorlla:notice', function (e) { if (e.detail) toast(String(e.detail)); });      // messages from the Docs module (it has no #notice of its own here)
   window.addEventListener('hashchange', function () {                         // links, typed addresses, browser Back/Forward
     var r = parseHash(location.hash); if (!r.view || !VIEWS[r.view]) return;
     if (r.view !== state.view) { show(r.view, { sub: r.sub, section: r.section }); return; }

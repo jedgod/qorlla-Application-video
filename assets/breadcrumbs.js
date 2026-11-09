@@ -12,7 +12,7 @@
   var HOME = { label: 'Home' }, WORKSPACE = { label: 'Workspace', href: '#home' };
 
   // In-app views (the keys of VIEWS in qorlla.html) and their labels.
-  var VIEW_LABELS = { mail: 'Mail', whiteboard: 'Whiteboards', calendar: 'Calendar', schedule: 'Schedule', history: 'History', phone: 'Phone', notes: 'Notes', search: 'Search', more: 'More', settings: 'Settings' };
+  var VIEW_LABELS = { docs: 'Docs', mail: 'Mail', whiteboard: 'Whiteboards', calendar: 'Calendar', schedule: 'Schedule', history: 'History', phone: 'Phone', notes: 'Notes', search: 'Search', more: 'More', settings: 'Settings' };
   // Sections inside a view. slug (in the URL) -> label. The phone page is the only one with its own sections today.
   var PHONE_SUBS = { 'dial-pad': 'Dial Pad', 'join-meeting': 'Join Meeting', 'recent-calls': 'Recent Calls', contacts: 'Contacts', 'numbers-plans': 'Numbers & Plans', 'call-settings': 'Call Settings', help: 'Help' };
   var CALL_SETTINGS_SECTIONS = { calling: 'Calling & Caller ID', audio: 'Audio & Devices', 'meeting-dial-in': 'Meeting Dial-in', 'privacy-security': 'Privacy & Security', notifications: 'Notifications', 'call-history': 'Call History', 'plans-billing': 'Plans & Billing', 'admin-controls': 'Admin Controls' };
@@ -41,6 +41,7 @@
     if (view === 'home') return [HOME];
     var label = VIEW_LABELS[view]; if (!label) return [HOME];
     var items = [WORKSPACE], base = '#' + view;
+    if (view === 'docs' && sub && looksLikeId(sub)) { items.push({ label: label, href: base }); items.push({ label: 'Document' }); return items; }      // #docs/<id>: the id itself is never shown
     var subs = SUBS[view], subLabel = subs && Object.prototype.hasOwnProperty.call(subs, sub) ? subs[sub] : null;
     if (!subLabel) { items.push({ label: label }); return items; }
     items.push({ label: label, href: base });

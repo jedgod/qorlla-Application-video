@@ -10,10 +10,10 @@ const root = path.join(__dirname, '..');
 const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
 const ORIGINS = ['http://localhost:4800', 'http://localhost:4801']; const DEV = { allowLocalhostHttp: true };
 
-test('only the app origin\'s /app/suite page may use the export bridge', () => {
-  for (const ok of ['http://localhost:4800/app/suite', 'http://localhost:4800/app/suite/', 'http://localhost:4800/app/suite?doc=11111111-1111-4111-8111-111111111111', 'http://localhost:4800/app/suite#top'])
+test('only the Workspace (where Docs is a view) or the standalone Docs page, on the app origin, may use the export bridge', () => {
+  for (const ok of ['http://localhost:4800/', 'http://localhost:4800/#docs', 'http://localhost:4800/#docs/11111111-1111-4111-8111-111111111111', 'http://localhost:4800/qorlla.html#docs', 'http://localhost:4800/app/suite', 'http://localhost:4800/app/suite/', 'http://localhost:4800/app/suite?doc=11111111-1111-4111-8111-111111111111', 'http://localhost:4800/app/suite#top'])
     assert.equal(sec.exportSenderAllowed(ok, ORIGINS, DEV), true, ok);
-  for (const bad of ['http://localhost:4801/app/suite' /* Qorlla Meet's origin */, 'http://localhost:4800/app/notes', 'http://localhost:4800/app/suite/evil', 'http://localhost:4800/app/suiteX', 'http://localhost:4800/', 'http://localhost:4800/guest/meeting/12345678901/prejoin',
+  for (const bad of ['http://localhost:4801/app/suite' /* Qorlla Meet's origin */, 'http://localhost:4800/app/notes', 'http://localhost:4800/app/suite/evil', 'http://localhost:4800/app/suiteX', 'http://localhost:4800/qorlla.htmlX', 'http://localhost:4800/qorlla.html/extra', 'http://localhost:4800/index.html', 'http://localhost:4800/clips/', 'http://localhost:4800/guest/meeting/12345678901/prejoin',
     'http://evil.example:4800/app/suite', 'http://localhost:4800.evil.example/app/suite', 'https://localhost:4800/app/suite', 'javascript:alert(1)', 'file:///app/suite', 'about:blank', '', 'not a url', null, undefined])
     assert.equal(sec.exportSenderAllowed(bad, ORIGINS, DEV), false, String(bad));
   assert.equal(sec.exportSenderAllowed('http://localhost:4800/app/suite', ORIGINS, {}), false, 'plain http is refused outside the development allowance');
