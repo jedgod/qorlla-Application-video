@@ -83,11 +83,22 @@ export async function mountDocsWorkspace(host, { docId = '' } = {}) {
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && (root.querySelector('.doc-menu[open]') || /^(INPUT|TEXTAREA|SELECT)$/.test(((e.composedPath && e.composedPath()[0]) || e.target).tagName || ''))) e.stopPropagation(); });
   // Every navigation renders into its OWN container and takes over the screen at once. A page that is still loading its secondary parts (comments, history, the AI panel) when you
   // move on simply finishes in a container nobody can see, so it can neither delay the next page nor write into it.
-  let closed = false;
+  let closed = false; let hasWorkspace = false;
+  // A signed-in person who belongs to no workspace has nowhere to keep documents, and every request would be refused. Every other portal page offers to create one first; so does Docs.
+  const workspaceReady = async () => { if (hasWorkspace) return true; try { const me = await api('/me'); hasWorkspace = !!(me.workspaces && me.workspaces.length); } catch { hasWorkspace = true; /* let the page show the real error */ } return hasWorkspace; };
+  const onboard = (view, id) => {
+    view.innerHTML = panel('Create your workspace', `<p>You are signed in as a Qorlla user, but you do not belong to a workspace yet. Documents live in a workspace, so create one to start using Docs (you will be its owner on the free Basic plan).</p>
+      <form id="ws-form"><label>Workspace name<input name="name" maxlength="120" value="My workspace" required></label><button>Create workspace</button></form>`);
+    view.querySelector('#ws-form').onsubmit = async (e) => {
+      e.preventDefault(); const btn = e.target.querySelector('button'); btn.disabled = true; const name = String(new FormData(e.target).get('name') || '').trim() || 'My workspace';
+      try { await api('/workspaces', { method: 'POST', body: JSON.stringify({ name }) }); hasWorkspace = true; notice('Workspace created.'); await open(id); }
+      catch (err) { notice(err.status === 409 ? 'You have reached the limit of workspaces you can own.' : say(err)); btn.disabled = false; }
+    };
+  };
   const open = (id) => {
     if (closed) return Promise.resolve();
     const view = document.createElement('div'); view.className = 'docs-view'; root.replaceChildren(view);
-    return (DOC_ID.test(id || '') ? renderEditor(view, id) : renderHome(view))
+    return (async () => ((await workspaceReady()) ? (DOC_ID.test(id || '') ? renderEditor(view, id) : renderHome(view)) : onboard(view, id)))()
       .catch((e) => { view.innerHTML = `<div class="empty">Could not load Docs: ${esc(describe(e))}</div>`; });          // an unexpected failure is shown in place and never escapes
   };
   open(docId);                                                         // the first page is STARTED, not waited for: the Workspace can follow route changes from the first moment

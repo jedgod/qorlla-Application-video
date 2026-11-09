@@ -1,7 +1,7 @@
 // Docs is a normal Workspace module: it opens INSIDE the Workspace shell (same sidebar, header, address and breadcrumb trail, like Mail or Notes), not on a separate portal page and
 // never in an outside browser. Real browser, real stack (nginx + MAIN + portal + PostgreSQL): run it with the same E2E_* settings as the other specs in this folder.
 const { test, expect } = require('@playwright/test');
-const { signUpWithWorkspace } = require('./helpers');
+const { signUp, signUpWithWorkspace } = require('./helpers');
 
 const open = async (page, hash = '#home') => { await page.goto('/qorlla.html' + hash); await expect(page.locator('.sidebar')).toBeVisible(); };
 const crumbs = (page) => page.locator('#crumbs li:not(.breadcrumb-separator)').allTextContents().then((a) => a.map((t) => t.trim()).filter(Boolean));       // the same extraction the breadcrumb specs use
@@ -56,6 +56,15 @@ test.describe('Docs inside the Workspace', () => {
     await page.locator('#docs .doc-menu summary').first().click(); await expect(page.locator('#docs .doc-menu[open]')).toHaveCount(1);
     await page.locator('#docs [data-act=dup]').first().click(); await expect(page.locator('#toast')).toContainText('private copy');
     await page.locator('#docs .doc-menu summary').first().click(); await expect(page.locator('#docs .doc-menu[open]')).toHaveCount(1); await page.locator('#docs-title').click(); await expect(page.locator('#docs .doc-menu[open]')).toHaveCount(0);
+  });
+
+  test('an account that belongs to no workspace is offered "Create your workspace" (not a page of failing buttons), and Docs works right after', async ({ page, context }) => {
+    await signUp(context, 'nows'); await open(page, '#docs');
+    await expect(page.locator('#ws-form')).toBeVisible({ timeout: 20000 }); await expect(page.getByText('Create your workspace').first()).toBeVisible(); await expect(page.locator('#docs-views')).toHaveCount(0);
+    await page.fill('#ws-form [name=name]', 'My new workspace'); await page.getByRole('button', { name: 'Create workspace' }).click();
+    await docsReady(page); await expect(page).toHaveURL(/#docs$/); await expect(page.locator('#ws-form')).toHaveCount(0);
+    await page.fill('#doc-form [name=title]', 'First document'); await page.getByRole('button', { name: 'Create', exact: true }).click(); await expect(page.locator('#doc-text')).toBeVisible();      // the buttons work
+    await expect(page).toHaveURL(/#docs\/[0-9a-f-]{36}$/);
   });
 
   test('phone width: the Workspace navigation still reaches Docs and nothing scrolls sideways', async ({ browser }) => {
