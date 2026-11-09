@@ -181,7 +181,7 @@ async function renderHome(root) {
       <div class="docs-aside" role="complementary" aria-label="Create and AI assistance">
         <section class="docs-card docs-quick" aria-labelledby="docs-quick-h"><h2 id="docs-quick-h">Create new</h2>
           <div class="docs-quick-grid"><button type="button" class="docs-quick-btn" data-new="doc">${svg('doc', 'kind-doc')}<span>Document</span></button><button type="button" class="docs-quick-btn" data-new="sheet">${svg('sheet', 'kind-sheet')}<span>Sheet</span></button><button type="button" class="docs-quick-btn" data-new="slides">${svg('slides', 'kind-slides')}<span>Slides</span></button></div></section>
-        <section class="docs-card docs-ai" id="docs-ai"><details ${aiOn ? 'open' : ''}><summary>${svg('spark')}<h2 id="docs-ai-h">AI assistance</h2><span class="pill ${aiOn ? 'on' : 'off'}">${aiOn ? 'On' : 'Off'}</span>${svg('chev', 'caret')}</summary>${aiBody}</details></section>
+        <section class="docs-card docs-ai" id="docs-ai"><details open><summary>${svg('spark')}<h2 id="docs-ai-h">AI assistance</h2><span class="pill ${aiOn ? 'on' : 'off'}">${aiOn ? 'On' : 'Off'}</span>${svg('chev', 'caret')}</summary>${aiBody}</details></section>
       </div>
     </div></div>`;
   if (aiOn) {
@@ -237,7 +237,7 @@ async function renderHome(root) {
   };
   const drawList = () => {
     $('#docs').innerHTML = docs.map(row).join('');
-    $('#docs-state').innerHTML = docs.length ? '' : emptyFor(); $('.docs-tablehead').hidden = !docs.length || st.layout === 'grid'; $('.docs-quick').hidden = docs.length > 0 || !!st.q || !!st.kind;
+    $('#docs-state').innerHTML = docs.length ? '' : emptyFor(); $('.docs-tablehead').hidden = !docs.length || st.layout === 'grid';
     for (const id of [...picked]) if (!docs.some((x) => x.id === id)) picked.delete(id);
     drawBulk();
     $('#docs-more').hidden = !cursor || homeMode(); $('#docs-more').disabled = false; $('#docs-viewall').hidden = !(cursor && homeMode());

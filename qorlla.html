@@ -3269,7 +3269,10 @@
   VIEWS.docs = function (arg) {
     if (!state.user) return gate('Docs', 'your documents');
     var DOC = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    viewEl.appendChild(pageHead('Qorlla Docs', 'Create, manage and collaborate on documents, sheets and slides.', []));
+    var ph = pageHead('Qorlla Docs', 'Create, manage and collaborate on documents, sheets and slides.', []);
+    var phIc = document.createElement('span'); phIc.className = 'docs-head-ic'; phIc.setAttribute('aria-hidden', 'true');
+    phIc.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>';
+    ph.insertBefore(phIc, ph.firstChild); viewEl.appendChild(ph);
     var host = h('div', { class: 'docs-host' }); viewEl.appendChild(host);
     var want = arg && DOC.test(arg.sub || '') ? arg.sub : '', docs = null, gone = false;
     host.appendChild(h('p', { class: 'muted pad', text: 'Loading Docs…' }));                  // shown until the module's own page replaces it: never a silent blank

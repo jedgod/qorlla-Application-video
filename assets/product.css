@@ -91,6 +91,14 @@ body[data-page=workspace] .btn.primary { box-shadow:0 3px 8px #3157e818; }
 body[data-page=workspace] .empty { border-style:solid; background:#fafbfe; line-height:1.8; }
 body[data-page=workspace] .page-head h1 { font-size:27px; font-weight:650; letter-spacing:-.8px; }
 body[data-page=workspace] .page-head p { font-size:13px; line-height:1.7; margin-top:6px; }
+/* Docs inside the Workspace: one compact size scale (title 22 / body 13 / meta 12) so the module fits the space; scoped to the page that holds the Docs module */
+body[data-page=workspace] .center:has(.docs-host) { padding:16px 20px; }
+body[data-page=workspace] .content.wide .center:has(.docs-host) { padding:16px 20px; }
+body[data-page=workspace] .center:has(.docs-host) .page-head { margin-bottom:10px; justify-content:flex-start; align-items:center; gap:12px; flex-wrap:nowrap; }
+body[data-page=workspace] .center:has(.docs-host) .page-head h1 { font-size:22px; line-height:1.2; letter-spacing:-.4px; }
+body[data-page=workspace] .center:has(.docs-host) .page-head p { font-size:12.5px; line-height:1.4; margin-top:2px; }
+body[data-page=workspace] .docs-head-ic { display:grid; place-items:center; flex:none; width:36px; height:36px; border-radius:10px; background:#e8f0fe; color:#0b57d0; }
+@media (max-width:700px) { body[data-page=workspace] .center:has(.docs-host), body[data-page=workspace] .content.wide .center:has(.docs-host) { padding:12px 12px; } body[data-page=workspace] .center:has(.docs-host) .page-head h1 { font-size:20px; } }
 body[data-page=workspace] .fld input, body[data-page=workspace] .fld textarea { border-radius:9px; min-height:42px; }
 /* Authentication */
 body[data-page=auth] { min-height:100dvh; display:grid; grid-template-columns:minmax(0,1.05fr) minmax(440px,1fr); padding:0; background:#fff; align-items:stretch; }
