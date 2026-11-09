@@ -306,7 +306,7 @@ async function renderEditor(root, id) {
   }
   const save = async () => {
     if (!canEdit) return; const btn = $('#save-doc'); btn.disabled = true; setStatus('Saving…');
-    try { const next = collect(); const r = await api(`/documents/${id}`, { method: 'PUT', body: JSON.stringify({ base_version: version, content: next }) }); version = r.current_version; saved = canon(next); $('#doc-version').textContent = `version ${version}`; setStatus('Saved'); notice('Saved.'); dropDraft(); await side(); }
+    try { const next = collect(); const r = await api(`/documents/${id}`, { method: 'PUT', body: JSON.stringify({ base_version: version, content: next }) }); version = r.current_version; saved = canon(next); $('#doc-version').textContent = `version ${version}`; setStatus('Saved'); notice('Saved.'); dropDraft(); side().catch(() => {}); }      // the side panels refresh in the background: the Save button and Ctrl+S are usable again at once
     catch (err) { setStatus('Not saved'); notice(err.body?.code === 'version_conflict' ? 'Someone else saved a newer version. Reload to see it - your unsaved edits are still in the page, so copy them first.' : err.body?.code === 'read_only' ? 'You can view but not edit this document.' : describe(err)); }
     finally { btn.disabled = false; }
   };
