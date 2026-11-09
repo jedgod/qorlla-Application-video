@@ -73,6 +73,9 @@ try {
 
   // ---------------------------------------------------------------- star, duplicate, folders, trash from the home page
   await page.locator('#doc-star').click(); check('star in the editor is stored for me', await until(async () => (await api(H).get(`/api/v1/documents/${docId}/meta`)).body.starred === true));
+  check('star in the editor: the button flips to "★ Starred" (aria-pressed true) and no error text appears', await until(async () => (await page.locator('#doc-star').getAttribute('aria-pressed')) === 'true' && (await page.locator('#doc-star').textContent()) === '★ Starred') && !/Cannot read|undefined|null/.test(await notice(page)), await notice(page));
+  await page.locator('#doc-star').click(); check('star in the editor: a second click turns it off again (button and stored value)', await until(async () => (await page.locator('#doc-star').getAttribute('aria-pressed')) === 'false' && (await page.locator('#doc-star').textContent()) === '☆ Star' && (await api(H).get(`/api/v1/documents/${docId}/meta`)).body.starred === false) && !/Cannot read/.test(await notice(page)));
+  await page.locator('#doc-star').click(); await until(async () => (await page.locator('#doc-star').getAttribute('aria-pressed')) === 'true');
   await page.locator('#docs-back').click(); await page.locator('#docs-views').waitFor();
   await page.locator('[data-view=starred]').click(); check('Starred view lists exactly the starred document', await until(async () => JSON.stringify(await docsOnPage(page)) === JSON.stringify(['Launch brief v2'])), JSON.stringify(await docsOnPage(page)));
   await page.locator('[data-view=recent]').click(); await until(async () => (await docsOnPage(page)).length === 1);
@@ -155,6 +158,10 @@ try {
   check('conflict: a stale save is refused with the explanation, the typed text stays in the page and the other tab\'s version is untouched', await until(async () => /Someone else saved a newer version/.test(await notice(page))) && (await page.inputValue('#doc-text')) === 'my competing edit' && (await page.locator('#doc-status').textContent()) === 'Not saved' && (await api(H).get(`/api/v1/documents/${fm.id}`)).body.content.text === 'written in the other tab');
   await page.reload(); await page.locator('#doc-text').waitFor();
   check('refresh: what was saved is back after a reload; unsaved typing is not kept (there is no local draft recovery or autosave)', (await page.inputValue('#doc-text')) === 'written in the other tab' && (await page.locator('#doc-version').textContent()) === 'version 3');
+  let dupFail = true; await page.route('**/api/v1/documents/' + fm.id + '/duplicate', (r) => (dupFail ? r.abort() : r.continue()));
+  await page.locator('#doc-dup').click(); check('duplicate in the editor: a failed request re-enables the button and shows an error without a script exception', await until(async () => (await page.locator('#doc-dup').isEnabled()) && (await notice(page)).length > 0) && !/Cannot read/.test(await notice(page)), await notice(page));
+  dupFail = false; await page.locator('#doc-dup').click(); check('duplicate in the editor: opens the new private copy', await until(async () => /doc=/.test(page.url()) && !page.url().endsWith(fm.id) && (await page.locator('#doc-title').inputValue()) === 'Copy of Failure modes'));
+  await page.unroute('**/api/v1/documents/' + fm.id + '/duplicate');
   await api(H).put(`/api/v1/documents/${fm.id}/permissions`, { general_access: 'restricted', users: [{ user_id: M.sub, role: 'editor' }] });
   const ed = await openAs(M); await ed.page.goto(app.base + '/app/suite?doc=' + fm.id); await ed.page.locator('#doc-text').waitFor(); await ed.page.fill('#doc-text', 'editor typing');
   await api(H).put(`/api/v1/documents/${fm.id}/permissions`, { general_access: 'restricted', users: [{ user_id: M.sub, role: 'viewer' }] });
