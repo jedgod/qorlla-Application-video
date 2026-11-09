@@ -162,9 +162,10 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
   app.get('/api/v1/documents', member, h(async (req, res) => {
     const q = z.object({ kind: z.enum(['doc', 'sheet', 'slides']).optional(), q: z.string().trim().max(200).optional(),
       view: z.enum(DOC_VIEWS).optional(), folder: z.union([z.literal('none'), uuid]).optional(),
-      limit: z.coerce.number().int().min(1).max(200).optional(), cursor: z.string().max(200).regex(/^[A-Za-z0-9_-]+$/).optional() }).parse(req.query);
-    if (q.view || q.folder || q.limit || q.cursor) {                          // the paged API: a page of rows, and the cursor for the next page in the X-Next-Cursor header
-      const out = await docsExt.listDocuments(req, { kind: q.kind ?? null, q: q.q ?? null, view: q.view ?? 'recent', folder: q.folder ?? null, limit: q.limit ?? 50, cursor: q.cursor ?? null });
+      limit: z.coerce.number().int().min(1).max(200).optional(), cursor: z.string().max(900).regex(/^[A-Za-z0-9_-]+$/).optional(),
+      sort: z.enum(['updated', 'created', 'title']).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query);
+    if (q.view || q.folder || q.limit || q.cursor || q.sort || q.dir) {                          // the paged API: a page of rows, and the cursor for the next page in the X-Next-Cursor header
+      const out = await docsExt.listDocuments(req, { kind: q.kind ?? null, q: q.q ?? null, view: q.view ?? 'recent', folder: q.folder ?? null, limit: q.limit ?? 50, cursor: q.cursor ?? null, sort: q.sort ?? 'updated', dir: q.dir ?? (q.sort === 'title' ? 'asc' : 'desc') });
       if (out.next) res.set('X-Next-Cursor', out.next);
       return res.set('Cache-Control', 'no-store').json(out.rows);
     }
@@ -345,20 +346,29 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     const v = (await pool.query('SELECT content, source, note, created_by, created_at FROM portal.document_versions WHERE document_id=$1 AND version_no=$2', [d.id, d.current_version])).rows[0];
     res.set('Cache-Control', 'no-store').json({ ...docMeta(d), content: v.content, version_source: v.source, version_note: v.note, last_edited_by: v.created_by, last_edited_at: v.created_at });
   }));
-  async function saveVersion(c, req, d, content, { source, note, baseVersion, title }) {
+  const AUTOSAVE_NOTE = 'Autosave'; const AUTOSAVE_WINDOW_MIN = 10;
+  async function saveVersion(c, req, d, content, { source, note, baseVersion, title, autosave = false }) {
     if (baseVersion !== d.current_version) throw err(409, 'The document changed since you opened it', 'version_conflict', { current_version: d.current_version });
+    if (autosave) {
+      // Autosave must not flood the history: it folds into the previous version ONLY if that version is itself an autosave by the same person in the last few minutes.
+      // A version made by a manual save, the AI, a restore or another person is never rewritten, so the history stays trustworthy; the new autosave starts its own entry.
+      const last = (await c.query(`UPDATE portal.document_versions SET content=$3 WHERE document_id=$1 AND version_no=$2 AND source='user' AND note=$4 AND created_by=$5 AND created_at > now() - ($6 || ' minutes')::interval RETURNING version_no`,
+        [d.id, d.current_version, JSON.stringify(content), AUTOSAVE_NOTE, req.actor, String(AUTOSAVE_WINDOW_MIN)])).rowCount;
+      if (last) { await c.query('UPDATE portal.documents SET search_text=$2, title=COALESCE($3,title), updated_at=now() WHERE id=$1', [d.id, plainText(d.kind, content), title ?? null]); return d.current_version; }
+      note = AUTOSAVE_NOTE;
+    }
     const next = d.current_version + 1;
     await c.query('INSERT INTO portal.document_versions(document_id,version_no,content,source,note,created_by) VALUES($1,$2,$3,$4,$5,$6)', [d.id, next, JSON.stringify(content), source, note || null, req.actor]);
     await c.query('UPDATE portal.documents SET current_version=$2, search_text=$3, title=COALESCE($4,title), updated_at=now() WHERE id=$1', [d.id, next, plainText(d.kind, content), title ?? null]);
     return next;
   }
   app.put('/api/v1/documents/:id', member, lim('docsWrite'), h(async (req, res) => {
-    const p = z.object({ base_version: z.number().int().min(1), content: z.unknown(), title: z.string().trim().min(1).max(200).optional(), note: z.string().max(200).optional() }).parse(req.body);
+    const p = z.object({ base_version: z.number().int().min(1), content: z.unknown(), title: z.string().trim().min(1).max(200).optional(), note: z.string().max(200).optional(), autosave: z.boolean().optional() }).parse(req.body);
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const d = await loadDoc(c, req, req.params.id, { forUpdate: true }); if (!d) throw err(404, 'Document not found');
       if (!['owner', 'editor'].includes(d.my_role)) throw err(403, 'You can view but not edit this document', 'read_only');
       const content = ContentSchemas[d.kind].parse(p.content);
-      const v = await saveVersion(c, req, d, content, { source: 'user', note: p.note, baseVersion: p.base_version, title: p.title }); return { id: d.id, current_version: v };
+      const v = await saveVersion(c, req, d, content, { source: 'user', note: p.autosave ? null : p.note, baseVersion: p.base_version, title: p.title, autosave: !!p.autosave }); return { id: d.id, current_version: v };
     });
     res.json(out);
   }));

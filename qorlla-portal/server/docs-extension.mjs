@@ -13,6 +13,7 @@ import { quotaFor, withWorkspaceLock } from './entitlements.mjs';
 const err = (status, error, code, extra = {}) => Object.assign(new Error(error), { http: { status, body: { error, code, ...extra } } });
 const uuid = z.string().regex(UUID_RE);
 export const VIEWS = ['recent', 'mine', 'shared', 'starred', 'templates', 'trash'];
+export const SORTS = ['updated', 'created', 'title'];
 const MAX_FOLDERS = 200;
 const MAX_COMMENTS = 500;                      // per document, open and resolved together
 export const DEFAULT_PAGE = 50;
@@ -32,17 +33,21 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
   // Keyset pagination on (updated_at, id): stable while documents change, no OFFSET scans, and no 200-row ceiling. The cursor is only a POSITION: it carries no rights,
   // and every page is filtered by the caller's rights again, so a cursor taken from someone else's page reveals nothing.
   const TS_RE = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/;
-  const encodeCursor = (ts, id) => Buffer.from(JSON.stringify([ts, id])).toString('base64url');
-  const decodeCursor = (c) => { try { const [ts, id] = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')); if (typeof ts === 'string' && TS_RE.test(ts) && typeof id === 'string' && UUID_RE.test(id)) return [ts, id.toLowerCase()]; } catch { /* malformed: falls through */ } return null; };
+  // The cursor also names the sort it belongs to: a cursor from one ordering is refused under another instead of silently skipping or repeating rows.
+  const encodeCursor = (key, id, sort = 'updated', dir = 'desc') => Buffer.from(JSON.stringify([key, id, sort, dir])).toString('base64url');
+  const decodeCursor = (c, sort = 'updated', dir = 'desc') => { try { const [key, id, s, d] = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')); if (s === sort && d === dir && typeof key === 'string' && key.length <= 400 && (sort === 'title' || TS_RE.test(key)) && typeof id === 'string' && UUID_RE.test(id)) return [key, id.toLowerCase()]; } catch { /* malformed: falls through */ } return null; };
   /** One page of documents the caller may see, with the caller's own star and the template/folder flags. Returns { rows, next } (next = cursor or null). */
-  async function listDocuments(req, { kind = null, q = null, view = 'recent', folder = null, limit = DEFAULT_PAGE, cursor = null }) {
+  async function listDocuments(req, { kind = null, q = null, view = 'recent', folder = null, limit = DEFAULT_PAGE, cursor = null, sort = 'updated', dir = 'desc' }) {
     const terms = tsTerms(q);
     const trash = view === 'trash';
-    const pos = cursor ? decodeCursor(cursor) : null; if (cursor && !pos) throw err(400, 'Invalid cursor', 'invalid_cursor');
+    const tsKey = (col) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+    const keyExpr = sort === 'title' ? `(lower(d.title) COLLATE "C")` : sort === 'created' ? tsKey('d.created_at') : tsKey('d.updated_at');      // only these three constants ever reach the SQL text
+    const cmp = dir === 'asc' ? '>' : '<'; const ord = dir === 'asc' ? 'ASC' : 'DESC';
+    const pos = cursor ? decodeCursor(cursor, sort, dir) : null; if (cursor && !pos) throw err(400, 'Invalid cursor', 'invalid_cursor');
     const rows = (await pool.query(
       `SELECT * FROM (
          SELECT d.*, ${docRightSql} AS my_role, COALESCE(s.starred, false) AS starred, COALESCE(m.template, false) AS template, m.folder_id,
-                to_char(d.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
+                ${keyExpr} AS cursor_ts, (SELECT count(*)::int FROM portal.document_permissions p WHERE p.document_id = d.id) AS shared_count
          FROM portal.documents d
          LEFT JOIN portal.doc_metadata m ON m.document_id = d.id
          LEFT JOIN portal.doc_stars s ON s.document_id = d.id AND s.user_id = $2
@@ -55,11 +60,11 @@ export function registerDocsExtension(app, { pool, auth, h, docRightSql, loadDoc
            AND ($5 <> 'starred' OR COALESCE(s.starred, false))
            AND ($5 <> 'templates' OR COALESCE(m.template, false))
            AND ($6::text IS NULL OR (d.owner_id = $2 AND ($6 = 'none' AND m.folder_id IS NULL OR $6 <> 'none' AND m.folder_id::text = $6)))
-           AND ($7::timestamptz IS NULL OR (d.updated_at, d.id) < ($7::timestamptz, $8::uuid))
-       ) d WHERE my_role IS NOT NULL ORDER BY updated_at DESC, id DESC LIMIT $9`,
+           AND ($7::text IS NULL OR (${keyExpr}, d.id) ${cmp} ($7::text, $8::uuid))
+       ) d WHERE my_role IS NOT NULL ORDER BY cursor_ts ${ord}, id ${ord} LIMIT $9`,
       [req.workspace, req.actor, kind, q ? (terms.replace(/ \| /g, ' & ') || 'zzzznomatch') : null, view, folder, pos ? pos[0] : null, pos ? pos[1] : null, limit + 1])).rows;
     const page = rows.slice(0, limit); const last = page[page.length - 1];
-    return { rows: page.map((r) => ({ ...docMeta(r), starred: r.starred, template: r.template, folder_id: r.folder_id, deleted_at: r.deleted_at })), next: rows.length > limit && last ? encodeCursor(last.cursor_ts, last.id) : null };
+    return { rows: page.map((r) => ({ ...docMeta(r), starred: r.starred, template: r.template, folder_id: r.folder_id, deleted_at: r.deleted_at, shared_count: r.shared_count })), next: rows.length > limit && last ? encodeCursor(last.cursor_ts, last.id, sort, dir) : null };
   }
   /** What the editor needs beyond the document itself: my star, the template flag, the folder, open comments. */
   app.get('/api/v1/documents/:id/meta', member, h(async (req, res) => {

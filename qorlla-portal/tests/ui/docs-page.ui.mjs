@@ -87,13 +87,13 @@ try {
   const copy = (await api(H).get('/api/v1/documents?view=mine')).body.find((d) => d.title.startsWith('Copy of')); check('the copy carries the content and is restricted', copy && copy.general_access === 'restricted' && (await api(H).get('/api/v1/documents/' + copy.id)).body.content.text === 'unsaved words');
 
   await page.locator('.docs-manage summary').click(); await page.fill('#folder-form [name=name]', 'Clients'); await page.getByRole('button', { name: 'Add folder' }).click();
-  check('folder: added and listed in the sidebar with a count of 0', await until(async () => /Clients\s*0/.test((await page.locator('#docs-folders').textContent()).replace(/\s+/g, ' '))));
+  check('folder: added and listed in the folder dropdown with a count of 0', await until(async () => /Clients \(0\)/.test(await (await page.locator('#folder-select').evaluate((s) => [...s.options].map((o) => o.textContent).join('|'))))));
   await page.fill('#folder-form [name=name]', ' clients '); await page.getByRole('button', { name: 'Add folder' }).click(); check('folder: a duplicate name is refused with a clear message', await until(async () => /already have a folder/.test(await notice(page))));
   await menu(page, docId); await page.locator(`#docs [data-doc="${docId}"] select[data-act=move]`).selectOption({ label: 'Clients' });
-  await until(async () => (await api(H).get(`/api/v1/documents/${docId}/meta`)).body.folder_id); await page.locator('#docs-folders [data-folder]:not([data-folder=none])').first().click();
-  check('move: the document appears under the folder, and the folder count is 1', await until(async () => JSON.stringify(await docsOnPage(page)) === JSON.stringify(['Launch brief v2']) && /Clients\s*1/.test((await page.locator('#docs-folders').textContent()).replace(/\s+/g, ' '))), JSON.stringify(await docsOnPage(page)));
-  page.dialogPlan.text = 'Key clients'; await page.locator('[data-act=rename-folder]').first().click(); check('folder: rename (prompt)', await until(async () => /Key clients/.test(await page.locator('#docs-folders').textContent())));
-  await page.locator('#docs-folders [data-folder=none]').click(); check('"Not in a folder" excludes the filed document', await until(async () => !(await docsOnPage(page)).includes('Launch brief v2') && (await docsOnPage(page)).length >= 1));
+  await until(async () => (await api(H).get(`/api/v1/documents/${docId}/meta`)).body.folder_id); await page.locator('#folder-select').selectOption({ label: 'Clients (1)' }).catch(async () => { await page.locator('#folder-select').selectOption({ index: 2 }); });
+  check('move: the document appears under the folder, and the folder count is 1', await until(async () => JSON.stringify(await docsOnPage(page)) === JSON.stringify(['Launch brief v2']) && /Clients \(1\)/.test(await (await page.locator('#folder-select').evaluate((s) => [...s.options].map((o) => o.textContent).join('|'))))), JSON.stringify(await docsOnPage(page)));
+  page.dialogPlan.text = 'Key clients'; await page.locator('[data-act=rename-folder]').first().click(); check('folder: rename (prompt)', await until(async () => /Key clients/.test(await (await page.locator('#folder-select').evaluate((s) => [...s.options].map((o) => o.textContent).join('|'))))));
+  await page.locator('#folder-select').selectOption('none'); check('"Not in a folder" excludes the filed document', await until(async () => !(await docsOnPage(page)).includes('Launch brief v2') && (await docsOnPage(page)).length >= 1));
   await page.locator('[data-act=delete-folder]').first().click(); check('folder: deleting keeps the document and it becomes unfiled', await until(async () => (await docsOnPage(page)).includes('Launch brief v2')));
 
   await menu(page, docId); await page.locator(`#docs [data-doc="${docId}"] [data-act=trash]`).click(); check('trash: the document leaves Recent', await until(async () => !(await docsOnPage(page)).includes('Launch brief v2')));
@@ -226,7 +226,7 @@ try {
   const tab2 = await ctx.newPage(); await tab2.goto(app.base + '/app/suite?doc=' + fm.id); await tab2.locator('#doc-text').waitFor(); await tab2.fill('#doc-text', 'written in the other tab'); await tab2.locator('#save-doc').click(); await until(async () => (await tab2.locator('#doc-version').textContent()) === 'version 3');
   await tab2.close(); await page.bringToFront();
   await page.fill('#doc-text', 'my competing edit'); await page.locator('#save-doc').click();
-  check('conflict: a stale save is refused with the explanation, the typed text stays in the page and the other tab\'s version is untouched', await until(async () => /Someone else saved a newer version/.test(await notice(page))) && (await page.inputValue('#doc-text')) === 'my competing edit' && (await page.locator('#doc-status').textContent()) === 'Not saved' && (await api(H).get(`/api/v1/documents/${fm.id}`)).body.content.text === 'written in the other tab');
+  check('conflict: a stale save is refused with the explanation, the typed text stays in the page and the other tab\'s version is untouched', await until(async () => /Someone else saved a newer version/.test(await notice(page))) && (await page.inputValue('#doc-text')) === 'my competing edit' && (await page.locator('#doc-status').textContent()) === 'Conflict' && (await page.locator('#conflict-banner').isVisible()) && (await api(H).get(`/api/v1/documents/${fm.id}`)).body.content.text === 'written in the other tab');
   await page.reload(); await page.locator('#doc-text').waitFor();
   check('refresh: what was saved is back after a reload; unsaved typing is not kept (there is no local draft recovery or autosave)', (await page.inputValue('#doc-text')) === 'written in the other tab' && (await page.locator('#doc-version').textContent()) === 'version 3');
   let dupFail = true; await page.route('**/api/v1/documents/' + fm.id + '/duplicate', (r) => (dupFail ? r.abort() : r.continue()));
@@ -263,6 +263,53 @@ try {
   check('no script errors, console errors or 5xx responses during the whole run', problems.length === 0, problems.join(' | '));
   await ctx.close();
 
+
+  // ---------------------------------------------------------------- Library management and autosave
+  {
+    const o = await openAs(H, { width: 1280, height: 900 }); const p = o.page; const mk = async (title, extra = {}) => (await api(H).post('/api/v1/documents', { kind: 'doc', title, ...extra })).body;
+    await mk('Bulk Charlie'); await mk('Bulk alpha'); await mk('Bulk Bravo');
+    await goHome(p); await p.fill('#doc-search [name=q]', 'Bulk'); await p.press('#doc-search [name=q]', 'Enter'); await until(async () => (await docsOnPage(p)).length === 3);
+    await p.locator('#doc-sort').selectOption('title:asc'); check('sort: Name A-Z orders the library case-insensitively (server side)', await until(async () => JSON.stringify(await docsOnPage(p)) === JSON.stringify(['Bulk alpha', 'Bulk Bravo', 'Bulk Charlie'])), JSON.stringify(await docsOnPage(p)));
+    await p.locator('#doc-sort').selectOption('title:desc'); check('sort: Name Z-A reverses it', await until(async () => JSON.stringify(await docsOnPage(p)) === JSON.stringify(['Bulk Charlie', 'Bulk Bravo', 'Bulk alpha'])));
+    await p.locator('#doc-sort').selectOption('title:asc'); await until(async () => (await docsOnPage(p))[0] === 'Bulk alpha');
+    await p.locator('#layout-grid').click(); check('layout: grid view shows the same documents as cards and hides the table header', (await p.locator('#docs').getAttribute('data-layout')) === 'grid' && (await p.locator('#layout-grid').getAttribute('aria-pressed')) === 'true' && (await p.locator('.docs-tablehead').isHidden()) && (await docsOnPage(p)).length === 3);
+    await p.locator('#layout-list').click(); check('layout: list view restores the table header', (await p.locator('#docs').getAttribute('data-layout')) === 'list' && (await p.locator('.docs-tablehead').isVisible()));
+    check('the "Create new" card steps aside once the library has documents', await p.locator('.docs-quick').isHidden());
+    await p.locator('#docs [data-pick]').nth(0).check(); await p.locator('#docs [data-pick]').nth(1).check();
+    check('selection: two rows selected show the bulk bar with the count, and the header checkbox is mixed', (await p.locator('#docs-bulk').isVisible()) && /2 selected/.test(await p.locator('#bulk-count').textContent()) && (await p.locator('#pick-all').evaluate((e) => e.indeterminate)));
+    await p.locator('[data-bulk=star]').click(); check('bulk: Star stars exactly the selected documents (server confirms) and clears the selection', await until(async () => { const l = (await api(H).get('/api/v1/documents?view=starred&q=Bulk')).body.map((d) => d.title).sort(); return JSON.stringify(l) === JSON.stringify(['Bulk Bravo', 'Bulk alpha']); }) && await until(async () => await p.locator('#docs-bulk').isHidden()));
+    await p.locator('#pick-all').check(); check('selection: the header checkbox selects every document shown', /3 selected/.test(await p.locator('#bulk-count').textContent()));
+    p.dialogPlan.accept = true; await p.locator('[data-bulk=trash]').click();
+    check('bulk: Move to trash (after confirming) trashes all selected documents', await until(async () => (await api(H).get('/api/v1/documents?view=trash&q=Bulk')).body.length === 3));
+    await p.fill('#doc-search [name=q]', ''); await p.locator('#docs-views [data-view=trash]').click(); await until(async () => (await docsOnPage(p)).length >= 3); await p.locator('#docs [data-pick]').first().check();
+    check('bulk: in the Trash view the bar offers Restore (not Move to trash)', (await p.locator('[data-bulk=restore]').isVisible()) && (await p.locator('[data-bulk=trash]').isHidden())); await p.locator('[data-bulk=restore]').click();
+    check('bulk: Restore brings the document back', await until(async () => (await api(H).get('/api/v1/documents?view=trash&q=Bulk')).body.length === 2));
+    const S = await mk('Shared status doc'); await api(H).put(`/api/v1/documents/${S.id}/permissions`, { general_access: 'restricted', users: [{ user_id: M.sub, role: 'viewer' }] });
+    await p.locator('#docs-views [data-view=mine]').click(); await p.fill('#doc-search [name=q]', 'Shared status'); await p.press('#doc-search [name=q]', 'Enter');
+    check('sharing status: a row says who it is shared with (real data, not invented)', await until(async () => /Shared with 1 person/.test(await p.locator('#docs').textContent())));
+    await o.ctx.close();
+
+    // ---- autosave and save states in the editor
+    const E1 = await mk('Autosave me'); const e = await openAs(H); const ep = e.page; await ep.goto(app.base + '/app/suite?doc=' + E1.id); await ep.locator('#doc-text').waitFor();
+    const status = () => ep.locator('#doc-status').textContent(); const ver = async () => (await api(H).get(`/api/v1/documents/${E1.id}`)).body;
+    await ep.fill('#doc-text', 'first words'); check('autosave: typing shows "Unsaved changes" with a data-state', (await status()) === 'Unsaved changes' && (await ep.locator('#doc-status').getAttribute('data-state')) === 'unsaved');
+    check('autosave: a few seconds after the last keystroke it saves by itself ("Saved", last-saved time shown) without pressing Save', await until(async () => (await status()) === 'Saved' && /last saved/.test(await ep.locator('#doc-saved-at').textContent()), 12000) && (await ver()).content.text === 'first words');
+    const v1 = (await ver()).current_version; await ep.fill('#doc-text', 'first words, and more'); await until(async () => (await ver()).content.text === 'first words, and more', 12000);
+    check('autosave: further autosaves fold into ONE history entry (the version number does not climb on every pause)', (await ver()).current_version === v1 && (await ep.locator('#doc-version').textContent()) === 'version ' + v1);
+    await ep.fill('#doc-text', 'manual text'); await ep.locator('#save-doc').click(); check('a manual Save always makes a new version', await until(async () => (await ver()).current_version === v1 + 1 && (await status()) === 'Saved'));
+    let blockPut = true; await ep.route('**/api/v1/documents/' + E1.id, (r) => (blockPut && r.request().method() === 'PUT' ? r.abort() : r.continue()));
+    await ep.fill('#doc-text', 'typed while offline'); check('autosave failure: the page says "Not saved", keeps the text and the Save button is usable', await until(async () => (await status()) === 'Not saved', 12000) && (await ep.inputValue('#doc-text')) === 'typed while offline' && (await ep.locator('#save-doc').isEnabled()));
+    blockPut = false; await ep.locator('#save-doc').click(); check('autosave failure: once the network is back the text is saved', await until(async () => (await ver()).content.text === 'typed while offline' && (await status()) === 'Saved'));
+    await ep.unroute('**/api/v1/documents/' + E1.id);
+    const cur = (await ver()).current_version; await api(H).put(`/api/v1/documents/${E1.id}`, { base_version: cur, content: { format: 'markdown', text: 'written by someone else' } });
+    await ep.fill('#doc-text', 'my edits made on an old copy');
+    check('conflict: autosave detects it, shows "Conflict" and the explanation, and keeps my text on the page', await until(async () => (await status()) === 'Conflict' && (await ep.locator('#conflict-banner').isVisible()), 12000) && (await ep.inputValue('#doc-text')) === 'my edits made on an old copy');
+    check('conflict: the other person\'s version was NOT overwritten', (await ver()).content.text === 'written by someone else');
+    await ep.locator('#conflict-copy').click(); await ep.waitForURL((u) => u.search.includes('doc=') && !u.search.includes(E1.id), { timeout: 8000 });
+    const copyId = ep.url().split('=')[1]; const copy = (await api(H).get(`/api/v1/documents/${copyId}`)).body;
+    check('conflict: "Save my changes as a new document" keeps my text in a copy, and the original still holds the other person\'s text', copy.content.text === 'my edits made on an old copy' && /my changes/.test(copy.title) && (await ver()).content.text === 'written by someone else');
+    await e.ctx.close();
+  }
   // ---------------------------------------------------------------- Production UI refinement checks
   {
     const SHOTS = process.env.DOCS_SHOTS_DIR;

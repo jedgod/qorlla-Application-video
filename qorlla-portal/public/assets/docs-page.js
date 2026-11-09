@@ -27,6 +27,7 @@ const ICON = {
   template: '<path d="m12 3 9 5-9 5-9-5Z"/><path d="m3 13 9 5 9-5"/>', trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>', search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
   plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m6 9 6 6 6-6"/>', more: '<circle cx="12" cy="5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  listv: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>', grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   spark: '<path d="m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8Z"/>'
 };
 const svg = (name, cls = '', fill = false) => `<svg class="ic ${cls}" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="${fill ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</svg>`;
@@ -38,6 +39,7 @@ const fmtWhen = (iso) => {
   const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); if (diff === 0) return 'Today, ' + t; if (diff === 1) return 'Yesterday, ' + t;
   return d.toLocaleDateString([], d.getFullYear() === now.getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' }) + ', ' + t;
 };
+const SORTS = [['updated:desc', 'Last modified (newest)'], ['updated:asc', 'Last modified (oldest)'], ['title:asc', 'Name A–Z'], ['title:desc', 'Name Z–A'], ['created:desc', 'Date created (newest)']];
 const TITLES = { home: 'Recent documents', recent: 'Recent', mine: 'My documents', shared: 'Shared with me', starred: 'Starred', templates: 'Templates', trash: 'Trash' };
 
 // ------------------------------------------------------------------ safe markdown preview
@@ -130,7 +132,8 @@ export async function mountDocsWorkspace(host, { docId = '' } = {}) {
 async function renderHome(root) {
   const $ = (s) => root.querySelector(s);
   const stored = store.get('view');
-  const st = { view: VIEWS.some((v) => v[0] === stored) ? stored : 'home', folder: store.get('folder', ''), q: '', kind: '' };
+  const st = { view: VIEWS.some((v) => v[0] === stored) ? stored : 'home', folder: store.get('folder', ''), q: '', kind: '', sort: SORTS.some((s) => s[0] === store.get('sort')) ? store.get('sort') : 'updated:desc', layout: store.get('layout') === 'grid' ? 'grid' : 'list' };
+  const picked = new Set(); const BULK_MAX = 50;
   const [status, meInfo, ppl] = await Promise.all([api('/assistant/status').catch(() => ({ ai_provider_configured: false })), api('/me').catch(() => ({})), api('/members').catch(() => [])]);
   const aiOn = !!status.ai_provider_configured; const me = meInfo.user_id; const people = Object.fromEntries((ppl || []).map((m) => [m.user_id, m.display_name]));
   const nameOf = (id) => (id === me ? 'You' : people[id] || 'Workspace member');
@@ -158,11 +161,19 @@ async function renderHome(root) {
     <div class="docs-grid">
       <section class="docs-card docs-library" aria-labelledby="docs-title">
         <div class="docs-card-head"><h2 id="docs-title" aria-live="polite"></h2><button type="button" class="linkbtn" id="docs-viewall" hidden>See all →</button></div>
-        <div class="docs-folderbar"><ul id="docs-folders" class="chips" aria-label="Folders"></ul>
+        <div class="docs-toolbar">
+          <label class="docs-tool">${svg('folder')}<span class="sr-only">Folder</span><select id="folder-select" aria-label="Folder"></select></label>
           <details class="docs-manage"><summary>Manage folders</summary>
             <form id="folder-form"><label>New folder<input name="name" maxlength="120" required></label><button class="secondary compact">Add folder</button></form>
-            <ul id="docs-folder-manage" class="docs-folder-manage"></ul></details></div>
-        <div class="docs-tablehead" aria-hidden="true"><span>Name</span><span>Owner</span><span>Last edited</span><span>Actions</span></div>
+            <ul id="docs-folder-manage" class="docs-folder-manage"></ul></details>
+          <span class="docs-spacer"></span>
+          <label class="docs-tool"><span class="sr-only">Sort by</span><select id="doc-sort" aria-label="Sort by">${SORTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
+          <div class="docs-seg" role="group" aria-label="Layout"><button type="button" id="layout-list" aria-pressed="true" aria-label="List view" title="List view">${svg('listv')}</button><button type="button" id="layout-grid" aria-pressed="false" aria-label="Grid view" title="Grid view">${svg('grid')}</button></div></div>
+        <div id="docs-bulk" class="docs-bulk" role="toolbar" aria-label="Actions for the selected documents" hidden>
+          <span id="bulk-count" role="status"></span><button type="button" class="secondary compact" data-bulk="star">Star</button>
+          <label class="docs-move">Move to<select id="bulk-move" aria-label="Move the selected documents to a folder"></select></label>
+          <button type="button" class="secondary compact" data-bulk="trash">Move to trash</button><button type="button" class="secondary compact" data-bulk="restore" hidden>Restore</button><button type="button" class="linkbtn" data-bulk="clear">Clear selection</button></div>
+        <div class="docs-tablehead"><span class="docs-headname"><input type="checkbox" id="pick-all" aria-label="Select all documents shown"><span>Name</span></span><span>Owner</span><span>Last modified</span><span>Actions</span></div>
         <div id="docs-state" role="status"></div>
         <div id="docs" class="docs-list" role="list"></div>
         <div class="docs-more"><button type="button" class="secondary" id="docs-more" hidden>Load more documents</button><span id="docs-count" class="muted"></span></div>
@@ -182,21 +193,23 @@ async function renderHome(root) {
 
   let folders = []; let docs = []; let cursor = null; let seq = 0; let creating = false;
   const folderName = (id) => folders.find((f) => f.id === id)?.name;
-  const homeMode = () => st.view === 'home' && !st.folder && !st.q && !st.kind;
+  const homeMode = () => st.view === 'home' && !st.folder && !st.q && !st.kind && st.sort === 'updated:desc';
   const place = (d) => (d.my_role === 'owner' ? 'My documents' : 'Shared with you') + (d.folder_id && folderName(d.folder_id) ? ' · ' + esc(folderName(d.folder_id)) : '');
   const drawNav = () => {
     $('#docs-views').innerHTML = VIEWS.map(([k, icon, label]) => `<li><button type="button" class="docs-tab" data-view="${k}" ${!st.folder && st.view === k ? 'aria-current="true"' : ''}>${svg(icon)}<span>${label}</span></button></li>`).join('');
-    $('#docs-folders').innerHTML = `<li><button type="button" class="chip" data-folder-all aria-pressed="${!st.folder}">All folders</button></li><li><button type="button" class="chip" data-folder="none" aria-pressed="${st.folder === 'none'}">${svg('folder')}<span>Not in a folder</span></button></li>` +
-      folders.map((f) => `<li><button type="button" class="chip" data-folder="${esc(f.id)}" aria-pressed="${st.folder === f.id}">${svg('folder')}<span>${esc(f.name)}</span> <span class="muted">${esc(f.documents)}</span></button></li>`).join('');
+    $('#folder-select').innerHTML = `<option value="">All folders</option><option value="none">Not in a folder</option>` + folders.map((f) => `<option value="${esc(f.id)}">${esc(f.name)} (${esc(f.documents)})</option>`).join(''); $('#folder-select').value = st.folder;
+    $('#bulk-move').innerHTML = `<option value="">Choose a folder…</option><option value="none">No folder</option>` + folders.map((f) => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
+    $('#doc-sort').value = st.sort; $('#layout-list').setAttribute('aria-pressed', String(st.layout === 'list')); $('#layout-grid').setAttribute('aria-pressed', String(st.layout === 'grid')); $('#docs').dataset.layout = st.layout;
     $('#docs-folder-manage').innerHTML = folders.map((f) => `<li><span>${esc(f.name)}</span> <button type="button" class="linkbtn" data-act="rename-folder" data-id="${esc(f.id)}" aria-label="Rename folder ${esc(f.name)}">Rename</button><button type="button" class="linkbtn" data-act="delete-folder" data-id="${esc(f.id)}" aria-label="Delete folder ${esc(f.name)}">Delete</button></li>`).join('') || '<li class="muted">No folders yet.</li>';
-    $('#docs-title').textContent = st.q ? `Results for “${st.q}”` : st.folder ? (st.folder === 'none' ? 'Not in a folder' : folderName(st.folder) || 'Folder') : TITLES[st.view];
+    $('#docs-title').textContent = st.q ? `Results for “${st.q}”` : st.folder ? (st.folder === 'none' ? 'Not in a folder' : folderName(st.folder) || 'Folder') : st.view === 'home' && !homeMode() ? 'All documents' : TITLES[st.view];
     $('.docs-aside').hidden = st.view === 'trash' && !st.folder;
   };
+  const sharing = (d) => (d.my_role !== 'owner' ? '' : d.general_access === 'workspace_edit' ? 'Workspace can edit' : d.general_access === 'workspace_view' ? 'Workspace can view' : d.shared_count > 0 ? `Shared with ${d.shared_count} ${d.shared_count === 1 ? 'person' : 'people'}` : '');
   const row = (d) => {
-    const trash = st.view === 'trash' && !st.folder; const owner = d.my_role === 'owner'; const oname = nameOf(d.owner_id);
+    const trash = st.view === 'trash' && !st.folder; const owner = d.my_role === 'owner'; const oname = nameOf(d.owner_id); const share = sharing(d);
     const title = trash ? esc(d.title) : `<a class="doc-link" href="${esc(ctx.urls.doc(d.id))}">${esc(d.title)}</a>`;
     return `<article class="doc-card docs-row" role="listitem" data-doc="${esc(d.id)}">
-      <div class="docs-name"><span class="docs-type kind-${esc(d.kind)}" title="${esc(KIND[d.kind][1])}">${svg(d.kind)}</span><div class="docs-name-text"><h3>${title}${d.template ? ' <span class="pill">template</span>' : ''}</h3><span class="muted">${esc(KIND[d.kind][1])} · ${place(d)}</span></div></div>
+      <div class="docs-name"><input type="checkbox" class="docs-pick" data-pick aria-label="Select ${esc(d.title)}" ${picked.has(d.id) ? 'checked' : ''}><span class="docs-type kind-${esc(d.kind)}" title="${esc(KIND[d.kind][1])}">${svg(d.kind)}</span><div class="docs-name-text"><h3>${title}${d.template ? ' <span class="pill">template</span>' : ''}</h3><span class="muted">${esc(KIND[d.kind][1])} · ${place(d)}${share ? ` · <span class="docs-share">${esc(share)}</span>` : ''}</span></div></div>
       <div class="docs-owner"><span class="docs-avatar" title="${esc(oname)}" aria-hidden="true">${esc(initials(oname))}</span><span class="sr-only">Owner: ${esc(oname)}</span></div>
       <div class="docs-when muted">${esc(fmtWhen(trash ? d.deleted_at : d.updated_at))}</div>
       <div class="docs-actions">${trash ? (owner ? '<button type="button" class="secondary compact" data-act="restore">Restore</button>' : '') : `<button type="button" class="icon-btn ${d.starred ? 'on' : ''}" data-act="star" aria-pressed="${d.starred}" aria-label="${d.starred ? 'Remove star from' : 'Star'} ${esc(d.title)}">${svg('star', '', d.starred)}</button>
@@ -217,16 +230,23 @@ async function renderHome(root) {
       default: return emptyBox('doc', 'No documents yet', 'Create your first document to start writing.', `<button type="button" class="btn primary" data-new="doc">${svg('plus')}<span>Create document</span></button>`);
     }
   };
+  const drawBulk = () => {
+    const n = picked.size; const trashView = st.view === 'trash' && !st.folder; $('#docs-bulk').hidden = n === 0; $('#bulk-count').textContent = `${n} selected`;
+    $('[data-bulk=star]').hidden = trashView; $('#bulk-move').closest('label').hidden = trashView; $('[data-bulk=trash]').hidden = trashView; $('[data-bulk=restore]').hidden = !trashView;
+    const all = $('#pick-all'); all.checked = docs.length > 0 && docs.every((x) => picked.has(x.id)); all.indeterminate = n > 0 && !all.checked;
+  };
   const drawList = () => {
     $('#docs').innerHTML = docs.map(row).join('');
-    $('#docs-state').innerHTML = docs.length ? '' : emptyFor(); $('.docs-tablehead').hidden = !docs.length;
+    $('#docs-state').innerHTML = docs.length ? '' : emptyFor(); $('.docs-tablehead').hidden = !docs.length || st.layout === 'grid'; $('.docs-quick').hidden = docs.length > 0 || !!st.q || !!st.kind;
+    for (const id of [...picked]) if (!docs.some((x) => x.id === id)) picked.delete(id);
+    drawBulk();
     $('#docs-more').hidden = !cursor || homeMode(); $('#docs-more').disabled = false; $('#docs-viewall').hidden = !(cursor && homeMode());
     $('#docs-count').textContent = docs.length && !homeMode() ? `Showing ${docs.length} document${docs.length === 1 ? '' : 's'}${cursor ? ' (more available)' : ''}` : '';
   };
   const load = async (append = false) => {
     const mine = ++seq;
     if (!append) { $('#docs-state').innerHTML = '<p class="sr-only">Loading documents…</p>'; $('#docs').innerHTML = '<div class="docs-skel" aria-hidden="true"></div>'.repeat(4); $('.docs-tablehead').hidden = false; $('#docs-more').hidden = true; $('#docs-viewall').hidden = true; }
-    const qs = new URLSearchParams({ view: st.folder || st.view === 'home' ? 'recent' : st.view, limit: homeMode() ? '8' : '50' });
+    const qs = new URLSearchParams({ view: st.folder || st.view === 'home' ? 'recent' : st.view, limit: homeMode() ? '8' : '50' }); if (st.sort !== 'updated:desc') { const [s, dr] = st.sort.split(':'); qs.set('sort', s); qs.set('dir', dr); }
     if (st.q) qs.set('q', st.q); if (st.kind) qs.set('kind', st.kind); if (st.folder) qs.set('folder', st.folder); if (append && cursor) qs.set('cursor', cursor);
     try {
       const [page, f] = await Promise.all([apiPaged('/documents?' + qs), append ? folders : api('/document-folders')]);
@@ -270,10 +290,12 @@ async function renderHome(root) {
   listen(document, 'click', (e) => { const from = (e.composedPath && e.composedPath()[0]) || e.target; if (!menu.hidden && !menu.contains(from) && !newBtn.contains(from)) closeNew(); });
 
   $('#docs-views').addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) go({ view: b.dataset.view, folder: '' }); });
-  $('.docs-folderbar').addEventListener('click', async (e) => {
-    const b = e.target.closest('button'); if (!b) return;
-    if (b.hasAttribute('data-folder-all')) return go({ folder: '' });
-    if (b.dataset.folder) return go({ folder: b.dataset.folder });
+  $('#folder-select').addEventListener('change', (e) => go({ folder: e.target.value }));
+  $('#doc-sort').addEventListener('change', (e) => { store.set('sort', e.target.value); picked.clear(); go({ sort: e.target.value }); });
+  const setLayout = (v) => { store.set('layout', v); st.layout = v; $('#docs').dataset.layout = v; $('#layout-list').setAttribute('aria-pressed', String(v === 'list')); $('#layout-grid').setAttribute('aria-pressed', String(v === 'grid')); $('.docs-tablehead').hidden = !docs.length || v === 'grid'; };
+  $('#layout-list').addEventListener('click', () => setLayout('list')); $('#layout-grid').addEventListener('click', () => setLayout('grid'));
+  $('.docs-manage').addEventListener('click', async (e) => {
+    const b = e.target.closest('button'); if (!b || !b.dataset.act) return;
     const id = b.dataset.id; const f = folders.find((x) => x.id === id);
     try {
       if (b.dataset.act === 'rename-folder') { const name = prompt('Folder name', f?.name || ''); if (name && name.trim()) { await api('/document-folders/' + id, { method: 'PATCH', body: JSON.stringify({ name: name.trim() }) }); await load(); } }
@@ -290,6 +312,26 @@ async function renderHome(root) {
   $('#docs-viewall').addEventListener('click', () => go({ view: 'recent' }));
   if (aiOn) $('#ai-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button'); btn.disabled = true; notice('Drafting…');
     try { const d = await api('/documents/ai-draft', { method: 'POST', body: JSON.stringify({ kind: f.kind, prompt: f.prompt, idempotency_key: uid() }) }); location.href = ctx.urls.doc(d.id); } catch (err) { notice(err.body?.code === 'no_ai_provider' ? 'AI assistance is not available until an approved private model is connected.' : [502, 503].includes(err.status) ? 'The AI service is unavailable right now. Nothing was saved or charged.' : describe(err)); btn.disabled = false; } };
+  $('#docs').addEventListener('change', (e) => { const c = e.target.closest('input[data-pick]'); if (!c) return; const id = c.closest('[data-doc]').dataset.doc; if (c.checked) { if (picked.size >= BULK_MAX) { c.checked = false; notice(`You can select up to ${BULK_MAX} documents at a time.`); return; } picked.add(id); } else picked.delete(id); drawBulk(); });
+  $('#pick-all').addEventListener('change', (e) => { picked.clear(); if (e.target.checked) docs.slice(0, BULK_MAX).forEach((x) => picked.add(x.id)); if (e.target.checked && docs.length > BULK_MAX) notice(`The first ${BULK_MAX} documents are selected.`); drawList(); });
+  // Bulk actions run the same per-document routes one after another, so every document goes through the server's own permission and plan checks; a failure on one never stops the rest.
+  const bulk = async (what, arg) => {
+    const ids = [...picked]; if (!ids.length) return; if (what === 'trash' && !confirm(`Move ${ids.length} document${ids.length === 1 ? '' : 's'} to the trash? You can restore them from the Trash view.`)) return;
+    const bar = $('#docs-bulk'); bar.querySelectorAll('button, select').forEach((x) => { x.disabled = true; }); let ok = 0; let failed = 0; let why = '';
+    for (const id of ids) {
+      try {
+        if (what === 'star') await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ starred: true }) });
+        else if (what === 'trash') await api('/documents/' + id, { method: 'DELETE' });
+        else if (what === 'restore') await api(`/documents/${id}/undelete`, { method: 'POST', body: '{}' });
+        else if (what === 'move') await api(`/documents/${id}/move`, { method: 'POST', body: JSON.stringify({ folder_id: arg === 'none' ? null : arg }) });
+        ok++;
+      } catch (err) { failed++; why = err.status === 429 ? 'You are making changes too quickly.' : say(err); if (err.status === 429) break; }
+    }
+    bar.querySelectorAll('button, select').forEach((x) => { x.disabled = false; }); picked.clear();
+    notice(`${ok} document${ok === 1 ? '' : 's'} ${{ star: 'starred', trash: 'moved to the trash', restore: 'restored', move: 'moved' }[what]}.${failed ? ` ${failed} could not be changed: ${why}` : ''}`); await load();
+  };
+  $('#docs-bulk').addEventListener('click', (e) => { const b = e.target.closest('[data-bulk]'); if (!b) return; if (b.dataset.bulk === 'clear') { picked.clear(); drawList(); } else bulk(b.dataset.bulk); });
+  $('#bulk-move').addEventListener('change', (e) => { const v = e.target.value; e.target.value = ''; if (v) bulk('move', v); });
   $('#docs').addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-act]'); if (!b) return; const id = b.closest('[data-doc]').dataset.doc; const d = docs.find((x) => x.id === id); b.disabled = true; b.closest('details')?.removeAttribute('open');
     try {
@@ -333,20 +375,24 @@ async function renderEditor(root, id) {
   const canEdit = ['owner', 'editor'].includes(d.my_role); const owner = d.my_role === 'owner'; let content = d.content; let version = d.current_version; let saved = canon(d.content); let starred = meta.starred;
   const isDoc = d.kind === 'doc';
   root.innerHTML = `<p><a class="link" id="docs-back" href="${esc(ctx.urls.home())}">← All documents</a></p>` + (d.version_source === 'ai' ? '<p class="warn" role="note">This version was drafted by AI. Review it before relying on it.</p>' : '') +
-    panel(`${KIND[d.kind][0]} ${esc(d.title)}`, `<p class="muted">${KIND[d.kind][1]} · you are ${esc(d.my_role)} · <span id="doc-version">version ${esc(version)}</span> · <span id="doc-status" role="status">${canEdit ? 'Saved' : 'Read only'}</span></p>
+    panel(`${KIND[d.kind][0]} ${esc(d.title)}`, `<p class="muted">${KIND[d.kind][1]} · you are ${esc(d.my_role)} · <span id="doc-version">version ${esc(version)}</span> · <span id="doc-status" class="docs-status" role="status" data-state="${canEdit ? 'saved' : 'readonly'}">${canEdit ? 'Saved' : 'Read only'}</span><span id="doc-saved-at" class="muted"></span></p>
       <div class="row doc-actions"><button type="button" class="secondary" id="doc-star" aria-pressed="${starred}">${starred ? '★ Starred' : '☆ Star'}</button><button type="button" class="secondary" id="doc-dup">Duplicate</button>
         <button type="button" class="secondary" data-export="txt">Export .txt</button>${isDoc ? '<button type="button" class="secondary" data-export="md">Export .md</button>' : ''}
         ${owner ? `<label class="docs-move">Folder<select id="doc-folder"><option value="">None</option>${folders.map((f) => `<option value="${esc(f.id)}" ${meta.folder_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label><button type="button" class="secondary" id="del-doc">Move to trash</button>` : ''}</div>
       <label>Title<input id="doc-title" value="${esc(d.title)}" maxlength="200" ${canEdit ? '' : 'disabled'}></label>
       ${isDoc ? `<div class="docs-tools" role="toolbar" aria-label="Formatting">${TOOLS.map(([k, label, name]) => `<button type="button" class="secondary" data-tool="${k}" aria-label="${name}" title="${name}" ${canEdit ? '' : 'disabled'}>${esc(label)}</button>`).join('')}<button type="button" class="secondary" id="toggle-preview" aria-pressed="false">Preview</button><span class="muted" id="doc-count"></span></div>` : ''}
       <div id="editor-area">${isDoc ? `<label>Content<textarea id="doc-text" rows="20" ${canEdit ? '' : 'disabled'}>${esc(content.text)}</textarea></label><div id="doc-preview" class="docs-preview" hidden></div>` : d.kind === 'sheet' ? sheetEditor(content) : slidesEditor(content)}</div>
-      ${canEdit ? '<div class="row"><button id="save-doc">Save</button><span class="muted">Ctrl+S saves. Every save is kept as a version.</span></div>' : ''}`) +
+      ${canEdit ? '<div class="row"><button id="save-doc">Save</button><span class="muted">Changes are saved automatically a few seconds after you stop typing. Ctrl+S saves now and keeps a version.</span></div>' : ''}`) +
     '<div id="ai-host"></div><div id="doc-side"></div>';
   const area = $('#editor-area');
   const collect = () => (isDoc ? { format: 'markdown', text: $('#doc-text').value } : d.kind === 'sheet' ? readSheet(area, content) : readSlides(area));
   const dirty = () => { try { return canon(collect()) !== saved; } catch { return false; } };
-  const setStatus = (t) => { $('#doc-status').textContent = t; };
-  const mark = () => { if (canEdit) setStatus(dirty() ? 'Unsaved changes' : 'Saved'); };
+  const setStatus = (t, state) => { const s = $('#doc-status'); s.textContent = t; s.dataset.state = state || ''; };
+  // Save states: Unsaved changes, Saving…, Saved, Not saved (will retry), Conflict. Autosave runs a few seconds after the last keystroke; a manual Save (button or Ctrl+S) always writes a new version.
+  const AUTOSAVE_MS = 3000; let autoTimer = null; let inflight = false; let again = false; let halted = false; let failures = 0; let keepDraft = () => {};
+  const stamp = () => { $('#doc-saved-at').textContent = ' · last saved ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
+  const schedule = () => { clearTimeout(autoTimer); if (!canEdit || halted) return; autoTimer = setTimeout(() => save({ auto: true }), Math.min(30000, AUTOSAVE_MS * 2 ** Math.min(failures, 4))); };
+  const mark = () => { if (!canEdit) return; if (dirty()) { if (!inflight && !halted) setStatus('Unsaved changes', 'unsaved'); schedule(); } else if (!halted) setStatus('Saved', 'saved'); };
   const rerender = (c) => { content = c; area.innerHTML = d.kind === 'sheet' ? sheetEditor(c) : slidesEditor(c); wire(); };
   const wire = () => {
     $('#add-row')?.addEventListener('click', () => rerender({ ...readSheet(area, content), rows: [...readSheet(area, content).rows, content.columns.map(() => null)] }));
@@ -379,6 +425,7 @@ async function renderEditor(root, id) {
     const get = () => { try { const v = JSON.parse(localStorage.getItem(key) || 'null'); if (v && typeof v.text === 'string' && Date.now() - v.at < TTL) return v; if (v) localStorage.removeItem(key); } catch { /* storage unavailable */ } return null; };
     const put = (text) => { try { localStorage.setItem(key, JSON.stringify({ base: version, text, at: Date.now() })); } catch { /* private mode or full: the page works without it */ } };
     dropDraft = () => { try { localStorage.removeItem(key); } catch { /* nothing to remove */ } };
+    keepDraft = () => put(ta.value);
     const dr = get();
     if (dr && dr.text !== content.text) {
       const same = dr.base === version;
@@ -396,13 +443,36 @@ async function renderEditor(root, id) {
       $('#doc-preview').innerHTML = on ? (renderMarkdown(ta.value) || '<p class="muted">Nothing to preview yet.</p>') : ''; $('#doc-preview').hidden = !on; ta.closest('label').hidden = on;
       root.querySelectorAll('[data-tool]').forEach((b) => { b.disabled = on || !canEdit; }); });
   }
-  const save = async () => {
-    if (!canEdit) return; const btn = $('#save-doc'); btn.disabled = true; setStatus('Saving…');
-    try { const next = collect(); const r = await api(`/documents/${id}`, { method: 'PUT', body: JSON.stringify({ base_version: version, content: next }) }); version = r.current_version; saved = canon(next); $('#doc-version').textContent = `version ${version}`; setStatus('Saved'); notice('Saved.'); dropDraft(); side().catch(() => {}); }      // the side panels refresh in the background: the Save button and Ctrl+S are usable again at once
-    catch (err) { setStatus('Not saved'); notice(err.body?.code === 'version_conflict' ? 'Someone else saved a newer version. Reload to see it - your unsaved edits are still in the page, so copy them first.' : err.body?.code === 'read_only' ? 'You can view but not edit this document.' : describe(err)); }
-    finally { btn.disabled = false; }
+  const conflictBanner = (current) => {
+    if ($('#conflict-banner')) return; const mine = (() => { try { const c = collect(); return isDoc ? c.text : JSON.stringify(c, null, 2); } catch { return ''; } })();
+    area.insertAdjacentHTML('beforebegin', `<div class="warn" id="conflict-banner" role="alert"><p><strong>Conflict.</strong> This ${esc(KIND[d.kind][1].toLowerCase())} was saved elsewhere${current ? ' (now version ' + esc(current) + ')' : ''} after you opened it. Your changes are still on this page and have <strong>not</strong> been saved, so nothing of theirs was overwritten.</p>
+      <details><summary>Show my unsaved ${isDoc ? 'text' : 'content'} so I can copy it</summary><textarea readonly rows="6" aria-label="Your unsaved content">${esc(mine)}</textarea></details>
+      <div class="row"><button type="button" id="conflict-load">Load the latest version</button><button type="button" class="secondary" id="conflict-copy">Save my changes as a new ${esc(KIND[d.kind][1].toLowerCase())}</button></div></div>`);
+    $('#conflict-load').addEventListener('click', () => { keepDraft(); saved = canon(collect()); location.reload(); });          // the draft banner then offers the text back for copying
+    $('#conflict-copy').addEventListener('click', async (e) => {
+      const b = e.currentTarget; b.disabled = true;
+      try { const c = await api('/documents', { method: 'POST', body: JSON.stringify({ kind: d.kind, title: (($('#doc-title').value || d.title) + ' (my changes)').slice(0, 200), content: collect(), idempotency_key: uid() }) }); saved = canon(collect()); location.href = ctx.urls.doc(c.id); }
+      catch (err) { notice(describe(err)); b.disabled = false; }
+    });
   };
-  $('#save-doc')?.addEventListener('click', save);
+  const save = async ({ auto = false } = {}) => {
+    if (!canEdit) return; if (auto && halted) return;
+    if (inflight) { again = true; return; }
+    clearTimeout(autoTimer); if (auto && !dirty()) return;
+    inflight = true; const btn = $('#save-doc'); btn.disabled = true; setStatus('Saving…', 'saving');
+    try {
+      const next = collect(); const r = await api(`/documents/${id}`, { method: 'PUT', body: JSON.stringify({ base_version: version, content: next, autosave: auto }) });
+      version = r.current_version; saved = canon(next); failures = 0; halted = false; $('#conflict-banner')?.remove(); $('#doc-version').textContent = `version ${version}`; stamp(); dropDraft();
+      if (!auto) { notice('Saved.'); side().catch(() => {}); }                // the side panels refresh in the background: Save and Ctrl+S are usable again at once
+    } catch (err) {
+      const code = err.body?.code;
+      if (code === 'version_conflict') { halted = true; setStatus('Conflict', 'conflict'); keepDraft(); conflictBanner(err.body?.current_version); notice('Someone else saved a newer version. Your changes are still in the page and were not saved.'); }
+      else if (code === 'read_only' || err.status === 404 || err.status === 403) { halted = true; setStatus('Not saved', 'error'); notice(code === 'read_only' ? 'You can view but not edit this document.' : describe(err)); }
+      else { failures++; setStatus('Not saved', 'error'); if (!auto) notice(describe(err)); else notice('Not saved yet. Your text is kept in this page and we will try again.'); }
+    } finally { inflight = false; btn.disabled = false; if (!halted && dirty()) { if (again) { again = false; schedule(); } else if (failures) schedule(); else mark(); } else if (!halted) mark(); again = false; }
+  };
+  listen(window, 'beforeunload', (e) => { if (canEdit && (inflight || dirty())) { e.preventDefault(); e.returnValue = ''; } });
+  $('#save-doc')?.addEventListener('click', () => save());
   root.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && canEdit) { e.preventDefault(); if (!$('#save-doc').disabled) save(); } });
   $('#docs-back').addEventListener('click', (e) => { if (canEdit && dirty() && !confirm('You have unsaved changes. Leave without saving?')) e.preventDefault(); });
   $('#doc-title').addEventListener('change', async (e) => {
