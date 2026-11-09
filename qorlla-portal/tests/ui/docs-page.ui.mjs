@@ -141,6 +141,44 @@ try {
   await phone.page.goto(app.base + '/app/suite?doc=' + docId); await phone.page.locator('#doc-text').waitFor(); await sleep(400);
   check('phone width: no horizontal scrolling in the editor', await phone.page.evaluate(() => document.scrollingElement.scrollWidth <= window.innerWidth + 1), await phone.page.evaluate(() => document.scrollingElement.scrollWidth + ' > ' + window.innerWidth));
   await phone.ctx.close();
+  // ---------------------------------------------------------------- how saving fails, and what survives
+  const fm = (await api(H).post('/api/v1/documents', { kind: 'doc', title: 'Failure modes' })).body; const putUrl = '**/api/v1/documents/' + fm.id;
+  await page.goto(app.base + '/app/suite?doc=' + fm.id); await page.locator('#doc-text').waitFor();
+  await page.fill('#doc-text', 'draft one'); let blockPut = true; await page.route(putUrl, (r) => (blockPut && r.request().method() === 'PUT' ? r.abort() : r.continue()));
+  await page.locator('#save-doc').click();
+  check('save: a network failure says "Not saved", keeps the typed text, leaves Save usable and writes nothing', await until(async () => (await page.locator('#doc-status').textContent()) === 'Not saved') && (await page.inputValue('#doc-text')) === 'draft one' && (await page.locator('#save-doc').isEnabled()) && (await api(H).get(`/api/v1/documents/${fm.id}`)).body.current_version === 1);
+  blockPut = false; await page.locator('#save-doc').click(); check('save: retrying once the network is back saves it (version 2)', await until(async () => (await page.locator('#doc-version').textContent()) === 'version 2' && (await page.locator('#doc-status').textContent()) === 'Saved'));
+  await page.unroute(putUrl);
+  const tab2 = await ctx.newPage(); await tab2.goto(app.base + '/app/suite?doc=' + fm.id); await tab2.locator('#doc-text').waitFor(); await tab2.fill('#doc-text', 'written in the other tab'); await tab2.locator('#save-doc').click(); await until(async () => (await tab2.locator('#doc-version').textContent()) === 'version 3');
+  await tab2.close(); await page.bringToFront();
+  await page.fill('#doc-text', 'my competing edit'); await page.locator('#save-doc').click();
+  check('conflict: a stale save is refused with the explanation, the typed text stays in the page and the other tab\'s version is untouched', await until(async () => /Someone else saved a newer version/.test(await notice(page))) && (await page.inputValue('#doc-text')) === 'my competing edit' && (await page.locator('#doc-status').textContent()) === 'Not saved' && (await api(H).get(`/api/v1/documents/${fm.id}`)).body.content.text === 'written in the other tab');
+  await page.reload(); await page.locator('#doc-text').waitFor();
+  check('refresh: what was saved is back after a reload; unsaved typing is not kept (there is no local draft recovery or autosave)', (await page.inputValue('#doc-text')) === 'written in the other tab' && (await page.locator('#doc-version').textContent()) === 'version 3');
+  await api(H).put(`/api/v1/documents/${fm.id}/permissions`, { general_access: 'restricted', users: [{ user_id: M.sub, role: 'editor' }] });
+  const ed = await openAs(M); await ed.page.goto(app.base + '/app/suite?doc=' + fm.id); await ed.page.locator('#doc-text').waitFor(); await ed.page.fill('#doc-text', 'editor typing');
+  await api(H).put(`/api/v1/documents/${fm.id}/permissions`, { general_access: 'restricted', users: [{ user_id: M.sub, role: 'viewer' }] });
+  await ed.page.locator('#save-doc').click();
+  check('revocation: an editor demoted to viewer while typing cannot save (clear message, nothing written)', await until(async () => /view but not edit/.test(await notice(ed.page))) && (await ed.page.locator('#doc-status').textContent()) === 'Not saved' && (await api(H).get(`/api/v1/documents/${fm.id}`)).body.current_version === 3);
+  await api(H).put(`/api/v1/documents/${fm.id}/permissions`, { general_access: 'restricted', users: [] });
+  await ed.page.locator('#save-doc').click(); check('revocation: once access is removed entirely, saving is refused and nothing is written', await until(async () => /not found|permission|Document/i.test(await notice(ed.page))) && (await api(H).get(`/api/v1/documents/${fm.id}`)).body.current_version === 3);
+  await ed.page.reload(); check('revocation: a reload shows "not found, or you do not have access" without leaking the document', await until(async () => /not found, or you do not have access/.test(await ed.page.locator('#suite-root').textContent())) && !(await ed.page.content()).includes('written in the other tab'));
+  await ed.ctx.close();
+  await db.pool.query(`DELETE FROM portal.entitlements WHERE plan_slug='pro' AND feature='documents.comments'`);
+  await page.goto(app.base + '/app/suite?doc=' + fm.id); await page.locator('#doc-side').waitFor(); await until(async () => /Comments/.test(await page.locator('#doc-side').textContent()));
+  check('comments entitlement: without it the page shows "not included in your plan" instead of the form, and the server refuses a direct call', (await page.locator('#comment-form').count()) === 0 && /not included in your plan/.test(await page.locator('#doc-side').textContent()) && (await api(H).post(`/api/v1/documents/${fm.id}/comments`, { body: 'x' })).status === 403);
+  await db.pool.query(`INSERT INTO portal.entitlements(plan_slug,feature,quota,description) VALUES('pro','documents.comments',NULL,'Document comments') ON CONFLICT DO NOTHING`);
+
+  // ---------------------------------------------------------------- the shared min-width:0 change: does any portal page overflow with it that did not without it?
+  const pagesToTry = ['/app/', '/app/notes', '/app/mate', '/app/suite', '/app/suite?doc=' + docId, '/app/billing', '/app/team', '/app/phone', '/app/receptionist']; const regress = []; let measured = 0;
+  const overflowAt = async (path, width, strip) => {
+    const c = await browser.newContext({ viewport: { width, height: 800 } }); await c.addCookies([{ name: 'qorlla_portal_session', value: H.jwt, url: app.base, httpOnly: true }, { name: 'qorlla_csrf', value: H.csrf, url: app.base }]);
+    const p = await c.newPage(); if (strip) await p.route('**/app/assets/styles.css', async (r) => { const resp = await r.fetch(); r.fulfill({ response: resp, body: (await resp.text()).replace('.layout>main.docs-page{min-width:0}', '') }); });
+    await p.goto(app.base + path); await p.locator('main').first().waitFor(); await sleep(900); const w = await p.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth); await c.close(); return w;
+  };
+  for (const path of pagesToTry) for (const width of [360, 768, 1280]) { const withRule = await overflowAt(path, width, false); const without = await overflowAt(path, width, true); measured++; if (withRule > 1 && withRule > without + 1) regress.push(`${path}@${width}: ${withRule}px with the rule, ${without}px without`); }
+  check(`min-width:0: none of ${pagesToTry.length} portal pages x 3 widths (${measured} measurements) overflows more with the rule than without it`, regress.length === 0, regress.join(' | '));
+
   check('no script errors, console errors or 5xx responses during the whole run', problems.length === 0, problems.join(' | '));
   await ctx.close();
 } catch (e) { check('the run finished without an unexpected exception', false, e.stack || e.message); }

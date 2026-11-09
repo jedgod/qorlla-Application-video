@@ -49,6 +49,7 @@ const readSlides = (area) => ({ slides: [...area.querySelectorAll('[data-slide]'
 const store = { get(k, d) { try { return sessionStorage.getItem('qdocs.' + k) ?? d; } catch { return d; } }, set(k, v) { try { sessionStorage.setItem('qdocs.' + k, v); } catch { /* private mode: the page works without it */ } } };
 
 export async function renderSuite(root) {
+  root.closest('main')?.classList.add('docs-page');       // lets the page's wide tables scroll inside themselves on phones; scoped here so no other portal page's layout changes
   const params = new URLSearchParams(location.search);
   if (params.get('doc')) return renderEditor(root, params.get('doc'));
   return renderHome(root);
