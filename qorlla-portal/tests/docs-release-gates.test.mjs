@@ -124,3 +124,56 @@ describe('abuse controls: per-person rate limits, a per-document comment cap and
     const first = (await a.cl.get('/api/v1/document-folders')).body[0]; assert.equal((await a.cl.del(`/api/v1/document-folders/${first.id}`)).status, 204); assert.equal((await a.cl.post('/api/v1/document-folders', { name: 'one more' })).status, 201);
   });
 });
+
+describe('subscription status: Docs follows the portal\'s effective plan on every route, and recovers the moment a subscription is healthy again', () => {
+  let db, main, app;
+  const q = async (sql, args = []) => (await db.pool.query(sql, args)).rows;
+  /** A workspace on `plan` with `n` live documents, whose subscription is then put into `state` (SQL fragment for status and period end). */
+  async function ws(plan, n, state) {
+    const u = await main.mint(); const w = await seedWorkspace(db.pool, u.sub, 'Status ' + crypto.randomBytes(3).toString('hex'));
+    await db.pool.query(`UPDATE portal.subscriptions SET plan_slug=$2 WHERE workspace_id=$1`, [w, plan]); const set = async (s) => db.pool.query(`UPDATE portal.subscriptions SET ${s} WHERE workspace_id=$1`, [w]);
+    await db.pool.query(`INSERT INTO portal.documents(workspace_id,owner_id,kind,title,current_version,search_text) SELECT $1,$2,'doc','D'||g,1,'' FROM generate_series(1,$3) g`, [w, u.sub, n]);
+    const first = (await q('SELECT id FROM portal.documents WHERE workspace_id=$1 ORDER BY title LIMIT 1', [w]))[0].id; await db.pool.query(`INSERT INTO portal.document_versions(document_id,version_no,content,created_by) VALUES($1,1,$2,$3)`, [first, JSON.stringify({ format: 'markdown', text: 'kept' }), u.sub]);
+    await set(state); return { u, w, first, cl: app.client(u), set };
+  }
+  const ACTIVE = "status='active', current_period_end=now()+interval '20 days'";
+  before(async () => { db = await freshDatabase(); main = await startMainStandIn(); app = await startApp({ pool: db.pool, cfg: testConfig({}, main), jwks: main.jwks }); });
+  after(async () => { await app?.close(); await main?.close(); await db?.drop(); });
+
+  for (const [label, state, expectPro] of [
+    ['active and in period', ACTIVE, true],
+    ['trialing', "status='trialing', current_period_end=now()+interval '5 days'", true],
+    ['past due, still inside the 7-day grace', "status='past_due', current_period_end=now()-interval '3 days'", true],
+    ['active but the period ended more than 2 days ago', "status='active', current_period_end=now()-interval '3 days'", false],
+    ['past due beyond the 7-day grace', "status='past_due', current_period_end=now()-interval '9 days'", false],
+    ['canceled', "status='canceled', current_period_end=now()+interval '20 days'", false],
+    ['expired', "status='expired', current_period_end=now()+interval '20 days'", false],
+    ['incomplete (never paid)', "status='incomplete', current_period_end=now()+interval '20 days'", false]]) {
+    test(`Pro workspace, ${label}: ${expectPro ? 'keeps Pro limits' : 'is limited as Basic (5 documents) on create, duplicate and restore, but nothing existing is lost or locked'}`, async () => {
+      const a = await ws('pro', 8, state);                                   // 8 live documents: over Basic's 5, far under Pro's 500
+      const gone = (await a.cl.post('/api/v1/documents', { kind: 'doc', title: 'to trash' })); if (expectPro) { assert.equal(gone.status, 201); await a.cl.del(`/api/v1/documents/${gone.body.id}`); }
+      const attempts = [await a.cl.post('/api/v1/documents', { kind: 'doc', title: 'new' }), await a.cl.post(`/api/v1/documents/${a.first}/duplicate`, {})];
+      if (expectPro) assert.ok(attempts.every((r) => r.status === 201), attempts.map((r) => r.status).join());
+      else { assert.ok(attempts.every((r) => r.status === 402 && r.body.code === 'plan_limit' && r.body.plan === 'basic'), JSON.stringify(attempts.map((r) => [r.status, r.body.plan]))); const t = (await a.cl.post(`/api/v1/documents/${a.first}/duplicate`, {})); assert.equal(t.status, 402); }
+      // existing documents are never locked or removed by a plan change
+      assert.equal((await a.cl.get(`/api/v1/documents/${a.first}`)).body.content.text, 'kept'); assert.equal((await a.cl.put(`/api/v1/documents/${a.first}`, { base_version: 1, content: { format: 'markdown', text: 'still editable' } })).status, 200);
+      assert.equal((await a.cl.get(`/api/v1/documents/${a.first}/export.md`)).status, 200); assert.ok(Number((await q('SELECT count(*) FROM portal.documents WHERE workspace_id=$1 AND deleted_at IS NULL', [a.w]))[0].count) >= 8);
+    });
+  }
+  test('restore from the trash and a healthy subscription: the limit lifts at once when the subscription is active again (no cached plan)', async () => {
+    const a = await ws('pro', 8, "status='canceled'"); const d = (await q('SELECT id FROM portal.documents WHERE workspace_id=$1 ORDER BY title DESC LIMIT 1', [a.w]))[0].id;
+    assert.equal((await a.cl.del(`/api/v1/documents/${d}`)).status, 204); assert.equal((await a.cl.post(`/api/v1/documents/${d}/undelete`, {})).status, 402, 'canceled: 7 live >= 5, restore refused');
+    await a.set(ACTIVE); assert.equal((await a.cl.post(`/api/v1/documents/${d}/undelete`, {})).status, 200, 'active again: restore works on the very next request'); assert.equal((await a.cl.post('/api/v1/documents', { kind: 'doc', title: 'back to Pro' })).status, 201);
+    await a.set("status='canceled'"); assert.equal((await a.cl.post('/api/v1/documents', { kind: 'doc', title: 'and down again' })).status, 402, 'and the next request after a cancellation is limited again');
+  });
+  test('Enterprise and Business follow the same rule: a cancelled Business workspace over 5 documents cannot add more; a healthy Enterprise one is unlimited', async () => {
+    const b = await ws('business', 6, "status='canceled'"); assert.equal((await b.cl.post('/api/v1/documents', { kind: 'doc', title: 'x' })).status, 402);
+    const e = await ws('enterprise', 30, ACTIVE); const rows = await Promise.all(Array.from({ length: 10 }, (_, i) => e.cl.post('/api/v1/documents', { kind: 'doc', title: 'E' + i }))); assert.ok(rows.every((r) => r.status === 201));
+  });
+  test('comments are a Basic-and-up feature row: a cancelled paid workspace still gets the Basic entitlement, and removing the Basic row refuses everyone on it (fails closed)', async () => {
+    const a = await ws('pro', 2, "status='canceled'"); assert.equal((await a.cl.post(`/api/v1/documents/${a.first}/comments`, { body: 'basic still comments' })).status, 201);
+    await q(`DELETE FROM portal.entitlements WHERE plan_slug='basic' AND feature='documents.comments'`);
+    try { const r = await a.cl.post(`/api/v1/documents/${a.first}/comments`, { body: 'refused' }); assert.equal(r.status, 403); assert.equal(r.body.code, 'entitlement_required'); }
+    finally { await q(`INSERT INTO portal.entitlements(plan_slug,feature,quota,description) VALUES('basic','documents.comments',NULL,'Document comments') ON CONFLICT DO NOTHING`); }
+  });
+});

@@ -35,9 +35,9 @@ export async function mountAiPanel(host, opts) {
   const id = opts.id || 'ai';
   const [status, models] = await Promise.all([api('/ai/status').catch(() => ({ available: false })), api('/ai/models').catch(() => [{ id: 'qorlla-ai', name: 'Qorlla AI', available: false }])]);
   let result = null, running = false, showDiff = false, confirming = false;
-  host.innerHTML = `<section class="panel ai-panel" aria-labelledby="${id}-h" data-ai-panel>
-    <h2 id="${id}-h">Qorlla AI <span class="muted">Workspace Assistant</span></h2>
-    ${status.available ? '' : '<p class="warn" role="note">Qorlla AI is not available on this server. Nothing is simulated.</p>'}
+  host.innerHTML = `<section class="${opts.embedded ? 'ai-panel embedded' : 'panel ai-panel'}" aria-labelledby="${id}-h" data-ai-panel>
+    ${opts.embedded ? `<h3 id="${id}-h">Qorlla AI <span class="muted">Workspace Assistant</span></h3>` : `<h2 id="${id}-h">Qorlla AI <span class="muted">Workspace Assistant</span></h2>`}
+    ${status.available || opts.embedded ? '' : '<p class="warn" role="note">Qorlla AI is not available on this server. Nothing is simulated.</p>'}
     ${status.available && !status.external_processing_authorised ? '<p class="muted" data-ai-privacy>External AI processing is not authorised for this workspace, so only private models can answer.</p>' : ''}
     <div class="row">
       ${opts.mode === 'chat' ? `<label>Ask Qorlla AI<textarea data-ai-text rows="2" maxlength="4000" placeholder="Ask about your workspace"></textarea></label>`

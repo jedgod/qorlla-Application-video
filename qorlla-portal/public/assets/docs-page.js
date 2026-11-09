@@ -2,15 +2,17 @@
 // sharing, comments, export) and the existing sheet / slides editors. Mounted by app.js at /app/suite through workspace.js.
 // Wired to the portal API (/api/v1/documents, /api/v1/document-folders). All text is escaped before it reaches the page; the markdown preview
 // escapes first and only then adds a fixed set of tags, so nothing a person types can run as script. AI output is shown as plain text only.
-import { $, esc, api, notice, describe, panel } from './core.js';
+import { $, esc, api, apiPaged, notice, describe, panel } from './core.js';
 import { mountAiPanel } from './ai-panel.js';
 
 const say = (e) => (e.body?.code === 'entitlement_required' ? 'That is not included in your plan.' : describe(e));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
 const when = (iso) => (iso ? new Date(iso).toLocaleString() : '-');
+const ago = (iso) => { const s = (Date.now() - new Date(iso).getTime()) / 1000; if (!(s >= 0)) return when(iso); if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + ' min ago'; if (s < 86400) return Math.floor(s / 3600) + ' h ago'; if (s < 172800) return 'yesterday'; return new Date(iso).toLocaleDateString(); };
 const KIND = { doc: ['📄', 'Document'], sheet: ['📊', 'Sheet'], slides: ['🎞️', 'Slides'] };
-const VIEWS = [['recent', '🕘', 'Recent'], ['mine', '📄', 'My documents'], ['shared', '🤝', 'Shared with me'], ['starred', '⭐', 'Starred'], ['templates', '📑', 'Templates'], ['trash', '🗑️', 'Trash']];
-const EMPTY = { recent: 'No documents yet. Create one above.', mine: 'You have not created any documents yet.', shared: 'Nothing has been shared with you yet.', starred: 'Star a document to find it here quickly.', templates: 'Mark one of your documents as a template to list it here.', trash: 'The trash is empty.' };
+const VIEWS = [['home', '🏠', 'Home'], ['recent', '🕘', 'Recent'], ['mine', '📄', 'My documents'], ['shared', '🤝', 'Shared'], ['starred', '⭐', 'Starred'], ['templates', '📑', 'Templates'], ['trash', '🗑️', 'Trash']];
+const TITLES = { home: 'Recent documents', recent: 'Recent', mine: 'My documents', shared: 'Shared with me', starred: 'Starred', templates: 'Templates', trash: 'Trash' };
+const EMPTY = { home: 'No documents yet. Choose + New to create one.', recent: 'No documents yet. Choose + New to create one.', mine: 'You have not created any documents yet.', shared: 'Nothing has been shared with you yet.', starred: 'Star a document to find it here quickly.', templates: 'Mark one of your documents as a template to list it here.', trash: 'The trash is empty.' };
 
 // ------------------------------------------------------------------ safe markdown preview
 const inline = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
@@ -56,98 +58,124 @@ export async function renderSuite(root) {
 }
 
 // ================================================================== home
+// Layout: view tabs, search + filters, folder chips, THEN the document list, then New document, then one AI assistance area.
+// The list is cursor-paged (50 at a time; the Home tab shows the 8 most recent). Rights are applied by the server on every page.
 async function renderHome(root) {
-  const st = { view: VIEWS.some((v) => v[0] === store.get('view')) ? store.get('view') : 'recent', folder: store.get('folder', ''), q: '', kind: '' };
+  const stored = store.get('view');
+  const st = { view: VIEWS.some((v) => v[0] === stored) ? stored : 'home', folder: store.get('folder', ''), q: '', kind: '' };
   const status = await api('/assistant/status').catch(() => ({ ai_provider_configured: false }));
+  const aiOn = !!status.ai_provider_configured;
   const kindOptions = Object.entries(KIND).map(([k, v]) => `<option value="${k}">${v[0]} ${v[1]}</option>`).join('');
-  root.innerHTML = `<div class="docs-shell">
-    <nav class="docs-side" aria-label="Document views"><ul id="docs-views"></ul><h2 class="docs-h">Folders</h2><ul id="docs-folders"></ul>
-      <form id="folder-form"><label>New folder<input name="name" maxlength="120" required></label><button class="secondary">Add folder</button></form></nav>
-    <div class="docs-main">
-      ${panel('Create', `<form id="doc-form" class="row"><label>Type<select name="kind">${kindOptions}</select></label><label>Title<input name="title" required maxlength="200"></label><button>Create</button></form>`)}
-      ${panel('Draft with AI', `${status.ai_provider_configured ? '' : '<p class="warn">No AI provider is configured on this server; drafting is unavailable.</p>'}<form id="ai-form" class="row"><label>Type<select name="kind">${kindOptions}</select></label><label>What should it contain?<textarea name="prompt" required minlength="3" maxlength="4000" rows="2"></textarea></label><button ${status.ai_provider_configured ? '' : 'disabled'}>Draft</button></form><p class="muted">AI drafts are starting points. Review them before relying on them.</p>`)}
+  root.innerHTML = `<div class="docs-home">
+    <nav class="docs-tabs" aria-label="Document views"><ul id="docs-views"></ul></nav>
+    <form id="doc-search" class="docs-search" role="search">
+      <label>Search documents<input name="q" type="search" maxlength="200" placeholder="Search by title or content"></label>
+      <label>Type<select name="kind" id="doc-kind"><option value="">All types</option>${kindOptions}</select></label>
+      <button class="secondary">Search</button><button type="button" id="new-doc">+ New</button></form>
+    <div class="docs-folderbar"><ul id="docs-folders" class="chips" aria-label="Folders"></ul>
+      <details class="docs-manage"><summary>Manage folders</summary>
+        <form id="folder-form"><label>New folder<input name="name" maxlength="120" required></label><button class="secondary">Add folder</button></form>
+        <ul id="docs-folder-manage" class="docs-folder-manage"></ul></details></div>
+    <h2 id="docs-title" class="docs-h" aria-live="polite"></h2>
+    <div id="docs-state" role="status"></div>
+    <div id="docs" class="cards docs-list"></div>
+    <div class="docs-more"><button type="button" class="secondary" id="docs-more" hidden>Load more documents</button><button type="button" class="secondary" id="docs-viewall" hidden>View all recent documents →</button><span id="docs-count" class="muted"></span></div>
+    <div id="docs-new">${panel('New document', `<form id="doc-form" class="row"><label>Type<select name="kind">${kindOptions}</select></label><label>Title<input name="title" required maxlength="200"></label><button>Create</button></form>`)}</div>
+    <section class="panel docs-ai" id="docs-ai" aria-labelledby="docs-ai-h"><h2 id="docs-ai-h">AI assistance</h2>
+      <p class="muted">Create, summarize, rewrite and translate documents when private AI is available.</p>
+      ${aiOn ? '' : '<p class="warn" role="note">AI assistance is turned off until an approved private model is connected. Nothing is simulated.</p>'}
+      <form id="ai-form" class="row"><label>Type<select name="kind">${kindOptions}</select></label><label>What should it contain?<textarea name="prompt" required minlength="3" maxlength="4000" rows="2"></textarea></label><button ${aiOn ? '' : 'disabled'}>Draft</button></form>
       <div id="draft-ai-host"></div>
-      <form id="doc-search" class="docs-search" role="search"><label>Search documents<input name="q" type="search" maxlength="200" placeholder="Search by title or content"></label>
-        <label>Type<select name="kind" id="doc-kind"><option value="">All types</option>${kindOptions}</select></label><button class="secondary">Search</button></form>
-      <h2 id="docs-title" class="docs-h" aria-live="polite"></h2>
-      <div id="docs-state" role="status"></div>
-      <div id="docs" class="cards"></div></div></div>`;
+      <p class="muted">AI drafts are starting points. Review them before relying on them.</p></section></div>`;
   const host = $('#draft-ai-host');
-  await mountAiPanel(host, { id: 'draft-ai', mode: 'task', tasks: [{ task: 'docs_draft', label: 'Draft a new document', needs: ['text'] }], input: () => ({}), current: () => '',
+  await mountAiPanel(host, { id: 'draft-ai', embedded: true, mode: 'task', tasks: [{ task: 'docs_draft', label: 'Draft a new document', needs: ['text'] }], input: () => ({}), current: () => '',
     newTitle: () => (host.querySelector('[data-ai-text]').value.trim().slice(0, 60) || 'AI draft'), confirmText: () => 'It will be created as a new private document, labelled as AI-assisted.',
     onApplied: (out) => { location.href = `/app/suite?doc=${out.id}`; } });
 
-  let folders = []; let docs = []; let seq = 0;
+  let folders = []; let docs = []; let cursor = null; let seq = 0;
   const folderName = (id) => folders.find((f) => f.id === id)?.name;
+  const homeMode = () => st.view === 'home' && !st.folder && !st.q && !st.kind;
+  const place = (d) => (d.my_role === 'owner' ? 'My Documents' : 'Shared with you') + (d.folder_id && folderName(d.folder_id) ? ' · ' + esc(folderName(d.folder_id)) : '');
   const drawNav = () => {
-    $('#docs-views').innerHTML = VIEWS.map(([k, icon, label]) => `<li><button type="button" class="docs-view" data-view="${k}" ${!st.folder && st.view === k ? 'aria-current="true"' : ''}><span aria-hidden="true">${icon}</span> ${label}</button></li>`).join('');
-    $('#docs-folders').innerHTML = `<li><button type="button" class="docs-view" data-folder="none" ${st.folder === 'none' ? 'aria-current="true"' : ''}><span aria-hidden="true">📂</span> Not in a folder</button></li>` +
-      folders.map((f) => `<li class="docs-folder"><button type="button" class="docs-view" data-folder="${esc(f.id)}" ${st.folder === f.id ? 'aria-current="true"' : ''}><span aria-hidden="true">📁</span> ${esc(f.name)} <span class="muted">${esc(f.documents)}</span></button>
-        <button type="button" class="linkbtn" data-act="rename-folder" data-id="${esc(f.id)}" aria-label="Rename folder ${esc(f.name)}">Rename</button><button type="button" class="linkbtn" data-act="delete-folder" data-id="${esc(f.id)}" aria-label="Delete folder ${esc(f.name)}">Delete</button></li>`).join('');
-    $('#docs-title').textContent = st.folder ? (st.folder === 'none' ? 'Not in a folder' : folderName(st.folder) || 'Folder') : VIEWS.find((v) => v[0] === st.view)[2];
+    $('#docs-views').innerHTML = VIEWS.map(([k, icon, label]) => `<li><button type="button" class="docs-tab" data-view="${k}" ${!st.folder && st.view === k ? 'aria-current="true"' : ''}><span aria-hidden="true">${icon}</span> ${label}</button></li>`).join('');
+    $('#docs-folders').innerHTML = `<li><button type="button" class="chip" data-folder-all aria-pressed="${!st.folder}">All folders</button></li><li><button type="button" class="chip" data-folder="none" aria-pressed="${st.folder === 'none'}"><span aria-hidden="true">📂</span> Not in a folder</button></li>` +
+      folders.map((f) => `<li><button type="button" class="chip" data-folder="${esc(f.id)}" aria-pressed="${st.folder === f.id}"><span aria-hidden="true">📁</span> ${esc(f.name)} <span class="muted">${esc(f.documents)}</span></button></li>`).join('');
+    $('#docs-folder-manage').innerHTML = folders.map((f) => `<li><span>${esc(f.name)}</span> <button type="button" class="linkbtn" data-act="rename-folder" data-id="${esc(f.id)}" aria-label="Rename folder ${esc(f.name)}">Rename</button><button type="button" class="linkbtn" data-act="delete-folder" data-id="${esc(f.id)}" aria-label="Delete folder ${esc(f.name)}">Delete</button></li>`).join('') || '<li class="muted">No folders yet.</li>';
+    $('#docs-title').textContent = st.q ? `Results for “${st.q}”` : st.folder ? (st.folder === 'none' ? 'Not in a folder' : folderName(st.folder) || 'Folder') : TITLES[st.view];
   };
-  const card = (d) => {
+  const row = (d) => {
     const trash = st.view === 'trash' && !st.folder; const owner = d.my_role === 'owner';
-    return `<article class="card doc-card" data-doc="${esc(d.id)}"><div class="emoji" aria-hidden="true">${KIND[d.kind][0]}</div>
-      <h3>${esc(d.title)}${d.template ? ' <span class="pill">template</span>' : ''}</h3>
-      <span class="muted">${KIND[d.kind][1]} · ${esc(d.my_role)} · v${esc(d.current_version)} · ${esc(when(d.updated_at))}</span>
-      <div class="row doc-actions">${trash ? (owner ? '<button class="secondary" data-act="restore">Restore</button>' : '') : `<a class="link" href="/app/suite?doc=${esc(d.id)}">Open →</a>
-        <button class="secondary" data-act="star" aria-pressed="${d.starred}" aria-label="${d.starred ? 'Remove star from' : 'Star'} ${esc(d.title)}">${d.starred ? '★ Starred' : '☆ Star'}</button>
-        <button class="secondary" data-act="dup" aria-label="Duplicate ${esc(d.title)}">Duplicate</button>
-        ${owner ? `<label class="docs-move">Folder<select data-act="move" aria-label="Folder for ${esc(d.title)}"><option value="">None</option>${folders.map((f) => `<option value="${esc(f.id)}" ${d.folder_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
-        <button class="secondary" data-act="template" aria-pressed="${d.template}">${d.template ? 'Not a template' : 'Make template'}</button><button class="secondary" data-act="trash" aria-label="Move ${esc(d.title)} to trash">Trash</button>` : ''}`}</div></article>`;
+    const title = trash ? esc(d.title) : `<a class="doc-link" href="/app/suite?doc=${esc(d.id)}">${esc(d.title)}</a>`;
+    return `<article class="card doc-card doc-row" data-doc="${esc(d.id)}"><span class="doc-ico" aria-hidden="true">${KIND[d.kind][0]}</span>
+      <div class="doc-main"><h3>${title}${d.template ? ' <span class="pill">template</span>' : ''}</h3><span class="muted">${KIND[d.kind][1]} · ${place(d)} · ${trash ? 'Deleted ' : 'Edited '}${esc(ago(trash ? d.deleted_at : d.updated_at))} · v${esc(d.current_version)}</span></div>
+      ${trash ? (owner ? '<button class="secondary" data-act="restore">Restore</button>' : '') : `<button type="button" class="icon-btn" data-act="star" aria-pressed="${d.starred}" aria-label="${d.starred ? 'Remove star from' : 'Star'} ${esc(d.title)}">${d.starred ? '★' : '☆'}</button>
+        <details class="doc-menu"><summary aria-label="More actions for ${esc(d.title)}">⋯</summary><div class="doc-menu-items">
+          <button type="button" data-act="dup">Duplicate</button>
+          ${owner ? `<label class="docs-move">Folder<select data-act="move" aria-label="Folder for ${esc(d.title)}"><option value="">None</option>${folders.map((f) => `<option value="${esc(f.id)}" ${d.folder_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
+          <button type="button" data-act="template" aria-pressed="${d.template}">${d.template ? 'Not a template' : 'Make template'}</button><button type="button" data-act="trash">Move to trash</button>` : ''}</div></details>`}</article>`;
   };
   const drawList = () => {
-    $('#docs').innerHTML = docs.map(card).join('');
+    $('#docs').innerHTML = docs.map(row).join('');
     $('#docs-state').innerHTML = docs.length ? '' : `<div class="empty">${esc(st.q || st.kind ? 'No documents match your search.' : st.folder ? 'This folder is empty.' : EMPTY[st.view])}</div>`;
+    $('#docs-more').hidden = !cursor || homeMode(); $('#docs-more').disabled = false; $('#docs-viewall').hidden = !(cursor && homeMode());
+    $('#docs-count').textContent = docs.length && !homeMode() ? `Showing ${docs.length} document${docs.length === 1 ? '' : 's'}${cursor ? ' (more available)' : ''}` : '';
   };
-  const load = async () => {
-    const mine = ++seq; $('#docs-state').innerHTML = '<p class="muted">Loading documents…</p>'; $('#docs').innerHTML = '';
-    const qs = new URLSearchParams({ view: st.folder ? 'recent' : st.view }); if (st.q) qs.set('q', st.q); if (st.kind) qs.set('kind', st.kind); if (st.folder) qs.set('folder', st.folder);
+  const load = async (append = false) => {
+    const mine = ++seq;
+    if (!append) { $('#docs-state').innerHTML = '<p class="muted">Loading documents…</p>'; $('#docs').innerHTML = ''; $('#docs-more').hidden = true; $('#docs-viewall').hidden = true; }
+    const qs = new URLSearchParams({ view: st.folder || st.view === 'home' ? 'recent' : st.view, limit: homeMode() ? '8' : '50' });
+    if (st.q) qs.set('q', st.q); if (st.kind) qs.set('kind', st.kind); if (st.folder) qs.set('folder', st.folder); if (append && cursor) qs.set('cursor', cursor);
     try {
-      const [d, f] = await Promise.all([api('/documents?' + qs), api('/document-folders')]);
+      const [page, f] = await Promise.all([apiPaged('/documents?' + qs), append ? folders : api('/document-folders')]);
       if (mine !== seq) return;                                    // a newer request has been made: drop this answer
-      docs = d; folders = f; drawNav(); drawList();
+      docs = append ? docs.concat(page.rows) : page.rows; cursor = page.next; folders = f; drawNav(); drawList();
     } catch (e) {
       if (mine !== seq) return;
-      $('#docs-state').innerHTML = `<div class="empty">Could not load documents: ${esc(describe(e))} <button type="button" class="secondary" id="docs-retry">Try again</button></div>`; $('#docs-retry').onclick = load;
+      if (append) { notice(describe(e)); $('#docs-more').disabled = false; return; }
+      $('#docs-state').innerHTML = `<div class="empty">Could not load documents: ${esc(describe(e))} <button type="button" class="secondary" id="docs-retry">Try again</button></div>`; $('#docs-retry').onclick = () => load();
     }
   };
   const go = (patch) => { Object.assign(st, patch); store.set('view', st.view); store.set('folder', st.folder); return load(); };
 
-  $('.docs-side').addEventListener('click', async (e) => {
+  $('#docs-views').addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) go({ view: b.dataset.view, folder: '' }); });
+  $('.docs-folderbar').addEventListener('click', async (e) => {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.view) return go({ view: b.dataset.view, folder: '' });
+    if (b.hasAttribute('data-folder-all')) return go({ folder: '' });
     if (b.dataset.folder) return go({ folder: b.dataset.folder });
     const id = b.dataset.id; const f = folders.find((x) => x.id === id);
     try {
       if (b.dataset.act === 'rename-folder') { const name = prompt('Folder name', f?.name || ''); if (name && name.trim()) { await api('/document-folders/' + id, { method: 'PATCH', body: JSON.stringify({ name: name.trim() }) }); await load(); } }
       if (b.dataset.act === 'delete-folder' && confirm(`Delete the folder "${f?.name}"? Its documents are kept.`)) { await api('/document-folders/' + id, { method: 'DELETE' }); if (st.folder === id) st.folder = ''; await go({}); }
-    } catch (err) { notice(err.body?.code === 'name_taken' ? 'You already have a folder with that name.' : describe(err)); }
+    } catch (err) { notice(err.body?.code === 'name_taken' ? 'You already have a folder with that name.' : say(err)); }
   });
   $('#folder-form').onsubmit = async (e) => { e.preventDefault(); const name = new FormData(e.target).get('name').trim(); if (!name) return;
-    try { await api('/document-folders', { method: 'POST', body: JSON.stringify({ name }) }); e.target.reset(); notice('Folder added.'); await load(); } catch (err) { notice(err.body?.code === 'name_taken' ? 'You already have a folder with that name.' : err.body?.code === 'folder_limit' ? err.message : describe(err)); } };
+    try { await api('/document-folders', { method: 'POST', body: JSON.stringify({ name }) }); e.target.reset(); notice('Folder added.'); await load(); } catch (err) { notice(err.body?.code === 'name_taken' ? 'You already have a folder with that name.' : err.body?.code === 'folder_limit' ? err.message : err.status === 429 ? 'You are adding folders too quickly. Try again in a minute.' : say(err)); } };
   $('#doc-search').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); const q = f.get('q').trim(); if (q && q.length < 2) { notice('Type at least two characters to search.'); return; } notice(''); go({ q, kind: f.get('kind') }); };
   $('#doc-search [name=q]').addEventListener('input', (e) => { if (e.target.value === '' && st.q) go({ q: '' }); });
   $('#doc-kind').addEventListener('change', () => $('#doc-search').requestSubmit());
+  $('#new-doc').addEventListener('click', () => { $('#docs-new').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' }); $('#doc-form [name=title]').focus({ preventScroll: true }); });
+  $('#docs-more').addEventListener('click', (e) => { e.currentTarget.disabled = true; load(true); });
+  $('#docs-viewall').addEventListener('click', () => go({ view: 'recent' }));
   $('#doc-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button'); btn.disabled = true;
-    try { const d = await api('/documents', { method: 'POST', body: JSON.stringify({ kind: f.kind, title: f.title, idempotency_key: uid() }) }); location.href = `/app/suite?doc=${d.id}`; } catch (err) { notice(say(err)); btn.disabled = false; } };
+    try { const d = await api('/documents', { method: 'POST', body: JSON.stringify({ kind: f.kind, title: f.title, idempotency_key: uid() }) }); location.href = `/app/suite?doc=${d.id}`; } catch (err) { notice(err.status === 429 ? 'You are creating documents too quickly. Try again in a minute.' : say(err)); btn.disabled = false; } };
   $('#ai-form').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector('button'); btn.disabled = true; notice('Drafting…');
-    try { const d = await api('/documents/ai-draft', { method: 'POST', body: JSON.stringify({ kind: f.kind, prompt: f.prompt, idempotency_key: uid() }) }); location.href = `/app/suite?doc=${d.id}`; } catch (err) { notice(err.body?.code === 'no_ai_provider' ? 'No AI provider is configured.' : [502, 503].includes(err.status) ? 'The AI service is unavailable right now. Nothing was saved or charged.' : describe(err)); btn.disabled = false; } };
+    try { const d = await api('/documents/ai-draft', { method: 'POST', body: JSON.stringify({ kind: f.kind, prompt: f.prompt, idempotency_key: uid() }) }); location.href = `/app/suite?doc=${d.id}`; } catch (err) { notice(err.body?.code === 'no_ai_provider' ? 'AI assistance is not available until an approved private model is connected.' : [502, 503].includes(err.status) ? 'The AI service is unavailable right now. Nothing was saved or charged.' : describe(err)); btn.disabled = false; } };
   $('#docs').addEventListener('click', async (e) => {
-    const b = e.target.closest('button[data-act]'); if (!b || b.tagName === 'SELECT') return; const id = b.closest('[data-doc]').dataset.doc; const d = docs.find((x) => x.id === id); b.disabled = true;
+    const b = e.target.closest('button[data-act]'); if (!b) return; const id = b.closest('[data-doc]').dataset.doc; const d = docs.find((x) => x.id === id); b.disabled = true; b.closest('details')?.removeAttribute('open');
     try {
       if (b.dataset.act === 'star') { await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ starred: !d.starred }) }); await load(); }
       else if (b.dataset.act === 'template') { await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ template: !d.template }) }); await load(); }
       else if (b.dataset.act === 'dup') { await api(`/documents/${id}/duplicate`, { method: 'POST', body: '{}' }); notice('A private copy was added to your documents.'); await load(); }
       else if (b.dataset.act === 'trash') { if (confirm('Move this document to the trash? You can restore it from the Trash view.')) { await api('/documents/' + id, { method: 'DELETE' }); notice('Moved to the trash.'); await load(); } else b.disabled = false; }
       else if (b.dataset.act === 'restore') { await api(`/documents/${id}/undelete`, { method: 'POST', body: '{}' }); notice('Document restored.'); await load(); }
-    } catch (err) { notice(say(err)); b.disabled = false; }
+    } catch (err) { notice(err.status === 429 ? 'You are making changes too quickly. Try again in a minute.' : say(err)); b.disabled = false; }
   });
   $('#docs').addEventListener('change', async (e) => {
     const s = e.target.closest('select[data-act=move]'); if (!s) return; const id = s.closest('[data-doc]').dataset.doc;
     try { await api(`/documents/${id}/move`, { method: 'POST', body: JSON.stringify({ folder_id: s.value || null }) }); notice('Moved.'); await load(); } catch (err) { notice(say(err)); await load(); }
   });
+  document.addEventListener('click', (e) => { document.querySelectorAll('.doc-menu[open]').forEach((m) => { if (!m.contains(e.target)) m.removeAttribute('open'); }); });        // a row menu closes when you click elsewhere
+  root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { const m = root.querySelector('.doc-menu[open]'); if (m) { m.removeAttribute('open'); m.querySelector('summary').focus(); } } });
   await load();
 }
 
@@ -176,7 +204,7 @@ async function renderEditor(root, id) {
   root.innerHTML = `<p><a class="link" id="docs-back" href="/app/suite">← All documents</a></p>` + (d.version_source === 'ai' ? '<p class="warn" role="note">This version was drafted by AI. Review it before relying on it.</p>' : '') +
     panel(`${KIND[d.kind][0]} ${esc(d.title)}`, `<p class="muted">${KIND[d.kind][1]} · you are ${esc(d.my_role)} · <span id="doc-version">version ${esc(version)}</span> · <span id="doc-status" role="status">${canEdit ? 'Saved' : 'Read only'}</span></p>
       <div class="row doc-actions"><button type="button" class="secondary" id="doc-star" aria-pressed="${starred}">${starred ? '★ Starred' : '☆ Star'}</button><button type="button" class="secondary" id="doc-dup">Duplicate</button>
-        <a class="button secondary small" href="/api/v1/documents/${esc(id)}/export.txt" download>Export .txt</a>${isDoc ? `<a class="button secondary small" href="/api/v1/documents/${esc(id)}/export.md" download>Export .md</a>` : ''}
+        <button type="button" class="secondary" data-export="txt">Export .txt</button>${isDoc ? '<button type="button" class="secondary" data-export="md">Export .md</button>' : ''}
         ${owner ? `<label class="docs-move">Folder<select id="doc-folder"><option value="">None</option>${folders.map((f) => `<option value="${esc(f.id)}" ${meta.folder_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label><button type="button" class="secondary" id="del-doc">Move to trash</button>` : ''}</div>
       <label>Title<input id="doc-title" value="${esc(d.title)}" maxlength="200" ${canEdit ? '' : 'disabled'}></label>
       ${isDoc ? `<div class="docs-tools" role="toolbar" aria-label="Formatting">${TOOLS.map(([k, label, name]) => `<button type="button" class="secondary" data-tool="${k}" aria-label="${name}" title="${name}" ${canEdit ? '' : 'disabled'}>${esc(label)}</button>`).join('')}<button type="button" class="secondary" id="toggle-preview" aria-pressed="false">Preview</button><span class="muted" id="doc-count"></span></div>` : ''}
@@ -195,6 +223,41 @@ async function renderEditor(root, id) {
     $('#add-slide')?.addEventListener('click', () => { const c = readSlides(area); rerender({ slides: [...c.slides, { title: 'New slide', bullets: [], notes: '' }].slice(0, 100) }); });
   };
   wire(); area.addEventListener('input', mark);
+
+  // Export: the file is fetched with the person's own session (so sign-in, document rights and plan limits are enforced by the server), then either handed to the desktop
+  // app's native Save As dialog or downloaded by the browser. There is no shareable download URL and nothing is sent anywhere else.
+  const exportDoc = async (ext) => {
+    try {
+      const r = await fetch(`/api/v1/documents/${encodeURIComponent(id)}/export.${ext}`, { credentials: 'same-origin' });
+      if (!r.ok) { notice(r.status === 404 ? 'You no longer have access to this document.' : r.status === 429 ? 'Too many requests. Try again in a minute.' : 'The export could not be created.'); return; }
+      const text = await r.text(); const name = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || `document.${ext}`;
+      const desk = window.qorllaDesktop;
+      if (desk && typeof desk.saveDocsExport === 'function') { const out = await desk.saveDocsExport({ filename: name, text }); notice(out?.saved ? 'Export saved.' : out?.canceled ? 'Export canceled.' : 'The file could not be saved.'); return; }
+      if (/QorllaMobile/.test(navigator.userAgent)) { notice('Saving exports inside the Android app is not available yet.'); return; }
+      const url = URL.createObjectURL(new Blob([text], { type: ext === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8' })); const a = document.createElement('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch { notice('The export could not be created.'); }
+  };
+  root.querySelectorAll('[data-export]').forEach((b) => b.addEventListener('click', () => exportDoc(b.dataset.export)));
+
+  // Draft recovery (documents only): while you type, the unsaved text is kept in THIS browser, so a refresh, crash or lost connection does not lose it. It is not a server
+  // autosave and creates no versions. A draft is only offered back if the document has not changed since it was written; otherwise it is shown for copying, never applied,
+  // so it can never silently overwrite someone else's newer version. It is removed when you save or discard it, and after 14 days.
+  let dropDraft = () => {};
+  if (isDoc && canEdit) {
+    const key = 'qdocs.draft.' + id; const TTL = 14 * 24 * 3600 * 1000; const ta = $('#doc-text');
+    const get = () => { try { const v = JSON.parse(localStorage.getItem(key) || 'null'); if (v && typeof v.text === 'string' && Date.now() - v.at < TTL) return v; if (v) localStorage.removeItem(key); } catch { /* storage unavailable */ } return null; };
+    const put = (text) => { try { localStorage.setItem(key, JSON.stringify({ base: version, text, at: Date.now() })); } catch { /* private mode or full: the page works without it */ } };
+    dropDraft = () => { try { localStorage.removeItem(key); } catch { /* nothing to remove */ } };
+    const dr = get();
+    if (dr && dr.text !== content.text) {
+      const same = dr.base === version;
+      area.insertAdjacentHTML('beforebegin', `<div class="warn" id="draft-banner" role="alert"><p>We kept unsaved changes from ${esc(when(dr.at))}${same ? '.' : `, but this document has changed since (version ${esc(dr.base)} → ${esc(version)}), so they cannot be put back automatically.`}</p>
+        ${same ? '<button type="button" id="draft-restore">Restore my changes</button> ' : `<details><summary>Show my unsaved text so I can copy it</summary><textarea readonly rows="6" aria-label="Your unsaved text">${esc(dr.text)}</textarea></details>`}<button type="button" class="secondary" id="draft-discard">Discard them</button></div>`);
+      $('#draft-restore')?.addEventListener('click', () => { ta.value = dr.text; ta.dispatchEvent(new Event('input', { bubbles: true })); $('#draft-banner').remove(); ta.focus(); });
+      $('#draft-discard').addEventListener('click', () => { dropDraft(); $('#draft-banner').remove(); });
+    }
+    let t = null; ta.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { if (ta.value !== JSON.parse(saved).text) put(ta.value); else dropDraft(); }, 600); });
+  }
   if (isDoc) {
     const ta = $('#doc-text'); const count = () => { const w = (ta.value.trim().match(/\S+/g) || []).length; $('#doc-count').textContent = `${w} word${w === 1 ? '' : 's'}`; }; count(); ta.addEventListener('input', count);
     root.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => TOOLS.find((t) => t[0] === b.dataset.tool)[3](ta)));
@@ -204,7 +267,7 @@ async function renderEditor(root, id) {
   }
   const save = async () => {
     if (!canEdit) return; const btn = $('#save-doc'); btn.disabled = true; setStatus('Saving…');
-    try { const next = collect(); const r = await api(`/documents/${id}`, { method: 'PUT', body: JSON.stringify({ base_version: version, content: next }) }); version = r.current_version; saved = JSON.stringify(next); $('#doc-version').textContent = `version ${version}`; setStatus('Saved'); notice('Saved.'); await side(); }
+    try { const next = collect(); const r = await api(`/documents/${id}`, { method: 'PUT', body: JSON.stringify({ base_version: version, content: next }) }); version = r.current_version; saved = JSON.stringify(next); $('#doc-version').textContent = `version ${version}`; setStatus('Saved'); notice('Saved.'); dropDraft(); await side(); }
     catch (err) { setStatus('Not saved'); notice(err.body?.code === 'version_conflict' ? 'Someone else saved a newer version. Reload to see it - your unsaved edits are still in the page, so copy them first.' : err.body?.code === 'read_only' ? 'You can view but not edit this document.' : describe(err)); }
     finally { btn.disabled = false; }
   };

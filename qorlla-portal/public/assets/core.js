@@ -14,15 +14,18 @@ async function renewToken() {
   renewing ??= fetch('/api/auth/portal-token', { method: 'POST', credentials: 'same-origin' }).then((r) => r.ok).finally(() => { renewing = null; });
   return renewing;
 }
-async function api(path, options = {}, retried = false) {
+async function call(path, options = {}, retried = false) {
   const method = options.method || 'GET';
   const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(method !== 'GET' ? { 'X-CSRF-Token': cookie('qorlla_csrf') } : {}) };
   const r = await fetch('/api/v1' + path, { ...options, headers, credentials: 'same-origin' });
   const body = await r.json().catch(() => ({}));
-  if (r.status === 401 && !retried && (await renewToken())) return api(path, options, true);
+  if (r.status === 401 && !retried && (await renewToken())) return call(path, options, true);
   if (!r.ok) throw new ApiError(r.status, body);
-  return body;
+  return { body, next: r.headers.get('X-Next-Cursor') };
 }
+const api = async (path, options = {}) => (await call(path, options)).body;
+/** A page of a cursor-paged list: { rows, next } where next is the cursor for the following page (or null). */
+const apiPaged = async (path, options = {}) => { const { body, next } = await call(path, options); return { rows: body, next }; };
 const heading = (title, sub, icon = '✦') => `<div class="hero"><div><div class="eyebrow">Qorlla Workplace</div><h1>${esc(title)}</h1><p>${esc(sub)}</p></div><div class="symbol" aria-hidden="true">${icon}</div></div>`;
 const panel = (title, body) => `<section class="panel"><h2>${esc(title)}</h2>${body}</section>`;
 function describe(e) {
@@ -30,4 +33,4 @@ function describe(e) {
   if (e.status === 403) return 'You do not have permission to do that in this workspace.';
   return e.message;
 }
-export { $, esc, money, day, cookie, notice, ApiError, api, heading, panel, describe };
+export { $, esc, money, day, cookie, notice, ApiError, api, apiPaged, heading, panel, describe };

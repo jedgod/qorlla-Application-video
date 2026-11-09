@@ -3,6 +3,7 @@
 // It is deliberately not named *.test.mjs, so `npm test` does not launch a browser; the deployed-stack browser specs live in e2e/.
 import { createRequire } from 'node:module';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { freshDatabase, startMainStandIn, testConfig, startApp, seedWorkspace, addMember } from '../helpers.mjs';
 const { chromium } = createRequire(import.meta.url)('../../../node_modules/playwright-core');
 
@@ -28,6 +29,7 @@ async function openAs(session, viewport = { width: 1280, height: 900 }) {
   return { ctx, page };
 }
 const notice = (p) => p.locator('#notice').textContent();
+const menu = (p, id) => p.locator(`#docs [data-doc="${id}"] .doc-menu summary`).click();          // a row's actions live in its "⋯" menu
 const docsOnPage = (p) => p.locator('#docs .doc-card h3').allTextContents();
 const goHome = async (p) => { await p.goto(app.base + '/app/suite'); await p.locator('#docs-views').waitFor(); await until(async () => (await p.locator('#docs-state').textContent()) !== 'Loading documents…'); };
 
@@ -35,9 +37,9 @@ try {
   // ---------------------------------------------------------------- home
   const { ctx, page } = await openAs(H);
   await page.goto(app.base + '/app/suite'); await page.locator('#docs-views [data-view]').first().waitFor();
-  check('home: heading, six views, folders panel and the create form are present', (await page.locator('h1').first().textContent()) === 'Qorlla Docs' && (await page.locator('#docs-views [data-view]').count()) === 6 && (await page.locator('#folder-form').count()) === 1 && (await page.locator('#doc-form [name=kind] option').count()) === 3);
+  check('home: heading, seven views, folders panel and the create form are present', (await page.locator('h1').first().textContent()) === 'Qorlla Docs' && (await page.locator('#docs-views [data-view]').count()) === 7 && (await page.locator('#folder-form').count()) === 1 && (await page.locator('#doc-form [name=kind] option').count()) === 3);
   check('home: an empty workspace shows the empty state for the current view, not a blank page', await until(async () => /No documents yet/.test(await page.locator('#docs-state').textContent())));
-  check('home: Recent is the current view (aria-current)', (await page.locator('#docs-views [aria-current=true]').textContent()).includes('Recent'));
+  check('home: Home is the current view (aria-current)', (await page.locator('#docs-views [aria-current=true]').textContent()).includes('Home'));
 
   // ---------------------------------------------------------------- create + editor (the flow the existing e2e specs use)
   await page.selectOption('#doc-form [name=kind]', 'doc'); await page.fill('#doc-form [name=title]', 'Launch brief'); await page.getByRole('button', { name: 'Create', exact: true }).click(); await page.waitForURL(/\/app\/suite\?doc=/);
@@ -79,21 +81,21 @@ try {
   await page.locator('#docs-back').click(); await page.locator('#docs-views').waitFor();
   await page.locator('[data-view=starred]').click(); check('Starred view lists exactly the starred document', await until(async () => JSON.stringify(await docsOnPage(page)) === JSON.stringify(['Launch brief v2'])), JSON.stringify(await docsOnPage(page)));
   await page.locator('[data-view=recent]').click(); await until(async () => (await docsOnPage(page)).length === 1);
-  await page.locator(`#docs [data-doc="${docId}"] [data-act=dup]`).click();
+  await menu(page, docId); await page.locator(`#docs [data-doc="${docId}"] [data-act=dup]`).click();
   check('Duplicate adds "Copy of …" as a private copy owned by me', await until(async () => (await docsOnPage(page)).some((t) => t.startsWith('Copy of Launch brief v2'))));
   const copy = (await api(H).get('/api/v1/documents?view=mine')).body.find((d) => d.title.startsWith('Copy of')); check('the copy carries the content and is restricted', copy && copy.general_access === 'restricted' && (await api(H).get('/api/v1/documents/' + copy.id)).body.content.text === 'unsaved words');
 
-  await page.fill('#folder-form [name=name]', 'Clients'); await page.getByRole('button', { name: 'Add folder' }).click();
+  await page.locator('.docs-manage summary').click(); await page.fill('#folder-form [name=name]', 'Clients'); await page.getByRole('button', { name: 'Add folder' }).click();
   check('folder: added and listed in the sidebar with a count of 0', await until(async () => /Clients\s*0/.test((await page.locator('#docs-folders').textContent()).replace(/\s+/g, ' '))));
   await page.fill('#folder-form [name=name]', ' clients '); await page.getByRole('button', { name: 'Add folder' }).click(); check('folder: a duplicate name is refused with a clear message', await until(async () => /already have a folder/.test(await notice(page))));
-  await page.locator(`#docs [data-doc="${docId}"] select[data-act=move]`).selectOption({ label: 'Clients' });
+  await menu(page, docId); await page.locator(`#docs [data-doc="${docId}"] select[data-act=move]`).selectOption({ label: 'Clients' });
   await until(async () => (await api(H).get(`/api/v1/documents/${docId}/meta`)).body.folder_id); await page.locator('#docs-folders [data-folder]:not([data-folder=none])').first().click();
   check('move: the document appears under the folder, and the folder count is 1', await until(async () => JSON.stringify(await docsOnPage(page)) === JSON.stringify(['Launch brief v2']) && /Clients\s*1/.test((await page.locator('#docs-folders').textContent()).replace(/\s+/g, ' '))), JSON.stringify(await docsOnPage(page)));
   page.dialogPlan.text = 'Key clients'; await page.locator('[data-act=rename-folder]').first().click(); check('folder: rename (prompt)', await until(async () => /Key clients/.test(await page.locator('#docs-folders').textContent())));
   await page.locator('#docs-folders [data-folder=none]').click(); check('"Not in a folder" excludes the filed document', await until(async () => !(await docsOnPage(page)).includes('Launch brief v2') && (await docsOnPage(page)).length >= 1));
   await page.locator('[data-act=delete-folder]').first().click(); check('folder: deleting keeps the document and it becomes unfiled', await until(async () => (await docsOnPage(page)).includes('Launch brief v2')));
 
-  await page.locator(`#docs [data-doc="${docId}"] [data-act=trash]`).click(); check('trash: the document leaves Recent', await until(async () => !(await docsOnPage(page)).includes('Launch brief v2')));
+  await menu(page, docId); await page.locator(`#docs [data-doc="${docId}"] [data-act=trash]`).click(); check('trash: the document leaves Recent', await until(async () => !(await docsOnPage(page)).includes('Launch brief v2')));
   await page.locator('[data-view=trash]').click(); check('trash: it is listed in Trash with a Restore button and no Open link', await until(async () => (await docsOnPage(page)).includes('Launch brief v2') && (await page.locator(`#docs [data-doc="${docId}"] [data-act=restore]`).count()) === 1 && (await page.locator(`#docs [data-doc="${docId}"] a`).count()) === 0));
   await page.goto(app.base + '/app/suite?doc=' + docId); check('opening a trashed document explains where it went', await until(async () => /Trash view/.test(await page.locator('#suite-root').textContent())));
   await goHome(page); await page.locator('[data-view=trash]').click(); await page.locator(`#docs [data-doc="${docId}"] [data-act=restore]`).click(); await page.locator('[data-view=recent]').click();
@@ -127,12 +129,71 @@ try {
   await goHome(page); await page.selectOption('#doc-form [name=kind]', 'sheet'); await page.fill('#doc-form [name=title]', 'Stock'); await page.getByRole('button', { name: 'Create', exact: true }).click(); await page.waitForURL(/\/app\/suite\?doc=/);
   await page.locator('#add-row').click(); await page.locator('[data-cell="0:0"]').fill('Giraffes'); await page.locator('[data-cell="0:1"]').fill('12'); await page.locator('#save-doc').click();
   check('sheet: add row, type values, Save => version 2 with a number stored as a number', await until(async () => (await page.locator('#doc-version').textContent()) === 'version 2') && (await api(H).get('/api/v1/documents?kind=sheet')).body.length === 1 && JSON.stringify((await api(H).get('/api/v1/documents/' + page.url().split('=')[1])).body.content.rows) === '[["Giraffes",12,null]]');
-  check('sheet: the doc-only controls (toolbar, markdown export) are not shown', (await page.locator('[data-tool]').count()) === 0 && (await page.locator('a[href$="export.md"]').count()) === 0 && (await page.locator('a[href$="export.txt"]').count()) === 1);
+  check('sheet: the doc-only controls (toolbar, markdown export) are not shown', (await page.locator('[data-tool]').count()) === 0 && (await page.locator('[data-export=md]').count()) === 0 && (await page.locator('[data-export=txt]').count()) === 1);
   await goHome(page); await page.selectOption('#doc-form [name=kind]', 'slides'); await page.fill('#doc-form [name=title]', 'Pitch'); await page.getByRole('button', { name: 'Create', exact: true }).click(); await page.waitForURL(/\/app\/suite\?doc=/);
   await page.locator('[data-slide="0"] [data-f=title]').fill('Why now'); await page.locator('[data-slide="0"] [data-f=bullets]').fill('One\nTwo'); await page.locator('#save-doc').click();
   check('slides: edit and Save => version 2', await until(async () => (await page.locator('#doc-version').textContent()) === 'version 2'));
   await goHome(page); await page.selectOption('#doc-kind', 'sheet'); check('type filter: only sheets', await until(async () => JSON.stringify(await docsOnPage(page)) === JSON.stringify(['Stock'])));
 
+  // ---------------------------------------------------------------- release layout: list first, one AI area, contrast, phone menu, paging, drafts, export
+  {
+    const o = await openAs(H, { width: 1280, height: 900 }); const p = o.page; await goHome(p);
+    const box = async (sel) => p.locator(sel).first().boundingBox(); const ys = [await box('#docs-views'), await box('#doc-search'), await box('#docs'), await box('#docs-new'), await box('#docs-ai')].map((b) => Math.round(b.y));
+    check('layout: tabs, then search and filters, then the document list, then New document, then AI assistance (top to bottom)', ys.every((y, i) => i === 0 || ys[i - 1] < y), ys.join(' < '));
+    check('AI: one clearly labelled AI assistance area with ONE "turned off" notice (no second warning inside the panel), and Draft is disabled', (await p.locator('.docs-ai').count()) === 1 && (await p.locator('#docs-ai h2').textContent()) === 'AI assistance' && (await p.locator('#docs-ai .warn').count()) === 1 && /approved private model/.test(await p.locator('#docs-ai .warn').textContent()) && (await p.locator('#draft-ai-host .warn').count()) === 0 && (await p.locator('#ai-form button').isDisabled()) && (await p.locator('#draft-ai-host [data-ai-generate]').isDisabled()));
+    const ratio = await p.evaluate(() => { const lum = (r, g, b) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0); const e = document.querySelector('.hero .eyebrow'); const [r, g, b] = getComputedStyle(e).color.match(/\d+/g).map(Number); const l1 = lum(r, g, b), l2 = lum(0x0b, 0x56, 0xc9); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); });
+    check('contrast: the "QORLLA WORKPLACE" line on the hero is at least 4.5:1 against the hero\'s darkest blue (was blue on blue)', ratio >= 4.5, String(ratio));
+    await p.locator('#new-doc').click(); check('+ New scrolls to the New document form and focuses its title field', await until(async () => (await p.evaluate(() => document.activeElement?.getAttribute('name'))) === 'title'));
+    await o.ctx.close();
+
+    const m = await openAs(H, { width: 360, height: 740 }); const mp = m.page; await goHome(mp); const tog = mp.locator('#menu-toggle');
+    check('phone menu: a visible toggle with an accessible name, collapsed by default, controlling the navigation', (await tog.isVisible()) && (await tog.getAttribute('aria-label')) === 'Open navigation menu' && (await tog.getAttribute('aria-expanded')) === 'false' && (await tog.getAttribute('aria-controls')) === 'side-nav');
+    check('phone menu: the closed rail still gives every link a hover title', (await mp.locator('aside a[title]').count()) >= 3);
+    await tog.click(); check('phone menu: opening shows readable labels (not icons only); the name flips to Close and aria-expanded is true', await until(async () => (await mp.locator('aside.open').count()) === 1) && (await tog.getAttribute('aria-expanded')) === 'true' && (await tog.getAttribute('aria-label')) === 'Close navigation menu' && (await mp.locator('aside a').first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize))) >= 14);
+    await mp.keyboard.press('Escape'); check('phone menu: Escape closes it and focus returns to the toggle', await until(async () => (await mp.locator('aside.open').count()) === 0) && (await mp.evaluate(() => document.activeElement?.id)) === 'menu-toggle');
+    await tog.click(); await mp.mouse.click(355, 400); check('phone menu: tapping outside closes it', await until(async () => (await mp.locator('aside.open').count()) === 0));
+    await tog.click(); await mp.setViewportSize({ width: 1280, height: 800 }); check('phone menu: growing the window to desktop width closes it', await until(async () => (await mp.locator('aside.open').count()) === 0));
+    await m.ctx.close();
+  }
+  {
+    const pg = await main.mint(); const pgw = await seedWorkspace(db.pool, pg.sub, 'Pagination'); await db.pool.query(`UPDATE portal.subscriptions SET plan_slug='business',status='active',current_period_end=now()+interval '20 days' WHERE workspace_id=$1`, [pgw]);
+    await db.pool.query(`INSERT INTO portal.documents(workspace_id,owner_id,kind,title,current_version,search_text,updated_at) SELECT $1,$2,'doc','Paged '||lpad(g::text,3,'0'),1,'',now()-(g*interval '1 minute') FROM generate_series(1,120) g`, [pgw, pg.sub]);
+    const o = await openAs(pg); const p = o.page; await goHome(p);
+    check('paging: Home shows the 8 most recent documents and "View all recent documents", not Load more', await until(async () => (await docsOnPage(p)).length === 8) && (await p.locator('#docs-viewall').isVisible()) && (await p.locator('#docs-more').isHidden()));
+    await p.locator('#docs-viewall').click(); check('paging: Recent shows 50, says more is available and offers Load more', await until(async () => (await docsOnPage(p)).length === 50) && (await p.locator('#docs-more').isVisible()) && /Showing 50 documents \(more available\)/.test(await p.locator('#docs-count').textContent()));
+    await p.locator('#docs-more').click(); check('paging: Load more appends the next 50 (100 shown, still more)', await until(async () => (await docsOnPage(p)).length === 100) && await p.locator('#docs-more').isVisible());
+    await p.locator('#docs-more').click(); const all = await until(async () => { const t = await docsOnPage(p); return t.length === 120 ? t : false; });
+    check('paging: the last page shows all 120 once each, newest first, and Load more disappears', all && new Set(all).size === 120 && all[0] === 'Paged 001' && all[119] === 'Paged 120' && (await p.locator('#docs-more').isHidden()) && /Showing 120 documents$/.test(await p.locator('#docs-count').textContent()), all && all.length);
+    await o.ctx.close();
+  }
+  {
+    const dd = (await api(H).post('/api/v1/documents', { kind: 'doc', title: 'Draft recovery' })).body; const dp = await openAs(H); const p = dp.page;
+    await p.goto(app.base + '/app/suite?doc=' + dd.id); await p.locator('#doc-text').waitFor(); await p.fill('#doc-text', 'words that were never saved'); await sleep(900); await p.reload(); await p.locator('#doc-text').waitFor();
+    check('draft recovery: unsaved text is offered back after a refresh, with Restore and Discard (the saved text is still shown meanwhile)', (await p.locator('#draft-banner').isVisible()) && (await p.locator('#draft-restore').count()) === 1 && (await p.inputValue('#doc-text')) === '');
+    await p.locator('#draft-restore').click(); check('draft recovery: Restore puts the text back, marks the page unsaved and removes the banner', (await p.inputValue('#doc-text')) === 'words that were never saved' && (await p.locator('#doc-status').textContent()) === 'Unsaved changes' && (await p.locator('#draft-banner').count()) === 0);
+    await p.locator('#save-doc').click(); await until(async () => (await p.locator('#doc-version').textContent()) === 'version 2'); await sleep(900); await p.reload(); await p.locator('#doc-text').waitFor();
+    check('draft recovery: after Save there is nothing left to recover', (await p.locator('#draft-banner').count()) === 0);
+    await p.fill('#doc-text', 'my edit on version two'); await sleep(900); await api(H).put(`/api/v1/documents/${dd.id}`, { base_version: 2, content: { format: 'markdown', text: 'someone else wrote this' } }); await p.reload(); await p.locator('#doc-text').waitFor();
+    check('draft recovery: if the document changed meanwhile the draft is shown for copying and can NOT be restored over the newer version', (await p.locator('#draft-banner').isVisible()) && (await p.locator('#draft-restore').count()) === 0 && /changed since/.test(await p.locator('#draft-banner').textContent()) && (await p.inputValue('#doc-text')) === 'someone else wrote this' && (await p.locator('#draft-banner textarea').inputValue()) === 'my edit on version two');
+    await p.locator('#draft-discard').click(); await p.reload(); await p.locator('#doc-text').waitFor(); check('draft recovery: Discard removes it for good', (await p.locator('#draft-banner').count()) === 0);
+
+    const [dl] = await Promise.all([p.waitForEvent('download'), p.locator('[data-export=md]').click()]);
+    check('export (web): a normal browser download with a safe .md filename and the saved text', /^[A-Za-z0-9._-]+\.md$/.test(dl.suggestedFilename()) && (await fs.promises.readFile(await dl.path(), 'utf8')) === 'someone else wrote this', dl.suggestedFilename());
+    await dp.ctx.close();
+
+    const ds = await openAs(H); const sp = ds.page; let downloaded = false; sp.on('download', () => { downloaded = true; });
+    await sp.addInitScript(() => { window.__saved = []; window.qorllaDesktop = { saveDocsExport: async (a) => { window.__saved.push(a); return { saved: true }; } }; });
+    await sp.goto(app.base + '/app/suite?doc=' + dd.id); await sp.locator('#doc-text').waitFor(); await sp.locator('[data-export=txt]').click(); await sleep(700);
+    const got = await sp.evaluate(() => window.__saved);
+    check('export (desktop app): with the native Save As bridge present the page hands over the filename and text, shows "Export saved." and triggers no browser download', got.length === 1 && /\.txt$/.test(got[0].filename) && got[0].text === 'someone else wrote this' && !downloaded && /Export saved/.test(await notice(sp)), JSON.stringify(got).slice(0, 120));
+    await ds.ctx.close();
+
+    await api(H).put(`/api/v1/documents/${dd.id}/permissions`, { general_access: 'restricted', users: [{ user_id: M.sub, role: 'viewer' }] });
+    const vx = await openAs(M); await vx.page.goto(app.base + '/app/suite?doc=' + dd.id); await vx.page.locator('#doc-text').waitFor();
+    await api(H).put(`/api/v1/documents/${dd.id}/permissions`, { general_access: 'restricted', users: [] }); await vx.page.locator('[data-export=md]').click();
+    check('export: a viewer whose access was just removed is refused with a clear message and gets no file', await until(async () => /no longer have access/.test(await notice(vx.page))));
+    await vx.ctx.close();
+  }
   // ---------------------------------------------------------------- plan limit and phone width
   const b = await main.mint(); const bw = await seedWorkspace(db.pool, b.sub, 'Basic'); const bp = await openAs(b);
   for (let i = 0; i < 5; i++) await api(b).post('/api/v1/documents', { kind: 'doc', title: 'D' + i });

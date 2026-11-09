@@ -42,4 +42,28 @@ const localhostHttpAllowed = (env, isPackaged) => !isPackaged && env.QORLLA_DEV_
 /** Chromium switches that turn its process sandbox off. A packaged build must refuse to run with any of them, whatever launcher or desktop entry passed them. */
 const SANDBOX_OFF = /^--(no-sandbox|disable-setuid-sandbox|disable-gpu-sandbox|disable-seccomp-filter-sandbox|disable-namespace-sandbox|disable-renderer-sandbox|disable-sandbox)(=.*)?$/i;
 const sandboxDisabled = (argv) => (argv || []).some((a) => SANDBOX_OFF.test(String(a)));
-module.exports = { verifiedOrigin, trustedOrigins, navigationAllowed, externalAllowed, parseJoinLink, prejoinUrl, permissionAllowed, localhostHttpAllowed, sandboxDisabled, PERMISSIONS };
+// ---- Docs export (native Save As): who may ask and what they may ask for -------------------------------------------------------------------------------------------
+const EXPORT_MAX_BYTES = 2 * 1024 * 1024;                           // a document is at most 200 000 characters; this is a hard ceiling
+const EXPORT_TYPES = Object.freeze({ md: 'Markdown', txt: 'Text' });
+/** Only the main frame's page /app/suite (or /app/suite/) on the APP origin may use the export bridge: not Qorlla Meet, not another Workspace page, not a look-alike path. */
+function exportSenderAllowed(senderUrl, origins, opts = {}) {
+  try { const u = new URL(senderUrl); const app = asList(origins)[0]; return u.origin === app && navigationAllowed(senderUrl, app, opts) && /^\/app\/suite\/?$/.test(u.pathname); } catch { return false; }
+}
+/** A safe file name ending .md or .txt (case-insensitive): directories, control characters, Windows-reserved characters and device names are removed. null = unsupported type. */
+function safeExportName(raw) {
+  const n = String(raw ?? '').replace(/[\u0000-\u001f\u007f]/g, '').split(/[\\/]/).pop().trim();
+  const m = /\.(md|txt)$/i.exec(n); if (!m) return null;
+  const ext = m[1].toLowerCase(); let base = n.slice(0, -(ext.length + 1)).replace(/[<>:"|?*]/g, '_').replace(/^[. ]+|[. ]+$/g, '').slice(0, 80);
+  if (!base || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(base)) base = 'document';
+  return { name: base + '.' + ext, ext };
+}
+/** { ok:true, filename, ext, text } or { ok:false, reason }. Nothing but a name and text is accepted; anything else about the request is ignored. */
+function validateExport(p) {
+  if (!p || typeof p !== 'object' || Array.isArray(p) || typeof p.filename !== 'string' || p.filename.length > 200 || typeof p.text !== 'string') return { ok: false, reason: 'bad_request' };
+  if (Buffer.byteLength(p.text, 'utf8') > EXPORT_MAX_BYTES) return { ok: false, reason: 'too_large' };
+  const f = safeExportName(p.filename); if (!f) return { ok: false, reason: 'unsupported_type' };
+  return { ok: true, filename: f.name, ext: f.ext, text: p.text };
+}
+/** Whatever the person typed in the Save dialog, the file ends .md or .txt (matching the export): a name without it, or with a different one, gets it appended. */
+const finalExportPath = (chosen, ext) => (/\.(md|txt)$/i.test(chosen) && chosen.toLowerCase().endsWith('.' + ext) ? chosen : chosen + '.' + ext);
+module.exports = { exportSenderAllowed, safeExportName, validateExport, finalExportPath, EXPORT_TYPES, EXPORT_MAX_BYTES, verifiedOrigin, trustedOrigins, navigationAllowed, externalAllowed, parseJoinLink, prejoinUrl, permissionAllowed, localhostHttpAllowed, sandboxDisabled, PERMISSIONS };

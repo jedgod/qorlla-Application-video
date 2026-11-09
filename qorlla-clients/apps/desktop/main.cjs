@@ -1,7 +1,8 @@
 'use strict';
-const { app, BrowserWindow, shell, session, dialog, desktopCapturer } = require('electron');
+const { app, BrowserWindow, shell, session, dialog, desktopCapturer, ipcMain } = require('electron');
 const path = require('node:path');
 const sec = require('./security.cjs');
+const docsExport = require('./docs-export.cjs');
 
 // A packaged build never runs with Chromium's sandbox disabled, whoever started it (a desktop entry, a wrapper script, a user). Refuse instead of running unprotected.
 if (app.isPackaged && sec.sandboxDisabled(process.argv)) {
@@ -65,6 +66,8 @@ else {
       } catch { callback({}); }
     });
     ses.on('will-download', (event) => { event.preventDefault(); dialog.showMessageBox({ type: 'info', message: 'Downloads are disabled in this shell. Use the verified Qorlla web portal for file exports.' }); });
+    // Docs export: the one narrow exception to the download block above. The page hands over a name and text; docs-export.cjs checks the sender and shows the native Save As dialog.
+    ipcMain.handle('qorlla:save-docs-export', (event, payload) => docsExport.handleSave(event, payload, { origins, opts, testDir: dev && process.env.QORLLA_TEST_EXPORT_DIR ? process.env.QORLLA_TEST_EXPORT_DIR : null }));
     const first = pendingLink || linkFrom(process.argv), j = first && sec.parseJoinLink(first);
     createWindow(j ? sec.prejoinUrl(appOrigin, j.meetingId) : appOrigin);
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(appOrigin); });

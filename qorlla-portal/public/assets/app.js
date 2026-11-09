@@ -100,8 +100,15 @@ async function renderTeam() {
 /** One trail for the portal, painted once everything about the visitor is known (signed out, unauthorized and unavailable all end with no trail). */
 async function boot() { try { await bootPage(); } finally { try { paintCrumbs({ state, modules }); } catch (e) { /* the trail is a convenience: the page works without it */ } } }
 async function bootPage() {
+  const nav = $('aside'); const tog = $('#menu-toggle');                                  // phone menu: the icon rail expands into a labelled menu; Esc, a link, the backdrop or a wider screen closes it
+  const setMenu = (open) => { nav.classList.toggle('open', open); tog.setAttribute('aria-expanded', String(open)); tog.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu'); tog.textContent = open ? '✕' : '☰'; };
+  tog.addEventListener('click', (e) => { e.stopPropagation(); setMenu(!nav.classList.contains('open')); });
+  nav.addEventListener('click', (e) => { if (e.target.closest('a')) setMenu(false); });
+  document.addEventListener('click', (e) => { if (nav.classList.contains('open') && !nav.contains(e.target)) setMenu(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.classList.contains('open')) { setMenu(false); tog.focus(); } });
+  matchMedia('(min-width: 701px)').addEventListener('change', (e) => { if (e.matches) setMenu(false); });
   const parts = location.pathname.split('/'); const slug = parts[2] || 'products';
-  $('#side').innerHTML = modules.filter((m) => !['products', 'ai', 'solutions', 'support', 'meet'].includes(m[0])).map((m) => `<a class="${slug === m[0] ? 'active' : ''}" ${slug === m[0] ? 'aria-current="page"' : ''} href="/app/${m[0]}"><span aria-hidden="true">${m[1]}</span> ${esc(m[2])}</a>`).join('');
+  $('#side').innerHTML = modules.filter((m) => !['products', 'ai', 'solutions', 'support', 'meet'].includes(m[0])).map((m) => `<a class="${slug === m[0] ? 'active' : ''}" ${slug === m[0] ? 'aria-current="page"' : ''} title="${esc(m[2])}" href="/app/${m[0]}"><span aria-hidden="true">${m[1]}</span> ${esc(m[2])}</a>`).join('');
   document.title = (modules.find((m) => m[0] === slug)?.[2] || { billing: 'Plans & Billing', team: 'Team', admin: 'Platform admin' }[slug] || 'Workplace') + ' | Qorlla';
   $('#page').innerHTML = (routes[slug] || routes.products)();
 
