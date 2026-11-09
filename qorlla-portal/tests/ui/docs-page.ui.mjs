@@ -170,13 +170,16 @@ try {
   await db.pool.query(`INSERT INTO portal.entitlements(plan_slug,feature,quota,description) VALUES('pro','documents.comments',NULL,'Document comments') ON CONFLICT DO NOTHING`);
 
   // ---------------------------------------------------------------- the shared min-width:0 change: does any portal page overflow with it that did not without it?
-  const pagesToTry = ['/app/', '/app/notes', '/app/mate', '/app/suite', '/app/suite?doc=' + docId, '/app/billing', '/app/team', '/app/phone', '/app/receptionist']; const regress = []; let measured = 0;
+  const pagesToTry = ['/app/', '/app/notes', '/app/mate', '/app/suite', '/app/suite?doc=' + docId, '/app/billing', '/app/team', '/app/phone', '/app/receptionist']; const regress = []; const preexisting = []; let measured = 0;
   const overflowAt = async (path, width, strip) => {
     const c = await browser.newContext({ viewport: { width, height: 800 } }); await c.addCookies([{ name: 'qorlla_portal_session', value: H.jwt, url: app.base, httpOnly: true }, { name: 'qorlla_csrf', value: H.csrf, url: app.base }]);
     const p = await c.newPage(); if (strip) await p.route('**/app/assets/styles.css', async (r) => { const resp = await r.fetch(); r.fulfill({ response: resp, body: (await resp.text()).replace('.layout>main.docs-page{min-width:0}', '') }); });
-    await p.goto(app.base + path); await p.locator('main').first().waitFor(); await sleep(900); const w = await p.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth); await c.close(); return w;
+    await p.goto(app.base + path); await p.locator('main').first().waitFor(); await sleep(1500);
+    let w = -1, same = 0; for (let i = 0; i < 20 && same < 3; i++) { const now = await p.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth); same = now === w ? same + 1 : 0; w = now; await sleep(400); }   // measure only once the page has finished rendering (three equal readings)
+    await c.close(); return w;
   };
-  for (const path of pagesToTry) for (const width of [360, 768, 1280]) { const withRule = await overflowAt(path, width, false); const without = await overflowAt(path, width, true); measured++; if (withRule > 1 && withRule > without + 1) regress.push(`${path}@${width}: ${withRule}px with the rule, ${without}px without`); }
+  for (const path of pagesToTry) for (const width of [360, 768, 1280]) { const withRule = await overflowAt(path, width, false); const without = await overflowAt(path, width, true); measured++; if (withRule > 1 && withRule <= without + 1) preexisting.push(`${path}@${width}: ${withRule}px`); if (withRule > 1 && withRule > without + 1) regress.push(`${path}@${width}: ${withRule}px with the rule, ${without}px without`); }
+  console.log('(info) pages that overflow at that width with or without the rule (not caused by it): ' + (preexisting.join(' | ') || 'none'));
   check(`min-width:0: none of ${pagesToTry.length} portal pages x 3 widths (${measured} measurements) overflows more with the rule than without it`, regress.length === 0, regress.join(' | '));
 
   check('no script errors, console errors or 5xx responses during the whole run', problems.length === 0, problems.join(' | '));
