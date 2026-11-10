@@ -1,0 +1,21 @@
+# Compose fragment: merge into the same internal network as the Qorlla Portal.
+# No host ports, no public access, no automatic production enablement.
+services:
+  ollama:
+    image: ollama/ollama:${OLLAMA_IMAGE_TAG:?Pin an approved Ollama image tag}
+    restart: unless-stopped
+    expose:
+      - '11434'
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - qorlla_ai_private
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  ollama_models:
+networks:
+  qorlla_ai_private:
+    internal: true

@@ -52,6 +52,13 @@ export function resolveAiConfig(env = process.env) {
   add('xai', { apiKey: trim(env.QORLLA_AI_XAI_API_KEY), baseUrl: trim(env.QORLLA_AI_XAI_BASE_URL) || 'https://api.x.ai/v1', model: trim(env.QORLLA_AI_XAI_MODEL), tier: tier(env.QORLLA_AI_XAI_TIER), external: true });
   // a self-hosted open-weight model runs on infrastructure the operator controls: no per-call cost, and no data leaves it
   if (trim(env.QORLLA_AI_SELFHOSTED_URL)) p.selfhosted = { apiKey: trim(env.QORLLA_AI_SELFHOSTED_API_KEY), baseUrl: trim(env.QORLLA_AI_SELFHOSTED_URL), model: trim(env.QORLLA_AI_SELFHOSTED_MODEL), tier: 'local', external: false };
+  if (p.selfhosted && bool(env.QORLLA_AI_SELFHOSTED_OLLAMA)) {
+    p.selfhosted.ollama = true;
+    p.selfhosted.allowedHosts = (trim(env.QORLLA_AI_OLLAMA_ALLOWED_HOSTS) || 'ollama,localhost,127.0.0.1').toLowerCase().split(',').map(x => x.trim()).filter(Boolean);
+    p.selfhosted.concurrency = Number(env.QORLLA_AI_OLLAMA_CONCURRENCY || 2);
+    p.selfhosted.maxQueue = Number(env.QORLLA_AI_OLLAMA_MAX_QUEUE || 8);
+    if (!p.selfhosted.model) problems.push('QORLLA_AI_SELFHOSTED_MODEL is required for Ollama');
+  }
   // the pre-gateway Anthropic path keeps working when its own key is set (compatibility), under the same rules as every other provider
   if (trim(env.AI_LLM_API_KEY)) p.anthropic = { apiKey: trim(env.AI_LLM_API_KEY), baseUrl: production ? 'https://api.anthropic.com' : (trim(env.AI_LLM_API_BASE) || 'https://api.anthropic.com'), model: trim(env.AI_LLM_MODEL) || 'claude-sonnet-5-5', tier: tier(env.QORLLA_AI_ANTHROPIC_TIER), external: true };
   for (const [id, o] of Object.entries(p)) if (id !== 'selfhosted' && !o.model && id !== 'anthropic') problems.push('QORLLA_AI_' + id.toUpperCase() + '_MODEL is required when a ' + id + ' key is configured');
