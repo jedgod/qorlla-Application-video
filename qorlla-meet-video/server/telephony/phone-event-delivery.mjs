@@ -7,12 +7,16 @@ export class DeliveryLeaseLost extends Error {
 }
 
 // The receiver must authenticate the sender and atomically deduplicate eventId.
-export function createPhoneEventDelivery({ db, deliver, log, leaseSeconds = 30, maxAttempts = 12, random = Math.random }) {
+// deliver(event, signal) is aborted and treated as failed after deliverTimeoutMs, which must stay below the lease.
+export function createPhoneEventDelivery({ db, deliver, log, leaseSeconds = 30, maxAttempts = 12, random = Math.random,
+  deliverTimeoutMs = Math.floor(leaseSeconds * 800) }) {
   if (!db || typeof deliver !== 'function' || typeof log?.error !== 'function' || typeof random !== 'function')
     throw new Error('Delivery requires a database, authenticated receiver and logger');
   if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 3600 ||
       !Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 100)
     throw new RangeError('Invalid delivery limits');
+  if (!Number.isSafeInteger(deliverTimeoutMs) || deliverTimeoutMs < 1 || deliverTimeoutMs >= leaseSeconds * 1000)
+    throw new RangeError('Delivery timeout must be shorter than the lease');
 
   async function lease(workerId, limit = 1) {
     if (!uuid(workerId) || !Number.isSafeInteger(limit) || limit < 1 || limit > 20) throw new RangeError('Invalid lease request');
@@ -67,17 +71,24 @@ export function createPhoneEventDelivery({ db, deliver, log, leaseSeconds = 30, 
   async function runOnce(workerId, limit = 1) {
     const jobs = await lease(workerId, limit);
     const results = await Promise.allSettled(jobs.map(async job => {
-      let ok = false, failure;
+      let ok = false, failure, timer;
+      const abort = new AbortController();
       try {
-        const ack = await deliver(job.event);
+        const timeout = new Promise((_, reject) => { timer = setTimeout(() => { abort.abort(); reject(new Error('DELIVERY_TIMEOUT')); }, deliverTimeoutMs); });
+        const ack = await Promise.race([deliver(job.event, abort.signal), timeout]);
         if (!ack || ack.eventId !== job.event.event_id || !['accepted', 'duplicate'].includes(ack.result))
           throw new Error('INVALID_DURABLE_ACK');
         ok = true;
       } catch (e) {
         failure = e;
         log.error('phone lifecycle delivery failed', { eventId: job.event.event_id, error: String(e?.message || e) });
+      } finally { clearTimeout(timer); }
+      try { await finish(job, ok, failure?.message || String(failure ?? '')); }
+      catch (e) {
+        // A lost lease means another worker owns the event now; the receiver deduplicates, so this is not a poll failure.
+        if (e?.code !== 'DELIVERY_LEASE_LOST') throw e;
+        log.error('phone lifecycle delivery lease lost', { eventId: job.event.event_id });
       }
-      await finish(job, ok, failure?.message || String(failure ?? ''));
     }));
     const failed = results.find(result => result.status === 'rejected');
     if (failed) throw failed.reason;
@@ -94,5 +105,29 @@ export function createPhoneEventDelivery({ db, deliver, log, leaseSeconds = 30, 
       FROM phone_lifecycle_delivery d JOIN phone_lifecycle_outbox e ON e.event_id=d.event_id`);
     return rows[0];
   }
-  return { lease, finish, runOnce, diagnostics };
+  // Operator recovery. A dead letter blocks every later event of its call until it is requeued here.
+  // Requires the reviewed delivery role; the ordinary application role cannot write delivery metadata.
+  async function listDeadLetters(limit = 50) {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw new RangeError('Invalid limit');
+    return (await db.query(`SELECT e.event_id,e.call_id,e.lifecycle_version,e.event_type,d.attempts,d.last_error,d.dead_lettered_at
+      FROM phone_lifecycle_delivery d JOIN phone_lifecycle_outbox e ON e.event_id=d.event_id
+      WHERE d.dead_lettered_at IS NOT NULL AND d.delivered_at IS NULL ORDER BY d.dead_lettered_at,e.event_id LIMIT $1`, [limit])).rows;
+  }
+  async function requeueDeadLetter(eventId) {
+    if (!uuid(eventId)) throw new RangeError('Invalid event id');
+    const r = await db.query(`UPDATE phone_lifecycle_delivery SET dead_lettered_at=NULL,attempts=0,next_attempt_at=now(),
+        lease_owner=NULL,lease_token=NULL,lease_until=NULL
+      WHERE event_id=$1 AND dead_lettered_at IS NOT NULL AND delivered_at IS NULL RETURNING event_id`, [eventId]);
+    return r.rowCount === 1;
+  }
+  // Calls whose stream cannot advance by itself: a dead letter, a missing earlier version, or a stream that
+  // starts after version 1 (a call already in progress when the migrations were applied).
+  async function blockedStreams() {
+    return (await db.query(`SELECT e.call_id,min(e.lifecycle_version)::text AS first_version,max(e.lifecycle_version)::text AS last_version,
+        count(*)::int AS captured,(count(*) FILTER (WHERE d.dead_lettered_at IS NOT NULL))::int AS dead_lettered
+      FROM phone_lifecycle_outbox e JOIN phone_lifecycle_delivery d ON d.event_id=e.event_id GROUP BY e.call_id
+      HAVING min(e.lifecycle_version) > 1 OR max(e.lifecycle_version) <> count(*)
+        OR count(*) FILTER (WHERE d.dead_lettered_at IS NOT NULL) > 0 ORDER BY e.call_id`)).rows;
+  }
+  return { lease, finish, runOnce, diagnostics, listDeadLetters, requeueDeadLetter, blockedStreams };
 }

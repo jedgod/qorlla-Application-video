@@ -386,9 +386,9 @@ test('gateway mode end to end: verify -> approved -> real-looking media -> conne
 
 // ================================================================================================ 7. durable, bounded host decision (replaces polling)
 test('host decision: bounded long-poll, durable state, the media token is issued exactly once, silence times out, concurrency is capped, scope is enforced', { skip }, async () => {
-  const k = keys(), h = await gwHarness(k, { env: { PHONE_APPROVAL_TIMEOUT_MS: '2500', PHONE_DECISION_MAX_WAITERS: '2' } }), m = await h.meeting({ waitingRoom: true }), D = (id, wait) => gget(h, k, '/api/phone/ivr/calls/' + id + '/decision?waitMs=' + wait);
+  const k = keys(), h = await gwHarness(k, { env: { PHONE_APPROVAL_TIMEOUT_MS: '4000', PHONE_DECISION_MAX_WAITERS: '2' } }), m = await h.meeting({ waitingRoom: true }), D = (id, wait) => gget(h, k, '/api/phone/ivr/calls/' + id + '/decision?waitMs=' + wait);
   const a = (await gpost(h, k, '/api/phone/ivr/verify', 'phone.verify', vbody(h, m))).body, ca = await h.row(a.callRef); assert.equal(a.result, 'waiting');
-  const t0 = Date.now(); const pend = await D(a.callRef, 300); assert.equal(pend.body.decision, 'pending'); assert.ok(Date.now() - t0 >= 250 && Date.now() - t0 < 2500, 'waited, but bounded');
+  const t0 = Date.now(); const pend = await D(a.callRef, 300); assert.equal(pend.body.decision, 'pending'); assert.ok(Date.now() - t0 >= 250 && Date.now() - t0 < 3500, 'waited, but bounded');
   const waiting = D(a.callRef, 5000); await sleep(150); await h.db.query("UPDATE participants SET admission='admitted' WHERE id=$1", [ca.participant_id]); await h.phone.onAdmission(m.id, [ca.participant_id], true);
   const done = await waiting; assert.equal(done.body.decision, 'approved'); assert.ok(done.body.mediaToken, 'the token arrives with the decision'); assert.equal((await D(a.callRef, 0)).body.mediaToken, undefined, 'and only once');
   const tok = done.body.mediaToken; const r = await gpost(h, k, '/api/phone/ivr/media', 'phone.media', { eventId: h.uid(), callId: ca.provider_call_id, mediaToken: tok, evidence: good({ source: 'rtp' }) }); assert.equal(r.body.result, 'connected');

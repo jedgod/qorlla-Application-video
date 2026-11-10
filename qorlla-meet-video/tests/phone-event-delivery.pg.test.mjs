@@ -128,3 +128,54 @@ test('a terminated worker loses its lease and a new process can recover the same
     await outbox.finish(recovered, true);
   } finally { if (child.exitCode === null && child.signalCode === null) child.kill(); }
 });
+
+test('a hung receiver is aborted before the lease expires and the event is retried', { skip }, async () => {
+  const id = randomUUID(); await db.query('INSERT INTO phone_calls VALUES($1,$2)', [id, meeting]);
+  await db.query("INSERT INTO phone_call_events(call_id,to_state) VALUES($1,'REQUESTED')", [id]);
+  assert.throws(() => createPhoneEventDelivery({ db, log, deliver: async () => {}, leaseSeconds: 1, deliverTimeoutMs: 1000 }), RangeError);
+  let signal;
+  const outbox = createPhoneEventDelivery({ db, log, leaseSeconds: 2, deliverTimeoutMs: 100,
+    deliver: (event, s) => { if (event.call_id === id) { signal = s; return new Promise(() => {}); } return Promise.resolve({ eventId: event.event_id, result: 'accepted' }); } });
+  await db.query("UPDATE phone_lifecycle_delivery SET next_attempt_at=now()-interval '1 second' WHERE delivered_at IS NULL AND dead_lettered_at IS NULL");
+  const started = Date.now();
+  await outbox.runOnce(randomUUID(), 20);
+  assert.ok(Date.now() - started < 1900, 'ended by the delivery timeout, not by the lease');
+  assert.equal(signal.aborted, true);
+  const row = (await db.query('SELECT d.last_error,d.delivered_at,d.lease_token FROM phone_lifecycle_delivery d JOIN phone_lifecycle_outbox e USING(event_id) WHERE e.call_id=$1', [id])).rows[0];
+  assert.equal(row.last_error, 'DELIVERY_TIMEOUT'); assert.equal(row.delivered_at, null); assert.equal(row.lease_token, null);
+});
+
+test('a lost lease during delivery does not fail the poll and does not mark the event delivered', { skip }, async () => {
+  const id = randomUUID(); await db.query('INSERT INTO phone_calls VALUES($1,$2)', [id, meeting]);
+  await db.query("INSERT INTO phone_call_events(call_id,to_state) VALUES($1,'REQUESTED')", [id]);
+  const logged = [];
+  const outbox = createPhoneEventDelivery({ db, log: { error: (...a) => logged.push(a) }, deliver: async event => {
+    await db.query("UPDATE phone_lifecycle_delivery SET lease_until=now()-interval '1 second' WHERE event_id=$1", [event.event_id]);
+    return { eventId: event.event_id, result: 'accepted' };
+  } });
+  await db.query("UPDATE phone_lifecycle_delivery SET next_attempt_at=now()+interval '1 hour' WHERE delivered_at IS NULL AND dead_lettered_at IS NULL");
+  await db.query("UPDATE phone_lifecycle_delivery SET next_attempt_at=now() WHERE event_id IN (SELECT event_id FROM phone_lifecycle_outbox WHERE call_id=$1)", [id]);
+  assert.equal(await outbox.runOnce(randomUUID(), 1), 1);
+  assert.ok(logged.some(a => a[0] === 'phone lifecycle delivery lease lost'));
+  const row = (await db.query('SELECT d.delivered_at FROM phone_lifecycle_delivery d JOIN phone_lifecycle_outbox e USING(event_id) WHERE e.call_id=$1', [id])).rows[0];
+  assert.equal(row.delivered_at, null);
+});
+
+test('operators can list blocked streams and requeue a dead letter, which unblocks the call', { skip }, async () => {
+  const outbox = createPhoneEventDelivery({ db, log, deliver: async event => ({ eventId: event.event_id, result: 'accepted' }) });
+  const dead = (await outbox.listDeadLetters()).find(r => r.call_id === call && r.lifecycle_version === '2');
+  assert.ok(dead, 'the dead letter from the earlier test is listed'); assert.equal(dead.last_error, 'INVALID_DURABLE_ACK');
+  const blocked = await outbox.blockedStreams();
+  assert.equal(blocked.find(r => r.call_id === call)?.dead_lettered, 1);
+  const legacy = blocked.find(r => r.call_id === incomplete);
+  assert.ok(legacy && legacy.first_version === '2', 'a stream that starts after version 1 is reported');
+  assert.equal(await outbox.requeueDeadLetter(randomUUID()), false);
+  assert.equal(await outbox.requeueDeadLetter(dead.event_id), true);
+  assert.equal(await outbox.requeueDeadLetter(dead.event_id), false, 'a second requeue is a no-op');
+  assert.equal((await outbox.blockedStreams()).find(r => r.call_id === call), undefined);
+  await db.query("UPDATE phone_lifecycle_delivery SET next_attempt_at=now() WHERE event_id IN (SELECT event_id FROM phone_lifecycle_outbox WHERE call_id=$1)", [call]);
+  await outbox.runOnce(randomUUID(), 20);
+  const row = (await db.query('SELECT delivered_at FROM phone_lifecycle_delivery WHERE event_id=$1', [dead.event_id])).rows[0];
+  assert.ok(row.delivered_at, 'the requeued event is delivered');
+  assert.equal((await outbox.blockedStreams()).find(r => r.call_id === incomplete)?.first_version, '2', 'the legacy stream stays reported');
+});

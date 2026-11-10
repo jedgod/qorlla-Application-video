@@ -1,6 +1,8 @@
 -- Serialize batches per call and capture each transition in source-event order.
 -- Does not authorize calls, media, or historical replay.
 BEGIN;
+-- Fail fast instead of queueing behind long transactions: a waiting SHARE ROW EXCLUSIVE lock blocks new call writes.
+SET LOCAL lock_timeout = '5s';
 LOCK TABLE phone_calls, phone_call_events IN SHARE ROW EXCLUSIVE MODE;
 CREATE TABLE phone_lifecycle_legacy_baseline (
   call_id uuid PRIMARY KEY,
