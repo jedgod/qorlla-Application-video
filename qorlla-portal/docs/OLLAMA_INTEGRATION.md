@@ -19,12 +19,17 @@
 - `tests/ollama.integration.test.mjs`: adapter unit tests (from the integration kit).
 - `tests/docs-ollama.test.mjs`: the real portal and PostgreSQL against a local HTTP server that speaks Ollama's `/v1/chat/completions`: off by default, status leaks no model or host, the five Docs tasks, draft/apply with confirmation, tampered or stale suggestions refused, other members refused before anything is sent, outage and garbage output fail generically, quota metering.
 
-## Known gaps (not done, on purpose or for lack of an environment)
-1. **No real model has been run.** No Ollama image was pulled and no weights were downloaded; which model and its licence are still open decisions. Output quality (valid JSON, translation, length limits) is unproven.
-2. **No performance, GPU or load evidence**: queue limits (2 concurrent, 8 queued) are defaults, not measured on the target hardware.
-3. **Cancellation is not end to end**: the adapter honours an abort signal, but the gateway does not yet pass the HTTP client's disconnect to the model call, so a closed browser tab does not stop inference.
-4. **Per-process queue**: the queue and rate limit are per Portal process; with several Portal replicas the limits multiply.
-5. **No network enforcement here**: "no external egress" is a Compose/firewall property that was not tested; `QORLLA_AI_OLLAMA_ALLOWED_HOSTS` is a hostname allowlist, not DNS-rebinding protection.
-6. **Prompt injection** cannot be removed by delimiters; the model is given no tools or secrets, and output is only ever a suggestion.
-7. **Not deployed anywhere**: the live local stack (4800) still has AI off. Android and desktop AI flows were not exercised.
-8. The two other kit variants (`qorlla-ollama-integration`, a standalone adapter plus its own Docs AI service; and `qorlla-ollama-next2`, identical to `-next`) were not imported: the first duplicates the existing gateway and `/api/v1/ai/*` routes.
+## Evidence gathered (2026-11-10, this development machine)
+- **End-to-end cancellation: fixed and tested.** A closed browser request now aborts the model call (gateway `generateJson` takes an AbortSignal; `/api/v1/ai/run` aborts when the response closes). A cancelled call is neither a provider failure (no failover, no circuit-breaker count) nor a metered run. Test: `docs-ollama.test.mjs` #12.
+- **Network isolation: verified.** A container with `cap_drop: ALL`, `no-new-privileges`, on a `--internal` Docker network, with the models volume mounted read-only, had no route to an IP address (`Network is unreachable`) and no DNS (`Temporary failure in name resolution`), published no port, and still started. Image: `ollama/ollama:0.5.13`.
+- **A real model was pulled and loaded** (`qwen2.5:1.5b` and `qwen2.5:0.5b`, both Apache-2.0; chosen only as small test models, NOT a production model decision), in an isolated container never connected to the live stack.
+- **Real-model quality and latency were NOT obtained.** The host is an Intel N95 (4 cores) that was already at 100 % CPU. With Ollama's default 4 threads the runner made no usable progress at all (a 12-token reply did not finish in 15 minutes; the first real-portal run timed out after 170 s on three tasks, then the circuit breaker opened, which is the designed behaviour). With `num_thread=1`, `qwen2.5:0.5b` produced 0.74 tokens/s with a 15 s prompt evaluation for about 14 tokens: far too slow for the adapter's 180 s ceiling on a real Docs prompt.
+  Two operational findings follow: (1) set Ollama's `num_thread` (Modelfile `PARAMETER num_thread` or request option) to no more than the cores really free: thread oversubscription collapses llama.cpp throughput; (2) this machine cannot certify a model. `tests/docs-ollama.real.test.mjs` (skipped unless `OLLAMA_REAL_URL` and `OLLAMA_REAL_MODEL` are set) runs all five tasks through the real portal against a real Ollama and prints per-task latency: run it on the intended hardware.
+
+## Known gaps (still open)
+1. **No real-model output or latency has been captured** (see above): the model, its licence and production-representative hardware are still open decisions.
+2. **Per-process queue and rate limit**: with several Portal replicas the limits multiply; a shared (database or Redis) limiter is not built.
+3. **`allowedHosts` is a hostname allowlist**, not DNS-rebinding protection; the Compose `internal` network is the enforcement and was verified only as described above.
+4. **Prompt injection** cannot be removed by delimiters; the model gets no tools or secrets, and output is only ever a suggestion.
+5. **Not deployed or enabled anywhere**: the live local stack (4800) still has AI off. Android and desktop AI flows were not exercised.
+6. The standalone kit (`qorlla-ollama-integration`) and `-next2` (identical to `-next`) were not imported.
