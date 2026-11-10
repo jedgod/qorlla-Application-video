@@ -94,7 +94,7 @@ export async function renderSuite(root) {
 let generation = 0;                                                      // a newer mount supersedes an older one that is still loading
 export async function mountDocsWorkspace(host, { docId = '' } = {}) {
   const gen = ++generation; const shadow = host.shadowRoot || host.attachShadow({ mode: 'open' });
-  shadow.innerHTML = '<link rel="stylesheet" href="/app/assets/styles.css"><style>:host{display:block;font:14px/1.5 Inter,ui-sans-serif,system-ui,Arial,sans-serif;color:#16253d}.docs-embed{min-width:0}</style><div class="docs-embed docs-ui"></div>';
+  shadow.innerHTML = '<link rel="stylesheet" href="/app/assets/styles.css"><style>:host{display:block;font:13px/1.45 Inter,ui-sans-serif,system-ui,Arial,sans-serif;color:#16253d}.docs-embed{min-width:0}</style><div class="docs-embed docs-ui"></div>';
   await new Promise((done) => { const l = shadow.querySelector('link'); const t = setTimeout(done, 4000); const fin = () => { clearTimeout(t); done(); }; if (l.sheet) fin(); else { l.addEventListener('load', fin, { once: true }); l.addEventListener('error', fin, { once: true }); } });
   if (gen !== generation) return { open() {}, destroy() {} };
   const root = shadow.querySelector('.docs-embed'); offs.splice(0).forEach((f) => f());

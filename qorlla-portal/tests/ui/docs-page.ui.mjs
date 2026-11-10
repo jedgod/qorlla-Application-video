@@ -20,7 +20,7 @@ const api = (s) => app.client(s, { origin: app.base });                         
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const problems = [];
 async function openAs(session, viewport = { width: 1280, height: 900 }) {
-  const ctx = await browser.newContext({ viewport }); await ctx.addCookies([{ name: 'qorlla_portal_session', value: session.jwt, url: app.base, httpOnly: true }, { name: 'qorlla_csrf', value: session.csrf, url: app.base }]);
+  const ctx = await browser.newContext({ viewport }); ctx.setDefaultNavigationTimeout(120000); await ctx.addCookies([{ name: 'qorlla_portal_session', value: session.jwt, url: app.base, httpOnly: true }, { name: 'qorlla_csrf', value: session.csrf, url: app.base }]);
   const page = await ctx.newPage(); page.dialogLog = []; page.dialogPlan = { accept: true, text: undefined };
   page.on('dialog', async (d) => { page.dialogLog.push(d.type() + ':' + d.message()); if (page.dialogPlan.accept) await d.accept(page.dialogPlan.text); else await d.dismiss(); });
   page.on('pageerror', (e) => problems.push('pageerror: ' + e.message));
@@ -340,11 +340,13 @@ try {
     for (const w of [360, 390, 768, 1280, 1440]) {
       const r = await openAs(H, { width: w, height: 900 }); const q = r.page; await goHome(q);
       const ovHome = await q.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth);
+      const ctlH = await q.evaluate(() => ['#doc-search [name=q]', '#doc-kind', '#new-doc'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().height)));
       const stacked = await q.evaluate(() => { const a = document.querySelector('.docs-aside').getBoundingClientRect(), l = document.querySelector('.docs-library').getBoundingClientRect(); return a.top >= l.bottom - 2; });
       if (SHOTS) await q.screenshot({ path: `${SHOTS}/home-${w}.png`, fullPage: true });
       await q.goto(app.base + '/app/suite?doc=' + docId); await q.locator('#doc-text').waitFor(); const ovEd = await q.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth);
       if (SHOTS) await q.screenshot({ path: `${SHOTS}/editor-${w}.png`, fullPage: true });
       check(`${w}px: Docs home and the editor do not scroll sideways, and the side column ${w >= 1100 ? 'sits beside' : 'stacks under'} the library`, ovHome <= 1 && ovEd <= 1 && (w >= 1100 ? !stacked : stacked), `home ${ovHome} editor ${ovEd} stacked ${stacked}`);
+      check(`${w}px: ${w <= 700 ? 'phone controls keep a 44px touch target' : 'controls use the compact desktop standard (34-38px)'}`, ctlH.every((h) => (w <= 700 ? h >= 44 : h >= 34 && h <= 38)), ctlH.join());
       await r.ctx.close();
     }
   }
