@@ -292,7 +292,7 @@
   .ps-body { border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px 16px; min-width: 0; } .ps-body h3 { margin: 0 0 8px; font-size: 17px; } .ps-body .qp-fl2 { margin: 6px 0; max-width: 460px; } .ps-meter { height: 8px; background: #e2e8f0; border-radius: 6px; overflow: hidden; max-width: 460px; margin: 6px 0; } .ps-meter span { display: block; height: 100%; width: 0; background: #16b85a; transition: width .1s; } .ps-audit { margin: 4px 0; padding-left: 18px; }
   .qp .feat-note[data-state=active] { color: #166534; } .qp .feat-note[data-state=failed], .qp .feat-note[data-state=drift] { color: #b91c1c; } .feat-note { margin: 2px 0 8px; }
   .qp-head .qp-tabs { min-width: 0; } .hp-hist summary { min-height: 28px; display: flex; align-items: center; cursor: pointer; }
-  @media (max-width: 760px) { .qp-tabs { flex-wrap: wrap; overflow: visible; } .qp-tabs button { flex: 1 1 28%; padding: 8px 6px; white-space: normal; } .qp-head .qp-tabs { flex-basis: 100%; } }
+  @media (max-width: 760px) { .qp-tabs { flex-wrap: wrap; overflow: visible; } .qp-tabs button { flex: 1 1 28%; padding: 8px 6px; white-space: nowrap; font-size: 13px; min-height: 40px; } .qp-head .qp-tabs { flex-basis: 100%; } .qp-jhead { flex-wrap: wrap; } .qp-jhead > div { flex: 1 1 170px; } .qp-jhead > button, .qp-jhead > .btn { flex: 1 1 100%; } }
   dialog.vi { border: 0; border-radius: 16px; padding: 22px 24px; width: min(380px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(15, 23, 42, .35); text-align: center; } dialog.vi::backdrop { background: rgba(15, 23, 42, .45); } .vi h2 { margin: 0 0 4px; font-size: 18px; } .vi-who { font-size: 20px; font-weight: 700; margin: 8px 0 4px; } .vi-sub { font-size: 13px; margin: 0 0 14px; } .vi-actions { display: flex; gap: 10px; justify-content: center; } .vi-actions .btn { min-width: 110px; }
   .btn.danger { background: #dc2626; color: #fff; border-color: #dc2626; } .btn.danger:hover { background: #b91c1c; }
   .vb { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 12px; background: #0f172a; color: #fff; border-radius: 999px; padding: 8px 10px 8px 16px; box-shadow: 0 10px 30px rgba(15, 23, 42, .4); max-width: calc(100vw - 24px); } .vb.hidden { display: none; } .vb-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; flex: none; } .vb-dot.ring { background: #f59e0b; animation: vbpulse 1.2s infinite; } @keyframes vbpulse { 50% { opacity: .3; } } @media (prefers-reduced-motion: reduce) { .vb-dot.ring { animation: none; } }
@@ -713,7 +713,7 @@
     /* every page opened from a tab is its own page with a close button that goes back to the page before */
     .view-close { display: none; }
     body.page-open .view-close { display: flex; position: fixed; top: 8px; right: 10px; z-index: 40; width: 48px; height: 48px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--ink, #131a2a); font-size: 24px; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(19,26,42,.18); }
-    body.page-open #view { padding-top: 56px; }
+    body.page-open #view { padding-top: 14px; }   /* the close button sits in the breadcrumb row above the page, so the page needs no 56px reserve */
     body[data-page=workspace].page-open .topbar { display: none; }
   }
   @media (min-width: 701px) { .view-close { display: none; } }
