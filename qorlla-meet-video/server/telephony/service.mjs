@@ -23,6 +23,14 @@ export class TelephonyService {
   async gates() { const { rows } = await this.db.query('SELECT gate, certified_at FROM qphone_gates'); const g = {}; for (const r of rows) g[r.gate] = new Date(r.certified_at).toISOString(); return g; }
   // Independent feature flags (PHONE_FEATURES, a comma list of: dialin, carrier, bridge, billing, settings). Default: none. A flag AND a certified gate are both required.
   flags() { return new Set(String(this.env.PHONE_FEATURES || '').split(',').map((s) => s.trim()).filter(Boolean)); }
+  /** The media gateway counts as installed only on stored, FRESH evidence: a healthy heartbeat that reports its media bridge present (or an injected bridge that says it is ready). Any failure to find out is "not installed". */
+  async mediaBridgeInstalled() {
+    if (this.bridge.ready) return true;
+    try {
+      const maxBeat = Math.round(num(this.env.PHONE_GATEWAY_HEARTBEAT_MAX_AGE_S, 60));
+      return Number((await this.db.query("SELECT count(*)::int AS n FROM phone_gateway_health WHERE healthy AND media_bridge AND observed_at > now() - ($1::int * interval '1 second')", [maxBeat])).rows[0].n) > 0;
+    } catch { return false; }
+  }
   async capabilities(actorId) {
     const st = await this.providerStatus(), certified = await this.gates(), flags = this.flags(), gates = {}, flagsOff = [];
     for (const [k, v] of Object.entries(certified)) { if (flags.has(k)) gates[k] = v; else flagsOff.push(k); }
@@ -31,7 +39,7 @@ export class TelephonyService {
       webhookVerified: !!(st && st.webhook_verified_at), webhookVerifiedAt: st && st.webhook_verified_at ? new Date(st.webhook_verified_at).toISOString() : null, gates,
       dialInCount: await one("SELECT count(*)::int AS n FROM qphone_numbers WHERE kind='dialin' AND state='active'"),
       personalNumbers: actorId ? await one("SELECT count(*)::int AS n FROM qphone_numbers WHERE kind='personal' AND state='active' AND assigned_to=$1", [actorId]) : 0,
-      flagsOff, bridgeReady: !!this.bridge.ready, reconciledUsage: await one("SELECT count(*)::int AS n FROM qphone_usage WHERE state='reconciled'") });
+      flagsOff, bridgeReady: await this.mediaBridgeInstalled(), reconciledUsage: await one("SELECT count(*)::int AS n FROM qphone_usage WHERE state='reconciled'") });
     return { ...caps, carrierName: this.carrier.name, webhookConfigured: !!this.carrier.webhookConfigured, flags: [...flags] };
   }
   /**
@@ -48,7 +56,7 @@ export class TelephonyService {
     const beats = await one("SELECT count(*)::int AS n FROM phone_gateway_health WHERE healthy AND observed_at > now() - ($1::int * interval '1 second')", [Math.round(maxBeat / 1000)]);
     const dialIn = await one("SELECT count(*)::int AS n FROM qphone_numbers WHERE kind='dialin' AND state='active'"), usage = await one("SELECT count(*)::int AS n FROM qphone_usage WHERE state='reconciled'");
     const carrierConnected = !!(this.carrier.configured && st && st.health_ok && fresh(st.health_checked_at, maxHealth) && fresh(st.webhook_verified_at, maxHook));
-    const readiness = { carrierConnected, inboundNumberCertified: carrierConnected && dialIn > 0 && gateOk('dialin'), gatewayHealthy: beats > 0, mediaBridgeCertified: !!this.bridge.ready && gateOk('bridge'),
+    const readiness = { carrierConnected, inboundNumberCertified: carrierConnected && dialIn > 0 && gateOk('dialin'), gatewayHealthy: beats > 0, mediaBridgeCertified: (await this.mediaBridgeInstalled()) && gateOk('bridge'),
       billingCertified: gateOk('billing') && usage > 0, productionApproved: gateOk('production') };
     const why = { carrierConnected: carrierConnected ? 'carrier health and signed webhook are fresh' : 'no verified carrier connection', inboundNumberCertified: readiness.inboundNumberCertified ? dialIn + ' certified dial-in number(s)' : 'dial-in numbers or the dialin gate are not certified',
       gatewayHealthy: beats > 0 ? beats + ' gateway heartbeat(s) in the last ' + Math.round(maxBeat / 1000) + ' s' : 'no fresh gateway heartbeat', mediaBridgeCertified: readiness.mediaBridgeCertified ? 'bridge installed and certified' : 'no installed, certified media bridge',

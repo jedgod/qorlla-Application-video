@@ -71,8 +71,8 @@ export function deriveCapabilities(e) {
     : !e.gates.carrier ? row('off', off('carrier', 'Inbound and outbound calling is not certified.'))
     : row('active', 'Inbound and outbound calls certified.', ['Certified ' + e.gates.carrier]);
   const number = e.personalNumbers > 0 ? row('active', e.personalNumbers + ' number(s) confirmed by the carrier.', ['Provider-confirmed assignment']) : row('unassigned', 'No number is assigned to you.');
-  const bridge = !e.bridgeReady ? row('not_built', 'No SIP/RTP-to-Qorlla media gateway is installed. Telephone audio cannot reach the meeting.')
-    : !e.gates.bridge ? row('pending', off('bridge', 'A media gateway is installed but two-way meeting audio is not certified.'))
+  const bridge = !e.bridgeReady ? row('not_connected', 'No SIP/RTP media gateway has reported ready to this server recently. Telephone audio cannot reach the meeting.')
+    : !e.gates.bridge ? row('pending', off('bridge', 'A media gateway is connected and reporting ready, but two-way meeting audio is not certified.'))
     : row('active', 'Two-way telephone audio certified.', ['Certified ' + e.gates.bridge]);
   const billing = !e.gates.billing ? row('not_connected', off('billing', 'Telephony billing is not certified. Paid calling stays off.'))
     : e.reconciledUsage === 0 ? row('pending', 'Billing is certified but no provider usage has been reconciled yet.')

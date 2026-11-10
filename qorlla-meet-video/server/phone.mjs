@@ -319,7 +319,10 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
     const out = await decision(c.id, 0); return out && !out.busy ? { result: 'ok', ...out } : { result: 'unknown' };
   };
   app.post('/api/phone/ivr/status', ...signed((j) => statusReport(j), 'phone.decision', { noEvent: true }));
-  app.post('/api/phone/ivr/gateway-health', ...signed(async (j) => { const inst = String(j.instance || ''); if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(inst)) return { result: 'invalid' }; await db.query('INSERT INTO phone_gateway_health(instance, healthy, observed_at, detail) VALUES($1,$2,now(),$3) ON CONFLICT (instance) DO UPDATE SET healthy=EXCLUDED.healthy, observed_at=now(), detail=EXCLUDED.detail', [inst, j.healthy === true, String(j.detail || '').slice(0, 200)]); return { result: 'ok' }; }, 'phone.health', { noEvent: true }));
+  app.post('/api/phone/ivr/gateway-health', ...signed(async (j) => { const inst = String(j.instance || ''); if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(inst)) return { result: 'invalid' }; const healthy = j.healthy === true, detail = String(j.detail || '').slice(0, 200);
+    try { await db.query('INSERT INTO phone_gateway_health(instance, healthy, media_bridge, observed_at, detail) VALUES($1,$2,$3,now(),$4) ON CONFLICT (instance) DO UPDATE SET healthy=EXCLUDED.healthy, media_bridge=EXCLUDED.media_bridge, observed_at=now(), detail=EXCLUDED.detail', [inst, healthy, healthy && j.mediaBridge === true, detail]); }
+    catch (e) { if (e?.code !== '42703') throw e;                                   // migration v4_29 is not applied yet: the heartbeat still counts, but no media bridge can be reported (the audio bridge reads as not connected: fail closed)
+      await db.query('INSERT INTO phone_gateway_health(instance, healthy, observed_at, detail) VALUES($1,$2,now(),$3) ON CONFLICT (instance) DO UPDATE SET healthy=EXCLUDED.healthy, observed_at=now(), detail=EXCLUDED.detail', [inst, healthy, detail]); } return { result: 'ok' }; }, 'phone.health', { noEvent: true }));
 
   // The host's decision, durable and bounded: the state lives in PostgreSQL (every replica sees it), the wait is capped, and silence becomes TIMED_OUT on its own.
   let waiters = 0; const MAX_WAITERS = Number(env.PHONE_DECISION_MAX_WAITERS || 200);

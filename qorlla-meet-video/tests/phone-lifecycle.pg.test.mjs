@@ -29,7 +29,7 @@ let schema, admin; const pools = [], closers = [];
 const poolFor = () => { const p = new pg.Pool({ connectionString: URL_, options: '-c search_path=' + schema, max: 12 }); pools.push(p); return p; };
 test.before(async () => {
   if (!URL_) return; schema = 'mp_' + Math.random().toString(36).slice(2, 9); admin = new pg.Pool({ connectionString: URL_ }); await admin.query('CREATE SCHEMA ' + schema);
-  const c = await admin.connect(); try { await c.query('SET search_path=' + schema); for (const f of [...ORDER, 'v4_24_phone_lifecycle.sql']) await c.query(fs.readFileSync(path.join(SQL, f), 'utf8')); await c.query(fs.readFileSync(path.join(SQL, 'v4_24_phone_lifecycle.sql'), 'utf8')); for (const f of ['v4_26_phone_event_outbox.sql', 'v4_27_phone_event_delivery.sql', 'v4_28_phone_event_batches.sql']) await c.query(fs.readFileSync(path.join(SQL, f), 'utf8')); } finally { c.release(); }   // v4.24 remains idempotent
+  const c = await admin.connect(); try { await c.query('SET search_path=' + schema); for (const f of [...ORDER, 'v4_24_phone_lifecycle.sql', 'v4_29_phone_gateway_media_bridge.sql']) await c.query(fs.readFileSync(path.join(SQL, f), 'utf8')); await c.query(fs.readFileSync(path.join(SQL, 'v4_24_phone_lifecycle.sql'), 'utf8')); for (const f of ['v4_26_phone_event_outbox.sql', 'v4_27_phone_event_delivery.sql', 'v4_28_phone_event_batches.sql']) await c.query(fs.readFileSync(path.join(SQL, f), 'utf8')); } finally { c.release(); }   // v4.24 remains idempotent
 });
 test.after(async () => { for (const c of closers) await c().catch(() => {}); if (!URL_) return; for (const p of pools) await p.end().catch(() => {}); await admin.query('DROP SCHEMA ' + schema + ' CASCADE'); await admin.end(); });
 
@@ -472,4 +472,36 @@ test('gateway mode: perfect audio evidence does NOT connect a call when no verif
     const c = await h.row(v.body.callRef), r = await gpost(h, k, '/api/phone/ivr/media', 'phone.media', { eventId: h.uid(), callId: c.provider_call_id, mediaToken: v.body.mediaToken, evidence: good({ source: 'rtp' }) });
     assert.equal(r.body.result, 'connecting', why); assert.equal(r.body.reason, reason, why); assert.notEqual((await h.row(v.body.callRef)).state, 'MEDIA_CONNECTED', why); assert.equal((await h.row(v.body.callRef)).status, 'waiting', why);
   }
+});
+
+// ================================================================================================ 10. the audio bridge row follows stored, fresh gateway evidence
+test('audio bridge status: a fresh healthy heartbeat that reports its media bridge makes it connected; a bare, stale or unhealthy heartbeat does not; certification is still required for active', { skip }, async () => {
+  const db = poolFor(), carrier = { name: 'cap-' + Math.random().toString(36).slice(2, 6), configured: false };
+  const caps = async (flags = '') => (await new TelephonyService({ db, carrier, bridge: { ready: false }, audio: {}, env: { PHONE_FEATURES: flags } }).capabilities(null)).bridge;
+  const reset = async () => { await db.query('DELETE FROM phone_gateway_health'); await db.query('DELETE FROM qphone_gates'); };
+  await reset(); let b = await caps(); assert.equal(b.status, 'not_connected'); assert.match(b.detail, /reported ready/); assert.doesNotMatch(b.detail, /not built|installed/i);
+  await db.query("INSERT INTO phone_gateway_health(instance, healthy, observed_at) VALUES('gw-a', true, now())");
+  assert.equal((await caps()).status, 'not_connected', 'a heartbeat that does not report a media bridge is not evidence of one');
+  await db.query('UPDATE phone_gateway_health SET media_bridge=true'); b = await caps(); assert.equal(b.status, 'pending'); assert.match(b.detail, /not certified/);
+  await db.query("UPDATE phone_gateway_health SET observed_at = now() - interval '5 minutes'"); assert.equal((await caps()).status, 'not_connected', 'a stale heartbeat');
+  await db.query("UPDATE phone_gateway_health SET observed_at = now(), healthy = false"); assert.equal((await caps()).status, 'not_connected', 'an unhealthy gateway');
+  await db.query('UPDATE phone_gateway_health SET healthy = true');
+  await db.query("INSERT INTO qphone_gates(gate, certified_at, evidence_ref, evidence_sha256, certified_by) VALUES('bridge', now(), 'ev', 'abc', 'op')");
+  assert.equal((await caps()).status, 'pending', 'certified but the bridge flag is off');
+  assert.equal((await caps('bridge')).status, 'active', 'evidence of a connected gateway AND a certified gate AND the flag');
+  await db.query("UPDATE phone_gateway_health SET media_bridge = false"); assert.equal((await caps('bridge')).status, 'not_connected', 'the gateway stopped reporting a media bridge');
+  await reset();
+});
+
+test('the gateway heartbeat stores whether the media bridge is present, and only while healthy', { skip }, async () => {
+  const k = keys(), h = await gwHarness(k);
+  const beat = (body) => gpost(h, k, '/api/phone/ivr/gateway-health', 'phone.health', body), row = async (i) => (await h.db.query('SELECT healthy, media_bridge FROM phone_gateway_health WHERE instance=$1', [i])).rows[0];
+  assert.equal((await beat({ eventId: h.uid(), instance: 'gw-bare', healthy: true })).status, 200); assert.deepEqual(await row('gw-bare'), { healthy: true, media_bridge: false });
+  assert.equal((await beat({ eventId: h.uid(), instance: 'gw-media', healthy: true, mediaBridge: true })).status, 200); assert.deepEqual(await row('gw-media'), { healthy: true, media_bridge: true });
+  assert.equal((await beat({ eventId: h.uid(), instance: 'gw-media', healthy: false, mediaBridge: true })).status, 200); assert.deepEqual(await row('gw-media'), { healthy: false, media_bridge: false }, 'an unhealthy gateway never reports a bridge');
+  assert.equal((await beat({ eventId: h.uid(), instance: 'gw-str', healthy: true, mediaBridge: 'yes' })).status, 200); assert.equal((await row('gw-str')).media_bridge, false, 'only the boolean true counts');
+  // rollout order: Meet code running before migration v4_29 is applied must not lose the heartbeat
+  await h.db.query('ALTER TABLE phone_gateway_health DROP COLUMN media_bridge');
+  try { assert.equal((await beat({ eventId: h.uid(), instance: 'gw-old', healthy: true, mediaBridge: true })).status, 200, 'the heartbeat is still accepted without the column'); assert.equal((await h.db.query('SELECT healthy FROM phone_gateway_health WHERE instance=$1', ['gw-old'])).rows[0].healthy, true); }
+  finally { await h.db.query('ALTER TABLE phone_gateway_health ADD COLUMN IF NOT EXISTS media_bridge boolean NOT NULL DEFAULT false'); }
 });
