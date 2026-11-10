@@ -47,6 +47,8 @@ export function createSipGateway(c: SipGatewayConfig, d: SipGatewayDeps) {
     ingress, gateway, bridge, controller,
     async start() { controller.start(); return ingress.start(); },
     async stop() { await ingress.stop(); await gateway.closeAll('shutdown'); },
-    health: () => ({ sip: ingress.health(), activeLegs: gateway.activeLegs() })
+    health: () => ({ sip: ingress.health(), activeLegs: gateway.activeLegs() }),
+    /** What the heartbeat reports: healthy only while the SIP ingress is really listening; the media bridge (RTP legs and the mesh audio peer) is part of this object, so it is present exactly when the gateway is. */
+    probe: () => ({ healthy: ingress.health().listening === true, mediaBridge: true })
   };
 }

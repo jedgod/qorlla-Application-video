@@ -220,3 +220,14 @@ Laboratory notes (not product behaviour):
 Meet's signalling guard also watches the telephone verification-peer sockets. When the Shield revokes a session, the guard writes one `session.revoked_by_shield` audit row (reason, and whether it was a `phone-peer` or a `browser`), ends a phone peer's CALL through the phone module with the Shield's reason (`shield_host_suspended`, ...), and only then closes the socket, so a Shield-caused end is never recorded as `gateway_signaling_lost`. Whichever of the phone sweep and the guard runs first, the call ends once with the Shield reason (`tests/shield-contract/suspension-race`, 12 rounds). In a Shield outage beyond the guard grace, browsers are closed as before and phone peers are left to the phone module's own 120 s deadline.
 
 Verification status (2026-11-06, lab): Meet suites green; real-Shield Chromium scenarios 4/4 in isolation; in the full Chromium file two Shield scenarios failed once with `gateway_signaling_lost` under host load (no `session.revoked_by_shield` row, so not a guard close). A5.4 (load on this host) remains the open reliability item.
+
+## Heartbeat: how Meet learns the audio bridge is installed
+
+Meet shows the Phone page's "Audio bridge" row and computes readiness' `gatewayHealthy` and `mediaBridgeCertified` from heartbeats, not from configuration. Wire the sender next to the lease keeper:
+
+```ts
+const gw = createSipGateway(config, deps);
+const heartbeat = startGatewayHeartbeat({ instance: "gateway-1", probe: gw.probe, send: (i, healthy, media) => authority.heartbeat(i, healthy, media) });
+```
+
+`probe` is healthy only while the SIP ingress is listening and reports the media bridge as present exactly when this gateway object exists. A throwing probe, a stopped ingress or a stopped sender all read as "not connected" in Meet within `PHONE_GATEWAY_HEARTBEAT_MAX_AGE_S` (60 s by default). Reporting ready is not certification: the row stays "pending" until the `bridge` gate is certified and the `bridge` feature flag is on. Needs Meet migration `v4_29_phone_gateway_media_bridge.sql`; without it Meet reads the bridge as not connected.

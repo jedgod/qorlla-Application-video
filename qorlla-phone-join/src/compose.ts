@@ -58,6 +58,25 @@ export function startReaper(o: { ledger: { reapStale(o?: { deadlines?: Partial<S
 }
 
 /**
+ * Tells Meet, every few seconds, that this gateway is alive and whether its SIP/RTP media bridge is present. Meet turns the Phone page's "audio bridge" row and readiness' gatewayHealthy on from these heartbeats
+ * and off again when they stop or turn unhealthy. The probe must reflect what is really running (see createSipGateway().probe); a probe that throws counts as unhealthy, and a media bridge is never reported
+ * for an unhealthy gateway. A tick that is still in flight is not overlapped.
+ */
+export function startGatewayHeartbeat(o: { send(instance: string, healthy: boolean, mediaBridge: boolean): Promise<boolean>; instance: string; probe(): { healthy: boolean; mediaBridge: boolean }; intervalMs?: number; log?: { error(m: string): void } }) {
+  const log = o.log ?? console; let running = false;
+  const tick = async (): Promise<boolean> => {
+    if (running) return false; running = true;
+    try {
+      let p = { healthy: false, mediaBridge: false }; try { p = o.probe(); } catch { /* unhealthy */ }
+      const healthy = p.healthy === true;
+      return await o.send(o.instance, healthy, healthy && p.mediaBridge === true);
+    } finally { running = false; }
+  };
+  const t = setInterval(() => { tick().catch((e) => log.error('[phone-join] heartbeat failed: ' + (e as Error).message)); }, o.intervalMs ?? 10_000); t.unref?.();
+  return { stop: () => clearInterval(t), tick };
+}
+
+/**
  * Keeps this gateway's leases alive and FAILS CLOSED when ownership is gone. Every tick renews every call this instance owns. A call it no longer owns (a newer generation took it, or a write was fenced) has its
  * local media leg disconnected at once and is reported (onLost). When the database cannot be reached, nothing is assumed: the lease just is not renewed; but once a whole lease period passes without a confirmed
  * renewal (the earliest moment a reaper could lawfully take the call), a not-yet-connected leg is stopped locally too. Connected calls keep running (Meet's media verification governs them).

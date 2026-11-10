@@ -133,6 +133,6 @@ export class MeetPhoneAuthority implements MeetingAuthority {
   }
   /** The gateway reports that the telephone hung up, or that the leg Meet asked to be torn down is gone (this also CONFIRMS the hang-up in Meet). */
   async callEnded(callId: string, type = 'caller_hung_up'): Promise<void> { await this.post('/api/phone/ivr/disconnect', { eventId: eventId('gwend', callId), callId, type: type.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'ended' }); }
-  /** The gateway's heartbeat: the evidence behind readiness' gatewayHealthy. Send it every few seconds while the gateway is really working; stop sending it and Meet stops counting the gateway healthy. */
-  async heartbeat(instance: string, healthy: boolean): Promise<boolean> { const r = await this.post('/api/phone/ivr/gateway-health', { instance, healthy }); return r.status === 200; }
+  /** The gateway's heartbeat: the evidence behind readiness' gatewayHealthy and the Phone page's "audio bridge" row. Send it every few seconds while the gateway is really working; stop sending it and Meet stops counting the gateway healthy. `mediaBridge` says the SIP/RTP media bridge is present and running; Meet records it only together with healthy=true. */
+  async heartbeat(instance: string, healthy: boolean, mediaBridge = false): Promise<boolean> { const r = await this.post('/api/phone/ivr/gateway-health', { instance, healthy, mediaBridge: healthy && mediaBridge }); return r.status === 200; }
 }
