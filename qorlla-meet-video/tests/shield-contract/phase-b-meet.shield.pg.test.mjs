@@ -53,10 +53,10 @@ test('B3 CREDENTIAL ISSUANCE vs SUSPENSION: a suspension before the request deni
   }
 });
 
-test('B3 OUTAGE during a CONNECTED call (grace ' + GRACE_FAST + ' s): calls not yet connected end at once; the connected call lives until the deadline from the FIRST failed recheck and not a second longer; repeated failures do not extend it', { skip }, async () => {
+test('B3 OUTAGE during a CONNECTED call (grace ' + GRACE_FAST + ' s): calls not yet connected end after the short pending grace; the connected call lives until the deadline from the FIRST failed recheck and not a second longer; repeated failures do not extend it', { skip }, async () => {
   const m = await owned(A), connected = await connectedCall(A, m), pending = await A.dial(await owned(A));                              // one connected, one only approved
   assert.equal((await A.callRow(pending.callId)).state, 'APPROVED'); const t0 = Date.now(); A.setOutage(true);
-  assert.ok(await until(async () => (await A.callRow(pending.callId)).state === 'REFUSED', 6000), 'an approved-but-not-connected call is ended at once (fail closed)');
+  assert.ok(await until(async () => (await A.callRow(pending.callId)).state === 'REFUSED', 6000), 'an approved-but-not-connected call is ended once the short pending grace (3 s) has passed (fail closed)');
   assert.equal((await A.callRow(connected.callId)).state, 'MEDIA_CONNECTED', 'the connected call is still up inside the grace period (' + (Date.now() - t0) + ' ms)');
   assert.ok(await until(async () => (await A.callRow(connected.callId)).state === 'TERMINATED', (GRACE_FAST + 8) * 1000, 250), 'terminated by the deadline'); const elapsed = (await endedAt(A, connected.callId)) - t0;
   assert.ok(elapsed >= (GRACE_FAST - 2) * 1000 && elapsed <= (GRACE_FAST + 4) * 1000, 'ended ' + elapsed + ' ms after the outage began (grace ' + GRACE_FAST * 1000 + ' ms, recheck 1 s)'); assert.match((await A.callRow(connected.callId)).end_reason, /^shield_shield_unavailable/); A.setOutage(false);

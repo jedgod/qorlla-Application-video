@@ -24,7 +24,7 @@ const freePort = () => new Promise((res) => { const s = net.createServer(); s.li
 const rnd = (n) => Array.from({ length: n }, () => crypto.randomInt(10)).join('');
 
 /** One contract environment. Options: allowed (the Shield's workload allow-list), requireMtls (SHIELD_REQUIRE_MTLS on the Shield). */
-export async function startContract({ allowed, requireMtls = false, recheckSeconds = '1', graceSeconds = undefined, peer = false } = {}) {
+export async function startContract({ allowed, requireMtls = false, recheckSeconds = '1', graceSeconds = undefined, pendingGraceSeconds = '3', peer = false } = {}) {
   const req = createRequire(path.join(ENGINE_DIR, 'package.json')), jose = req('jose');
   process.env.VOICE_TEST_DATABASE_URL = DB_URL;                                                                          // the engine's own helpers read this: a dedicated test database, isolated schemas
   const imp = (f) => import(pathToFileURL(path.join(ENGINE_DIR, f)).href), { isolatedDb, identityProvider } = await imp('test/helpers.mjs'), { harness } = await imp('test/harness.mjs');
@@ -58,7 +58,7 @@ export async function startContract({ allowed, requireMtls = false, recheckSecon
   const meetEnv = { ...process.env, PORT: String(port), DATABASE_URL: DB_URL + (DB_URL.includes('?') ? '&' : '?') + 'options=' + encodeURIComponent('-c search_path=' + meetSchema), JWT_SECRET: crypto.randomBytes(32).toString('hex'), QORLLA_BRIDGE_SECRET: BRIDGE,
     RECOVERY_ESCROW_KEY: crypto.randomBytes(32).toString('base64'), RECORDING_MASTER_KEYS: JSON.stringify({ k1: crypto.randomBytes(32).toString('base64') }), RECORDING_ACTIVE_KEY_ID: 'k1', RECORDING_STORE_DIR: path.join(os.tmpdir(), 'shield-contract-rec-' + port), RECORDING_ADMIN_SECRET: 'x'.repeat(24),
     NODE_ENV: 'development', PHONE_PROVIDER: 'test', PHONE_WEBHOOK_SECRET: WEBHOOK, PHONE_SWEEP_MS: '300', PHONE_MAX_FAILS_CALLER: '1000', PHONE_MAX_FAILS_MEETING: '1000',
-    SHIELD_MEET_ENFORCE: 'true', SHIELD_URL: proxyUrl, SHIELD_MEET_KEY_PEM: keys.meet.pem.replace(/\n/g, '\\n'), SHIELD_WORKLOAD_ISSUER: ISSUER, SHIELD_WORKLOAD_KID: keys.meet.kid, SHIELD_RECHECK_SECONDS: recheckSeconds, ...(peer ? { PHONE_PEER_SIGNING_KEY_PEM: crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' }), PHONE_PEER_KID: 'p1' } : {}), ...(graceSeconds ? { SHIELD_RECHECK_GRACE_SECONDS: String(graceSeconds) } : {}) };
+    SHIELD_MEET_ENFORCE: 'true', SHIELD_URL: proxyUrl, SHIELD_MEET_KEY_PEM: keys.meet.pem.replace(/\n/g, '\\n'), SHIELD_WORKLOAD_ISSUER: ISSUER, SHIELD_WORKLOAD_KID: keys.meet.kid, SHIELD_RECHECK_SECONDS: recheckSeconds, SHIELD_PENDING_GRACE_SECONDS: String(pendingGraceSeconds), ...(peer ? { PHONE_PEER_SIGNING_KEY_PEM: crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' }), PHONE_PEER_KID: 'p1' } : {}), ...(graceSeconds ? { SHIELD_RECHECK_GRACE_SECONDS: String(graceSeconds) } : {}) };
   delete meetEnv.NODE_OPTIONS;
   const base = 'http://127.0.0.1:' + port; let child = null;
   const startMeetProc = async () => { child = spawn(process.execPath, ['server/index.js'], { cwd: ROOT, env: meetEnv, stdio: ['ignore', log, log] }); if (!(await until(async () => fetch(base + '/api/ready').then((r) => r.ok).catch(() => false), 60000, 250))) throw new Error('Meet did not start: ' + fs.readFileSync(logFile, 'utf8').slice(-400)); };

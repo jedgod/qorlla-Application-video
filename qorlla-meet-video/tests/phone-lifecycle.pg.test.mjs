@@ -274,16 +274,27 @@ test('Shield is asked AGAIN before media connects: approved, then revoked before
   sh.decision = { allow: false, reason: 'SUSPENDED' }; const r = await media(h, c.provider_call_id, v.mediaToken, good()); assert.equal(r.body.action, 'terminate'); const t = await h.row(v.callRef); assert.equal(t.state, 'REFUSED'); assert.equal(h.phoneOnline.get(m.id)?.size ?? 0, 0);
 });
 test('Shield re-check of OPEN calls: a revocation ends the call at once; an unreachable Shield ends calls only after the grace period', { skip }, async () => {
-  let skew = 0; const sh = fakeShield(), h = await harness({ shield: sh, clock: () => Date.now() + skew, env: { SHIELD_RECHECK_GRACE_SECONDS: '60' } }); await clean(h); const m = await h.meeting();
+  let skew = 0; const sh = fakeShield(), h = await harness({ shield: sh, clock: () => Date.now() + skew, env: { SHIELD_RECHECK_GRACE_SECONDS: '60', SHIELD_PENDING_GRACE_SECONDS: '20' } }); await clean(h); const m = await h.meeting();
   const a = (await verify(h, m)).body, ca = await h.row(a.callRef); await media(h, ca.provider_call_id, a.mediaToken, good()); const b = (await verify(h, m)).body, cb = await h.row(b.callRef);
   assert.deepEqual(await h.phone.shieldSweep(), { revoked: 0 }); sh.revoke = [ca.participant_id]; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 1 });
   assert.equal((await h.row(a.callRef)).state, 'TERMINATED'); assert.match((await h.row(a.callRef)).end_reason, /^shield_suspended/); assert.equal((await h.row(b.callRef)).state, 'APPROVED'); assert.ok(h.phone.provider.calls.some((x) => x.op === 'hangup' && x.callId === ca.provider_call_id));
   assert.equal(h.phoneOnline.get(m.id)?.size ?? 0, 0, 'the revoked caller left the room'); sh.revoke = [];
-  // A5.5: an unreachable Shield. A call that is not yet connected ends AT ONCE (admission and promotion are fail-closed); an already-connected call keeps its grace period, measured from the FIRST failed recheck.
+  // A5.5: an unreachable Shield. A call that is not yet connected ends after the short pending grace (20 s here; admission and promotion are fail-closed meanwhile); an already-connected call keeps its longer grace (60 s); both are measured from the FIRST failed recheck.
   const c3 = (await verify(h, m)).body, cc = await h.row(c3.callRef); await media(h, cc.provider_call_id, c3.mediaToken, good()); assert.equal((await h.row(c3.callRef)).state, 'MEDIA_CONNECTED');
-  sh.down = true; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 1 }, 'the approved-but-not-connected call ends at once'); assert.equal((await h.row(b.callRef)).state, 'REFUSED'); assert.equal(cb.state, 'APPROVED'); assert.equal((await h.row(c3.callRef)).state, 'MEDIA_CONNECTED', 'the connected call is inside its grace period');
-  skew += 30_000; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 0 }, 'still inside the grace period (30 s after the first failed recheck)'); skew += 40_000; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 1 }, 'past the grace period (70 s after the FIRST failure) the connected call ends');
+  sh.down = true; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 0 }, 'the first failed recheck ends nothing'); assert.equal((await h.row(b.callRef)).state, 'APPROVED', 'the pending call is inside its short grace'); assert.equal(cb.state, 'APPROVED'); assert.equal((await h.row(c3.callRef)).state, 'MEDIA_CONNECTED', 'the connected call is inside its grace period');
+  skew += 30_000; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 1 }, 'past the pending grace (30 s > 20 s) the approved-but-not-connected call ends'); assert.equal((await h.row(b.callRef)).state, 'REFUSED'); assert.match((await h.row(b.callRef)).end_reason, /^shield_shield_unavailable/); assert.equal((await h.row(c3.callRef)).state, 'MEDIA_CONNECTED', 'the connected call is still inside its grace period (30 s after the first failed recheck)'); skew += 40_000; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 1 }, 'past the grace period (70 s after the FIRST failure) the connected call ends');
   assert.equal((await h.row(c3.callRef)).state, 'TERMINATED'); assert.match((await h.row(c3.callRef)).end_reason, /^shield_shield_unavailable/);
+});
+test('a Shield blip shorter than the pending grace does not hang up an approved call, and the call cannot connect meanwhile; SHIELD_PENDING_GRACE_SECONDS=0 keeps the old end-at-once rule; a bad value falls back to 10 s', { skip }, async () => {
+  for (const [grace, ended] of [['20', false], ['0', true], ['nonsense', false], ['-5', false]]) {
+    let skew = 0; const sh = fakeShield(), h = await harness({ shield: sh, clock: () => Date.now() + skew, env: { SHIELD_PENDING_GRACE_SECONDS: grace } }); await clean(h); const m = await h.meeting();
+    const b = (await verify(h, m)).body, cb = await h.row(b.callRef);
+    sh.down = true; assert.equal((await h.phone.shieldSweep()).revoked, ended ? 1 : 0, 'grace ' + grace + ': first failed recheck');
+    if (!ended) {
+      await media(h, cb.provider_call_id, b.mediaToken, good()); assert.notEqual((await h.row(b.callRef)).state, 'MEDIA_CONNECTED', 'grace ' + grace + ': a pending call cannot connect while the Shield is unreachable');
+      if ((await h.row(b.callRef)).state === 'APPROVED' || (await h.row(b.callRef)).state === 'MEDIA_CONNECTING') { sh.down = false; skew += 5000; assert.deepEqual(await h.phone.shieldSweep(), { revoked: 0 }, 'grace ' + grace + ': recovery inside the grace ends nothing'); assert.ok(['APPROVED', 'MEDIA_CONNECTING'].includes((await h.row(b.callRef)).state)); }
+    } else assert.equal((await h.row(b.callRef)).state, 'REFUSED');
+  }
 });
 test('gateway mode never runs without the Shield, even when SHIELD_MEET_ENFORCE is off', { skip }, async () => {
   const ks = keys(), h = await harness({ gatewayEnv: gwEnv(ks), env: { PHONE_GATEWAY_ENABLED: 'true' }, readiness: async () => ({ readiness: ALL }) }), m = await h.meeting();

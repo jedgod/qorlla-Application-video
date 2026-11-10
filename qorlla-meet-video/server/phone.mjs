@@ -54,6 +54,10 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
   const APPROVAL_MS = Number(env.PHONE_APPROVAL_TIMEOUT_MS || 120000), MEDIA_MS = Number(env.PHONE_MEDIA_TIMEOUT_MS || 30000), STALE_MS = Number(env.PHONE_MEDIA_STALE_MS || 45000);
   const REPLAY_TOKEN_MS = Math.max(1000, Number(env.PHONE_REPLAY_TOKEN_TTL_MS || 120000));
   const CONFIRM_MS = Number(env.PHONE_HANGUP_CONFIRM_MS || 60000), ORPHAN_MS = Number(env.PHONE_ORPHAN_AFTER_MS || 300000), SHIELD_GRACE_MS = Number(env.SHIELD_RECHECK_GRACE_SECONDS || 120) * 1000;
+  // Calls approved but not yet connected get a SHORT grace, so one slow or failed recheck does not hang up a caller who is mid-setup. Such a call cannot connect during an outage
+  // (promotion and credential issue are fail-closed), so the grace only delays the hang-up. 0 restores "end at once"; it can never exceed the connected-call grace.
+  const PENDING_RAW = env.SHIELD_PENDING_GRACE_SECONDS === undefined || env.SHIELD_PENDING_GRACE_SECONDS === '' ? 10 : Number(env.SHIELD_PENDING_GRACE_SECONDS);
+  const PENDING_GRACE_MS = Math.min(SHIELD_GRACE_MS, Number.isFinite(PENDING_RAW) && PENDING_RAW >= 0 ? PENDING_RAW * 1000 : 10000);
   const READY_KEYS = ['carrierConnected', 'inboundNumberCertified', 'gatewayHealthy', 'mediaBridgeCertified', 'billingCertified', 'productionApproved'];
 
   const hashKey = crypto.createHmac('sha256', String(env.PHONE_HASH_KEY || env.JWT_SECRET || 'dev')).update('qorlla-phone-caller-v1').digest();
@@ -413,15 +417,16 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
   const monotonic = mono || (typeof arguments[0]?.now === 'function' ? now : () => Number(process.hrtime.bigint() / 1000000n)), slog = (event, o = {}) => { try { console.error(JSON.stringify({ ts: new Date().toISOString(), component: 'meet-phone', event, ...o })); } catch { /* never throws */ } };
   /**
    * A Shield outage is measured from the FIRST failed recheck with a monotonic clock and is never restarted by further failures; a successful recheck clears it. The start is also written to the audit trail, so a
-   * restart of this process during an uninterrupted outage inherits the original start instead of granting a fresh grace period. Only calls that are already CONNECTED get the grace period (SHIELD_GRACE_MS, 120 s by
-   * default); calls that are not yet connected are ended at once (admission, credential issue and promotion are fail-closed on their own).
+   * restart of this process during an uninterrupted outage inherits the original start instead of granting a fresh grace period. Connected calls get SHIELD_GRACE_MS (120 s by default); calls that are approved but
+   * not yet connected get the shorter SHIELD_PENDING_GRACE_MS (10 s by default, 0 = at once), measured from the same first failure. Admission, credential issue and promotion are fail-closed on
+   * their own, so a pending call cannot connect while the Shield is unreachable.
    */
   let outage = null;
   async function inheritedOutageStart(open) {
     try { const meetings = [...new Set(open.map((c) => c.meeting_id))], { rows: [r] } = await db.query(`SELECT (s.detail->>'sinceEpochMs')::bigint AS since FROM audit_events s WHERE s.event_type='phone.shield_outage_start' AND s.meeting_id = ANY($1::uuid[]) AND s.created_at > now() - interval '15 minutes'
       AND NOT EXISTS (SELECT 1 FROM audit_events r WHERE r.event_type='phone.shield_recovered' AND r.meeting_id=s.meeting_id AND r.id > s.id) ORDER BY s.id ASC LIMIT 1`, [meetings]); return r ? Number(r.since) : null; } catch { return null; }
   }
-  /** Re-checks every open call with the Shield (like Meet's session guard for signalling): revoked -> hung up now; Shield unreachable -> not-yet-connected calls end at once, connected calls at the outage deadline (fail closed). */
+  /** Re-checks every open call with the Shield (like Meet's session guard for signalling): revoked -> hung up now; Shield unreachable -> not-yet-connected calls end after the short pending grace, connected calls at the outage deadline (fail closed). */
   async function shieldSweep() {
     const open = await openForShield();
     if (!open.length) { if (outage) { outage = null; counters.shield_outage_recovered++; } return { revoked: 0 }; }
@@ -434,7 +439,8 @@ export function registerPhone({ app, io, db, auth, member, fail, room, audit, re
         if (prior === null) for (const m of new Set(open.map((c) => c.meeting_id))) audit(m, null, 'phone.shield_outage_start', { sinceEpochMs: wall });
       }
       const expired = t - outage.start > SHIELD_GRACE_MS, connected = open.filter((c) => c.state === 'MEDIA_CONNECTED'), notYet = open.filter((c) => c.state !== 'MEDIA_CONNECTED');
-      const n = await revokeCalls(notYet, 'SHIELD_UNAVAILABLE', true) + await revokeCalls(connected, 'SHIELD_UNAVAILABLE', expired);
+      const pendingExpired = PENDING_GRACE_MS === 0 || t - outage.start > PENDING_GRACE_MS;
+      const n = await revokeCalls(notYet, 'SHIELD_UNAVAILABLE', pendingExpired) + await revokeCalls(connected, 'SHIELD_UNAVAILABLE', expired);
       if (n) { counters.calls_ended_by_outage += n; slog('shield_outage_calls_ended', { ended: n, outageMs: Math.round(t - outage.start), deadlineExpired: expired }); }
       return { revoked: n };
     }
