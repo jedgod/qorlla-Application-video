@@ -10,12 +10,13 @@ import { freshDatabase, startMainStandIn, testConfig, startApp, seedWorkspace, a
 const key = () => 'idem-' + crypto.randomBytes(6).toString('hex');
 
 function fakeOllama() {
-  const seen = []; let mode = 'ok';
+  const seen = []; let mode = 'ok'; const stats = { hung: 0, dropped: 0 };
   const srv = http.createServer((req, res) => {
     let body = ''; req.on('data', (c) => { body += c; });
     req.on('end', () => {
       if (req.url !== '/v1/chat/completions' || req.method !== 'POST') { res.writeHead(404); return res.end(); }
       const j = JSON.parse(body); seen.push({ url: req.url, auth: req.headers.authorization || null, body: j });
+      if (mode === 'hang') { stats.hung++; res.on('close', () => { if (!res.writableEnded) stats.dropped++; }); return; }      // never answers; records when the caller hangs up
       if (mode === 'down') { res.writeHead(503); return res.end('{}'); }
       if (mode === 'garbage') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ choices: [{ message: { content: 'this is not json' } }] })); }
       const task = /QORLLA-TASK:(\w+)/.exec(j.messages[0].content)?.[1] || 'unknown';
@@ -31,7 +32,7 @@ function fakeOllama() {
       res.end(JSON.stringify({ model: j.model, choices: [{ message: { role: 'assistant', content: JSON.stringify(out) } }], usage: { prompt_tokens: 11, completion_tokens: 7 } }));
     });
   });
-  return new Promise((resolve) => srv.listen(0, '127.0.0.1', () => resolve({ port: srv.address().port, seen, setMode: (m) => { mode = m; }, close: () => new Promise((r) => srv.close(r)) })));
+  return new Promise((resolve) => srv.listen(0, '127.0.0.1', () => resolve({ port: srv.address().port, seen, setMode: (m) => { mode = m; }, stats, close: () => new Promise((r) => { srv.close(r); srv.closeAllConnections?.(); }) })));
 }
 
 describe('Qorlla Docs AI with Ollama (local endpoint, PostgreSQL)', () => {
@@ -119,4 +120,16 @@ describe('Qorlla Docs AI with Ollama (local endpoint, PostgreSQL)', () => {
     const used1 = Number((await q(`SELECT coalesce(sum(units),0)::int n FROM portal.ai_usage_events WHERE workspace_id=$1 AND feature='doc_generation'`, [W]))[0].n);
     assert.equal(used1, used0 + 1);
   });
+  test('cancellation reaches the model: a closed browser request aborts the Ollama call, meters nothing, and the next request still works', async () => {
+    const d = await mkDoc('cancel me'); const used = async () => Number((await q(`SELECT coalesce(sum(units),0)::int n FROM portal.ai_usage_events WHERE workspace_id=$1 AND feature='doc_generation'`, [W]))[0].n);
+    const u0 = await used(); const h0 = ol.stats.hung, d0 = ol.stats.dropped; ol.setMode('hang');
+    const ctl = new AbortController();
+    const req = fetch(app.base + '/api/v1/ai/run', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json', origin: 'https://qorlla.test', 'x-workspace-id': W, 'x-csrf-token': H.csrf, cookie: `qorlla_portal_session=${H.jwt}; qorlla_csrf=${H.csrf}` }, body: JSON.stringify({ task: 'docs_summarize', document_id: d.id, idempotency_key: key() }) }).catch((e) => e);
+    for (let i = 0; i < 40 && ol.stats.hung === h0; i++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(ol.stats.hung, h0 + 1, 'the request reached Ollama'); ctl.abort(); await req;
+    for (let i = 0; i < 60 && ol.stats.dropped === d0; i++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(ol.stats.dropped, d0 + 1, 'Ollama saw the connection close'); assert.equal(await used(), u0, 'a cancelled run is not metered');
+    ol.setMode('ok'); assert.equal((await owner().post('/api/v1/ai/run', { task: 'docs_summarize', document_id: d.id, idempotency_key: key() })).status, 200);
+  });
+
 });

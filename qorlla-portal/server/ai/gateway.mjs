@@ -32,7 +32,8 @@ export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log
     catch (e) { log.error && log.error('ai audit failed', { err: e && e.message }); }
   };
 
-  async function generateJson({ system, user, schema, maxTokens = 3000, ctx = {} }) {
+  async function generateJson({ system, user, schema, maxTokens = 3000, ctx = {}, signal }) {
+    if (signal && signal.aborted) throw new LlmError('Request cancelled', { retryable: false, code: 'llm_cancelled' });
     if (!list.length) throw new LlmError('No AI provider is configured', { code: 'no_ai_provider' });
     if (limited(ctx.actorId || 'anonymous')) { await record(ctx, null, 'rate_limited', { code: 'ai_rate_limited' }); throw new LlmError(PUBLIC_NAME + ' is busy. Try again in a minute.', { retryable: false, code: 'ai_rate_limited' }); }
     if (!(await quota(ctx))) { await record(ctx, null, 'quota_exceeded', { code: 'ai_quota_exceeded' }); throw new LlmError('This workspace has reached its ' + PUBLIC_NAME + ' limit for today. It resets tomorrow.', { retryable: false, code: 'ai_quota_exceeded' }); }
@@ -46,14 +47,16 @@ export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log
     for (const a of candidates) {
       const st = state.get(a.id), t0 = now(); let r;
       try {
-        r = await a.call({ system, user, maxTokens });
+        r = await a.call({ system, user, maxTokens, signal });
         let parsed; try { parsed = JSON.parse(r.text.slice(r.text.indexOf('{'), r.text.lastIndexOf('}') + 1)); } catch { throw Object.assign(new LlmError(PUBLIC_NAME + ' returned unreadable output', { retryable: true, code: 'invalid_model_output' }), { provider: a.id }); }
         const v = schema.safeParse(parsed); if (!v.success) throw Object.assign(new LlmError(PUBLIC_NAME + ' output did not match the required format', { retryable: true, code: 'invalid_model_output' }), { provider: a.id });
         st.failures = 0; st.ok++; st.lastCode = null;
         await record(ctx, a, 'ok', { ms: now() - t0, model: r.model, inputChars: (system + user).length, outputChars: r.text.length, inputTokens: r.inputTokens, outputTokens: r.outputTokens, promptHash });
         return { data: v.data, model: PUBLIC_MODEL, inputTokens: r.inputTokens, outputTokens: r.outputTokens };
       } catch (e) {
-        const code = (e && e.code) || 'llm_error'; st.failed++; st.lastCode = code;
+        const code = (e && e.code) || 'llm_error';
+        if (code === 'llm_cancelled' || (signal && signal.aborted)) { await record(ctx, a, 'error', { code: 'llm_cancelled', ms: now() - t0, inputChars: (system + user).length, promptHash }); throw new LlmError('Request cancelled', { retryable: false, code: 'llm_cancelled' }); }   // the person went away: not a provider failure, no failover, no breaker
+        st.failed++; st.lastCode = code;
         if (code !== 'invalid_model_output') { st.failures++; if (st.failures >= config.breaker.failures) st.openUntil = now() + config.breaker.cooldownMs; }     // unreadable output is a content problem, not an outage: it must not shut the only provider off
         await record(ctx, a, 'error', { code, ms: now() - t0, inputChars: (system + user).length, promptHash });
         last = e; if (e instanceof LlmError && !e.retryable) throw new LlmError(PUBLIC_NAME + ' could not process this request', { retryable: false, code: e.code, status: e.status });
