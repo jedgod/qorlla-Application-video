@@ -1,11 +1,13 @@
 // Qorlla Telephony v2: pure rules (no I/O). Adapted from the qorlla-telephony-v2 reference package; everything here fails closed.
 import crypto from 'node:crypto';
+import { normalizePhoneMeetingCode } from '../meeting-code.mjs';
 
 export const err = (code, message, status = 400) => Object.assign(new Error(message || code), { code, status });
 
-export function normalizeMeetingId(input) {                         // Qorlla meeting IDs are exactly 11 digits (spaces and dashes allowed when typed)
-  const digits = String(input ?? '').replace(/[\s-]/g, '');
-  if (!/^\d{11}$/.test(digits)) throw err('INVALID_MEETING_ID', 'The meeting ID must have 11 digits.');
+// The telephone meeting code has ONE definition: server/meeting-code.mjs (the main app's 11-digit ID or Meet's 12-digit code; only space and hyphen are removed). The optional Twilio adapter uses it too.
+export function normalizeMeetingId(input) {
+  const digits = normalizePhoneMeetingCode(typeof input === 'string' ? input : String(input ?? ''));
+  if (!digits) throw err('INVALID_MEETING_ID', 'The meeting ID must have 11 or 12 digits.');
   return digits;
 }
 export function normalizeE164(input) {
