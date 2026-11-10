@@ -26,10 +26,12 @@
 - **Real-model quality and latency were NOT obtained.** The host is an Intel N95 (4 cores) that was already at 100 % CPU. With Ollama's default 4 threads the runner made no usable progress at all (a 12-token reply did not finish in 15 minutes; the first real-portal run timed out after 170 s on three tasks, then the circuit breaker opened, which is the designed behaviour). With `num_thread=1`, `qwen2.5:0.5b` produced 0.74 tokens/s with a 15 s prompt evaluation for about 14 tokens: far too slow for the adapter's 180 s ceiling on a real Docs prompt.
   Two operational findings follow: (1) set Ollama's `num_thread` (Modelfile `PARAMETER num_thread` or request option) to no more than the cores really free: thread oversubscription collapses llama.cpp throughput; (2) this machine cannot certify a model. `tests/docs-ollama.real.test.mjs` (skipped unless `OLLAMA_REAL_URL` and `OLLAMA_REAL_MODEL` are set) runs all five tasks through the real portal against a real Ollama and prints per-task latency: run it on the intended hardware.
 
+- **Cluster-wide per-person rate limit: fixed.** The gateway takes a `rate` hook; the portal implements it from `portal.ai_gateway_audit` (actor + workspace, last minute), so a request served by replica A counts against replica B. The in-process window stays as a first line. Test: `docs-ollama.test.mjs` #13. (A burst of concurrent in-flight requests can still slip past by the number in flight, because an audit row is written when a call finishes.)
+- **DNS-rebinding guard: fixed for plain-HTTP endpoints.** `createGuardedFetch` validates every resolved address inside the connection's own `lookup`, so the address that is checked is the address that is dialled. Plain-HTTP Ollama endpoints may only reach loopback, RFC 1918, CGNAT and unique-local addresses; link-local (cloud metadata) and public addresses are refused, and one public answer among private ones is refused. HTTPS endpoints rely on the certificate. Tests: `tests/ollama.guard.test.mjs` (4).
+
 ## Known gaps (still open)
 1. **No real-model output or latency has been captured** (see above): the model, its licence and production-representative hardware are still open decisions.
-2. **Per-process queue and rate limit**: with several Portal replicas the limits multiply; a shared (database or Redis) limiter is not built.
-3. **`allowedHosts` is a hostname allowlist**, not DNS-rebinding protection; the Compose `internal` network is the enforcement and was verified only as described above.
-4. **Prompt injection** cannot be removed by delimiters; the model gets no tools or secrets, and output is only ever a suggestion.
-5. **Not deployed or enabled anywhere**: the live local stack (4800) still has AI off. Android and desktop AI flows were not exercised.
-6. The standalone kit (`qorlla-ollama-integration`) and `-next2` (identical to `-next`) were not imported.
+2. **A burst of concurrent requests** can exceed the per-person limit by the number in flight (see above).
+3. **Prompt injection** cannot be removed by delimiters; the model gets no tools or secrets, and output is only ever a suggestion.
+4. **Not deployed or enabled anywhere**: the live local stack (4800) still has AI off. Android and desktop AI flows were not exercised.
+5. The standalone kit (`qorlla-ollama-integration`) and `-next2` (identical to `-next`) were not imported.

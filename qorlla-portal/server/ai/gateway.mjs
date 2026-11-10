@@ -13,7 +13,7 @@ import { buildAdapters } from './providers.mjs';
 export const PUBLIC_NAME = 'Qorlla AI', PUBLIC_MODEL = 'qorlla-ai';
 const hash = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
 
-export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log = console, audit = async () => {}, consent = async () => false, quota = async () => true, adapters } = {}) {
+export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log = console, audit = async () => {}, consent = async () => false, quota = async () => true, rate = async () => false, adapters } = {}) {
   if (!config) throw new Error('AI gateway needs a configuration');
   if (config.problems.length) throw new Error('AI configuration refused: ' + config.problems.join('; '));      // fail closed: a bad AI configuration stops the server from starting
   const eligible = eligibleProviders(config);
@@ -35,7 +35,7 @@ export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log
   async function generateJson({ system, user, schema, maxTokens = 3000, ctx = {}, signal }) {
     if (signal && signal.aborted) throw new LlmError('Request cancelled', { retryable: false, code: 'llm_cancelled' });
     if (!list.length) throw new LlmError('No AI provider is configured', { code: 'no_ai_provider' });
-    if (limited(ctx.actorId || 'anonymous')) { await record(ctx, null, 'rate_limited', { code: 'ai_rate_limited' }); throw new LlmError(PUBLIC_NAME + ' is busy. Try again in a minute.', { retryable: false, code: 'ai_rate_limited' }); }
+    if (limited(ctx.actorId || 'anonymous') || (await rate(ctx))) { await record(ctx, null, 'rate_limited', { code: 'ai_rate_limited' }); throw new LlmError(PUBLIC_NAME + ' is busy. Try again in a minute.', { retryable: false, code: 'ai_rate_limited' }); }
     if (!(await quota(ctx))) { await record(ctx, null, 'quota_exceeded', { code: 'ai_quota_exceeded' }); throw new LlmError('This workspace has reached its ' + PUBLIC_NAME + ' limit for today. It resets tomorrow.', { retryable: false, code: 'ai_quota_exceeded' }); }
     const t = now(); let candidates = list.filter((a) => (state.get(a.id).openUntil || 0) <= t);
     // content leaves the platform only for a workspace that authorised external processing

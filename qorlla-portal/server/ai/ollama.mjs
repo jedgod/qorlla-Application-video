@@ -1,5 +1,9 @@
 // Ollama provider for Qorlla's existing AI gateway. No document routes or database tables.
 // The gateway remains responsible for authentication, tenant authorization, quotas and audit.
+import http from 'node:http';
+import net from 'node:net';
+import dns from 'node:dns';
+import { Readable } from 'node:stream';
 const safeInt = (value, fallback, lo, hi) => Number.isSafeInteger(Number(value)) && Number(value) >= lo && Number(value) <= hi ? Number(value) : fallback;
 export function validateOllamaEndpoint(raw, allowedHosts = ['ollama', 'localhost', '127.0.0.1']) {
   let u;
@@ -9,7 +13,51 @@ export function validateOllamaEndpoint(raw, allowedHosts = ['ollama', 'localhost
   if (u.protocol === 'http:' && !['ollama', 'localhost', '127.0.0.1'].includes(u.hostname.toLowerCase())) throw new Error('Remote Ollama requires HTTPS');
   return u.toString().replace(/\/$/, '');
 }
-export function createOllamaAdapter({ baseUrl, model, apiKey = '', allowedHosts, fetchImpl = fetch, timeoutMs = 30000, concurrency = 2, maxQueue = 8, maxResponseBytes = 1048576 } = {}) {
+
+// ---- DNS-rebinding guard for plain-HTTP (private-network) endpoints ----
+// A hostname allowlist is not enough: DNS can later answer with a different address (rebinding) such as a cloud metadata service or a public host.
+// Plain-HTTP Ollama endpoints may therefore only connect to loopback or private addresses, and the check runs inside the connection's own lookup, so the address that is
+// validated is the address that is dialled (no gap between check and use). Link-local (169.254/16, fe80::/10: cloud metadata) and public addresses are refused.
+export function isPrivateAddress(addr) {
+  let a = String(addr).toLowerCase(); const m = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(a); if (m) a = m[1];
+  if (net.isIPv4(a)) {
+    const [p, q] = a.split('.').map(Number);
+    return p === 127 || p === 10 || (p === 172 && q >= 16 && q <= 31) || (p === 192 && q === 168) || (p === 100 && q >= 64 && q <= 127);   // loopback, RFC 1918, CGNAT (private overlay networks)
+  }
+  if (net.isIPv6(a)) return a === '::1' || /^f[cd][0-9a-f]{2}:/.test(a);                                                                    // loopback, unique-local (fc00::/7)
+  return false;
+}
+export function createGuardedFetch({ lookup = dns.lookup } = {}) {
+  const agent = new http.Agent({ keepAlive: true });       // one pool per guard: a reused connection keeps the address that was validated when it was opened
+  const guardLookup = (hostname, options, cb) => {
+    if (typeof options === 'function') { cb = options; options = {}; }
+    lookup(hostname, { ...options, all: true }, (err, addrs) => {
+      if (err) return cb(err);
+      const list = Array.isArray(addrs) ? addrs : [{ address: addrs, family: net.isIPv6(addrs) ? 6 : 4 }];
+      const bad = list.find((x) => !isPrivateAddress(x.address));
+      if (bad || !list.length) return cb(Object.assign(new Error('Ollama endpoint resolved to a non-private address'), { code: 'llm_endpoint_refused' }));
+      if (options && options.all) return cb(null, list);
+      cb(null, list[0].address, list[0].family);
+    });
+  };
+  return function guardedFetch(url, { method = 'GET', headers = {}, body, signal } = {}) {
+    const u = new URL(url);
+    if (u.protocol !== 'http:') return fetch(url, { method, headers, body, signal });          // HTTPS: the certificate identifies the host
+    return new Promise((resolve, reject) => {
+      const req = http.request(u, { method, headers: { ...headers, ...(body !== undefined ? { 'content-length': Buffer.byteLength(body) } : {}) }, lookup: guardLookup, agent, signal }, (res) => {
+        const h = new Headers(); for (const [k, v] of Object.entries(res.headers)) h.set(k, Array.isArray(v) ? v.join(', ') : String(v));
+        const noBody = [101, 204, 205, 304].includes(res.statusCode);
+        resolve(new Response(noBody ? null : Readable.toWeb(res), { status: res.statusCode, headers: h }));
+      });
+      req.on('error', reject);
+      if (body !== undefined) req.write(body);
+      req.end();
+    });
+  };
+}
+const guardedFetchDefault = createGuardedFetch();
+
+export function createOllamaAdapter({ baseUrl, model, apiKey = '', allowedHosts, fetchImpl = guardedFetchDefault, timeoutMs = 30000, concurrency = 2, maxQueue = 8, maxResponseBytes = 1048576 } = {}) {
   const url = validateOllamaEndpoint(baseUrl, allowedHosts);
   if (typeof model !== 'string' || !/^[\w.:-]{1,120}$/.test(model)) throw new Error('A valid installed Ollama model name is required');
   concurrency = safeInt(concurrency, 2, 1, 16);
@@ -76,6 +124,7 @@ export function createOllamaAdapter({ baseUrl, model, apiKey = '', allowedHosts,
         return { text, model: json.model || model, inputTokens: Number(json.usage?.prompt_tokens) || 0, outputTokens: Number(json.usage?.completion_tokens) || 0 };
       } catch (e) {
         if (ctrl.signal.aborted) throw Object.assign(new Error('Ollama request interrupted'), { code: signal?.aborted ? 'llm_cancelled' : 'llm_timeout', retryable: !signal?.aborted });
+        if (e.code === 'llm_endpoint_refused' || e.cause?.code === 'llm_endpoint_refused') throw Object.assign(new Error('Ollama endpoint refused'), { code: 'llm_rejected', retryable: false });
         if (e.code) throw e;
         throw Object.assign(new Error('Ollama unreachable'), { code: 'llm_unreachable', retryable: true });
       } finally { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); release(); }

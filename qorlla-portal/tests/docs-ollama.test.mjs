@@ -132,4 +132,18 @@ describe('Qorlla Docs AI with Ollama (local endpoint, PostgreSQL)', () => {
     ol.setMode('ok'); assert.equal((await owner().post('/api/v1/ai/run', { task: 'docs_summarize', document_id: d.id, idempotency_key: key() })).status, 200);
   });
 
+  test('the per-person AI rate limit is cluster-wide: requests served by replica A count against replica B', async () => {
+    const W2 = await seedWorkspace(db.pool, H.sub, 'Rate Co'); await db.pool.query(`UPDATE portal.subscriptions SET plan_slug='pro',status='active',current_period_end=now()+interval '20 days' WHERE workspace_id=$1`, [W2]);
+    const contract = { QORLLA_AI_ENABLED: 'true', QORLLA_AI_PROVIDER: 'selfhosted', QORLLA_AI_APPROVED_PROVIDERS: 'selfhosted', QORLLA_AI_SELFHOSTED_URL: `http://127.0.0.1:${ol.port}/v1`, QORLLA_AI_SELFHOSTED_OLLAMA: 'true', QORLLA_AI_SELFHOSTED_MODEL: 'qwen2.5:3b', QORLLA_AI_RATE_PER_MINUTE: '2' };
+    const A = await startApp({ pool: db.pool, cfg: testConfig({ env: contract }, main), jwks: main.jwks }), B = await startApp({ pool: db.pool, cfg: testConfig({ env: contract }, main), jwks: main.jwks });
+    try {
+      const ca = A.client(H, { workspace: W2 }), cb = B.client(H, { workspace: W2 });
+      const d = (await ca.post('/api/v1/documents', { kind: 'doc', title: 'R', content: { format: 'markdown', text: 'rate text' } })).body;
+      const run = (c) => c.post('/api/v1/ai/run', { task: 'docs_summarize', document_id: d.id, idempotency_key: key() });
+      assert.equal((await run(ca)).status, 200); assert.equal((await run(ca)).status, 200);
+      const third = await run(cb);                      // replica B has an empty in-process window; only the shared audit trail knows about the two runs
+      assert.equal(third.status, 429, JSON.stringify(third.body)); assert.equal(third.body.code, 'ai_rate_limited');
+    } finally { await A.close(); await B.close(); }
+  });
+
 });

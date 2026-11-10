@@ -101,7 +101,7 @@ function testAdapter(delayMs = 0) {
 export function buildAdapters(eligible, { fetchImpl = fetch, timeoutMs = 30_000, testDelayMs = 0 } = {}) {
   const io = { fetchImpl, timeoutMs };
   return eligible.map((p) => {
-    const a = p.id === 'selfhosted' && p.ollama ? createOllamaAdapter({ ...p, allowedHosts: p.allowedHosts, fetchImpl, timeoutMs, concurrency: p.concurrency, maxQueue: p.maxQueue }) : p.id === 'test' ? testAdapter(testDelayMs) : p.id === 'gemini' ? gemini(p, io) : p.id === 'anthropic' ? anthropic(p, io) : chatCompletions(p.id, p, io);
+    const a = p.id === 'selfhosted' && p.ollama ? createOllamaAdapter({ ...p, allowedHosts: p.allowedHosts, fetchImpl: fetchImpl === globalThis.fetch ? undefined : fetchImpl, timeoutMs, concurrency: p.concurrency, maxQueue: p.maxQueue }) : p.id === 'test' ? testAdapter(testDelayMs) : p.id === 'gemini' ? gemini(p, io) : p.id === 'anthropic' ? anthropic(p, io) : chatCompletions(p.id, p, io);
     return Object.assign(a, { tier: p.tier, external: p.external, model: p.model });
   });
 }
