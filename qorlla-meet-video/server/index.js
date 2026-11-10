@@ -31,6 +31,7 @@ import { createCarrier } from './telephony/provider.mjs';
 import { registerTelephony } from './telephony/routes.mjs';
 import { shieldConfig, createShieldClient, startSessionGuard } from './shield-client.mjs';
 import { normalizePhoneMeetingCode } from './meeting-code.mjs';
+import { installTrace } from './trace.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const SECRET = process.env.JWT_SECRET;
@@ -72,6 +73,7 @@ app.use('/api', (req, res, next) => {
   return apiLimiter(req, res, next);
 });
 const server = createServer(app);
+installTrace({ server, db });   // A5.4 lab diagnostics: inert unless A54_TRACE_FILE is set
 const io = new Server(server, { cors: { origin: process.env.CORS_ORIGIN || false }, maxHttpBufferSize: 16_384 });
 const directory = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 app.use(express.static(directory));
