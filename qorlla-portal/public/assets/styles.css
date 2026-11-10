@@ -202,3 +202,5 @@ aside.open a{font-size:15px;text-align:left;padding:13px 15px}aside.open a span{
 /* phones: controls stack at their own height (a flex-basis of 240px in a column made the search field 240px tall) and carry no stray margin */
 .docs-ui input:not([type=checkbox]):not([type=radio]):not([type=file]),.docs-ui select,.docs-ui textarea{margin:0}
 @media(max-width:700px){.docs-ui .docs-bar,.docs-ui .docs-search{align-items:stretch}.docs-ui .docs-field-search,.docs-ui .docs-field-type,.docs-ui .docs-search{flex:0 0 auto;width:100%}.docs-ui .docs-field{min-height:0}}
+/* side cards (Create new, AI assistance) are as tall as their content: a flex-basis of 320px in the stacked column left a blank band under each */
+.docs-ui .docs-aside>.docs-card{flex:0 0 auto}
