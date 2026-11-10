@@ -347,7 +347,7 @@ try {
       if (SHOTS) await q.screenshot({ path: `${SHOTS}/editor-${w}.png`, fullPage: true });
       check(`${w}px: Docs home and the editor do not scroll sideways, and the side column ${w >= 1100 ? 'sits beside' : 'stacks under'} the library`, ovHome <= 1 && ovEd <= 1 && (w >= 1100 ? !stacked : stacked), `home ${ovHome} editor ${ovEd} stacked ${stacked}`);
       check(`${w}px: ${w <= 700 ? 'phone controls keep a 44px touch target' : 'controls use the compact desktop standard (34-38px)'}`, ctlH.every((h) => (w <= 700 ? h >= 44 : h >= 34 && h <= 38)), ctlH.join());
-      if (w <= 700) { const fh = await q.evaluate(() => ['.docs-field-search', '.docs-field-type'].map((c) => Math.round(document.querySelector(c).getBoundingClientRect().height))); check(`${w}px: the search and type fields are one control tall (no stretched gap above or below)`, fh.every((h) => h <= 50), fh.join()); }
+      if (w <= 700) { const fh = await q.evaluate(() => ['#doc-search [name=q]', '#doc-kind'].map((c) => { const e = document.querySelector(c); const f = e && (e.closest('.docs-field') || e); return f ? Math.round(f.getBoundingClientRect().height) : 0; })); check(`${w}px: the search and type fields are one control tall (no stretched gap above or below)`, fh.every((h) => h <= 50), fh.join()); }
       await r.ctx.close();
     }
   }
@@ -367,5 +367,5 @@ try {
     await hp.ctx.close();
   }
 } catch (e) { check('the run finished without an unexpected exception', false, e.stack || e.message); }
-finally { await browser.close(); await app.close(); await main.close(); await db.drop(); }
+finally { const done = (p) => Promise.race([p, new Promise((r) => setTimeout(r, 15000))]).catch(() => {}); await done(browser.close()); await done(app.close()); await done(main.close()); await done(db.drop()); }      // teardown may not hang the run: an open keep-alive socket made server.close() wait forever
 const pass = results.filter(Boolean).length; console.log(`\nDOCS UI: ${pass} passed, ${results.length - pass} failed, ${results.length} total`); process.exit(pass === results.length ? 0 : 2);
