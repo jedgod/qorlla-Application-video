@@ -57,7 +57,7 @@ export function createGuardedFetch({ lookup = dns.lookup } = {}) {
 }
 const guardedFetchDefault = createGuardedFetch();
 
-export function createOllamaAdapter({ baseUrl, model, apiKey = '', allowedHosts, fetchImpl = guardedFetchDefault, timeoutMs = 30000, concurrency = 2, maxQueue = 8, maxResponseBytes = 1048576 } = {}) {
+export function createOllamaAdapter({ baseUrl, model, apiKey = '', allowedHosts, fetchImpl = guardedFetchDefault, timeoutMs = 30000, concurrency = 2, maxQueue = 8, maxResponseBytes = 1048576, maxOutputTokens = 0 } = {}) {
   const url = validateOllamaEndpoint(baseUrl, allowedHosts);
   if (typeof model !== 'string' || !/^[\w.:-]{1,120}$/.test(model)) throw new Error('A valid installed Ollama model name is required');
   concurrency = safeInt(concurrency, 2, 1, 16);
@@ -97,7 +97,7 @@ export function createOllamaAdapter({ baseUrl, model, apiKey = '', allowedHosts,
       try {
         const response = await fetchImpl(url + '/chat/completions', {
           method: 'POST', headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: 'Bearer ' + apiKey } : {}) },
-          body: JSON.stringify({ model, stream: false, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: maxTokens, response_format: { type: 'json_object' } }),
+          body: JSON.stringify({ model, stream: false, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: safeInt(maxOutputTokens, 0, 0, 100000) > 0 ? Math.min(maxTokens, Number(maxOutputTokens)) : maxTokens, response_format: { type: 'json_object' } }),
           signal: ctrl.signal
         });
         if (!response.ok) throw Object.assign(new Error('Ollama returned an unsuccessful status'), { code: response.status === 429 || response.status >= 500 ? 'llm_busy' : 'llm_rejected', retryable: response.status === 429 || response.status >= 500, status: response.status });

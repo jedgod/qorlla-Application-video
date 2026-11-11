@@ -57,6 +57,7 @@ export function resolveAiConfig(env = process.env) {
     p.selfhosted.allowedHosts = (trim(env.QORLLA_AI_OLLAMA_ALLOWED_HOSTS) || 'ollama,localhost,127.0.0.1').toLowerCase().split(',').map(x => x.trim()).filter(Boolean);
     p.selfhosted.concurrency = Number(env.QORLLA_AI_OLLAMA_CONCURRENCY || 2);
     p.selfhosted.maxQueue = Number(env.QORLLA_AI_OLLAMA_MAX_QUEUE || 8);
+    p.selfhosted.maxOutputTokens = Number(env.QORLLA_AI_OLLAMA_MAX_OUTPUT_TOKENS || 0);      // 0 = whatever the feature asks for; a small model on modest hardware needs a cap
     if (!p.selfhosted.model) problems.push('QORLLA_AI_SELFHOSTED_MODEL is required for Ollama');
   }
   // the pre-gateway Anthropic path keeps working when its own key is set (compatibility), under the same rules as every other provider

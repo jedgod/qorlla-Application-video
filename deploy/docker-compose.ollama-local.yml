@@ -1,0 +1,27 @@
+# DEMO ONLY: connects the Docs AI assistance to a local Ollama on a private, internet-less Docker network. Add LAST to the usual -f list.
+#   docker network create --internal qollama-net
+#   docker run -d --name qollama --network qollama-net --network-alias ollama -v qollama-models:/root/.ollama ollama/ollama:0.5.13
+#   (weights are provisioned out of band: the network has no egress)
+# The model is a test model on a CPU-only machine: expect slow answers and modest quality. This is NOT a certified model; production stays NO-GO.
+services:
+  qorlla-portal:
+    environment:
+      QORLLA_AI_ENABLED: "true"
+      QORLLA_AI_PROVIDER: selfhosted
+      QORLLA_AI_APPROVED_PROVIDERS: selfhosted
+      QORLLA_AI_SELFHOSTED_URL: http://ollama:11434/v1
+      QORLLA_AI_SELFHOSTED_OLLAMA: "true"
+      QORLLA_AI_SELFHOSTED_MODEL: ${QORLLA_OLLAMA_MODEL:-qorlla-docs}
+      QORLLA_AI_OLLAMA_ALLOWED_HOSTS: ollama
+      QORLLA_AI_OLLAMA_CONCURRENCY: "1"
+      QORLLA_AI_OLLAMA_MAX_QUEUE: "2"
+      QORLLA_AI_OLLAMA_MAX_OUTPUT_TOKENS: "180"
+      QORLLA_AI_TIMEOUT_MS: "175000"
+      QORLLA_AI_ALLOW_PAID_FALLBACK: "false"
+      QORLLA_AI_ALLOW_FREE_TIER: "false"
+    networks:
+      - default
+      - qollama-net
+networks:
+  qollama-net:
+    external: true
