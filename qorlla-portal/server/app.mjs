@@ -63,6 +63,8 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
     config: cfg.ai.gateway || resolveAiConfig({}), fetchImpl, log,
     consent: async (ctx) => !!(await pool.query('SELECT external_processing FROM portal.workspace_ai_settings WHERE workspace_id=$1', [ctx.workspaceId])).rows[0]?.external_processing,
     quota: async (ctx) => !ctx.workspaceId || Number((await pool.query("SELECT count(*) FROM portal.ai_gateway_audit WHERE workspace_id=$1 AND outcome='ok' AND at >= date_trunc('day', now())", [ctx.workspaceId])).rows[0].count) < (cfg.ai.gateway?.workspaceDailyRequests ?? 2000),
+    // cluster-wide per-person limit: the in-process window cannot see requests another replica served, the audit table can
+    rate: async (ctx) => !!(ctx.workspaceId && ctx.actorId) && Number((await pool.query("SELECT count(*) FROM portal.ai_gateway_audit WHERE workspace_id=$1 AND actor_id=$2 AND outcome IN ('ok','error') AND at >= now() - interval '1 minute'", [ctx.workspaceId, ctx.actorId])).rows[0].count) >= (cfg.ai.gateway?.ratePerMinute ?? 30),
     audit: (r) => pool.query('INSERT INTO portal.ai_gateway_audit(at,feature,actor_id,workspace_id,org_id,provider,tier,model,outcome,code,ms,input_chars,output_chars,input_tokens,output_tokens,prompt_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',
       [r.at, r.feature, r.actorId, r.workspaceId, r.orgId, r.provider, r.tier, r.model, r.outcome, r.code, r.ms, r.inputChars, r.outputChars, r.inputTokens, r.outputTokens, r.promptHash])
   });

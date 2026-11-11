@@ -3,6 +3,7 @@
 // Errors carry a generic message (the gateway shows people only "Qorlla AI"); the provider id travels in `provider` for administrators and the audit trail.
 // Adapters follow each provider's official HTTP API. They are exercised against stubbed endpoints in tests/ai-gateway.test.mjs; a stub proves our request and parsing, NOT that a real account, quota or model works.
 import { LlmError } from './llm.mjs';
+import { createOllamaAdapter } from './ollama.mjs';
 
 const fail = (provider, message, o) => Object.assign(new LlmError(message, o), { provider });
 async function post(provider, url, { headers, body, fetchImpl, timeoutMs }) {
@@ -100,7 +101,7 @@ function testAdapter(delayMs = 0) {
 export function buildAdapters(eligible, { fetchImpl = fetch, timeoutMs = 30_000, testDelayMs = 0 } = {}) {
   const io = { fetchImpl, timeoutMs };
   return eligible.map((p) => {
-    const a = p.id === 'test' ? testAdapter(testDelayMs) : p.id === 'gemini' ? gemini(p, io) : p.id === 'anthropic' ? anthropic(p, io) : chatCompletions(p.id, p, io);
+    const a = p.id === 'selfhosted' && p.ollama ? createOllamaAdapter({ ...p, allowedHosts: p.allowedHosts, fetchImpl: fetchImpl === globalThis.fetch ? undefined : fetchImpl, timeoutMs, concurrency: p.concurrency, maxQueue: p.maxQueue }) : p.id === 'test' ? testAdapter(testDelayMs) : p.id === 'gemini' ? gemini(p, io) : p.id === 'anthropic' ? anthropic(p, io) : chatCompletions(p.id, p, io);
     return Object.assign(a, { tier: p.tier, external: p.external, model: p.model });
   });
 }
