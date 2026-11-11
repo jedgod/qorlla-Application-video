@@ -76,6 +76,8 @@ export function registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, over
     if (e.code === 'ai_quota_exceeded') return res.status(429).json({ error: e.message, code: 'ai_quota_exceeded' });
     if (e.code === 'private_unavailable') return res.status(503).json({ error: e.message, code: 'private_unavailable' });
     if (e.code === 'ai_rate_limited') return res.status(429).json({ error: e.message, code: 'ai_rate_limited' });
+    if (e.code === 'invalid_model_output') return res.status(502).json({ error: 'The private model answered, but in a form Qorlla could not use (small models often cannot follow the required format). Try again, use a shorter text, or use a larger model. Nothing was saved or charged.', code: 'invalid_model_output' });
+    if (e.code === 'ai_timeout') return res.status(504).json({ error: 'Qorlla AI took too long to answer. The private model on this server is slow: try a shorter text, or try again. Nothing was saved or charged.', code: 'ai_timeout' });
     if (e.code === 'no_ai_provider') return res.status(503).json({ error: 'No AI provider is configured on this server', code: 'no_ai_provider' });
     log.warn('assistant model call failed', { code: e.code, status: e.status });
     return res.status(e.retryable ? 503 : 502).json({ error: 'The AI service could not complete the request. Nothing was saved or charged.', code: e.code || 'llm_error' });

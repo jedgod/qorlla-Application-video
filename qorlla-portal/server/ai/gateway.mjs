@@ -62,6 +62,7 @@ export function createAiGateway({ config, fetchImpl = fetch, now = Date.now, log
         last = e; if (e instanceof LlmError && !e.retryable) throw new LlmError(PUBLIC_NAME + ' could not process this request', { retryable: false, code: e.code, status: e.status });
       }
     }
+    if (last && last.code === 'llm_timeout') throw new LlmError(PUBLIC_NAME + ' took too long to answer', { retryable: true, code: 'ai_timeout' });      // a slow private model is not an outage: say so
     throw new LlmError(PUBLIC_NAME + ' is temporarily unavailable', { retryable: true, code: (last && last.code) === 'invalid_model_output' ? 'invalid_model_output' : 'ai_unavailable' });
   }
 

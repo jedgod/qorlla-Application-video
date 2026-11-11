@@ -62,7 +62,7 @@ export function createOllamaAdapter({ baseUrl, model, apiKey = '', allowedHosts,
   if (typeof model !== 'string' || !/^[\w.:-]{1,120}$/.test(model)) throw new Error('A valid installed Ollama model name is required');
   concurrency = safeInt(concurrency, 2, 1, 16);
   maxQueue = safeInt(maxQueue, 8, 0, 100);
-  timeoutMs = safeInt(timeoutMs, 30000, 1000, 180000);
+  timeoutMs = safeInt(timeoutMs, 30000, 1000, 900000);      // up to 15 minutes: modest hardware running a private model can need minutes
   maxResponseBytes = safeInt(maxResponseBytes, 1048576, 1024, 4194304);
   let active = 0;
   const waiting = [];
