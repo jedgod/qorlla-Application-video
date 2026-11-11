@@ -33,6 +33,16 @@ test.describe('server-side detection of Meet', () => {
     const m = await stubMeet(); const app = await boot({ MEET_PUBLIC_URL: 'https://meet.example.test/x', MEET_PROBE_URL: `http://127.0.0.1:${m.port}` });
     try { expect(await cfg(app.base)).toBe('window.QORLLA_MEET_URL="https://meet.example.test/";'); } finally { await app.stop(); await m.close(); }
   });
+  test('a loopback Meet address follows the visitor, and a page served over https gets Meet on its TLS port; LAN_ORIGIN is the address to share', async () => {
+    const app = await boot({ MEET_PUBLIC_URL: 'http://localhost:4801', MEET_TLS_PORT: '4844', LAN_ORIGIN: 'https://10.0.0.176:4843', MEET_DETECT: 'off' });
+    const get = async (h) => (await (await fetch(app.base + '/meet-config.js', { headers: h })).text()).trim();
+    try {
+      const plain = await get({});
+      expect(plain).toContain('window.QORLLA_MEET_URL="http://localhost:4801/";');                       // unchanged for a plain-http visitor
+      expect(plain).toContain('window.QORLLA_SHARE_ORIGIN="https://10.0.0.176:4843";');                  // opened as localhost: links for other people use the LAN address
+      expect(await get({ 'x-forwarded-proto': 'https' })).toContain('window.QORLLA_MEET_URL="https://localhost:4844/";');   // https visitor: Meet's TLS port
+    } finally { await app.stop(); }
+  });
 });
 
 test.describe('New meeting in the browser', () => {

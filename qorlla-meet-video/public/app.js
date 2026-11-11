@@ -676,7 +676,7 @@ async function applyDevicePrefs(){
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // Pricing and the landing page belong to the MAIN Qorlla app, which is not Meet's origin when the two run on different ports or hosts: build those links against the main app, never against Meet.
 // Qorlla Home. The configured main address may say localhost, which is only right on the machine that runs it: for anyone who reached Meet by a network address, Home is on that same host.
-function mainOriginFor(){try{const m=new URL(state.mainOrigin||location.origin);if(['localhost','127.0.0.1','::1','[::1]'].includes(m.hostname)&&m.hostname!==location.hostname)m.hostname=location.hostname;return m.origin;}catch{return location.origin;}}
+function mainOriginFor(){try{const m=new URL(location.protocol==='https:'&&state.mainTlsOrigin?state.mainTlsOrigin:(state.mainOrigin||location.origin));if(['localhost','127.0.0.1','::1','[::1]'].includes(m.hostname)&&m.hostname!==location.hostname)m.hostname=location.hostname;return m.origin;}catch{return location.origin;}}
 const mainUrl=(path)=>{try{return new URL(path||'/',mainOriginFor()).href;}catch{return '/';}};
 // Where leaving, ending, being removed or a host ending the meeting lands: the page that asked for the meeting, otherwise Qorlla Home (never the Meet start page).
 // A meeting opened from Home in its own window closes that window and shows Home again; otherwise this page goes to Home.
@@ -684,7 +684,7 @@ function goHome(){const dest=safeReturn(returnRaw)||(state.mainOrigin?mainUrl('/
   try{if(window.opener&&!window.opener.closed){try{window.opener.location.href=dest;window.opener.focus();}catch(e){/* cross-origin: setting the address is allowed, the rest may not be */}window.close();setTimeout(()=>{location.href=dest;},350);return;}}catch(e){/* no opener */}
   location.href=dest;}
 // Qorlla Home links on the Meet start page and the waiting page (the main address comes from /api/config, which every Meet serves).
-fetch(BASE+'api/config').then(r=>r.ok?r.json():null).then(c=>{if(!c)return;state.mainOrigin=state.mainOrigin||c.mainOrigin||'';state.returnOrigins=state.returnOrigins&&state.returnOrigins.length?state.returnOrigins:(c.returnOrigins||[]);if(!state.mainOrigin)return;document.querySelectorAll('.home-link').forEach(a=>{a.href=mainUrl('/');a.hidden=false;});}).catch(()=>{});
+fetch(BASE+'api/config').then(r=>r.ok?r.json():null).then(c=>{if(!c)return;state.mainOrigin=state.mainOrigin||c.mainOrigin||'';state.mainTlsOrigin=c.mainTlsOrigin||'';state.returnOrigins=state.returnOrigins&&state.returnOrigins.length?state.returnOrigins:(c.returnOrigins||[]);if(!state.mainOrigin)return;document.querySelectorAll('.home-link').forEach(a=>{a.href=mainUrl('/');a.hidden=false;});}).catch(()=>{});
 const upgradeHref=(u)=>{try{const x=new URL(u||'/pricing?reason=meeting-limit',mainUrl('/'));return x.origin===new URL(mainUrl('/')).origin?x.href:mainUrl('/pricing?reason=meeting-limit');}catch{return mainUrl('/pricing?reason=meeting-limit');}};
 function limitReminder(r){
   let b=document.getElementById('limitBanner');

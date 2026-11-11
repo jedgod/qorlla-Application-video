@@ -22,7 +22,7 @@ function createVoice({ dataDir, env = process.env }) {
     const enabled = () => flagOn() && secret().length >= 32;
     const port = () => Number(env.VOICE_PORT || 4600);
     const internalBase = () => String(env.VOICE_INTERNAL_URL || env.VOICE_URL || 'http://127.0.0.1:' + port()).replace(/\/+$/, '');
-    const publicBase = (req) => String(env.VOICE_URL || (req.protocol + '://' + req.hostname + ':' + port())).replace(/\/+$/, '');
+    const publicBase = (req) => (req.secure && env.VOICE_TLS_PATH ? req.protocol + '://' + req.get('host') + String(env.VOICE_TLS_PATH).replace(/\/+$/, '') : String(env.VOICE_URL || (req.protocol + '://' + req.hostname + ':' + port())).replace(/\/+$/, ''));
 
     // ---- signing key: created on first use, stored with the app's other secrets (encrypted at rest when ENCRYPT_KEY is set)
     let keys = null;

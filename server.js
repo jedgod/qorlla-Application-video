@@ -1056,7 +1056,13 @@ async function meetPublicBase(req) {
     if (!url) { const port = await probeMeetPort(); if (port) url = req.protocol + '://' + req.hostname + ':' + port + '/'; }
     // A Meet address that says localhost only works on the machine that runs it. When the person reached this server by its network name or address
     // (an invitee on the same network, the host on a second device), send them to Meet on THAT same host, so the page they are redirected to is reachable.
-    try { const u = new URL(url); if (LOOPBACK_HOSTS.has(u.hostname) && req.hostname && !LOOPBACK_HOSTS.has(req.hostname)) { u.hostname = req.hostname; url = u.origin + '/'; } } catch (e) { /* keep the configured address */ }
+    try {
+        const u = new URL(url);
+        if (LOOPBACK_HOSTS.has(u.hostname) && req.hostname && !LOOPBACK_HOSTS.has(req.hostname)) u.hostname = req.hostname;
+        // A secure page may only open a secure Meet (camera and microphone also need https): use Meet's TLS port when this request came in over https.
+        if (req.secure && Number(process.env.MEET_TLS_PORT) > 0) { u.protocol = 'https:'; u.port = String(Number(process.env.MEET_TLS_PORT)); }
+        url = u.origin + '/';
+    } catch (e) { /* keep the configured address */ }
     return url;
 }
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);

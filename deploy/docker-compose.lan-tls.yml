@@ -1,0 +1,21 @@
+# HTTPS for a development stack on a local network. Add it LAST to the usual -f list:
+#   LAN_IP=10.0.0.176 LAN_CERT_DIR=/path/to/certs docker compose -f docker-compose.yml ... -f deploy/docker-compose.lan-tls.yml up -d --no-deps --force-recreate \
+#       workspace-signaling-engine meet dashboard-client-proxy
+# Make the certificates with deploy/certs/make-lan-cert.sh <LAN_IP> <dir>, and install ca.crt on every device: camera and microphone need a TRUSTED https page.
+# The plain-http ports keep working. HTTPS is on PROXY_MAIN_TLS_PORT (main) and PROXY_MEET_TLS_PORT (Meet).
+services:
+  workspace-signaling-engine:
+    environment:
+      LAN_ORIGIN: https://${LAN_IP:?LAN_IP is required}:${PROXY_MAIN_TLS_PORT:-8443}
+      MEET_TLS_PORT: ${PROXY_MEET_TLS_PORT:-8444}
+      VOICE_TLS_PATH: /voice
+  meet:
+    environment:
+      MAIN_APP_TLS_URL: https://${LAN_IP:?LAN_IP is required}:${PROXY_MAIN_TLS_PORT:-8443}
+  dashboard-client-proxy:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./deploy/nginx/tls-lan.conf:/etc/nginx/conf.d/tls.conf:ro
+      - ${LAN_CERT_DIR:?LAN_CERT_DIR is required}:/etc/nginx/certs:ro
+      - ./deploy/nginx/optional/voice-lan.conf:/etc/nginx/optional/voice-lan.conf:ro
