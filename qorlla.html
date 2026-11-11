@@ -1034,7 +1034,9 @@
     var mobile = /QorllaMobile|Android|iPhone|iPad/i.test(navigator.userAgent) || (window.matchMedia && window.matchMedia('(pointer: coarse) and (max-width: 900px)').matches);
     if (mobile) { window.location.href = url; return false; }
     var w = null; try { w = window.open(url, '_blank', 'popup=yes,width=1280,height=860'); } catch (e) { w = null; }       // a window of its own, not a tab
-    if (!w) window.location.href = url; return !!w;
+    if (!w) { window.location.href = url; return false; }
+    document.querySelectorAll('dialog[open]').forEach(function (d) { try { d.close(); } catch (e) { /* already closed */ } });       // the meeting is in its own window now: Home must not keep the Start dialog on screen
+    return true;
   }
   var VIDEO_PAGE = store('zw_meet_url') || window.QORLLA_MEET_URL || '';   // the server detects a running Meet and fills QORLLA_MEET_URL (see /meet-config.js)
   var API = '/api/workplace';

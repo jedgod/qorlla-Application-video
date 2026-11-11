@@ -98,3 +98,4 @@
 .rc-ai{margin-top:12px;padding-top:10px;border-top:1px solid #30384a}.rc-ai h3{margin:0 0 6px;font-size:14px}.rc-ai .rc-row{align-items:center;justify-content:space-between;gap:8px;margin:6px 0}
 .person{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.person>span{flex:1 1 100%;min-width:0;overflow-wrap:anywhere}.pbtn{padding:4px 10px;border:1px solid #30384a;border-radius:8px;background:#1b2130;color:#edf2fa;font-size:12px}.pbtn:hover{background:#252d40}#peopleList>.pbtn{margin:0 0 8px}
 .home-link{display:inline-flex;align-items:center;gap:6px;margin:0 0 14px;padding:8px 12px;border:1px solid rgba(157,180,255,.35);border-radius:10px;color:#cfdcff;text-decoration:none;font-weight:600;font-size:14px}.home-link:hover{background:rgba(157,180,255,.14)}.home-link:focus-visible{outline:3px solid #7aa2ff;outline-offset:2px}.home-link[hidden]{display:none}
+html.entering #landing{display:none!important}html.entering #joining.hidden{display:grid}
