@@ -1029,7 +1029,13 @@
   // When it is not, meetings start in this server's built-in meeting room (/index.html). It used to fall back to a guessed port (3000), which
   // opened whatever else happened to be running there instead of a meeting.
   // The video meeting opens in its OWN page (a new window or tab, a new window in the desktop app) so Qorlla Home stays where it was; if the browser blocks the new page it opens here instead.
-  function openMeetPage(url) { var w = null; try { w = window.open(url, '_blank'); } catch (e) { w = null; } if (!w) window.location.href = url; return !!w; }
+  // On a phone or tablet, and inside the mobile app, the meeting is a different page of the same app (no pop-up windows there).
+  function openMeetPage(url) {
+    var mobile = /QorllaMobile|Android|iPhone|iPad/i.test(navigator.userAgent) || (window.matchMedia && window.matchMedia('(pointer: coarse) and (max-width: 900px)').matches);
+    if (mobile) { window.location.href = url; return false; }
+    var w = null; try { w = window.open(url, '_blank', 'popup=yes,width=1280,height=860'); } catch (e) { w = null; }       // a window of its own, not a tab
+    if (!w) window.location.href = url; return !!w;
+  }
   var VIDEO_PAGE = store('zw_meet_url') || window.QORLLA_MEET_URL || '';   // the server detects a running Meet and fills QORLLA_MEET_URL (see /meet-config.js)
   var API = '/api/workplace';
   var $ = function (id) { return document.getElementById(id); };

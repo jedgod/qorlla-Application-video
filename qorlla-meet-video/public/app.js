@@ -681,8 +681,10 @@ const mainUrl=(path)=>{try{return new URL(path||'/',mainOriginFor()).href;}catch
 // Where leaving, ending, being removed or a host ending the meeting lands: the page that asked for the meeting, otherwise Qorlla Home (never the Meet start page).
 // A meeting opened from Home in its own window closes that window and shows Home again; otherwise this page goes to Home.
 function goHome(){const dest=safeReturn(returnRaw)||(state.mainOrigin?mainUrl('/'):BASE);
-  try{if(window.opener&&!window.opener.closed){try{window.opener.location.href=dest;window.opener.focus();}catch(e){/* cross-origin: setting the address is allowed, the rest may not be */}window.close();setTimeout(()=>{location.href=dest;},350);return;}}catch(e){/* no opener */}
-  location.href=dest;}
+  // A meeting that was opened in a window of its own closes that window and leaves Qorlla Home where it is; a page that cannot close itself (a normal tab) goes to Home.
+  try{if(window.opener&&!window.opener.closed){try{window.opener.location.href=dest;window.opener.focus();}catch(e){/* cross-origin: setting the address is allowed, the rest may not be */}}}catch(e){/* no opener */}
+  try{window.close();}catch(e){/* not allowed */}
+  setTimeout(()=>{location.href=dest;},350);}
 // Qorlla Home links on the Meet start page and the waiting page (the main address comes from /api/config, which every Meet serves).
 fetch(BASE+'api/config').then(r=>r.ok?r.json():null).then(c=>{if(!c)return;state.mainOrigin=state.mainOrigin||c.mainOrigin||'';state.mainTlsOrigin=c.mainTlsOrigin||'';state.returnOrigins=state.returnOrigins&&state.returnOrigins.length?state.returnOrigins:(c.returnOrigins||[]);if(!state.mainOrigin)return;document.querySelectorAll('.home-link').forEach(a=>{a.href=mainUrl('/');a.hidden=false;});}).catch(()=>{});
 const upgradeHref=(u)=>{try{const x=new URL(u||'/pricing?reason=meeting-limit',mainUrl('/'));return x.origin===new URL(mainUrl('/')).origin?x.href:mainUrl('/pricing?reason=meeting-limit');}catch{return mainUrl('/pricing?reason=meeting-limit');}};

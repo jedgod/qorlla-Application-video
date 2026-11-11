@@ -21,6 +21,8 @@ const asList = (origins) => (Array.isArray(origins) ? origins : [origins]);
 function navigationAllowed(raw, origins, opts = {}) {
   try { const u = new URL(raw); return asList(origins).includes(u.origin) && (u.protocol === 'https:' || (!!opts.allowLocalhostHttp && u.protocol === 'http:' && LOCAL.has(u.hostname))); } catch { return false; }
 }
+/** A page of the app may open another window of the app (the video meeting) only on a trusted origin, over the same transport rules as navigation, and never with credentials in the address. */
+function windowOpenAllowed(raw, origins, opts = {}) { try { const u = new URL(raw); return !u.username && !u.password && navigationAllowed(raw, origins, opts); } catch { return false; } }
 /** What may be handed to the system browser: plain https links only (never credentials, never file:, never custom schemes). */
 function externalAllowed(raw) { try { const u = new URL(raw); return u.protocol === 'https:' && !u.username && !u.password; } catch { return false; } }
 /** qorlla://join?meeting=<11 digits> -> { meetingId }; anything else is null (an unknown link is ignored, never navigated to). */
@@ -67,4 +69,4 @@ function validateExport(p) {
 }
 /** Whatever the person typed in the Save dialog, the file ends .md or .txt (matching the export): a name without it, or with a different one, gets it appended. */
 const finalExportPath = (chosen, ext) => (/\.(md|txt)$/i.test(chosen) && chosen.toLowerCase().endsWith('.' + ext) ? chosen : chosen + '.' + ext);
-module.exports = { exportSenderAllowed, safeExportName, validateExport, finalExportPath, EXPORT_TYPES, EXPORT_MAX_BYTES, verifiedOrigin, trustedOrigins, navigationAllowed, externalAllowed, parseJoinLink, prejoinUrl, permissionAllowed, localhostHttpAllowed, sandboxDisabled, PERMISSIONS };
+module.exports = { exportSenderAllowed, safeExportName, validateExport, finalExportPath, EXPORT_TYPES, EXPORT_MAX_BYTES, verifiedOrigin, trustedOrigins, navigationAllowed, windowOpenAllowed, externalAllowed, parseJoinLink, prejoinUrl, permissionAllowed, localhostHttpAllowed, sandboxDisabled, PERMISSIONS };

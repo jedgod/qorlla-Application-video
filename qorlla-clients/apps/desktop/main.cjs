@@ -34,14 +34,26 @@ function openLink(raw) {
   win.loadURL(sec.prejoinUrl(appOrigin, j.meetingId)).catch(() => {}); if (win.isMinimized()) win.restore(); win.focus(); return true;
 }
 
+// The same security settings for every window of the app, the main one and the ones it opens.
+const windowOptions = () => ({ icon: path.join(__dirname, 'build', 'icon.png'), width: 1280, height: 850, minWidth: 850, minHeight: 600, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, webviewTag: false } });
+function hardenContents(wc) {
+  // A video meeting opens in a window of its own, so Qorlla Home stays usable beside it; other https links go to the system browser; everything else is refused.
+  wc.setWindowOpenHandler(({ url }) => {
+    if (sec.windowOpenAllowed(url, origins, opts)) return { action: 'allow', overrideBrowserWindowOptions: windowOptions() };
+    if (sec.externalAllowed(url)) shell.openExternal(url).catch(() => {});
+    return { action: 'deny' };
+  });
+  wc.on('did-create-window', (child) => hardenContents(child.webContents));
+  wc.on('will-navigate', (e, url) => { if (!allowed(url)) e.preventDefault(); });
+  wc.on('will-redirect', (e, url) => { if (!allowed(url)) e.preventDefault(); });
+  wc.on('will-attach-webview', (e) => e.preventDefault());
+}
+
 function createWindow(startUrl) {
-  win = new BrowserWindow({ icon: path.join(__dirname, 'build', 'icon.png'), width: 1280, height: 850, minWidth: 850, minHeight: 600, show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, webviewTag: false } });
+  win = new BrowserWindow({ ...windowOptions(), show: false });
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => { win = null; });
-  win.webContents.setWindowOpenHandler(({ url }) => { if (sec.externalAllowed(url)) shell.openExternal(url).catch(() => {}); return { action: 'deny' }; });
-  win.webContents.on('will-navigate', (e, url) => { if (!allowed(url)) e.preventDefault(); });
-  win.webContents.on('will-redirect', (e, url) => { if (!allowed(url)) e.preventDefault(); });
-  win.webContents.on('will-attach-webview', (e) => e.preventDefault());
+  hardenContents(win.webContents);
   win.webContents.on('render-process-gone', () => dialog.showErrorBox('Qorlla', 'The application renderer stopped. Restart Qorlla.'));
   win.loadURL(startUrl).catch(() => win && win.loadFile(path.join(__dirname, 'index.html')));
   return win;
