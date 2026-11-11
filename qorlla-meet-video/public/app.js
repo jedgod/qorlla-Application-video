@@ -113,7 +113,7 @@ function renderNet(){
 setInterval(renderNet,1000);
 window.addEventListener('offline',()=>{net.online=false;renderNet();});
 window.addEventListener('online',()=>{net.online=true;if(state.socket&&!state.socket.connected&&state.socket.active===false)state.socket.connect();for(const [id,pc] of state.peers)if(pc.connectionState!=='connected')recoverPeer(id,pc);renderNet();});
-async function leave(){if(state.recording)await stopRecording();state.socket?.disconnect();state.peers.forEach(pc=>pc.close());state.stream?.getTracks().forEach(t=>t.stop());state.screen?.getTracks().forEach(t=>t.stop());sessionStorage.removeItem('qorlla-session');location.href=safeReturn(returnRaw)||BASE;}
+async function leave(){if(state.recording)await stopRecording();state.socket?.disconnect();state.peers.forEach(pc=>pc.close());state.stream?.getTracks().forEach(t=>t.stop());state.screen?.getTracks().forEach(t=>t.stop());sessionStorage.removeItem('qorlla-session');goHome();}
 $('createBtn').onclick=async()=>{try{const p=await api('/meetings','POST',{title:$('meetingTitle').value,name:$('displayName').value,passcode:$('newPasscode').value});await startMeeting(p);}catch(e){error(e);}};
 $('joinBtn').onclick=async()=>{try{const p=await api('/meetings/'+encodeURIComponent($('meetingId').value.trim())+'/join','POST',{name:$('displayName').value,passcode:$('joinPasscode').value});await startMeeting(p);}catch(e){error(e);}};
 $('chatForm').onsubmit=e=>{e.preventDefault();const input=$('chatText');if(!input.value.trim())return;state.socket.emit('chat',input.value,r=>{if(r?.ok)input.value='';else notify(r?.error||'Chat failed');});};
@@ -151,7 +151,7 @@ $('peopleBtn').onclick=()=>toggleTab('people');$('chatBtn').onclick=()=>toggleTa
 setInterval(()=>{if(!state.token)return;const seconds=Math.floor((Date.now()-state.start)/1000);$('timer').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');},1000);
 const query=new URLSearchParams(location.search);
 // Where Leave sends you: this site, or an origin the operator listed in RETURN_ORIGINS (same hostname on another port is NOT enough). No parameter = the landing page.
-const safeReturn = value => {if(!value)return null;try {const u=new URL(value,location.href);return ['http:','https:'].includes(u.protocol)&&(u.origin===location.origin||(state.returnOrigins||[]).includes(u.origin))?u.href:null;}catch{return null;}};
+const safeReturn = value => {if(!value)return null;try {const u=new URL(value,location.href);return ['http:','https:'].includes(u.protocol)&&(u.origin===location.origin||u.origin===mainOriginFor()||(state.returnOrigins||[]).includes(u.origin))?u.href:null;}catch{return null;}};
 const returnRaw=query.get('return')||query.get('returnUrl');
 const originalLeave=leave;
 // The handoff return destination is constrained to the same hostname.
@@ -675,7 +675,16 @@ async function applyDevicePrefs(){
 // Free-plan time limit: reminders (a banner with a countdown and an Upgrade link), then the meeting is closed with an upgrade message.
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // Pricing and the landing page belong to the MAIN Qorlla app, which is not Meet's origin when the two run on different ports or hosts: build those links against the main app, never against Meet.
-const mainUrl=(path)=>{try{return new URL(path||'/',state.mainOrigin||location.origin).href;}catch{return '/';}};
+// Qorlla Home. The configured main address may say localhost, which is only right on the machine that runs it: for anyone who reached Meet by a network address, Home is on that same host.
+function mainOriginFor(){try{const m=new URL(state.mainOrigin||location.origin);if(['localhost','127.0.0.1','::1','[::1]'].includes(m.hostname)&&m.hostname!==location.hostname)m.hostname=location.hostname;return m.origin;}catch{return location.origin;}}
+const mainUrl=(path)=>{try{return new URL(path||'/',mainOriginFor()).href;}catch{return '/';}};
+// Where leaving, ending, being removed or a host ending the meeting lands: the page that asked for the meeting, otherwise Qorlla Home (never the Meet start page).
+// A meeting opened from Home in its own window closes that window and shows Home again; otherwise this page goes to Home.
+function goHome(){const dest=safeReturn(returnRaw)||(state.mainOrigin?mainUrl('/'):BASE);
+  try{if(window.opener&&!window.opener.closed){try{window.opener.location.href=dest;window.opener.focus();}catch(e){/* cross-origin: setting the address is allowed, the rest may not be */}window.close();setTimeout(()=>{location.href=dest;},350);return;}}catch(e){/* no opener */}
+  location.href=dest;}
+// Qorlla Home links on the Meet start page and the waiting page (the main address comes from /api/config, which every Meet serves).
+fetch(BASE+'api/config').then(r=>r.ok?r.json():null).then(c=>{if(!c)return;state.mainOrigin=state.mainOrigin||c.mainOrigin||'';state.returnOrigins=state.returnOrigins&&state.returnOrigins.length?state.returnOrigins:(c.returnOrigins||[]);if(!state.mainOrigin)return;document.querySelectorAll('.home-link').forEach(a=>{a.href=mainUrl('/');a.hidden=false;});}).catch(()=>{});
 const upgradeHref=(u)=>{try{const x=new URL(u||'/pricing?reason=meeting-limit',mainUrl('/'));return x.origin===new URL(mainUrl('/')).origin?x.href:mainUrl('/pricing?reason=meeting-limit');}catch{return mainUrl('/pricing?reason=meeting-limit');}};
 function limitReminder(r){
   let b=document.getElementById('limitBanner');

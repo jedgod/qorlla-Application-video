@@ -32,6 +32,8 @@ test('invitees with a Qorlla account receive the invitation in their inbox; othe
     expect(by('eve.inbox@example.com').status).toBe('not_configured'); expect(by('outside@example.com').status).toBe('not_configured');
 
     for (const c of [bob, dan]) { const mail = await (await c.request.get(main.base + '/api/workplace/mail')).json(); const m = (mail.items || mail).find((x) => /invited you: Multi invite/.test(x.subject)); expect(m, 'invitation in inbox').toBeTruthy(); expect(m.folder).toBe('inbox'); expect(m.read).toBe(false); expect(m.body).toContain('Meeting ID: ' + made.meetingId); }
+    const hostMail = await (await context.request.get(main.base + '/api/workplace/mail')).json(); const hm = (hostMail.items || hostMail).find((x) => /invited you: Multi invite/.test(x.subject)); expect(hm && hm.folder, 'the host keeps a Sent copy of the invitation').toBe('sent');
+    for (const c of [bob, dan]) { const cal = await (await c.request.get(main.base + '/api/workplace/calendar')).json(); expect((cal.items || cal).some((x) => x.title === 'Multi invite' && x.date === item.date && x.start === '22:00' && x.end === '22:30'), 'invited Qorlla users get the meeting in their calendar').toBe(true); }
     const eveMail = await (await eve.request.get(main.base + '/api/workplace/mail')).json(); expect((eveMail.items || eveMail).some((x) => /invited you/.test(x.subject))).toBe(false);
     for (const c of [bob, dan, eve]) await c.close();
   } finally { main.stop(); }

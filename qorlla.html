@@ -1028,6 +1028,8 @@
   // Qorlla Meet (qorlla-meet-video) runs as its own server and is used when it is CONFIGURED (MEET_PUBLIC_URL on the server, or localStorage zw_meet_url).
   // When it is not, meetings start in this server's built-in meeting room (/index.html). It used to fall back to a guessed port (3000), which
   // opened whatever else happened to be running there instead of a meeting.
+  // The video meeting opens in its OWN page (a new window or tab, a new window in the desktop app) so Qorlla Home stays where it was; if the browser blocks the new page it opens here instead.
+  function openMeetPage(url) { var w = null; try { w = window.open(url, '_blank'); } catch (e) { w = null; } if (!w) window.location.href = url; return !!w; }
   var VIDEO_PAGE = store('zw_meet_url') || window.QORLLA_MEET_URL || '';   // the server detects a running Meet and fills QORLLA_MEET_URL (see /meet-config.js)
   var API = '/api/workplace';
   var $ = function (id) { return document.getElementById(id); };
@@ -1192,7 +1194,7 @@
     }
     params.return = location.href.split('#')[0];
     var q = new URLSearchParams(params).toString();
-    window.location.href = VIDEO_PAGE + (q ? '?' + q : '');
+    openMeetPage(VIDEO_PAGE + (q ? '?' + q : ''));
   }
   var dlgMode = 'join', joinPrefill = '';
   function startOrJoin(m, joinable) { if (joinable && m.kind !== 'event') openStart(m); else openDialog('join', joinable ? m.meetingId : null); }
@@ -1401,7 +1403,7 @@
     fetch('/api/meetings/' + encodeURIComponent(m.meetingId) + '/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (r) {
-        if (r.ok && r.d.mode === 'meet' && r.d.url) { pendingNew = null; window.location.href = r.d.url; return; }       // straight into the meeting as host
+        if (r.ok && r.d.mode === 'meet' && r.d.url) { pendingNew = null; openMeetPage(r.d.url); return; }       // straight into the meeting as host
         if (r.d.mode === 'builtin') { pendingNew = null; goBuiltin({ start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', meetingId: m.meetingId, name: name }); return; }
         throw new Error(r.d.error || 'The meeting could not be started.');
       }).catch(function (er) {                                                              // keep everything the person typed; offer a retry
@@ -1453,7 +1455,7 @@
     fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: fmt, displayName: name, passcode: pw || undefined, mic: mic, camera: cam, prefs: { camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel, res: camRes() } }) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
       .then(function (r) {
-        if (r.ok) { if (r.d.meet && r.d.meet.url) { window.location.href = r.d.meet.url; return; } p.meetingId = fmt; goBuiltin(p); return; }
+        if (r.ok) { if (r.d.meet && r.d.meet.url) { openMeetPage(r.d.meet.url); return; } p.meetingId = fmt; goBuiltin(p); return; }
         var msg = r.status === 403 ? (r.d.passcodeRequired ? (pw ? 'We could not join that meeting. Check the meeting ID and password.' : 'This meeting needs a password.') : (r.d.error || 'You cannot join this meeting.'))
           : r.status === 404 ? 'We could not join that meeting. Check the meeting ID and password.' : (r.d.error || 'The meeting could not be joined (HTTP ' + r.status + ').');
         sd.busy = false; $('sdGo').disabled = false; $('sdGo').textContent = 'Join meeting'; err.textContent = msg; if (r.status === 403 && r.d.passcodeRequired) $('sdPass').focus();
@@ -2166,7 +2168,7 @@
   // Scheduled-meeting actions: a chat button and a "..." menu (Start meeting / Copy meeting link / Edit / Delete)
   // Used on the Home "today" list and on the Schedule page.
   // =====================================================================
-  function meetingLink(id) { return location.origin + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin'; }   // works without an account; passcode (if any) is asked on the pre-join page
+  function meetingLink(id) { return (window.QORLLA_SHARE_ORIGIN || location.origin) + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin'; }   // works without an account; passcode (if any) is asked on the pre-join page
   function startScheduled(m) { openStart(m); }
   function copyMeetingLink(m) {
     var url = meetingLink(m.meetingId);

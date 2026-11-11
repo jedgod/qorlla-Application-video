@@ -15,7 +15,8 @@ async function boot(env = {}) {
   if (!up) throw new Error('test server did not start within 45 s: ' + base);
   return { base, stop: () => new Promise((r) => { child.once('exit', r); child.kill(); }) };
 }
-const cfg = async (base) => (await (await fetch(base + '/meet-config.js')).text()).trim();
+// /meet-config.js also carries window.QORLLA_SHARE_ORIGIN (the address to put in links for other people); these tests are about the Meet address only
+const cfg = async (base) => (await (await fetch(base + '/meet-config.js')).text()).trim().replace(/window\.QORLLA_SHARE_ORIGIN=[^;]*;/, '');
 
 test.describe('server-side detection of Meet', () => {
   test('a Meet answering on the probe address is detected and used with the visitor\'s own host name', async () => {

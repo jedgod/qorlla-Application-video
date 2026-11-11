@@ -1054,11 +1054,21 @@ async function meetPublicBase(req) {
     let url = '';
     try { const u = new URL(process.env.MEET_PUBLIC_URL || ''); if (/^https?:$/.test(u.protocol)) url = u.origin + '/'; } catch (e) { /* unset */ }
     if (!url) { const port = await probeMeetPort(); if (port) url = req.protocol + '://' + req.hostname + ':' + port + '/'; }
+    // A Meet address that says localhost only works on the machine that runs it. When the person reached this server by its network name or address
+    // (an invitee on the same network, the host on a second device), send them to Meet on THAT same host, so the page they are redirected to is reachable.
+    try { const u = new URL(url); if (LOOPBACK_HOSTS.has(u.hostname) && req.hostname && !LOOPBACK_HOSTS.has(req.hostname)) { u.hostname = req.hostname; url = u.origin + '/'; } } catch (e) { /* keep the configured address */ }
     return url;
+}
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+// The address to put in links that other people will open: LAN_ORIGIN (e.g. http://10.0.0.176:4800) when this page was opened as localhost, otherwise the page's own origin.
+function shareOrigin(req) {
+    let own = ''; try { own = req.protocol + '://' + req.get('host'); } catch (e) { own = ''; }
+    let lan = ''; try { const u = new URL(process.env.LAN_ORIGIN || ''); if (/^https?:$/.test(u.protocol)) lan = u.origin; } catch (e) { /* unset */ }
+    return lan && LOOPBACK_HOSTS.has(req.hostname) ? lan : own;
 }
 app.get('/meet-config.js', async (req, res) => {
     const url = await meetPublicBase(req);
-    res.set('Cache-Control', 'no-store').type('application/javascript').send('window.QORLLA_MEET_URL=' + JSON.stringify(url) + ';');
+    res.set('Cache-Control', 'no-store').type('application/javascript').send('window.QORLLA_MEET_URL=' + JSON.stringify(url) + ';window.QORLLA_SHARE_ORIGIN=' + JSON.stringify(shareOrigin(req)) + ';');
 });
 // Brand logo used by login.html
 app.get('/Qorlla-Logo.jpg', (req, res) => res.sendFile(path.join(__dirname, 'Qorlla-Logo.jpg')));

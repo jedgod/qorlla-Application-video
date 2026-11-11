@@ -528,6 +528,17 @@ module.exports = function createWorkplaceRouter({ dataDir, allocateMeeting, upda
                     if (target && target.id !== user.id) { if (![...inboxed.values()].some((x) => x.id === target.id)) { const key = userKey('mail', target); const inbox = load(key, 'mail'); inbox.unshift({ id: uuidv4(), subject, from: user.displayName + ' (@' + user.username + ')', to: to, body: text, folder: 'inbox', read: false, starred: false, createdAt: nowIso() }); save(key, inbox); ping([target.id], 'mail_changed'); } inboxed.set(to, target); }
                     else outside.push(to);
                 }
+                // Kept for good: the host's own Sent folder gets a copy of the invitation, and every invited Qorlla user gets the meeting in their calendar (not only an email).
+                // Neither may ever make the invitation itself fail.
+                try { const hk = userKey('mail', user), sent = load(hk, 'mail'); sent.unshift({ id: uuidv4(), subject, from: user.displayName + ' (@' + user.username + ')', to: item.invitees.join(', '), body: text, folder: 'sent', read: true, starred: false, createdAt: nowIso() }); save(hk, sent); } catch (err) { /* the invitation was still delivered */ }
+                try {
+                    const hm = /^(\d{2}):(\d{2})$/.exec(String(item.time || '')); const startMin = hm ? Number(hm[1]) * 60 + Number(hm[2]) : null;
+                    const endMin = startMin === null ? null : Math.min(startMin + (Number(item.duration) || 30), 23 * 60 + 59); const hhmm = (n) => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+                    if (startMin !== null && endMin > startMin) for (const target of new Set(inboxed.values())) {
+                        const ck = userKey('calendar', target), cal = load(ck, 'calendar');
+                        if (!cal.some((c) => c.meetingId === meeting.meetingId)) { cal.push({ id: uuidv4(), title: item.title, date: item.date, start: hhmm(startMin), end: hhmm(endMin), host: user.displayName, meetingId: meeting.meetingId, createdAt: nowIso() }); save(ck, cal); }
+                    }
+                } catch (err) { /* the invitation was still delivered */ }
                 let ext = [];
                 try { ext = await sendExternal(outside, { subject, body: text }, user); }
                 catch (err) { ext = outside.map((to) => ({ to, status: 'failed' })); }
