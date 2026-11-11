@@ -101,7 +101,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   const inquiryLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: cfg.salesLimit ?? 5, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Too many requests. Please try again later.' } });
   app.post('/api/v1/sales-inquiries', inquiryLimiter, h(async (req, res) => {
     // Browser form: same-origin only. (A script elsewhere can still post, hence validation + rate limit + honeypot.)
-    if (cfg.origin && req.get('origin') && req.get('origin') !== cfg.origin) return res.status(403).json({ error: 'Origin rejected' });
+    if (cfg.origin && req.get('origin') && !(cfg.origins || [cfg.origin]).includes(req.get('origin'))) return res.status(403).json({ error: 'Origin rejected' });
     const p = z.object({
       name: z.string().trim().min(1).max(120), email: z.string().trim().toLowerCase().email().max(200),
       company: z.string().trim().max(160).optional().default(''), message: z.string().trim().min(5).max(4000),

@@ -9,6 +9,10 @@ services:
       LAN_ORIGIN: https://${LAN_IP:?LAN_IP is required}:${PROXY_MAIN_TLS_PORT:-8443}
       MEET_TLS_PORT: ${PROXY_MEET_TLS_PORT:-8444}
       VOICE_TLS_PATH: /voice
+  qorlla-portal:
+    environment:
+      # the portal checks the Origin of every write: the https origins (by LAN address and by localhost) and the plain-http LAN address must be listed
+      PORTAL_ALLOWED_ORIGIN: ${PUBLIC_ORIGIN},https://${LAN_IP:?LAN_IP is required}:${PROXY_MAIN_TLS_PORT:-8443},https://localhost:${PROXY_MAIN_TLS_PORT:-8443},http://${LAN_IP}:${PROXY_MAIN_PORT:-8080}
   meet:
     environment:
       MAIN_APP_TLS_URL: https://${LAN_IP:?LAN_IP is required}:${PROXY_MAIN_TLS_PORT:-8443}

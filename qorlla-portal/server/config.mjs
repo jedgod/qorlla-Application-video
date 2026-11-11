@@ -5,12 +5,15 @@ import { resolveAiConfig } from './ai/config.mjs';
 export function loadConfig(env = process.env) {
   const production = env.NODE_ENV === 'production';
   const trim = (v) => (v == null ? '' : String(v).trim());
-  const origin = trim(env.PORTAL_ALLOWED_ORIGIN).replace(/\/+$/, '');
+  // PORTAL_ALLOWED_ORIGIN may list several origins, comma separated (the same site over http and https, or by name and by LAN address). The FIRST is the public address used in links the server builds (billing, telephony).
+  const origins = trim(env.PORTAL_ALLOWED_ORIGIN).split(',').map((x) => x.trim().replace(/\/+$/, '')).filter(Boolean);
+  const origin = origins[0] || '';
   const cfg = {
     production,
     port: Number(env.PORT || 5500),
     databaseUrl: trim(env.DATABASE_URL),
     origin,
+    origins,
     trustProxyHops: Number(env.TRUST_PROXY_HOPS || (production ? 1 : 0)) || false,
     issuer: trim(env.MAIN_AUTH_ISSUER),
     audience: trim(env.PORTAL_AUTH_AUDIENCE) || 'qorlla-workplace',
