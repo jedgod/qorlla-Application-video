@@ -207,14 +207,15 @@ async function renderHome(root) {
   const sharing = (d) => (d.my_role !== 'owner' ? '' : d.general_access === 'workspace_edit' ? 'Workspace can edit' : d.general_access === 'workspace_view' ? 'Workspace can view' : d.shared_count > 0 ? `Shared with ${d.shared_count} ${d.shared_count === 1 ? 'person' : 'people'}` : '');
   const row = (d) => {
     const trash = st.view === 'trash' && !st.folder; const owner = d.my_role === 'owner'; const oname = nameOf(d.owner_id); const share = sharing(d);
-    const title = trash ? esc(d.title) : `<a class="doc-link" href="${esc(ctx.urls.doc(d.id))}">${esc(d.title)}</a>`;
+    const canRename = !trash && ['owner', 'editor'].includes(d.my_role);       // viewers can open a document but not rename it
+    const title = trash ? esc(d.title) : `<a class="doc-link" href="${esc(ctx.urls.doc(d.id))}"${canRename ? ' data-rename="1" title="Double-click to rename"' : ''}>${esc(d.title)}</a>`;
     return `<article class="doc-card docs-row" role="listitem" data-doc="${esc(d.id)}">
       <div class="docs-name"><input type="checkbox" class="docs-pick" data-pick aria-label="Select ${esc(d.title)}" ${picked.has(d.id) ? 'checked' : ''}><span class="docs-type kind-${esc(d.kind)}" title="${esc(KIND[d.kind][1])}">${svg(d.kind)}</span><div class="docs-name-text"><h3>${title}${d.template ? ' <span class="pill">template</span>' : ''}</h3><span class="muted">${esc(KIND[d.kind][1])} · ${place(d)}${share ? ` · <span class="docs-share">${esc(share)}</span>` : ''}</span></div></div>
       <div class="docs-owner"><span class="docs-avatar" title="${esc(oname)}" aria-hidden="true">${esc(initials(oname))}</span><span class="sr-only">Owner: ${esc(oname)}</span></div>
       <div class="docs-when muted">${esc(fmtWhen(trash ? d.deleted_at : d.updated_at))}</div>
       <div class="docs-actions">${trash ? (owner ? '<button type="button" class="secondary compact" data-act="restore">Restore</button>' : '') : `<button type="button" class="icon-btn ${d.starred ? 'on' : ''}" data-act="star" aria-pressed="${d.starred}" aria-label="${d.starred ? 'Remove star from' : 'Star'} ${esc(d.title)}">${svg('star', '', d.starred)}</button>
         <details class="doc-menu"><summary aria-label="More actions for ${esc(d.title)}">${svg('more')}</summary><div class="doc-menu-items">
-          <button type="button" class="menu-item" data-act="dup">Duplicate</button>
+          ${canRename ? '<button type="button" class="menu-item" data-act="rename">Rename</button>' : ''}<button type="button" class="menu-item" data-act="dup">Duplicate</button>
           ${owner ? `<label class="docs-move">Folder<select data-act="move" aria-label="Folder for ${esc(d.title)}"><option value="">None</option>${folders.map((f) => `<option value="${esc(f.id)}" ${d.folder_id === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
           <button type="button" class="menu-item" data-act="template" aria-pressed="${d.template}">${d.template ? 'Not a template' : 'Make template'}</button><button type="button" class="menu-item" data-act="trash">Move to trash</button>` : ''}</div></details>`}</div></article>`;
   };
@@ -332,10 +333,34 @@ async function renderHome(root) {
   };
   $('#docs-bulk').addEventListener('click', (e) => { const b = e.target.closest('[data-bulk]'); if (!b) return; if (b.dataset.bulk === 'clear') { picked.clear(); drawList(); } else bulk(b.dataset.bulk); });
   $('#bulk-move').addEventListener('change', (e) => { const v = e.target.value; e.target.value = ''; if (v) bulk('move', v); });
+  // ---- rename in place: double-click a title (F2, or Rename in the row menu); Enter saves, Escape cancels, leaving the field saves ----
+  const startRename = (id) => {
+    const card = $('#docs').querySelector(`[data-doc="${id}"]`); const d = docs.find((x) => x.id === id); if (!card || !d) return;
+    const h3 = card.querySelector('.docs-name-text h3'); if (!h3 || h3.querySelector('input.doc-rename')) return;
+    const keep = h3.innerHTML; const input = document.createElement('input'); input.type = 'text'; input.className = 'doc-rename'; input.value = d.title; input.maxLength = 200; input.setAttribute('aria-label', 'Document name');
+    h3.textContent = ''; h3.appendChild(input); input.focus(); input.select(); let done = false;
+    const finish = async (save) => {
+      if (done) return; done = true; const v = input.value.trim();
+      if (!save || !v || v === d.title) { h3.innerHTML = keep; if (save && !v) notice('A name cannot be empty.'); return; }
+      input.disabled = true;
+      try { await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ title: v }) }); notice('Renamed.'); await load(); } catch (err) { h3.innerHTML = keep; notice(say(err)); }
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); } });
+    input.addEventListener('blur', () => finish(true)); input.addEventListener('click', (e) => e.stopPropagation()); input.addEventListener('dblclick', (e) => e.stopPropagation());
+  };
+  // a single click still opens the document, a moment later, so that a double-click can rename instead (Ctrl/Shift/middle click and the keyboard open at once)
+  let openT = null;
+  $('#docs').addEventListener('click', (e) => {
+    const a = e.target.closest('a.doc-link[data-rename]'); if (!a || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.detail === 0) return;
+    e.preventDefault(); clearTimeout(openT); if (e.detail >= 2) return; openT = setTimeout(() => { location.href = a.href; }, 280);
+  });
+  $('#docs').addEventListener('dblclick', (e) => { const a = e.target.closest('a.doc-link[data-rename]'); if (!a) return; e.preventDefault(); clearTimeout(openT); startRename(a.closest('[data-doc]').dataset.doc); });
+  $('#docs').addEventListener('keydown', (e) => { if (e.key !== 'F2') return; const row = e.target.closest && e.target.closest('[data-doc]'); const a = row && row.querySelector('a.doc-link[data-rename]'); if (a) { e.preventDefault(); startRename(row.dataset.doc); } });
   $('#docs').addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-act]'); if (!b) return; const id = b.closest('[data-doc]').dataset.doc; const d = docs.find((x) => x.id === id); b.disabled = true; b.closest('details')?.removeAttribute('open');
     try {
-      if (b.dataset.act === 'star') { await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ starred: !d.starred }) }); await load(); }
+      if (b.dataset.act === 'rename') { b.disabled = false; startRename(id); }
+      else if (b.dataset.act === 'star') { await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ starred: !d.starred }) }); await load(); }
       else if (b.dataset.act === 'template') { await api('/documents/' + id, { method: 'PATCH', body: JSON.stringify({ template: !d.template }) }); await load(); }
       else if (b.dataset.act === 'dup') { await api(`/documents/${id}/duplicate`, { method: 'POST', body: '{}' }); notice('A private copy was added to your documents.'); await load(); }
       else if (b.dataset.act === 'trash') { if (confirm('Move this document to the trash? You can restore it from the Trash view.')) { await api('/documents/' + id, { method: 'DELETE' }); notice('Moved to the trash.'); await load(); } else b.disabled = false; }

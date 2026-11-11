@@ -274,6 +274,23 @@ try {
     await p.locator('#doc-sort').selectOption('title:asc'); await until(async () => (await docsOnPage(p))[0] === 'Bulk alpha');
     await p.locator('#layout-grid').click(); check('layout: grid view shows the same documents as cards and hides the table header', (await p.locator('#docs').getAttribute('data-layout')) === 'grid' && (await p.locator('#layout-grid').getAttribute('aria-pressed')) === 'true' && (await p.locator('.docs-tablehead').isHidden()) && (await docsOnPage(p)).length === 3);
     await p.locator('#layout-list').click(); check('layout: list view restores the table header', (await p.locator('#docs').getAttribute('data-layout')) === 'list' && (await p.locator('.docs-tablehead').isVisible()));
+    // ---- rename: double-click the title, Enter saves, Escape cancels; the row menu has Rename; the name is saved on the server ----
+    {
+      const rowOf = (t) => p.locator('#docs [data-doc]').filter({ has: p.locator('h3', { hasText: t }) }).first();
+      const serverTitles = async () => (await api(H).get('/api/v1/documents?q=Bulk')).body.map((d) => d.title).sort();
+      await rowOf('Bulk Bravo').locator('a.doc-link').dblclick(); const box = p.locator('#docs input.doc-rename');
+      check('rename: double-clicking a title turns it into an edit field holding the current name', (await box.count()) === 1 && (await box.inputValue()) === 'Bulk Bravo' && p.url().includes('/app/suite') && !/doc=/.test(p.url()), p.url());
+      await box.fill('Bulk Bravo renamed'); await box.press('Enter');
+      check('rename: Enter saves the new name (the list and the server both show it)', await until(async () => (await docsOnPage(p)).includes('Bulk Bravo renamed')) && (await serverTitles()).includes('Bulk Bravo renamed'));
+      await rowOf('Bulk Bravo renamed').locator('a.doc-link').dblclick(); await p.locator('#docs input.doc-rename').fill('discard me'); await p.locator('#docs input.doc-rename').press('Escape');
+      check('rename: Escape cancels and keeps the old name', (await p.locator('#docs input.doc-rename').count()) === 0 && (await docsOnPage(p)).includes('Bulk Bravo renamed') && !(await serverTitles()).includes('discard me'));
+      await rowOf('Bulk Bravo renamed').locator('summary').click(); await rowOf('Bulk Bravo renamed').locator('button[data-act=rename]').click();
+      check('rename: the row menu has Rename, which opens the same field', (await p.locator('#docs input.doc-rename').count()) === 1 && (await p.locator('#docs input.doc-rename').inputValue()) === 'Bulk Bravo renamed');
+      await p.locator('#docs input.doc-rename').fill('   '); await p.locator('#docs input.doc-rename').press('Enter');
+      check('rename: an empty name is refused and the old name stays', (await docsOnPage(p)).includes('Bulk Bravo renamed') && (await p.locator('#docs input.doc-rename').count()) === 0);
+      await rowOf('Bulk Bravo renamed').locator('a.doc-link').focus(); await p.keyboard.press('F2'); await p.locator('#docs input.doc-rename').fill('Bulk Bravo'); await p.keyboard.press('Enter');
+      check('rename: F2 on a focused title renames too (name restored for the checks below)', await until(async () => (await docsOnPage(p)).includes('Bulk Bravo') && !(await docsOnPage(p)).includes('Bulk Bravo renamed')));
+    }
     check('the "Create new" card stays visible beside the library, with Document, Sheet and Slides tiles that each start a new document', (await p.locator('.docs-quick').isVisible()) && (await p.locator('.docs-quick-btn').count()) === 3 && (await p.locator('.docs-quick-btn span').allTextContents()).join() === 'Document,Sheet,Slides');
     await p.locator('#docs [data-pick]').nth(0).check(); await p.locator('#docs [data-pick]').nth(1).check();
     check('selection: two rows selected show the bulk bar with the count, and the header checkbox is mixed', (await p.locator('#docs-bulk').isVisible()) && /2 selected/.test(await p.locator('#bulk-count').textContent()) && (await p.locator('#pick-all').evaluate((e) => e.indeterminate)));

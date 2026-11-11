@@ -48,7 +48,7 @@ export function createAuth({ cfg, pool, jwks, fetchImpl = fetch, log, now = () =
 
     if (!safeMethod(req.method)) {
       // browser writes must be same-origin AND carry the double-submit token whose hash MAIN bound into the signed JWT
-      if (!(cfg.origins || [cfg.origin]).includes(req.get('origin')) || req.get('sec-fetch-site') === 'cross-site') return res.status(403).json({ error: 'Origin rejected' });
+      if (![cfg.origin, ...(cfg.origins || [])].includes(req.get('origin')) || req.get('sec-fetch-site') === 'cross-site') return res.status(403).json({ error: 'Origin rejected' });
       const cookie = parseCookies(req)[CSRF_COOKIE], header = req.get('x-csrf-token');
       if (!cookie || !header) return res.status(403).json({ error: 'CSRF token required' });
       if (!sameValue(cookie, header) || !payload.csrf || !sameValue(sha256hex(header), payload.csrf)) return res.status(403).json({ error: 'CSRF token invalid' });
