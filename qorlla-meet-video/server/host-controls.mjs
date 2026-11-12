@@ -7,7 +7,10 @@
 export const TOOLS = ['share', 'polls', 'breakout', 'whiteboard'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf }) {
+export function registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf, ascsEnabled = false, onPermissionChange = null }) {
+  // onPermissionChange(meetingId): called AFTER a permission to share was changed, so a share that is no longer allowed is ended before the host's request returns.
+  // A failure here is logged and never fails the request (the permission itself has already been saved).
+  const permissionChanged = async (meetingId) => { try { await onPermissionChange?.(meetingId); } catch (e) { console.error('[host-controls] permission follow-up failed:', e.message); } };
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
   const guard = (fn, msg) => async (req, res) => { try { await fn(req, res); } catch (e) { console.error('[host-controls]', msg, e.message); if (!res.headersSent) fail(res, 500, msg); } };
   const clean = (t) => Object.fromEntries(TOOLS.map((k) => [k, t?.[k] === true]));
@@ -22,7 +25,7 @@ export function registerHostControls({ app, io, db, auth, member, fail, room, au
 
   app.get(['/api/meetings/:id/tools', '/api/v1/meetings/:id/tools'], auth, member, guard(async (req, res) => {
     const tools = await effective(req.params.id, req.user.participantId, req.user.role);
-    const out = { tools };
+    const out = { tools, ascs: ascsEnabled === true };
     if (req.user.role === 'host') {
       const { rows: [m] } = await db.query('SELECT guest_tools FROM meetings WHERE id=$1', [req.params.id]); out.guestTools = clean(m?.guest_tools);
       out.sharers = (await db.query("SELECT id AS \"participantId\" FROM participants WHERE meeting_id=$1 AND can_share", [req.params.id])).rows.map((r) => r.participantId);
@@ -38,6 +41,7 @@ export function registerHostControls({ app, io, db, auth, member, fail, room, au
     const { rows: [m] } = await db.query("UPDATE meetings SET guest_tools = COALESCE(guest_tools, '{}'::jsonb) || $2::jsonb WHERE id=$1 AND ended_at IS NULL RETURNING guest_tools", [req.params.id, JSON.stringify(patch)]);
     if (!m) return fail(res, 404, 'Meeting unavailable');
     audit(req.params.id, req.user.participantId, 'meeting.tools_changed', patch);
+    await permissionChanged(req.params.id);        // first: a share that is no longer allowed is ended with the right reason, THEN pages hear that the tools changed
     io.to(room(req.params.id)).emit('tools-changed', { guestTools: clean(m.guest_tools) });
     res.json({ guestTools: clean(m.guest_tools) });
   }, 'Could not change the tools'));
@@ -48,6 +52,7 @@ export function registerHostControls({ app, io, db, auth, member, fail, room, au
     const { rowCount } = await db.query("UPDATE participants SET can_share=$3 WHERE id=$2 AND meeting_id=$1 AND role<>'host'", [req.params.id, req.params.pid, req.body.allow]);
     if (!rowCount) return fail(res, 404, 'No such participant');
     audit(req.params.id, req.user.participantId, req.body.allow ? 'participant.share_granted' : 'participant.share_revoked', { participantId: req.params.pid });
+    await permissionChanged(req.params.id);        // first (see above)
     const sid = socketOf(req.params.id, req.params.pid); if (sid) io.to(sid).emit('tools-changed', { refresh: true });
     res.json({ participantId: req.params.pid, canShare: req.body.allow });
   }, 'Could not change sharing'));

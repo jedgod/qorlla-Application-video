@@ -12,7 +12,7 @@ function addMessage(msg){const d=document.createElement('div');d.className='mess
 function tile(id,name,isLocal=false){let el=document.getElementById('tile-'+id);if(el)return el;el=document.createElement('div');el.id='tile-'+id;el.className='tile';const avatar=document.createElement('div');avatar.className='avatar';avatar.textContent=(name||'?').split(/\s+/).map(s=>s[0]).join('').slice(0,2).toUpperCase();const plate=document.createElement('div');plate.className='nameplate';plate.textContent=name+(isLocal?' (You)':'');const hand=document.createElement('span');hand.className='hand';el.append(avatar,plate,hand);$('videos').append(el);const early=pendingMedia.get(id);if(early&&!isLocal){pendingMedia.delete(id);el.classList.toggle('sharing-remote',!!early.sharing);setTileMedia(id,early.mic,early.cam);}return el;}
 // A person's media state (sharing, mic, camera) can arrive before their tile exists (they joined or started sharing a moment ago): it is kept and applied when the tile is created, instead of being dropped
 const pendingMedia=new Map();
-function setVideo(id,stream,muted=false){const el=tile(id,state.names.get(id)||id,id===state.participantId);let v=el.querySelector('video');if(!v){v=document.createElement('video');v.autoplay=true;v.playsInline=true;v.muted=muted;el.prepend(v);}v.srcObject=stream;if(state.sinkId&&v.setSinkId)v.setSinkId(state.sinkId).catch(()=>{});el.querySelector('.avatar').style.display=stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')?'none':'grid';v.play().catch(()=>{});if(id!==state.participantId)recAddAudio(id,stream);}
+function setVideo(id,stream,muted=false){const el=tile(id,state.names.get(id)||id,id===state.participantId);let v=el.querySelector('video');if(!v){v=document.createElement('video');v.autoplay=true;v.playsInline=true;v.muted=muted;el.prepend(v);}v.srcObject=stream;if(state.sinkId&&v.setSinkId)v.setSinkId(state.sinkId).catch(()=>{});const showAvatar=()=>{el.querySelector('.avatar').style.display=stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live'&&!t.muted)?'none':'grid';};showAvatar();stream.getVideoTracks().forEach(t=>{t.onmute=t.onunmute=showAvatar;});v.play().catch(()=>{});if(id!==state.participantId)recAddAudio(id,stream);}
 function renderPeople(){
   const root=$('peopleList');root.replaceChildren();const host=state.role==='host';
   if(host&&state.roster.size>1){const all=document.createElement('button');all.className='pbtn';all.textContent='Mute everyone';all.onclick=()=>{state.socket.emit('host-mute',{all:true});announce('Everyone was muted');};root.append(all);}
@@ -21,6 +21,10 @@ function renderPeople(){
       const b=(label,run)=>{const x=document.createElement('button');x.className='pbtn';x.type='button';x.textContent=label;x.onclick=run;p.append(x);};
       b('Mute',()=>{state.socket.emit('host-mute',{to:id});announce((state.names.get(id)||'The guest')+' was muted');});
       b('Ask to unmute',()=>{state.socket.emit('host-ask-unmute',{to:id});announce('Asked '+(state.names.get(id)||'the guest')+' to unmute');});
+      if(state.ascs){
+        if(state.presenterId===id)b('Stop presenting',async()=>{try{await api('/meetings/'+state.meetingId+'/shares/'+state.presenterShareId+'/revoke','POST',{});announce((state.names.get(id)||'The guest')+' stopped presenting');}catch(e){notify(e.message);}});
+        else b('Give the screen',async()=>{try{await api('/meetings/'+state.meetingId+'/shares/handoff','POST',{to:id});announce('The screen was passed to '+(state.names.get(id)||'the guest'));await loadTools();}catch(e){notify(e.message);}});
+      }
       const can=state.sharers.has(id);
       b(can?'Stop sharing':'Allow sharing',async()=>{try{await api('/meetings/'+state.meetingId+'/participants/'+id+'/share','POST',{allow:!can});if(can)state.sharers.delete(id);else state.sharers.add(id);renderPeople();}catch(e){notify(e.message);}});
     }
@@ -29,12 +33,12 @@ function renderPeople(){
 function openTab(tab){shell.tab=tab;document.querySelectorAll('[data-tab]').forEach(b=>{const on=b.dataset.tab===tab;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1;});document.querySelectorAll('.tab-view').forEach(v=>v.classList.toggle('hidden',v.id!=='tab-'+tab));}
 async function startMeeting(payload){Object.assign(state,{token:payload.token,meetingId:payload.meetingId,participantId:payload.participantId});const claims=JSON.parse(atob(payload.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));state.role=claims.role;$('recordBtn').classList.toggle('hidden',claims.role!=='host');state.name=claims.name;state.names.set(state.participantId,state.name);state.start=Date.now();sessionStorage.setItem('qorlla-session',JSON.stringify({token:state.token,meetingId:state.meetingId,participantId:state.participantId}));await waitForAdmission();                                                                    // a guest in the waiting room cannot see anything until the host admits them
   await refreshIce();
-  const data=await api('/meetings/'+state.meetingId);state.settings=data.waiting_room===undefined?null:{waitingRoom:data.waiting_room,joinBeforeHost:data.join_before_host,lockOnHostJoin:data.lock_on_host_join,locked:data.locked};$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=(c=>/^\d{11}$/.test(c)?c.slice(0,3)+' '+c.slice(3,7)+' '+c.slice(7):c)(data.meeting_code||state.meetingId.slice(0,8));state.meetingInfo='Meeting ID: '+(data.meeting_code||state.meetingId);$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);try{const cfg=await api('/config');if(!state.iceServers||!state.iceServers.length)state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];state.mainOrigin=cfg.mainOrigin||'';}catch{}await startMedia();connect();state.tools=data.tools||state.tools;applyTools();if(state.role==='host')loadTools();collab.load();loadWaiting();}
+  const data=await api('/meetings/'+state.meetingId);state.settings=data.waiting_room===undefined?null:{waitingRoom:data.waiting_room,joinBeforeHost:data.join_before_host,lockOnHostJoin:data.lock_on_host_join,locked:data.locked};$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=(c=>/^\d{11}$/.test(c)?c.slice(0,3)+' '+c.slice(3,7)+' '+c.slice(7):c)(data.meeting_code||state.meetingId.slice(0,8));state.meetingInfo='Meeting ID: '+(data.meeting_code||state.meetingId);$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);try{const cfg=await api('/config');if(!state.iceServers||!state.iceServers.length)state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];state.mainOrigin=cfg.mainOrigin||'';}catch{}try{state.ascs=(await api('/meetings/'+state.meetingId+'/tools')).ascs===true;}catch{}await startMedia();connect();state.tools=data.tools||state.tools;applyTools();if(state.role==='host')loadTools();collab.load();loadWaiting();}
 const MEDIA_CONSTRAINTS={audio:{echoCancellation:true,noiseSuppression:true},video:{width:{ideal:1280},height:{ideal:720}}};
 function mediaReason(e){if(!navigator.mediaDevices?.getUserMedia)return 'this page must be opened over HTTPS (https://…:4843) to use camera/microphone';const n=e?.name||'';if(n==='NotAllowedError'||n==='SecurityError')return 'permission was blocked - click the lock icon in the address bar, allow it, then try again';if(n==='NotFoundError'||n==='OverconstrainedError')return 'no device found';if(n==='NotReadableError'||n==='AbortError')return 'device is in use by another app or tab';return e?.message||'unknown error';}
 async function getTrack(kind){if(!navigator.mediaDevices?.getUserMedia)throw new Error('insecure');const s=await navigator.mediaDevices.getUserMedia(kind==='audio'?{audio:MEDIA_CONSTRAINTS.audio}:{video:MEDIA_CONSTRAINTS.video});return s.getTracks()[0];}
 async function startMedia(){state.stream=new MediaStream();const problems=[];try{const s=await navigator.mediaDevices.getUserMedia(MEDIA_CONSTRAINTS);s.getTracks().forEach(t=>state.stream.addTrack(t));}catch(e){for(const kind of ['audio','video']){try{state.stream.addTrack(await getTrack(kind));}catch(err){problems.push((kind==='audio'?'Microphone: ':'Camera: ')+mediaReason(err));}}}try{await applyDevicePrefs();}catch(e){/* device preferences are optional */}if(!state.stream.getAudioTracks().length)state.mic=false;if(!state.stream.getVideoTracks().length)state.cam=false;if(problems.length)notify(problems.join(' | '));setVideo(state.participantId,state.stream,true);updateControls();}
-async function acquireTrack(kind){try{const track=await getTrack(kind);state.stream.addTrack(track);if(kind==='audio')state.mic=true;else state.cam=true;for(const [id,pc] of state.peers){const t=pc.getTransceivers().find(x=>x.receiver.track?.kind===kind&&x.sender.track===null&&x.direction!=='stopped');if(t){await t.sender.replaceTrack(track);if(t.direction==='recvonly')t.direction='sendrecv';}else pc.addTrack(track,state.stream);const o=await pc.createOffer();await pc.setLocalDescription(o);state.socket.emit('signal',{to:id,data:{type:'offer',sdp:pc.localDescription}});}setVideo(state.participantId,state.stream,true);state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});updateControls();return true;}catch(e){notify((kind==='audio'?'Microphone: ':'Camera: ')+mediaReason(e));return false;}}
+async function acquireTrack(kind){try{const track=await getTrack(kind);state.stream.addTrack(track);if(kind==='audio')state.mic=true;else state.cam=true;if(kind==='video'&&state.screen)state.shareOld=track;else for(const pc of state.peers.values()){const t=pc.getTransceivers().find(x=>x.receiver.track?.kind===kind&&x.direction!=='stopped'&&!x.sender.track);if(t)await t.sender.replaceTrack(track).catch(()=>{});else pc.addTrack(track,state.stream);}setVideo(state.participantId,state.stream,true);state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});updateControls();return true;}catch(e){notify((kind==='audio'?'Microphone: ':'Camera: ')+mediaReason(e));return false;}}
 function updateControls(){
   const set=(id,label,off,pressed)=>{const b=$(id);b.querySelector('span').textContent=label;b.classList.toggle('off',!!off);b.setAttribute('aria-pressed',String(!!pressed));};
   set('micBtn',state.mic?'Mute':'Unmute',!state.mic,!state.mic);set('camBtn',state.cam?'Stop video':'Start video',!state.cam,!state.cam);
@@ -49,12 +53,19 @@ function connect(){state.socket=io({path:BASE+'socket.io',auth:{token:state.toke
 const ICE_GRACE_MS=4000,MAX_RESTARTS=3;
 const newEpoch=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
 const sendSignal=(to,data)=>{if(state.socket?.connected)state.socket.emit('signal',{to,data});};
+// the slot a video track (camera, or a shared screen) is sent through; it exists even when this person has no camera (see createPeer)
+const videoSender=pc=>pc.getTransceivers().find(t=>t.receiver.track?.kind==='video'&&t.direction!=='stopped')?.sender||null;
 function createPeer(id,initiator=false){
   if(state.peers.has(id))return state.peers.get(id);
   const pc=new RTCPeerConnection({iceServers:state.iceServers,iceTransportPolicy:state.iceTransportPolicy||'all'});state.peers.set(id,pc);pc._queue=[];pc._restarts=0;if(initiator)pc._epoch=newEpoch();
   for(const track of state.stream.getTracks())pc.addTrack(track,state.stream);
+  // Always have an audio AND a video slot, even with no camera or microphone: a device (or a shared screen) that arrives later is then sent with replaceTrack,
+  // without renegotiating (this page negotiates once per connection). Without the slot a guest whose camera failed could never share their screen.
+  {const have=new Set(state.stream.getTracks().map(t=>t.kind));for(const k of ['audio','video'])if(!have.has(k))pc.addTransceiver(k,{direction:'sendrecv'});}
+  if(state.ascs)pc._shareAudio=pc.addTransceiver('audio',{direction:'sendrecv'});
+  if(state.screen){const st=state.screen.getVideoTracks()[0],vs=videoSender(pc),at=state.screen.getAudioTracks()[0];if(st&&vs)vs.replaceTrack(st).catch(()=>{});if(at&&pc._shareAudio)pc._shareAudio.sender.replaceTrack(at).catch(()=>{});}   // someone who joins while you present sees (and hears) the share
   pc.onicecandidate=e=>{if(e.candidate)sendSignal(id,{type:'candidate',candidate:e.candidate,epoch:pc._epoch||pc._remoteEpoch});};
-  pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);setVideo(id,stream);};
+  pc.ontrack=e=>{const rs=pc._remote||(pc._remote=new MediaStream());if(!rs.getTracks().includes(e.track))rs.addTrack(e.track);setVideo(id,rs);};   // one stream per person: a slot without a sender stream has no stream of its own
   pc.onconnectionstatechange=()=>{
     clearTimeout(pc._grace);renderNet();
     if(pc.connectionState==='connected'){pc._restarts=0;}
@@ -126,27 +137,104 @@ $('camBtn').onclick=async()=>{const tracks=state.stream?.getVideoTracks()||[];if
 $('handBtn').onclick=()=>{state.hand=!state.hand;state.socket.emit('hand',state.hand);setHand(state.participantId,state.hand);updateControls();};
 // Ending a share must reset the page whether the browser ended it ("Stop sharing" in the browser bar) or the person clicked Stop here: calling track.stop()
 // yourself does NOT fire the track's "ended" event, so both paths run the same cleanup.
-async function endShare(){
-  if(!state.screen)return;const screen=state.screen;state.screen=null;screen.getTracks().forEach(t=>t.stop());
-  for(const pc of state.peers.values()){const sender=pc.getSenders().find(s=>s.track?.kind==='video');if(sender)await sender.replaceTrack(state.shareOld||null).catch(()=>{});}
+// ---- sharing the screen. With ASCS ON (the server says so in /tools) the SERVER keeps the share: one presenter, a lease the page renews, the host can end it.
+const SURFACE={screen:'monitor',window:'window',tab:'browser'};
+const getScreen=(kind,audio=false)=>navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15,max:30},...(SURFACE[kind]?{displaySurface:SURFACE[kind]}:{})},audio:!!audio,selfBrowserSurface:'exclude',surfaceSwitching:'include',preferCurrentTab:false});
+function shareReason(e){
+  if(!navigator.mediaDevices?.getDisplayMedia)return 'this page must be opened over HTTPS, and phones/tablets cannot share their screen from a browser';
+  if(e?.name==='NotAllowedError')return 'permission was denied or the picker was cancelled';
+  return e?.message||'unknown error';
+}
+function stopBeat(){clearInterval(state.shareBeat);state.shareBeat=null;}
+function startBeat(leaseExpiresAt){
+  stopBeat();const lease=new Date(leaseExpiresAt)-Date.now(),leaseMs=lease>0?lease:30000,every=Math.min(10000,Math.max(2000,Math.floor(leaseMs/3)));state.shareLastOk=Date.now();
+  state.shareBeat=setInterval(async()=>{
+    if(!state.shareId)return;
+    try{await api('/meetings/'+state.meetingId+'/shares/'+state.shareId+'/heartbeat','POST',{});state.shareLastOk=Date.now();}
+    catch(e){
+      if(/not active|No such share/i.test(e.message)){endShare({server:false});notify('Your screen share was ended.');return;}
+      // a network error is retried at the next beat, but FAILS CLOSED once a whole lease has passed without the server's word: by then the server has ended the share
+      if(Date.now()-state.shareLastOk>leaseMs){endShare({server:false});const t='Your screen share lost its connection to the server and was stopped.';notify(t);announce(t);}
+    }
+  },every);
+}
+async function endShare(opts={}){
+  if(!state.screen)return;const screen=state.screen;state.screen=null;const sid=state.shareId;state.shareId=null;stopBeat();screen.getTracks().forEach(t=>t.stop());
+  for(const pc of state.peers.values()){const sender=videoSender(pc);if(sender)await sender.replaceTrack(state.shareOld||null).catch(()=>{});if(pc._shareAudio)await pc._shareAudio.sender.replaceTrack(null).catch(()=>{});}
   state.shareOld=null;REC.shareVideo=null;showLocalShare(false);setVideo(state.participantId,state.stream,true);
   $('shareBtn').querySelector('span').textContent='Share';$('shareBtn').classList.remove('on');$('shareBtn').setAttribute('aria-pressed','false');
   state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:false});updateControls();
+  if(state.presenterId===state.participantId){state.presenterId=null;state.presenterShareId=null;renderPeople();}
+  if(sid&&opts.server!==false)api('/meetings/'+state.meetingId+'/shares/'+sid,'DELETE').catch(()=>{});     // best effort: if it fails the lease runs out and the server ends the share
+}
+// The window you share can contain this very page. Where the browser supports it, this tab is left out of the picker; and your own share is
+// never played back live in your tile (a placeholder is shown instead), so a shared screen can never mirror itself inside itself.
+async function publishScreen(screen){
+  state.screen=screen;const track=screen.getVideoTracks()[0];state.shareOld=state.stream.getVideoTracks()[0]||null;
+  const audio=screen.getAudioTracks()[0]||null;
+  for(const pc of state.peers.values()){const sender=videoSender(pc);if(sender)await sender.replaceTrack(track).catch(()=>{});if(audio&&pc._shareAudio)await pc._shareAudio.sender.replaceTrack(audio).catch(()=>{});}
+  showLocalShare(true);REC.shareVideo=shareVideoFor(track);
+  $('shareBtn').querySelector('span').textContent='Stop share';$('shareBtn').classList.add('on');$('shareBtn').setAttribute('aria-pressed','true');
+  state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:true});
+  track.onended=()=>{endShare();};          // the browser's own "Stop sharing" bar
+}
+async function startShareLegacy(){try{await publishScreen(await getScreen());}catch(e){notify('Screen share unavailable: '+shareReason(e));}}
+async function startAscsShare(kind,wantAudio=false){
+  // getDisplayMedia is the FIRST thing that happens, still inside the click that chose "Start sharing" (browsers require a user gesture); only then does the server hear of it.
+  if(state.shareStarting||state.screen)return;state.shareStarting=true;let screen=null;
+  try{
+    screen=await getScreen(kind,wantAudio);
+    const vt=screen.getVideoTracks()[0];if(!vt||vt.readyState!=='live')throw new Error('No live video was selected');
+    const requestId=crypto.randomUUID();let share=null,err=null;
+    for(let i=0;i<2&&!share;i++){try{share=await api('/meetings/'+state.meetingId+'/shares','POST',{kind,mode:'content',clientRequestId:requestId});}catch(e){err=e;if(!/Failed to fetch|NetworkError|Load failed/i.test(e.message))break;}}   // a lost reply is retried with the SAME id: the server returns the share it already made
+    if(!share)throw err;
+    state.shareId=share.id;state.shareRev=Math.max(state.shareRev,share.revision||0);state.presenterId=state.participantId;state.presenterShareId=share.id;
+    const gotAudio=screen.getAudioTracks().length>0;
+    await publishScreen(screen);screen=null;startBeat(share.leaseExpiresAt);renderPeople();
+    if(wantAudio){const t=gotAudio?'Sharing your screen with computer audio.':'Your browser did not share audio for this choice, so only the picture is shared. (Chrome and Edge can share a tab\'s or the whole screen\'s sound; Firefox and Safari cannot.)';notify(t);announce(t);}
+  }catch(e){
+    if(screen)screen.getTracks().forEach(t=>t.stop());                                                  // refused or failed: never keep capturing
+    if(state.shareId&&!state.screen){const sid=state.shareId;state.shareId=null;api('/meetings/'+state.meetingId+'/shares/'+sid,'DELETE').catch(()=>{});}
+    notify('Screen share unavailable: '+shareReason(e));
+  }finally{state.shareStarting=false;}
+}
+function openShareChooser(){
+  rcModal('Share your screen',box=>{
+    box.append(rcEl('p','rc-lead','Choose what to share.'),rcEl('p','rc-note','Your browser then shows its own picker, where you choose the exact screen, window or tab. Everyone sees it until you stop.'));
+    let kind='screen';
+    for(const [k,label] of [['screen','Entire screen'],['window','A window'],['tab','A browser tab']]){const lab=rcEl('label','rc-check'),r=rcEl('input');r.type='radio';r.name='shareKind';r.checked=k==='screen';r.onchange=()=>{kind=k;};lab.append(r,rcEl('span','',' '+label));box.append(lab);}
+    const al=rcEl('label','rc-check'),ac=rcEl('input');ac.type='checkbox';ac.id='shareAudio';al.append(ac,rcEl('span','',' Also share computer audio, if my browser allows it'));box.append(al);
+    const row=rcEl('div','rc-row'),go=rcEl('button','rc-primary','Start sharing');go.type='button';go.onclick=()=>{const withAudio=ac.checked;rcClose();startAscsShare(kind,withAudio);};
+    const no=rcEl('button','rc-secondary','Cancel');no.type='button';no.onclick=()=>rcClose();row.append(go,no);box.append(row);
+  },{focus:'.rc-primary'});
+}
+async function reconcileShares(){
+  try{
+    const d=await api('/meetings/'+state.meetingId+'/shares/current'),sh=d.share;state.shareRev=Math.max(state.shareRev,d.revision||0);
+    state.presenterId=sh?sh.ownerId:null;state.presenterShareId=sh?sh.id:null;
+    if(sh&&sh.ownerId===state.participantId&&!state.screen&&!state.shareStarting){api('/meetings/'+state.meetingId+'/shares/'+sh.id,'DELETE').catch(()=>{});state.presenterId=null;state.presenterShareId=null;}
+    if(state.screen&&state.shareId&&(!sh||sh.id!==state.shareId)){endShare({server:false});notify('Your screen share was ended.');}
+    renderPeople();
+  }catch(e){/* tried again at the next change or reconnect */}
+}
+const SHARE_END_TEXT={host_revoked:'The host ended your screen share.',permission_withdrawn:'The host turned off your permission to share.',handoff:'The host passed the screen to someone else.',lease_expired:'Your screen share lost its connection and was ended.',meeting_ended:'The meeting ended.'};
+function onShareEvent(m){
+  if(!m||typeof m.revision!=='number'||m.revision<state.shareRev)return;state.shareRev=m.revision;       // an older event arriving late changes nothing
+  const sh=m.share,ended=m.type==='share.stopped'||m.type==='share.revoked';
+  if(m.type==='share.started'&&sh){state.presenterId=sh.ownerId;state.presenterShareId=sh.id;}
+  else if(ended&&sh&&sh.id===state.presenterShareId){state.presenterId=null;state.presenterShareId=null;}
+  if(ended&&sh&&sh.ownerId===state.participantId&&sh.id===state.shareId){
+    endShare({server:false});const why=SHARE_END_TEXT[m.reason];if(why){notify(why);announce(why);}
+  }
+  if(m.type==='share.updated'&&m.nextPresenter===state.participantId){const t='The host passed the screen to you. Choose Share to start.';notify(t);announce(t);}
+  renderPeople();
 }
 $('shareBtn').onclick=async()=>{
   if(state.screen){await endShare();return;}
   if(state.role!=='host'&&!state.tools.share){notify('The host has not allowed screen sharing.');return;}
-  try{
-    // The window you share can contain this very page. Where the browser supports it, this tab is left out of the picker; and your own share is
-    // never played back live in your tile (a placeholder is shown instead), so a shared screen can never mirror itself inside itself.
-    const screen=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15,max:30}},audio:false,selfBrowserSurface:'exclude',surfaceSwitching:'include',preferCurrentTab:false});
-    state.screen=screen;const track=screen.getVideoTracks()[0];state.shareOld=state.stream.getVideoTracks()[0]||null;
-    for(const pc of state.peers.values()){const sender=pc.getSenders().find(s=>s.track?.kind==='video');if(sender)await sender.replaceTrack(track);}
-    showLocalShare(true);REC.shareVideo=shareVideoFor(track);
-    $('shareBtn').querySelector('span').textContent='Stop share';$('shareBtn').classList.add('on');$('shareBtn').setAttribute('aria-pressed','true');
-    state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:true});
-    track.onended=()=>{endShare();};
-  }catch(e){notify('Screen share unavailable: '+e.message);}};
+  if(state.ascs){openShareChooser();return;}
+  await startShareLegacy();
+};
 $('copyLink').onclick=()=>navigator.clipboard.writeText(location.origin+BASE+'?meeting='+($('roomId').textContent||state.meetingId)).then(()=>notify('Meeting link copied')).catch(()=>notify('Copy unavailable'));
 $('settingsBtn').onclick=()=>openSettings();
 $('recordBtn').onclick=()=>recButton();window.addEventListener('beforeunload',e=>{if(state.recording){e.preventDefault();e.returnValue='';}});
@@ -400,7 +488,8 @@ new MutationObserver(applyRecBadge).observe($('videos'),{childList:true});
 async function recState(st){
   const prev=rcState.st;rcState.st=st||{status:'disabled'};REC.consent={set:new Set(rcState.st.consenting||[]),video:!!rcState.st.video,audio:!!rcState.st.audio};recSyncAudio();
   renderRecBanner();recUi();
-  if(rcState.st.status==='disabled'){rcClose();rcState.answeredFor=null;rcState.mine=null;if(state.recording){notify('Recording stopped.');await stopRecording();}return;}
+  // "recording is off" closes only a RECORDING dialog. It used to close whatever dialog was open (Share, Settings, the unmute request): the server sends this state on every connect and join.
+  if(rcState.st.status==='disabled'){if(/record/i.test(document.getElementById('rcTitle')?.textContent||''))rcClose();rcState.answeredFor=null;rcState.mine=null;if(state.recording){notify('Recording stopped.');await stopRecording();}return;}
   // the person recording captures only while the server says RECORDING; paused means stop feeding the file
   const me=rcState.st.recorder&&rcState.st.recorder.participantId===state.participantId;
   if(me&&rcState.st.status==='recording'&&!state.recording&&!rcState.starting){rcState.starting=true;try{await beginCapture();}catch(e){try{await rcApi('/stop','POST');}catch{}}finally{rcState.starting=false;}}
@@ -709,7 +798,7 @@ function endedByLimit(r){
 //   Guests see Share, Polls, Breakout rooms and Whiteboard only after the host switches each one on (or, for Share, grants it to them personally).
 //   The host can mute a guest, mute everyone, or ask a guest to unmute (a microphone is never switched on remotely: the guest decides).
 // ---------------------------------------------------------------------------------------------------------------------------------------------
-state.tools={share:false,polls:false,breakout:false,whiteboard:false};state.guestTools={};state.sharers=new Set();
+state.tools={share:false,polls:false,breakout:false,whiteboard:false};state.guestTools={};state.sharers=new Set();state.ascs=false;state.shareId=null;state.shareRev=0;state.presenterId=null;state.presenterShareId=null;state.shareStarting=false;state.shareBeat=null;state.shareLastOk=0;
 function applyTools(){
   const host=state.role==='host',t=state.tools||{};
   $('shareBtn').classList.toggle('hidden',!host&&!t.share);
@@ -719,7 +808,7 @@ function applyTools(){
   try{collab.refreshMore();}catch(e){/* tools panel not built yet */}
   renderPeople();
 }
-async function loadTools(){try{const d=await api('/meetings/'+state.meetingId+'/tools');state.tools=d.tools;state.guestTools=d.guestTools||{};state.sharers=new Set(d.sharers||[]);}catch(e){/* keep what we have */}applyTools();}
+async function loadTools(){try{const d=await api('/meetings/'+state.meetingId+'/tools');state.tools=d.tools;state.guestTools=d.guestTools||{};state.sharers=new Set(d.sharers||[]);state.ascs=d.ascs===true;}catch(e){/* keep what we have */}applyTools();if(state.ascs&&!loadTools.seen){loadTools.seen=true;reconcileShares();}}
 function askUnmute(){
   rcModal('The host asks you to unmute',box=>{
     box.append(rcEl('p','rc-lead','The host would like you to turn your microphone on.'),rcEl('p','rc-note','Your microphone only comes on if you choose to.'));
@@ -729,6 +818,8 @@ function askUnmute(){
 }
 function attachHostControls(s){
   s.on('tools-changed',m=>{if(m&&m.guestTools)state.guestTools=m.guestTools;loadTools();});
+  s.on('connect',()=>{if(state.ascs)reconcileShares();});                  // after a reconnect the page asks who is presenting instead of trusting what it last heard
+  for(const t of ['share.started','share.stopped','share.revoked','share.updated'])s.on(t,onShareEvent);
   s.on('share-denied',()=>{notify('The host has not allowed you to share your screen.');if(state.screen)endShare();});
   s.on('force-mute',()=>{
     const tracks=state.stream?.getAudioTracks()||[];tracks.forEach(t=>t.enabled=false);

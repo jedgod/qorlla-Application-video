@@ -22,6 +22,7 @@ import { registerPhone } from './phone.mjs';
 import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
 import { registerAiConsent } from './ai-consent.mjs';
+import { registerAscs } from './ascs.mjs';
 import { registerHandoff } from './handoff.mjs';
 import { registerHostControls } from './host-controls.mjs';
 import { registerRecording } from './recording.mjs';
@@ -403,7 +404,10 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
  audit(req.params.id,req.user.participantId,'meeting.ended'); res.json({ok:true});
 });
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
-const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
+const ASCS_ENABLED = process.env.ASCS_ENABLED === 'true';          // ASCS v1-v2 screen-share state. OFF unless switched on (docs/ASCS_V1_V2.md)
+let ascs = null;                                                  // created just below; host-controls reports permission changes to it
+const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), ascsEnabled: ASCS_ENABLED, onPermissionChange: (meetingId) => ascs?.reconcile(meetingId) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
+ascs = registerAscs({ app, io, db, auth, member, room, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), mayShare: (meetingId, pid, role) => hostControls.mayUse(meetingId, pid, role, 'share'), enabled: ASCS_ENABLED, leaseMs: Number(process.env.ASCS_LEASE_MS) || 30_000 });
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
@@ -480,6 +484,8 @@ io.on('connection',socket=>{
   // a guest announces a screen share only if the host allows it (for everyone, or for this person): otherwise it is not announced and the sender is told
   let sharing=!!state?.sharing;
   if(sharing&&u.role!=='host'&&!(await hostControls.mayUse(id,pid,u.role,'share').catch(()=>false))){sharing=false;socket.emit('share-denied',{});}
+  // with ASCS on, a share is announced only while the server holds a live share for this person (host included): the share row, not the page, is the truth
+  if(sharing&&ASCS_ENABLED&&!(await ascs.ownsActive(id,pid).catch(()=>false))){sharing=false;socket.emit('share-denied',{});}
   socket.to(room(id)).emit('media-state',{participantId:pid,mic:!!state?.mic,cam:!!state?.cam,sharing});
  });
  socket.on('reaction',emoji=>{if(['👍','👏','❤️','🎉','😂'].includes(emoji))io.to(room(id)).emit('reaction',{name:u.name,emoji});});
