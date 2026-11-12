@@ -21,7 +21,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 class HttpError extends Error { constructor(status, message, extra = {}) { super(message); this.status = status; this.extra = extra; } }
 
-export function registerAscs({ app, io, db, auth, member, room, socketOf, mayShare, enabled = false, leaseMs = 30_000, sweepMs = 10_000 }) {
+export function registerAscs({ app, io, db, auth, member, room, socketOf, mayShare, enabled = false, leaseMs = 30_000, sweepMs = 10_000, disconnectGraceMs = 8_000 }) {
   const PATHS = (suffix) => [`/api/meetings/:id/shares${suffix}`, `/api/v1/meetings/:id/shares${suffix}`];
   const gate = (req, res, next) => (enabled ? next() : res.status(404).json({ error: 'Not available' }));
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : res.status(403).json({ error: 'Only the host can do this' }));
@@ -71,6 +71,17 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
     return [ev(state === 'revoked' ? 'share.revoked' : 'share.stopped', r, { reason })];
   }
 
+  /** May this person hold the floor RIGHT NOW? Still admitted (Shield or the host can withdraw that), and still permitted. ANY doubt, including a lookup that throws, is a NO:
+   *  an unauthorized share must never stay up because a check broke. */
+  async function allowedNow(executor, meetingId, ownerId) {
+    try {
+      const { rows: [p] } = await executor.query('SELECT role, admission FROM participants WHERE id=$1 AND meeting_id=$2', [ownerId, meetingId]);
+      if (!p || p.admission !== 'admitted') return { ok: false, reason: 'participant_removed' };
+      if (p.role === 'host') return { ok: true };
+      return (await mayShare(meetingId, ownerId, p.role)) ? { ok: true } : { ok: false, reason: 'permission_withdrawn' };
+    } catch { return { ok: false, reason: 'authorization_unavailable' }; }
+  }
+
   const currentRow = async (executor, meetingId) => (await executor.query("SELECT * FROM meeting_shares WHERE meeting_id=$1 AND state='active' AND lease_expires_at > now()", [meetingId])).rows[0];
 
   // ---- who is sharing now (late joiners and reconnecting pages reconcile from this)
@@ -110,7 +121,10 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
   // ---- the presenter's page renews the lease while it is capturing
   app.post(PATHS('/:sid/heartbeat'), gate, auth, member, handle(async (req, res) => {
     const { id: meetingId, sid } = req.params; if (!UUID.test(sid)) throw new HttpError(400, 'Invalid share');
-    const { rows: [r] } = await db.query("UPDATE meeting_shares SET lease_expires_at = now() + ($4 || ' milliseconds')::interval WHERE id=$1 AND meeting_id=$2 AND owner_id=$3 AND state='active' AND lease_expires_at > now() RETURNING *", [sid, meetingId, req.user.participantId, String(leaseMs)]);
+    // a presenter who is no longer allowed cannot renew: the share is ended now (and if even that fails, the lease simply runs out: nothing renews an unauthorized share)
+    const permitted = (await allowedNow(db, meetingId, req.user.participantId)).ok;
+    if (!permitted) await reconcileWithRetry(meetingId).catch(() => {});
+    const { rows: [r] } = permitted ? await db.query("UPDATE meeting_shares SET lease_expires_at = now() + ($4 || ' milliseconds')::interval WHERE id=$1 AND meeting_id=$2 AND owner_id=$3 AND state='active' AND lease_expires_at > now() RETURNING *", [sid, meetingId, req.user.participantId, String(leaseMs)]) : { rows: [] };
     const { rows: [m] } = await db.query('SELECT share_revision FROM meetings WHERE id=$1', [meetingId]);
     if (r) return res.json({ leaseExpiresAt: r.lease_expires_at, revision: Number(m.share_revision) });
     await sweepMeeting(meetingId);                                                     // a lease that ran out is closed and announced now, not at the next sweep
@@ -180,14 +194,32 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
     const events = await tx(async (c) => {
       await lockMeeting(c, meetingId);
       const a = await currentRow(c, meetingId); if (!a) return [];
-      const { rows: [o] } = await c.query('SELECT role FROM participants WHERE id=$1', [a.owner_id]);
-      if (o?.role === 'host' || (await mayShare(meetingId, a.owner_id, o?.role || 'guest'))) return [];
-      return endIn(c, meetingId, a.id, 'revoked', 'permission_withdrawn', null);
+      const v = await allowedNow(c, meetingId, a.owner_id); if (v.ok) return [];
+      return endIn(c, meetingId, a.id, 'revoked', v.reason, null);
     });
     emit(events); return events.length;
   }
+  /** reconcile, retried a few times; THROWS if it still cannot be done, so the caller can say so instead of pretending (the sweeper then keeps trying). */
+  async function reconcileWithRetry(meetingId, tries = 3) {
+    let last; for (let i = 0; i < tries; i++) { try { return await reconcile(meetingId); } catch (e) { last = e; await new Promise((r) => setTimeout(r, 40 * (i + 1))); } }
+    throw last;
+  }
+  /** The invariant "every live share belongs to someone who may still share", checked for ALL meetings. It runs on every sweep, so a reconcile that was missed (a failure, a restart,
+   *  a change made by another path) is corrected within one sweep interval. */
+  async function reconcileAll() {
+    const { rows } = await db.query("SELECT DISTINCT meeting_id FROM meeting_shares WHERE state='active'");
+    let ended = 0, failed = 0;
+    for (const { meeting_id } of rows) { try { ended += await reconcile(meeting_id); } catch (e) { failed++; console.error('[ascs] reconcile failed:', e.message); } }
+    return { ended, failed };
+  }
+  /** The presenter's signalling connection dropped: the lease is cut to a short grace period (a reload or a blip renews it with the next heartbeat; a vanished page loses the share in seconds, not after a whole lease). */
+  async function onDisconnect(meetingId, pid) {
+    if (!enabled) return 0;
+    const { rowCount } = await db.query("UPDATE meeting_shares SET lease_expires_at = LEAST(lease_expires_at, now() + ($3 || ' milliseconds')::interval) WHERE meeting_id=$1 AND owner_id=$2 AND state='active'", [meetingId, pid, String(disconnectGraceMs)]);
+    return rowCount;
+  }
   /** True when this person has the live share of the meeting (what the signalling gate checks before it announces a share to the room). */
-  const ownsActive = async (meetingId, pid) => { const r = await currentRow(db, meetingId); return !!r && r.owner_id === pid; };
+  const ownsActive = async (meetingId, pid) => { const r = await currentRow(db, meetingId); if (!r || r.owner_id !== pid) return false; return (await allowedNow(db, meetingId, pid)).ok; };
 
   let timer = null;
   if (enabled && sweepMs > 0) {
@@ -195,8 +227,9 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
       try {
         const { rows } = await db.query("SELECT DISTINCT s.meeting_id FROM meeting_shares s JOIN meetings m ON m.id=s.meeting_id WHERE s.state='active' AND (s.lease_expires_at < now() OR m.ended_at IS NOT NULL)");
         for (const { meeting_id } of rows) await sweepMeeting(meeting_id);
+        await reconcileAll();
       } catch (e) { console.error('[ascs] sweep failed:', e.message); }
     }, sweepMs); timer.unref?.();
   }
-  return { enabled, leaseMs, ownsActive, reconcile, sweepMeeting, close: () => { if (timer) clearInterval(timer); } };
+  return { enabled, leaseMs, ownsActive, reconcile, reconcileWithRetry, reconcileAll, onDisconnect, sweepMeeting, close: () => { if (timer) clearInterval(timer); } };
 }

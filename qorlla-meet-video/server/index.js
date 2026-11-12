@@ -398,6 +398,7 @@ app.get('/api/resolve/:code',async(req,res)=>{
 app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
  if(req.user.role!=='host') return fail(res,403,'Host only');
  await db.query("UPDATE meetings SET ended_at=now(), end_reason='host_ended' WHERE id=$1",[req.params.id]);
+ if(ASCS_ENABLED)await ascs.sweepMeeting(req.params.id).catch(e=>console.error('[ascs] could not end the share of an ended meeting (the sweeper will):',e.message));
  recording.stopFor(req.params.id,'meeting_ended',req.user.participantId).catch(()=>{});await phone.endAll(req.params.id,'meeting_ended').catch(()=>{});         // every caller is hung up before the host is told it is done
  io.to(room(req.params.id)).emit('meeting-ended');
  if(shield&&shieldCfg.enforce)shield.end(req.params.id).catch(()=>{});
@@ -406,8 +407,8 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
 const ASCS_ENABLED = process.env.ASCS_ENABLED === 'true';          // ASCS v1-v2 screen-share state. OFF unless switched on (docs/ASCS_V1_V2.md)
 let ascs = null;                                                  // created just below; host-controls reports permission changes to it
-const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), ascsEnabled: ASCS_ENABLED, onPermissionChange: (meetingId) => ascs?.reconcile(meetingId) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
-ascs = registerAscs({ app, io, db, auth, member, room, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), mayShare: (meetingId, pid, role) => hostControls.mayUse(meetingId, pid, role, 'share'), enabled: ASCS_ENABLED, leaseMs: Number(process.env.ASCS_LEASE_MS) || 30_000 });
+const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), ascsEnabled: ASCS_ENABLED, onPermissionChange: (meetingId) => ascs?.reconcileWithRetry(meetingId) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
+ascs = registerAscs({ app, io, db, auth, member, room, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), mayShare: (meetingId, pid, role) => hostControls.mayUse(meetingId, pid, role, 'share'), enabled: ASCS_ENABLED, leaseMs: Number(process.env.ASCS_LEASE_MS) || 30_000, sweepMs: Number(process.env.ASCS_SWEEP_MS) || 10_000, disconnectGraceMs: Number(process.env.ASCS_DISCONNECT_GRACE_MS) || 8_000 });
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
@@ -436,7 +437,7 @@ io.use(async(socket,next)=>{
   socket.data.user=user;next();
  } catch { next(new Error('Unauthorized')); }
 });
-if(shield&&shieldCfg.enforce)startSessionGuard({io,db,client:shield,config:shieldCfg});
+if(shield&&shieldCfg.enforce)startSessionGuard({io,db,client:shield,config:shieldCfg,onRevoked:(meetingId)=>ascs?ascs.reconcileWithRetry(meetingId):undefined});
 io.on('connection',socket=>{
  const u=socket.data.user, id=u.meetingId, pid=u.participantId;
  // Flood control: signalling is exempt (WebRTC negotiation bursts); every other event shares a sliding budget.
@@ -507,7 +508,7 @@ io.on('connection',socket=>{
    const {rows}=await db.query('SELECT choice,count(*)::int AS count FROM poll_votes WHERE poll_id=$1 GROUP BY choice',[pollId]);io.to(room(id)).emit('poll-results',{pollId,counts:rows});ack?.({ok:true});
   }catch{ackError(ack,'Vote failed');}
  });
- socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
+ socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);if(ASCS_ENABLED)ascs.onDisconnect(id,pid).catch(()=>{});recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE disconnected_at IS NULL').catch(()=>{});   // a restart ends every connection: close what the last run left open
 server.listen(PORT,()=>console.log(`Qorlla Meet listening on http://localhost:${PORT}`));

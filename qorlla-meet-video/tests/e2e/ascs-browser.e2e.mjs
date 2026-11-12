@@ -17,12 +17,12 @@ const ORDER = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = []; const check = (name, ok, detail = '') => { results.push({ name, ok }); console.log((ok ? '  PASS ' : '  FAIL ') + name + (ok ? '' : '  -> ' + detail)); };
 
-async function bootServer({ ascs, port, leaseMs = 12000 }) {
+async function bootServer({ ascs, port, leaseMs = 12000, extraEnv = {} }) {
   const dbName = 'ascs_e2e_' + Math.random().toString(36).slice(2, 8);
   const admin = new pg.Pool({ connectionString: URL, max: 1 }); await admin.query(`CREATE DATABASE ${dbName}`);
   const dbUrl = URL.replace(/\/[^/]*$/, '/' + dbName); const pool = new pg.Pool({ connectionString: dbUrl, max: 4 });
   for (const f of ORDER) await pool.query(readFileSync(join(SQL, f), 'utf8'));
-  const env = { ...process.env, PORT: String(port), DATABASE_URL: dbUrl, JWT_SECRET: 'e2e-secret-e2e-secret-e2e-secret-0123456789', ASCS_ENABLED: ascs ? 'true' : 'false', ASCS_LEASE_MS: String(leaseMs), API_RATE_LIMIT: '100000', MEETING_RATE_LIMIT: '100000', SOCKET_EVENT_BUDGET: '100000' };
+  const env = { ...process.env, PORT: String(port), DATABASE_URL: dbUrl, JWT_SECRET: 'e2e-secret-e2e-secret-e2e-secret-0123456789', ASCS_ENABLED: ascs ? 'true' : 'false', ASCS_LEASE_MS: String(leaseMs), API_RATE_LIMIT: '100000', MEETING_RATE_LIMIT: '100000', SOCKET_EVENT_BUDGET: '100000', ...extraEnv };
   const child = spawn(process.execPath, ['server/index.js'], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; child.stdout.on('data', (d) => (log += d)); child.stderr.on('data', (d) => (log += d));
   for (let i = 0; i < 240 && !log.includes('listening'); i++) { await wait(250); if (child.exitCode !== null) throw new Error('Meet exited: ' + log.slice(-600)); }
@@ -59,18 +59,35 @@ const DENY = () => {
   const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); window.__deny = true;
   navigator.mediaDevices.getUserMedia = async (c) => { if (window.__deny) { window.__gumFail = (window.__gumFail || 0) + 1; const e = new Error('Permission denied'); e.name = 'NotAllowedError'; throw e; } return gum(c); };
 };
-async function room(srv, browserHost, browserGuest, { guestName = 'Gail', guestPerms = ['camera', 'microphone'], denyMedia = false, shareForAll = false } = {}) {
+async function room(srv, browserHost, browserGuest, { guestName = 'Gail', guestPerms = ['camera', 'microphone'], denyMedia = false, shareForAll = false, tamper = null } = {}) {
   const hctx = await browserHost.newContext({ permissions: ['camera', 'microphone'] }); const hp = await hctx.newPage(); await hp.addInitScript(STUB);
   await hp.goto(srv.base); await hp.fill('#displayName', 'Hugo'); await hp.fill('#meetingTitle', 'ASCS'); await hp.click('#createBtn');
   await hp.waitForSelector('#app:not(.hidden)', { timeout: 30000 });
   const code = (await hp.textContent('#roomId')).trim();
   if (shareForAll) await hp.evaluate(async () => { await fetch('/api/meetings/' + window.__mid + '/tools', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: window.__auth }, body: JSON.stringify({ share: true }) }); });
-  const gctx = await browserGuest.newContext({ permissions: guestPerms }); const gp = await gctx.newPage(); await gp.addInitScript(STUB); if (denyMedia) await gp.addInitScript(DENY);
+  const gctx = await browserGuest.newContext({ permissions: guestPerms }); const gp = await gctx.newPage(); await gp.addInitScript(STUB); if (denyMedia) await gp.addInitScript(DENY); if (tamper) await tamper(gp);
   await gp.goto(srv.base); await gp.fill('#displayName', guestName); await gp.fill('#meetingId', code); await gp.click('#joinBtn');
   await gp.waitForSelector('#app:not(.hidden)', { timeout: 30000 });
   await waitFor(async () => (await hp.locator('#peopleList .person').count()) >= 2, 20000);
   return { hp, gp, hctx, gctx, code };
 }
+const framesDecoded = (p) => p.evaluate(async () => { let n = 0; for (const pc of window.__pcs) { const st = await pc.getStats(); st.forEach((r) => { if (r.type === 'inbound-rtp' && r.kind === 'video') n += r.framesDecoded || 0; }); } return n; });
+const pairTypes = (p) => p.evaluate(async () => { for (const pc of window.__pcs) { const st = await pc.getStats(); let sel = null; st.forEach((r) => { if (r.type === 'transport' && r.selectedCandidatePairId) sel = r.selectedCandidatePairId; }); if (!sel) continue; const pair = st.get(sel); return { local: st.get(pair.localCandidateId)?.candidateType, remote: st.get(pair.remoteCandidateId)?.candidateType }; } return null; });
+const note = (name, value) => console.log('  NOTE ' + name + ': ' + value);
+// coturn's telnet-style admin CLI (the same protocol the voice engine's turn.mjs speaks): log in, run commands, return each command's output
+import net from 'node:net';
+function turnCli(commands, { host = '127.0.0.1', port, password, timeoutMs = 8000 }) {
+  return new Promise((resolve, reject) => {
+    const sock = net.connect(port, host), outs = []; let buf = '', stage = 'login', i = 0, done = false;
+    const finish = (err) => { if (done) return; done = true; clearTimeout(timer); try { sock.destroy(); } catch { /* closed */ } err ? reject(err) : resolve(outs); };
+    const timer = setTimeout(() => finish(new Error('turn_cli_timeout')), timeoutMs); sock.on('error', finish); sock.on('close', () => finish(done ? undefined : new Error('turn_cli_closed')));
+    sock.on('data', (d) => { buf += d.toString().replace(/\r/g, '');
+      if (stage === 'login' && /Enter password:\s*$/.test(buf)) { buf = ''; stage = 'pw'; sock.write(password + '\r\n'); return; }
+      if (stage === 'pw' && /Enter password:\s*$/.test(buf)) return finish(new Error('turn_cli_auth_failed'));
+      if ((stage === 'pw' || stage === 'cmd') && /(^|\n)> $/.test(buf)) { if (stage === 'cmd') outs.push(buf.replace(/\n> $/, '')); stage = 'cmd'; buf = ''; if (i >= commands.length) { try { sock.write('quit\r\n'); } catch { /* closed */ } return finish(); } sock.write(commands[i++] + '\r\n'); } });
+  });
+}
+const parseSessions = (text) => [...String(text).matchAll(/^\s*\d+\)\s+id=([0-9a-fA-F]+),\s+user\s+<([^>]*)>/gm)].map((m) => ({ id: m[1], user: m[2] }));
 const audioInbound = (p) => p.evaluate(async () => { let n = 0; for (const pc of window.__pcs) { const st = await pc.getStats(); st.forEach((r) => { if (r.type === 'inbound-rtp' && r.kind === 'audio' && r.bytesReceived > 500) n++; }); } return n; });
 async function joinMore(srv, browser, code, name) {
   const ctx = await browser.newContext({ permissions: ['camera', 'microphone'] }); const p = await ctx.newPage(); await p.addInitScript(STUB);
@@ -201,6 +218,63 @@ async function main() {
     check('...and tells the person why', ((await gp.locator('#toast').textContent()) || '').includes('lost its connection'));
     check('...and the server has ended it by lease expiry as well', !!(await waitFor(async () => (await srv.pool.query("SELECT 1 FROM meeting_shares WHERE end_reason='lease_expired'")).rowCount >= 1, 40000, 500)));
     await hctx.close(); await gctx.close();
+    }
+
+    // ---------------- F. a MALICIOUS presenter (ignores every stop message): what the server enforces, and what it cannot
+    if (run('F')) {
+    console.log('F. malicious presenter that ignores revoke');
+    const tamper = async (page) => page.route('**/app.js', async (route) => { const resp = await route.fetch(); const body = (await resp.text()).replace('async function endShare(opts={}){', 'async function endShare(opts={}){return;'); await route.fulfill({ response: resp, body }); });   // endShare does nothing: no message, no refusal, no browser "Stop" bar can stop it
+    ({ hp, gp, hctx, gctx } = await room(srv, withUi, withUi, { guestName: 'Mallory', tamper }));
+    await allow(hp, 'Mallory'); await waitFor(() => gp.locator('#shareBtn').isVisible());
+    await gp.click('#shareBtn'); await gp.getByRole('button', { name: 'Start sharing' }).click(); await waitFor(() => isSharing(gp));
+    check('the share reaches the host before anything is revoked (320px)', (await waitFor(async () => ((await remoteVideoWidth(hp, 'Mallory')) === 320 ? 320 : 0), 25000)) === 320);
+    const framesBefore = await framesDecoded(hp);
+    await hp.locator('#peopleList .person', { hasText: 'Mallory' }).getByRole('button', { name: 'Stop presenting' }).click();
+    await hp.locator('#peopleList .person', { hasText: 'Mallory' }).getByRole('button', { name: 'Stop sharing' }).click();      // and take the permission away
+    const shareId = (await srv.pool.query("SELECT id FROM meeting_shares ORDER BY started_at DESC LIMIT 1")).rows[0].id;
+    check('SERVER: the share is revoked', !!(await waitFor(async () => (await srv.pool.query("SELECT 1 FROM meeting_shares WHERE id=$1 AND state='revoked'", [shareId])).rowCount === 1, 15000)));
+    await wait(1500);
+    check('the tampered page IGNORED the stop: it is still capturing', await isSharing(gp));
+    const call = (method, path, body) => gp.evaluate(async ([m, p, b]) => { const r = await fetch('/api/meetings/' + window.__mid + p, { method: m, headers: { 'Content-Type': 'application/json', Authorization: window.__auth }, body: b ? JSON.stringify(b) : undefined }); return r.status; }, [method, path, body]);
+    check('SERVER: its heartbeat is refused (409)', (await call('POST', '/shares/' + shareId + '/heartbeat', {})) === 409);
+    check('SERVER: a new share start is refused (403)', (await call('POST', '/shares', { kind: 'screen', mode: 'content', clientRequestId: 'mal-' + Date.now() })) === 403);
+    check('SERVER: the host\'s list shows nobody presenting', (await presenterButton(hp, 'Mallory').count()) === 0);
+    // ---- the media itself
+    const f1 = await framesDecoded(hp); await wait(4000); const f2 = await framesDecoded(hp);
+    note('video frames the host decoded: before revoke ' + framesBefore + ', right after ' + f1 + ', 4 s later ' + f2, (f2 - f1) + ' new frames in 4 s');
+    check('KNOWN GAP, MEASURED (this is why the verdict is NO-GO): the server revoked the share and withdrew the permission, yet the ignoring client still delivers video to the host', f2 - f1 > 10, 'only ' + (f2 - f1) + ' new frames: the gap was NOT reproduced (the check documents the CURRENT behaviour; when real media enforcement exists this must flip)');
+    await hctx.close(); await gctx.close();
+    }
+
+    // ---------------- T. TURN-ONLY (relay) share, and what cancelling the presenter's relay session does (needs a coturn: see the header)
+    if (run('T')) {
+    if (!process.env.TURN_TEST_PORT) console.log('T. SKIPPED (set TURN_TEST_PORT, TURN_TEST_CLI_PORT, TURN_TEST_CLI_PW, TURN_TEST_SECRET: a coturn with --use-auth-secret --lt-cred-mech --cli)');
+    else {
+      console.log('T. TURN-only share and relay-level termination');
+      const TP = process.env.TURN_TEST_PORT, cli = { port: Number(process.env.TURN_TEST_CLI_PORT), password: process.env.TURN_TEST_CLI_PW };
+      const srvT = await bootServer({ ascs: true, port: PORT + 2, extraEnv: { TURN_URLS: 'turn:' + (process.env.TURN_TEST_HOST || '127.0.0.1') + ':' + TP + '?transport=udp', TURN_SHARED_SECRET: process.env.TURN_TEST_SECRET, ICE_TRANSPORT_POLICY: 'relay', TURN_CREDENTIAL_TTL_SECONDS: '600' } });
+      try {
+        ({ hp, gp, hctx, gctx } = await room(srvT, withUi, withUi, { guestName: 'Rae', shareForAll: true }));
+        await gp.click('#shareBtn'); await gp.getByRole('button', { name: 'Start sharing' }).click(); await waitFor(() => isSharing(gp));
+        const w = await waitFor(async () => ((await remoteVideoWidth(hp, 'Rae')) === 320 ? 320 : 0), 40000);
+        const st = async (p) => p.evaluate(() => window.__pcs.map((pc) => pc.iceConnectionState + '/' + pc.connectionState + '/' + pc.iceGatheringState).join(','));
+        const iceCfg = await hp.evaluate(async () => { const r = await (await fetch('/api/meetings/' + window.__mid + '/ice', { headers: { Authorization: window.__auth } })).json(); return { policy: r.iceTransportPolicy, servers: (r.iceServers || []).map((x) => ({ urls: x.urls, user: x.username ? 'set' : 'none' })) }; });
+        check('TURN-ONLY: the guest\'s screen reaches the host (320px) through the relay', w === 320, 'width ' + (await remoteVideoWidth(hp, 'Rae')) + ' | host pc: ' + (await st(hp)) + ' | guest pc: ' + (await st(gp)) + ' | /ice: ' + JSON.stringify(iceCfg));
+        const pt = await pairTypes(hp); check('TURN-ONLY: the selected candidate pair on the host is a RELAY candidate (no direct path exists)', pt?.local === 'relay', JSON.stringify(pt));
+        const guestId = (await srvT.pool.query("SELECT id FROM participants WHERE display_name='Rae'")).rows[0].id;
+        const listed = parseSessions((await turnCli(['psp :' + guestId], cli))[0]);
+        check('the relay holds live allocation(s) of the presenter (found by its participant id in the REST username)', listed.length >= 1, 'sessions: ' + JSON.stringify(listed));
+        const framesPre = await framesDecoded(hp); await wait(2500); const framesMid = await framesDecoded(hp);
+        check('before cancelling, frames are flowing', framesMid - framesPre > 10, 'delta ' + (framesMid - framesPre));
+        await turnCli(listed.map((x) => 'cs ' + x.id), cli);
+        const cancelledAt = Date.now(); await wait(300); const atCancel = await framesDecoded(hp);
+        await wait(3000); const afterCancel = await framesDecoded(hp);
+        check('RELAY-LEVEL TERMINATION: after the server cancels the presenter\'s relay allocation the host receives (almost) no more frames', afterCancel - atCancel < 8, (afterCancel - atCancel) + ' frames in 3 s');
+        const resumed = await waitFor(async () => ((await framesDecoded(hp)) - afterCancel > 30 ? Math.round((Date.now() - cancelledAt) / 1000) : 0), 60000, 500);
+        note('after the cancel, with a stateless REST credential that is still valid, the media', resumed ? 'RESUMED after ' + resumed + ' s (the client re-allocated: cancelling alone is not durable enforcement; the credential must be revocable too)' : 'did NOT resume within 60 s');
+        await hctx.close(); await gctx.close();
+      } finally { await srvT.stop(); }
+    }
     }
   } finally { await srv.stop(); }
 

@@ -85,6 +85,12 @@ Release-blocking acceptance list from the package — **none of these is closed*
 TURN relay-only · ICE restart and real network loss (only an unreachable heartbeat was simulated) · browser-ended capture (the OS "Stop sharing" bar) · server restart ·
 migration rollback drill · load/performance · accessibility · mobile capability matrix · security review · privacy consent · staging canary.
 
+## M1.1 (server-side authority) — see `ASCS_M1_1_MEDIA_ENFORCEMENT.md`
+Added after the first version: a share is checked against the person's *current* authority everywhere (reconcile, heartbeat, signalling gate; any lookup error means "no"); a failed
+reconcile makes the host's request return **503** instead of success; the sweeper audits all live shares; a presenter's disconnect cuts the lease to `ASCS_DISCONNECT_GRACE_MS`
+(default 8000); the meeting-end route ends shares at once; a Shield revocation ends the share. New optional environment variables: `ASCS_DISCONNECT_GRACE_MS`, `ASCS_SWEEP_MS`
+(default 10000). **Media enforcement against an uncooperative client is still not implemented** (measured in that document): this Meet has no media server.
+
 ## NOT done — read before relying on this
 * **Not production certified.** Chromium only; one machine; no load, failover, TURN or Shield run.
 * **Revocation is the server ending the share and telling every page.** Screen media goes peer to peer; the server cannot cut a stream whose page ignores the message. The milestone's

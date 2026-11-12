@@ -24,7 +24,7 @@ const req = createRequire(path.join(root, 'package.json'));
 let ioc, bcrypt, secrets = null;
 try { ioc = req('socket.io-client').io; bcrypt = req('bcryptjs'); secrets = JSON.parse(fs.readFileSync(path.join(root, '.dev-stack', 'secrets.json'), 'utf8')); } catch { /* skipped below */ }
 const PASSWORD = 'Handoff-pass-9917!x', ENGINE_ADMIN = 'e'.repeat(40), ISSUER = 'qorlla-workload';
-const MEET_SQL = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', 'v4_7_recording_consent.sql', 'v4_8_collab.sql', 'v4_9_recording_storage.sql', 'v4_10_admission.sql', 'v4_11_history.sql', 'v4_12_limit.sql', 'v4_13_phone.sql', 'v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_17_shield_identity.sql', 'v4_18_billing_hold.sql'];
+const MEET_SQL = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', 'v4_7_recording_consent.sql', 'v4_8_collab.sql', 'v4_9_recording_storage.sql', 'v4_10_admission.sql', 'v4_11_history.sql', 'v4_12_limit.sql', 'v4_13_phone.sql', 'v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_17_shield_identity.sql', 'v4_18_billing_hold.sql', 'v4_19_ai_request.sql', 'v4_20_ai_consent_seq.sql', 'v4_21_handoffs.sql', 'v4_22_host_controls.sql', 'v4_23_ascs_shares.sql'];
 
 let db, h, engine, meet, main, jwksSrv, ports, dataDir, startMeet, children = [], keys = {};
 const free = () => new Promise((ok) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => ok(p)); }); });
@@ -76,10 +76,10 @@ before(async () => {
   meet = { base: `http://127.0.0.1:${ports.meet}` };
   const rec = fs.mkdtempSync(path.join(os.tmpdir(), 'qshield-rec-'));
   startMeet = (port, shieldUrl, tag) => spawn(process.execPath, ['server/index.js'], { cwd: path.join(root, 'qorlla-meet-video'), stdio: ['ignore', logOf(tag), logOf(tag)], env: env({ PORT: String(port), DATABASE_URL: dbUrl, JWT_SECRET: secrets.jwt, QORLLA_BRIDGE_SECRET: secrets.bridge, RECOVERY_ESCROW_KEY: secrets.escrow, NODE_ENV: 'development', RECORDING_MASTER_KEYS: JSON.stringify({ dev1: secrets.recordingKey }), RECORDING_ACTIVE_KEY_ID: 'dev1', RECORDING_STORE_DIR: rec, RECORDING_ADMIN_SECRET: 'test-admin-secret', PHONE_PROVIDER: 'test', PHONE_WEBHOOK_SECRET: 'phone-test-secret-123456',
-    SHIELD_MEET_ENFORCE: 'true', SHIELD_URL: shieldUrl, SHIELD_MEET_KEY_PEM: keys.meet.pem.replace(/\n/g, '\\n'), SHIELD_WORKLOAD_ISSUER: ISSUER, SHIELD_WORKLOAD_KID: 'wm', SHIELD_RECHECK_SECONDS: '1' }) });
+    ASCS_ENABLED: 'true', ASCS_SWEEP_MS: '60000', SHIELD_MEET_ENFORCE: 'true', SHIELD_URL: shieldUrl, SHIELD_MEET_KEY_PEM: keys.meet.pem.replace(/\n/g, '\\n'), SHIELD_WORKLOAD_ISSUER: ISSUER, SHIELD_WORKLOAD_KID: 'wm', SHIELD_RECHECK_SECONDS: '1' }) });
   const logOf = (n) => fs.openSync(path.join(os.tmpdir(), 'qshield-' + n + '.log'), 'w');
   children.push(spawn(process.execPath, ['server/index.js'], { cwd: path.join(root, 'qorlla-meet-video'), stdio: ['ignore', logOf('meet'), logOf('meet')], env: env({ PORT: String(ports.meet), DATABASE_URL: dbUrl, JWT_SECRET: secrets.jwt, QORLLA_BRIDGE_SECRET: secrets.bridge, RECOVERY_ESCROW_KEY: secrets.escrow, NODE_ENV: 'development', RECORDING_MASTER_KEYS: JSON.stringify({ dev1: secrets.recordingKey }), RECORDING_ACTIVE_KEY_ID: 'dev1', RECORDING_STORE_DIR: rec, RECORDING_ADMIN_SECRET: 'test-admin-secret', PHONE_PROVIDER: 'test', PHONE_WEBHOOK_SECRET: 'phone-test-secret-123456',
-    SHIELD_MEET_ENFORCE: 'true', SHIELD_URL: engine.base, SHIELD_MEET_KEY_PEM: keys.meet.pem.replace(/\n/g, '\\n'), SHIELD_WORKLOAD_ISSUER: ISSUER, SHIELD_WORKLOAD_KID: 'wm', SHIELD_RECHECK_SECONDS: '1' }) }));
+    ASCS_ENABLED: 'true', ASCS_SWEEP_MS: '60000', SHIELD_MEET_ENFORCE: 'true', SHIELD_URL: engine.base, SHIELD_MEET_KEY_PEM: keys.meet.pem.replace(/\n/g, '\\n'), SHIELD_WORKLOAD_ISSUER: ISSUER, SHIELD_WORKLOAD_KID: 'wm', SHIELD_RECHECK_SECONDS: '1' }) }));
   main = { base: `http://127.0.0.1:${ports.main}` }; fs.mkdirSync(path.join(dataDir, 'auth'), { recursive: true }); fs.writeFileSync(path.join(dataDir, 'auth', 'tokens.json'), '[]');
   children.push(spawn(process.execPath, ['server.js'], { cwd: root, stdio: ['ignore', logOf('main'), logOf('main')], env: env({ PORT: String(ports.main), DATA_DIR: dataDir, MEET_PROBE_URL: meet.base, MEET_INTERNAL_URL: meet.base, QORLLA_BRIDGE_SECRET: secrets.bridge, MEET_DETECT: '', MEET_PUBLIC_URL: '', QORLLA_VOICE_ENABLED: 'true', VOICE_ADMIN_SECRET: ENGINE_ADMIN, VOICE_INTERNAL_URL: engine.base, VOICE_URL: engine.base,
     SHIELD_SYNC_URL: engine.base, SHIELD_WORKLOAD_ISSUER: ISSUER, SHIELD_REQUIRE_VERIFIED: 'true', SHIELD_RECONCILE_SECONDS: '2', PHONE_ADMIN_USERS: 'adminx*' }) }));
@@ -250,4 +250,35 @@ test('FAIL CLOSED: when the shield is unreachable (or answers an error) Meet gra
   const port3 = await free(); children.push(startMeet(port3, '', 'meet-unconfigured')); await waitHttp('http://127.0.0.1:' + port3 + '/api/health');
   const j3 = await (await fetch('http://127.0.0.1:' + port3 + '/api/meetings/' + m.id + '/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Guest', passcode: m.passcode }) })).json();
   assert.equal(await new Promise((ok) => { const sk = ioc('http://127.0.0.1:' + port3, { auth: { token: j3.token }, transports: ['websocket'], reconnection: false, timeout: 8000 }); sk.once('connect', () => { sk.close(); ok(true); }); sk.once('connect_error', () => { sk.close(); ok(false); }); }), false, 'enforcement on but shield not configured: refused');
+});
+
+test('ASCS-M1.1 + SHIELD: when the Shield suspends a presenter, the SHARE ends with the signalling session (reason participant_removed), and the person cannot start or renew another', async (t) => {
+  if (skip(t)) return;
+  const host = await account('hostx', { verified: true }); await principalWhere(host.id, (p) => p.verified);
+  const m = await schedule({ hostAccountId: host.id, waitingRoom: false });
+  const hj = await join(m, { name: 'Host', hostSecret: m.hostSecret, accountId: host.id }, true); assert.equal(hj.status, 200); const hs = await connect(hj.body.token); assert.equal(hs.ok, true, 'the real host');
+  const mem = await account('presenter', { verified: true }); await principalWhere(mem.id, (p) => p.verified);
+  const mj = await join(m, { name: 'Presenter', passcode: m.passcode, accountId: mem.id }, true); assert.equal(mj.status, 200); assert.equal(mj.body.admission, 'admitted');
+  const ms = await connect(mj.body.token); assert.equal(ms.ok, true);
+  // the host allows this person to present, through the real host-controls route
+  const g = await meetApi('POST', `/api/meetings/${m.id}/participants/${mj.body.participantId}/share`, { allow: true }, { token: hj.body.token }); assert.equal(g.status, 200, JSON.stringify(g.body));
+  const st = await meetApi('POST', `/api/meetings/${m.id}/shares`, { kind: 'screen', mode: 'content', clientRequestId: randomUUID() }, { token: mj.body.token }); assert.equal(st.status, 201, JSON.stringify(st.body));
+  const shareId = st.body.id;
+  const stateOf = async () => (await q('SELECT state, end_reason FROM meeting_shares WHERE id=$1', [shareId])).rows[0];
+  assert.equal((await stateOf()).state, 'active');
+  const gone = new Promise((ok) => { ms.socket.once('session_revoked', (e) => ok(e.reason)); ms.socket.once('disconnect', () => ok('disconnect')); });
+  // THE SHIELD SUSPENDS THE ACCOUNT (the real engine, over the real workload credential)
+  await as('ops', 'POST', `/v1/shield/admin/principals/${encodeURIComponent(mem.id)}/suspend`, {});
+  assert.ok(['SUSPENDED', 'disconnect'].includes(await Promise.race([gone, sleep(40000).then(() => 'still-open')])), 'the signalling session was terminated');
+  const t0 = Date.now();
+  const ended = await until(async () => { const r = await stateOf(); return r && r.state !== 'active' ? r : null; }, 45000);
+  assert.ok(ended, 'the share ended (it did not stay active after its presenter was suspended)');
+  // The sweeper is set to 60 s in this harness, so only the Shield-revocation hook can end the share this fast. Without it the share would end later by the disconnect lease cut (8 s, 'lease_expired').
+  assert.equal(ended.end_reason, 'participant_removed', 'ended by the Shield revocation itself, not left to a lease: ' + JSON.stringify(ended));
+  console.log('# ASCS+SHIELD: share ended ' + (Date.now() - t0) + ' ms after the session was revoked (reason ' + ended.end_reason + ')');
+  assert.equal((await meetApi('POST', `/api/meetings/${m.id}/shares`, { kind: 'screen', mode: 'content', clientRequestId: randomUUID() }, { token: mj.body.token })).status, 403, 'a suspended person cannot start another share');
+  assert.equal((await meetApi('POST', `/api/meetings/${m.id}/shares/${shareId}/heartbeat`, {}, { token: mj.body.token })).status, 403, 'and cannot renew');
+  assert.equal((await meetApi('GET', `/api/meetings/${m.id}/shares/current`, undefined, { token: hj.body.token })).body.share, null, 'the host sees nobody presenting');
+  assert.ok((await q("SELECT 1 FROM audit_events WHERE event_type='share.revoked' AND meeting_id=$1", [m.id])).rowCount >= 1, 'the revocation is in the audit trail');
+  hs.socket?.close();
 });

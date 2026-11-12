@@ -38,7 +38,7 @@ async function scratch() {
 }
 
 /** A tiny Meet: meeting + host + two admitted guests, the real routes, a recording stand-in for socket.io. */
-async function room({ enabled = true, leaseMs = 30_000, sweepMs = 0 } = {}) {
+async function room({ enabled = true, leaseMs = 30_000, sweepMs = 0, disconnectGraceMs = 8_000 } = {}) {
   const db = await scratch();
   const meetingId = randomUUID(), host = randomUUID(), g1 = randomUUID(), g2 = randomUUID(), outsider = randomUUID();
   await db.pool.query("INSERT INTO meetings(id,title,host_secret_hash) VALUES($1,'t','x')", [meetingId]);
@@ -56,8 +56,23 @@ async function room({ enabled = true, leaseMs = 30_000, sweepMs = 0 } = {}) {
     if (!rows.length || rows[0].ended_at) return fail(res, 403, 'Meeting unavailable'); next();
   };
   let ascs; const socketOf = (m, p) => sockets.get(p);
-  const hostControls = registerHostControls({ app, io, db: db.pool, auth, member, fail, room: roomOf, audit: () => {}, socketOf, ascsEnabled: enabled, onPermissionChange: (m) => ascs?.reconcile(m) });
-  ascs = registerAscs({ app, io, db: db.pool, auth, member, room: roomOf, socketOf, mayShare: (m, p, r) => hostControls.mayUse(m, p, r, 'share'), enabled, leaseMs, sweepMs });
+  // FAULT INJECTION. ascs reaches the database through this wrapper: failConnect = how many transactions to refuse ("the database is unavailable"),
+  // mayShareThrows = the permission lookup itself breaks.
+  const faults = { failConnect: 0, mayShareThrows: false };
+  const faultyDb = { query: (...a) => db.pool.query(...a), connect: async () => { if (faults.failConnect > 0) { faults.failConnect--; throw new Error('injected: database unavailable'); } return db.pool.connect(); } };
+  const hostControls = registerHostControls({ app, io, db: db.pool, auth, member, fail, room: roomOf, audit: () => {}, socketOf, ascsEnabled: enabled, onPermissionChange: (m) => ascs?.reconcileWithRetry(m) });
+  const mayShareFn = (m, p, r) => { if (faults.mayShareThrows) throw new Error('injected: permission lookup failed'); return hostControls.mayUse(m, p, r, 'share'); };
+  ascs = registerAscs({ app, io, db: faultyDb, auth, member, room: roomOf, socketOf, mayShare: mayShareFn, enabled, leaseMs, sweepMs, disconnectGraceMs });
+  const extra = [];                                                       // second instances and their servers, closed with the room
+  /** A "restarted" or second Meet process: a NEW ascs on the same database (nothing it knows comes from the first one). */
+  const newInstance = () => { const i = registerAscs({ app: express(), io, db: db.pool, auth, member, room: roomOf, socketOf, mayShare: mayShareFn, enabled, leaseMs, sweepMs: 0, disconnectGraceMs }); extra.push(i); return i; };
+  /** A second live server (own HTTP port) on the same database, to race against the first. */
+  const startSecond = async () => {
+    const app2 = express(); app2.use(express.json()); const inst = registerAscs({ app: app2, io, db: db.pool, auth, member, room: roomOf, socketOf, mayShare: mayShareFn, enabled, leaseMs, sweepMs: 0, disconnectGraceMs });
+    const srv2 = await new Promise((r) => { const sv = app2.listen(0, '127.0.0.1', () => r(sv)); }); extra.push({ close: () => srv2.close() }); extra.push(inst);
+    const b2 = 'http://127.0.0.1:' + srv2.address().port;
+    return (pid, role) => async (method, path, body) => { const rs = await fetch(b2 + '/api/meetings/' + meetingId + path, { method, headers: { 'content-type': 'application/json', 'x-user': JSON.stringify({ meetingId, participantId: pid, role }) }, body: body === undefined ? undefined : JSON.stringify(body) }); let json = null; try { json = await rs.json(); } catch { /* empty */ } return { status: rs.status, body: json }; };
+  };
   const server = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
   const base = 'http://127.0.0.1:' + server.address().port;
   const as = (pid, role) => async (method, path, body) => {
@@ -71,7 +86,7 @@ async function room({ enabled = true, leaseMs = 30_000, sweepMs = 0 } = {}) {
   const grant = (pid, allow = true) => api.host('POST', '/participants/' + pid + '/share', { allow });
   const settle = (ms = 150) => new Promise((r) => setTimeout(r, ms));
   const rows = async (sql, args = []) => (await db.pool.query(sql, args)).rows;
-  return { db, ids: { meetingId, host, g1, g2, outsider }, api, foreign, events, start, grant, settle, rows, ascs, sockets, close: async () => { ascs.close(); await new Promise((r) => server.close(r)); await db.drop(); } };
+  return { db, ids: { meetingId, host, g1, g2, outsider }, api, foreign, events, start, grant, settle, rows, ascs, sockets, faults, newInstance, startSecond, close: async () => { ascs.close(); for (const x of extra) x.close(); await new Promise((r) => server.close(r)); await db.drop(); } };
 }
 const withRoom = (opts, fn) => async () => { const r = await room(opts); try { await fn(r); } finally { await r.close(); } };
 
@@ -257,4 +272,100 @@ test('after a page reload the same person can start at once (no waiting for the 
   const fresh = await r.start('host'); assert.equal(fresh.status, 201);
   assert.ok(r.events.some((e) => e.type === 'share.stopped' && e.reason === 'replaced' && e.share.id === old.body.id));
   assert.equal((await r.api.host('GET', '/shares/current')).body.share.id, fresh.body.id);
+}));
+
+// ================= ASCS-M1.1: the server's own authority must not depend on a check that cannot fail =================
+const withdrawBehindAscsBack = (r, pid) => r.db.pool.query('UPDATE participants SET can_share=false WHERE id=$1', [pid]);       // the permission goes, but the route that would reconcile is never called
+
+test('M1.1 fail closed: a withdrawn permission that was never reconciled still cannot be used: the signalling gate refuses and the next heartbeat ends the share', withRoom({}, async (r) => {
+  await r.grant(r.ids.g1); const s = await r.start('g1'); assert.equal(s.status, 201);
+  await withdrawBehindAscsBack(r, r.ids.g1);
+  assert.equal(await r.ascs.ownsActive(r.ids.meetingId, r.ids.g1), false, 'the gate that announces a share to the room says no');
+  const hb = await r.api.g1('POST', '/shares/' + s.body.id + '/heartbeat'); assert.equal(hb.status, 409, 'a presenter who is no longer allowed cannot renew');
+  const row = (await r.rows('SELECT state,end_reason FROM meeting_shares WHERE id=$1', [s.body.id]))[0];
+  assert.deepEqual([row.state, row.end_reason], ['revoked', 'permission_withdrawn']);
+  assert.ok(r.events.some((e) => e.type === 'share.revoked' && e.reason === 'permission_withdrawn'));
+}));
+
+test('M1.1 a missed reconcile is corrected by the audit, also by a brand-new instance (a restart), and the host\'s own share is never touched', withRoom({}, async (r) => {
+  await r.grant(r.ids.g1); const mine = await r.start('g1');
+  await withdrawBehindAscsBack(r, r.ids.g1);
+  const restarted = r.newInstance();                                              // "the process restarted": it remembers nothing
+  assert.deepEqual(await restarted.reconcileAll(), { ended: 1, failed: 0 });
+  assert.equal((await r.rows('SELECT state FROM meeting_shares WHERE id=$1', [mine.body.id]))[0].state, 'revoked');
+  const hosts = await r.start('host'); assert.equal(hosts.status, 201);
+  assert.deepEqual(await restarted.reconcileAll(), { ended: 0, failed: 0 }, 'a share that is allowed stays');
+  assert.equal((await r.rows('SELECT state FROM meeting_shares WHERE id=$1', [hosts.body.id]))[0].state, 'active');
+}));
+
+test('M1.1 FAILURE INJECTION: when the share cannot be ended, the host is told (503), nothing can renew or announce it, and the audit ends it as soon as the database is back', withRoom({}, async (r) => {
+  await r.grant(r.ids.g1); const s = await r.start('g1');
+  r.faults.failConnect = 1000;                                                  // every ascs transaction now fails
+  const res = await r.grant(r.ids.g1, false);
+  assert.equal(res.status, 503); assert.match(res.body.error, /could not be confirmed/);
+  assert.equal((await r.rows('SELECT can_share FROM participants WHERE id=$1', [r.ids.g1]))[0].can_share, false, 'the permission itself WAS withdrawn');
+  assert.equal((await r.rows('SELECT state FROM meeting_shares WHERE id=$1', [s.body.id]))[0].state, 'active', 'the revoke could not be written yet ...');
+  assert.equal(await r.ascs.ownsActive(r.ids.meetingId, r.ids.g1), false, '... but the gate already refuses it');
+  const hb = await r.api.g1('POST', '/shares/' + s.body.id + '/heartbeat'); assert.notEqual(hb.status, 200, 'and it cannot be renewed');
+  assert.equal((await r.ascs.reconcileAll()).failed, 1, 'the audit reports that it could not do it either');
+  r.faults.failConnect = 0;                                                     // the database is back
+  assert.deepEqual(await r.ascs.reconcileAll(), { ended: 1, failed: 0 });
+  assert.equal((await r.rows('SELECT end_reason FROM meeting_shares WHERE id=$1', [s.body.id]))[0].end_reason, 'permission_withdrawn');
+}));
+
+test('M1.1 FAILURE INJECTION: a broken permission lookup fails CLOSED (guest share ended as authorization_unavailable; the host\'s own share, which needs no lookup, stays)', withRoom({}, async (r) => {
+  await r.grant(r.ids.g1); const guest = await r.start('g1');
+  r.faults.mayShareThrows = true;
+  assert.equal(await r.ascs.ownsActive(r.ids.meetingId, r.ids.g1), false);
+  assert.equal((await r.ascs.reconcileAll()).ended, 1);
+  assert.equal((await r.rows('SELECT end_reason FROM meeting_shares WHERE id=$1', [guest.body.id]))[0].end_reason, 'authorization_unavailable');
+  r.faults.mayShareThrows = false;
+  const host = await r.start('host'); assert.equal(host.status, 201); r.faults.mayShareThrows = true;
+  assert.deepEqual(await r.ascs.reconcileAll(), { ended: 0, failed: 0 }); assert.equal(await r.ascs.ownsActive(r.ids.meetingId, r.ids.host), true);
+}));
+
+test('M1.1 a person who is no longer admitted (what Shield does to a suspended person) loses the floor at once: the gate refuses and reconcile ends it', withRoom({}, async (r) => {
+  await r.grant(r.ids.g1); const s = await r.start('g1');
+  await r.db.pool.query("UPDATE participants SET admission='denied' WHERE id=$1", [r.ids.g1]);                      // exactly what startSessionGuard writes
+  assert.equal(await r.ascs.ownsActive(r.ids.meetingId, r.ids.g1), false);
+  assert.equal(await r.ascs.reconcileWithRetry(r.ids.meetingId), 1);
+  assert.equal((await r.rows('SELECT end_reason FROM meeting_shares WHERE id=$1', [s.body.id]))[0].end_reason, 'participant_removed');
+  assert.equal((await r.api.g1('POST', '/shares/' + s.body.id + '/heartbeat')).status, 403, 'and the token is useless: the person is not admitted any more');
+}));
+
+test('M1.1 DISCONNECTED CLIENTS: a presenter whose connection drops has seconds, not a whole lease; a reconnect within the grace keeps the share', withRoom({ leaseMs: 30_000, disconnectGraceMs: 1500 }, async (r) => {
+  await r.grant(r.ids.g1); const a = await r.start('g1');
+  assert.equal(await r.ascs.onDisconnect(r.ids.meetingId, r.ids.g1), 1);
+  const ms = new Date((await r.rows('SELECT lease_expires_at FROM meeting_shares WHERE id=$1', [a.body.id]))[0].lease_expires_at) - Date.now(); assert.ok(ms < 3000, 'the lease was cut to the grace period, not left at 30 s (' + ms + ' ms)');
+  assert.equal((await r.api.g1('POST', '/shares/' + a.body.id + '/heartbeat')).status, 200, 'it reconnected in time: the heartbeat gives it a full lease again');
+  await r.settle(2000); assert.equal((await r.rows('SELECT state FROM meeting_shares WHERE id=$1', [a.body.id]))[0].state, 'active', 'and it is still there after the grace');
+  await r.api.g1('DELETE', '/shares/' + a.body.id);
+  const b = await r.start('g1'); await r.ascs.onDisconnect(r.ids.meetingId, r.ids.g1); await r.settle(2000);               // this time nobody comes back
+  assert.equal(await r.ascs.sweepMeeting(r.ids.meetingId), 1);
+  assert.equal((await r.rows('SELECT end_reason FROM meeting_shares WHERE id=$1', [b.body.id]))[0].end_reason, 'lease_expired');
+  assert.ok(r.events.some((e) => e.type === 'share.stopped' && e.share.id === b.body.id && e.reason === 'lease_expired'), 'the room is told');
+}));
+
+test('M1.1 MALICIOUS CLIENT (server side): a client that ignores every stop message gets nothing from the server after a revoke and a withdrawal', withRoom({}, async (r) => {
+  const rid = randomUUID(); await r.grant(r.ids.g1); const s = await r.start('g1', { clientRequestId: rid });
+  assert.equal((await r.api.host('POST', '/shares/' + s.body.id + '/revoke')).body.revoked, true);
+  await r.grant(r.ids.g1, false);
+  // ... and now it behaves as if it never heard: keeps renewing, keeps announcing, keeps starting, keeps stopping
+  assert.equal((await r.api.g1('POST', '/shares/' + s.body.id + '/heartbeat')).status, 409);
+  assert.equal(await r.ascs.ownsActive(r.ids.meetingId, r.ids.g1), false);
+  const storm = await Promise.all(Array.from({ length: 20 }, () => r.start('g1'))); assert.ok(storm.every((x) => x.status === 403), JSON.stringify(storm.map((x) => x.status)));
+  assert.equal((await r.start('g1', { clientRequestId: rid })).status, 403, 'replaying the old request id does not bring the share back');
+  assert.equal((await r.rows("SELECT count(*)::int n FROM meeting_shares WHERE state='active'"))[0].n, 0);
+  assert.equal((await r.api.host('GET', '/shares/current')).body.share, null);
+}));
+
+test('M1.1 SIMULTANEOUS PRESENTERS across TWO live server instances on one database: never more than one active share', withRoom({}, async (r) => {
+  await r.grant(r.ids.g1); await r.grant(r.ids.g2);
+  const second = await r.startSecond();
+  const calls = []; for (let i = 0; i < 4; i++) for (const [pid, role, key] of [[r.ids.host, 'host', 'host'], [r.ids.g1, 'guest', 'g1'], [r.ids.g2, 'guest', 'g2']]) {
+    const caller = i % 2 ? second(pid, role) : r.api[key]; calls.push(caller('POST', '/shares', { kind: 'screen', mode: 'content', clientRequestId: randomUUID() }));
+  }
+  const res = await Promise.all(calls); assert.ok(res.every((x) => x.status === 201 || x.status === 409), JSON.stringify(res.map((x) => x.status)));
+  assert.equal((await r.rows("SELECT count(*)::int n FROM meeting_shares WHERE state='active'"))[0].n, 1);
+  const bad = await r.rows("SELECT a.id FROM meeting_shares a WHERE a.end_reason='replaced' AND NOT EXISTS (SELECT 1 FROM meeting_shares b WHERE b.owner_id=a.owner_id AND b.revision>a.revision)"); assert.equal(bad.length, 0, 'nobody displaced somebody else');
 }));
