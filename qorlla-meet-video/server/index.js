@@ -23,6 +23,8 @@ import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
 import { registerAiConsent } from './ai-consent.mjs';
 import { registerAscs } from './ascs.mjs';
+import { createRelayAuthority } from './relay-authority.mjs';
+import { createRelayHooks, registerRelayRoutes } from './ascs-relay.mjs';
 import { registerHandoff } from './handoff.mjs';
 import { registerHostControls } from './host-controls.mjs';
 import { registerRecording } from './recording.mjs';
@@ -405,10 +407,26 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
  audit(req.params.id,req.user.participantId,'meeting.ended'); res.json({ok:true});
 });
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
-const ASCS_ENABLED = process.env.ASCS_ENABLED === 'true';          // ASCS v1-v2 screen-share state. OFF unless switched on (docs/ASCS_V1_V2.md)
+// ASCS-M1.2: a dedicated, relay-enforced channel for screen media (docs/ASCS_M1_2_RELAY_ENFORCEMENT.md). OFF unless ASCS_RELAY_ENABLED=true. If it is on, an incomplete or invalid
+// configuration REFUSES TO START: Meet never runs with sharing that looks relay-enforced but is not.
+const RELAY_REQUESTED = process.env.ASCS_RELAY_ENABLED === 'true';
+let relayAuthority = null, relayHooks = null, relayGlue = null, RELAY_TURN_URLS = [];
+const ASCS_ENABLED = process.env.ASCS_ENABLED === 'true';
+if (RELAY_REQUESTED && !ASCS_ENABLED) throw new Error('ASCS_RELAY_ENABLED=true needs ASCS_ENABLED=true');
+const RELAY_ENABLED = RELAY_REQUESTED && ASCS_ENABLED;
+if (RELAY_ENABLED) {
+  const missing = ['RELAY_REDIS_HOST', 'RELAY_REDIS_PORT', 'RELAY_CLI_HOST', 'RELAY_CLI_PORT', 'RELAY_CLI_PASSWORD', 'RELAY_REALM', 'RELAY_TURN_URLS'].filter((k) => !process.env[k]);
+  if (missing.length) throw new Error('ASCS_RELAY_ENABLED=true needs ' + missing.join(', '));
+  RELAY_TURN_URLS = process.env.RELAY_TURN_URLS.split(',').map((u) => u.trim()).filter(Boolean);
+  if (!RELAY_TURN_URLS.length || RELAY_TURN_URLS.some((u) => !/^turns?:[^\s,]+$/i.test(u))) throw new Error('RELAY_TURN_URLS must be a comma-separated list of turn: or turns: URLs');
+  relayAuthority = createRelayAuthority({ db, redis: { host: process.env.RELAY_REDIS_HOST, port: Number(process.env.RELAY_REDIS_PORT), password: process.env.RELAY_REDIS_PASSWORD || null },
+    cli: { host: process.env.RELAY_CLI_HOST, port: Number(process.env.RELAY_CLI_PORT), password: process.env.RELAY_CLI_PASSWORD }, realm: process.env.RELAY_REALM, ttlSeconds: Number(process.env.RELAY_CREDENTIAL_TTL_SECONDS) || 300 });
+  relayHooks = createRelayHooks({ relay: relayAuthority });
+}          // ASCS v1-v2 screen-share state. OFF unless switched on (docs/ASCS_V1_V2.md)
 let ascs = null;                                                  // created just below; host-controls reports permission changes to it
-const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), ascsEnabled: ASCS_ENABLED, onPermissionChange: (meetingId) => ascs?.reconcileWithRetry(meetingId) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
-ascs = registerAscs({ app, io, db, auth, member, room, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), mayShare: (meetingId, pid, role) => hostControls.mayUse(meetingId, pid, role, 'share'), enabled: ASCS_ENABLED, leaseMs: Number(process.env.ASCS_LEASE_MS) || 30_000, sweepMs: Number(process.env.ASCS_SWEEP_MS) || 10_000, disconnectGraceMs: Number(process.env.ASCS_DISCONNECT_GRACE_MS) || 8_000 });
+const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), ascsEnabled: ASCS_ENABLED, relayEnabled: RELAY_ENABLED, onPermissionChange: (meetingId) => ascs?.reconcileWithRetry(meetingId) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
+ascs = registerAscs({ app, io, db, auth, member, room, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), mayShare: (meetingId, pid, role) => hostControls.mayUse(meetingId, pid, role, 'share'), enabled: ASCS_ENABLED, leaseMs: Number(process.env.ASCS_LEASE_MS) || 30_000, sweepMs: Number(process.env.ASCS_SWEEP_MS) || 10_000, disconnectGraceMs: Number(process.env.ASCS_DISCONNECT_GRACE_MS) || 8_000, onShareEnded: relayHooks?.onShareEnded, startGuard: relayHooks?.startGuard, onHeartbeat: relayHooks?.onHeartbeat });
+if (RELAY_ENABLED) relayGlue = registerRelayRoutes({ app, auth, member, ascs, relay: relayAuthority, db, turnUrls: RELAY_TURN_URLS, sweepMs: Number(process.env.ASCS_SWEEP_MS) || 10_000 });
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
@@ -437,7 +455,7 @@ io.use(async(socket,next)=>{
   socket.data.user=user;next();
  } catch { next(new Error('Unauthorized')); }
 });
-if(shield&&shieldCfg.enforce)startSessionGuard({io,db,client:shield,config:shieldCfg,onRevoked:(meetingId)=>ascs?ascs.reconcileWithRetry(meetingId):undefined});
+if(shield&&shieldCfg.enforce)startSessionGuard({io,db,client:shield,config:shieldCfg,onRevoked:(meetingId,participantId)=>Promise.all([ascs?ascs.reconcileWithRetry(meetingId):undefined,relayGlue?relayGlue.onParticipantRevoked(meetingId,participantId):undefined])});
 io.on('connection',socket=>{
  const u=socket.data.user, id=u.meetingId, pid=u.participantId;
  // Flood control: signalling is exempt (WebRTC negotiation bursts); every other event shares a sliding budget.
@@ -469,7 +487,7 @@ io.on('connection',socket=>{
  socket.to(room(id)).emit('participant-online',{participantId:pid,name:u.name,role:u.role});
  const isOnline=(target)=>roster.get(target);
  socket.on('signal',({to,data}={},ack)=>{
-  if(typeof to!=='string'||!data||!['offer','answer','candidate'].includes(data.type)) return ackError(ack,'Invalid signal');
+  if(typeof to!=='string'||!data||!['offer','answer','candidate','share-offer','share-answer','share-candidate'].includes(data.type)) return ackError(ack,'Invalid signal');
   const target=isOnline(to); if(!target) return ackError(ack,'Participant offline');
   io.to(target).emit('signal',{from:pid,data}); if(typeof ack==='function')ack({ok:true});
  });

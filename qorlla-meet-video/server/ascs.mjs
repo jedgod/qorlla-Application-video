@@ -21,7 +21,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 class HttpError extends Error { constructor(status, message, extra = {}) { super(message); this.status = status; this.extra = extra; } }
 
-export function registerAscs({ app, io, db, auth, member, room, socketOf, mayShare, enabled = false, leaseMs = 30_000, sweepMs = 10_000, disconnectGraceMs = 8_000 }) {
+// onShareEnded(event): awaited AFTER the commit whenever a share stops, is revoked or expires (the relay revokes the share's credentials and terminates its allocations). A failure is logged and
+// never fails the request: the relay's own reconciler finishes it. startGuard(): async, { ok:false, error } refuses a NEW share (fail closed when the relay cannot be controlled).
+export function registerAscs({ app, io, db, auth, member, room, socketOf, mayShare, enabled = false, leaseMs = 30_000, sweepMs = 10_000, disconnectGraceMs = 8_000, onShareEnded = null, startGuard = null, onHeartbeat = null }) {
   const PATHS = (suffix) => [`/api/meetings/:id/shares${suffix}`, `/api/v1/meetings/:id/shares${suffix}`];
   const gate = (req, res, next) => (enabled ? next() : res.status(404).json({ error: 'Not available' }));
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : res.status(403).json({ error: 'Only the host can do this' }));
@@ -45,7 +47,11 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
   };
   const bump = async (c, meetingId) => Number((await c.query('UPDATE meetings SET share_revision = share_revision + 1 WHERE id=$1 RETURNING share_revision', [meetingId])).rows[0].share_revision);
   const auditIn = (c, meetingId, pid, type, detail) => c.query('INSERT INTO audit_events(meeting_id, participant_id, event_type, detail) VALUES($1,$2,$3,$4)', [meetingId, pid, type, JSON.stringify(detail)]);
-  const emit = (events) => { for (const e of events) io.to(room(e.meetingId)).emit(e.type, e); };
+  const isEnd = (e) => (e.type === 'share.stopped' || e.type === 'share.revoked') && e.share && e.share.id;
+  const emit = (events) => {
+    for (const e of events) io.to(room(e.meetingId)).emit(e.type, e);
+    return Promise.all(events.filter(isEnd).map(async (e) => { try { await onShareEnded?.(e); } catch (err) { console.error('[ascs] ending the share\'s relay credentials failed (the relay reconciler will finish it):', err.message); } }));
+  };
   const ev = (type, row, extra = {}) => ({ type, meetingId: row.meeting_id, revision: Number(row.revision), share: shape(row), ...extra });
 
   /** Ends the active share(s) of a meeting that have an unsound basis: lease run out, or the meeting is over. Runs inside the caller's transaction (meeting row locked). */
@@ -98,6 +104,7 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
     if ((b.mode ?? 'content') !== 'content') throw new HttpError(400, 'Only the content mode is available');
     if (typeof b.clientRequestId !== 'string' || b.clientRequestId.length < 1 || b.clientRequestId.length > 128) throw new HttpError(400, 'A request id is required');
     if (req.user.role !== 'host' && !(await mayShare(meetingId, pid, req.user.role))) throw new HttpError(403, 'The host has not allowed you to share your screen');
+    if (startGuard) { const g = await startGuard(); if (g && g.ok === false) throw new HttpError(503, g.error || 'Screen sharing is unavailable right now'); }
     const out = await tx(async (c) => {
       const m = await lockMeeting(c, meetingId); if (m.ended_at) throw new HttpError(404, 'Meeting unavailable');
       const { rows: [again] } = await c.query('SELECT * FROM meeting_shares WHERE meeting_id=$1 AND owner_id=$2 AND request_id=$3', [meetingId, pid, b.clientRequestId]);
@@ -115,7 +122,7 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
       events.push(ev('share.started', r));
       return { status: 201, share: shape(r), events };
     });
-    emit(out.events); res.status(out.status).json(out.share);
+    await emit(out.events); res.status(out.status).json(out.share);
   }));
 
   // ---- the presenter's page renews the lease while it is capturing
@@ -126,7 +133,7 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
     if (!permitted) await reconcileWithRetry(meetingId).catch(() => {});
     const { rows: [r] } = permitted ? await db.query("UPDATE meeting_shares SET lease_expires_at = now() + ($4 || ' milliseconds')::interval WHERE id=$1 AND meeting_id=$2 AND owner_id=$3 AND state='active' AND lease_expires_at > now() RETURNING *", [sid, meetingId, req.user.participantId, String(leaseMs)]) : { rows: [] };
     const { rows: [m] } = await db.query('SELECT share_revision FROM meetings WHERE id=$1', [meetingId]);
-    if (r) return res.json({ leaseExpiresAt: r.lease_expires_at, revision: Number(m.share_revision) });
+    if (r) { Promise.resolve(onHeartbeat?.(sid, meetingId)).catch((e) => console.error('[ascs] heartbeat follow-up failed:', e.message)); return res.json({ leaseExpiresAt: r.lease_expires_at, revision: Number(m.share_revision) }); }
     await sweepMeeting(meetingId);                                                     // a lease that ran out is closed and announced now, not at the next sweep
     const { rows: [now] } = await db.query('SELECT state, owner_id FROM meeting_shares WHERE id=$1 AND meeting_id=$2', [sid, meetingId]);
     if (!now || now.owner_id !== req.user.participantId) throw new HttpError(404, 'No such share');
@@ -155,7 +162,7 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
       events.push({ type: 'share.updated', meetingId, revision: rev, share: null, nextPresenter: to });
       return { events, revoked, revision: rev };
     });
-    emit(out.events); const sid = socketOf?.(meetingId, to); if (sid) io.to(sid).emit('tools-changed', { refresh: true });
+    await emit(out.events); const sid = socketOf?.(meetingId, to); if (sid) io.to(sid).emit('tools-changed', { refresh: true });
     res.json({ revoked: out.revoked, next: to, revision: out.revision });
   }));
 
@@ -170,7 +177,7 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
       const events = await endIn(c, meetingId, sid, 'stopped', cur.owner_id === req.user.participantId ? 'stopped' : 'stopped_by_host', req.user.participantId);
       return { events, stopped: events.length > 0, revision: Number((await c.query('SELECT share_revision FROM meetings WHERE id=$1', [meetingId])).rows[0].share_revision) };
     });
-    emit(out.events); res.json({ stopped: out.stopped, revision: out.revision });
+    await emit(out.events); res.json({ stopped: out.stopped, revision: out.revision });
   }));
 
   // ---- the host takes the floor back
@@ -181,13 +188,13 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
       const events = await endIn(c, meetingId, sid, 'revoked', 'host_revoked', req.user.participantId);
       return { events, revoked: events.length > 0, revision: Number((await c.query('SELECT share_revision FROM meetings WHERE id=$1', [meetingId])).rows[0].share_revision) };
     });
-    emit(out.events); res.json({ revoked: out.revoked, revision: out.revision });
+    await emit(out.events); res.json({ revoked: out.revoked, revision: out.revision });
   }));
 
   // ---- internal: used by host-controls when a permission changes, by the sweeper, and by the signalling gate
   async function sweepMeeting(meetingId) {
     const events = await tx(async (c) => { const m = await lockMeeting(c, meetingId).catch(() => null); return m ? expireIn(c, meetingId, !!m.ended_at) : []; });
-    emit(events); return events.length;
+    await emit(events); return events.length;
   }
   /** The permission to share may have been withdrawn (a person's grant removed, or sharing switched off for everyone): end a share that is no longer allowed. */
   async function reconcile(meetingId) {
@@ -197,7 +204,7 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
       const v = await allowedNow(c, meetingId, a.owner_id); if (v.ok) return [];
       return endIn(c, meetingId, a.id, 'revoked', v.reason, null);
     });
-    emit(events); return events.length;
+    await emit(events); return events.length;
   }
   /** reconcile, retried a few times; THROWS if it still cannot be done, so the caller can say so instead of pretending (the sweeper then keeps trying). */
   async function reconcileWithRetry(meetingId, tries = 3) {
@@ -231,5 +238,7 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
       } catch (e) { console.error('[ascs] sweep failed:', e.message); }
     }, sweepMs); timer.unref?.();
   }
-  return { enabled, leaseMs, ownsActive, reconcile, reconcileWithRetry, reconcileAll, onDisconnect, sweepMeeting, close: () => { if (timer) clearInterval(timer); } };
+  /** Is this exact share the live one right now? (the relay asks before AND after it issues a credential) */
+  const isShareLive = async (meetingId, shareId) => { const r = await currentRow(db, meetingId); return !!r && r.id === shareId; };
+  return { enabled, leaseMs, isShareLive, allowedNow: (meetingId, pid) => allowedNow(db, meetingId, pid), shareOwner: async (meetingId, shareId) => (await db.query('SELECT owner_id FROM meeting_shares WHERE id=$1 AND meeting_id=$2', [shareId, meetingId])).rows[0]?.owner_id || null, ownsActive, reconcile, reconcileWithRetry, reconcileAll, onDisconnect, sweepMeeting, close: () => { if (timer) clearInterval(timer); } };
 }

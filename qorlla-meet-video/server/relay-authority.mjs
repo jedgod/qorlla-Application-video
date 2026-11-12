@@ -112,8 +112,18 @@ export function createRelayAuthority({ db, redis, cli, realm, ttlSeconds = 300, 
     return { expiredNow: expired.length, pending: pending.length, terminated: r.terminated, errors: r.errors };
   }
 
+  /**
+   * The share is ALIVE (its presenter renewed the lease): its credentials live on. Without this a share would be terminated when its FIRST credential expires: an allocation outlives its
+   * credential (measured), and reconcile() terminates the allocations of expired credentials. A failure to extend the Redis TTL is harmless to media already flowing; the next heartbeat retries.
+   */
+  async function renewShare(shareId) {
+    const { rows } = await db.query("UPDATE relay_credentials SET expires_at = now() + ($2 || ' seconds')::interval WHERE share_id = $1 AND revoked_at IS NULL RETURNING username", [shareId, String(ttl)]);
+    for (const { username } of rows) { try { await respCommand(['EXPIRE', keyOf(username), String(ttl)], redisCfg); } catch { /* retried at the next heartbeat */ } }
+    return rows.length;
+  }
+
   /** The live relay allocations of a credential, as coturn reports them. */
   async function sessionsOf(username) { return (await turnCli(['ps ' + username], cliCfg)).flatMap(parseSessions).filter((s) => s.user === username); }
 
-  return { ttlSeconds: ttl, realm, keyOf, health, issue, terminate, revokeUsernames, revokeShare, revokeParticipant, revokeMeeting, reconcile, sessionsOf };
+  return { ttlSeconds: ttl, realm, keyOf, health, issue, renewShare, terminate, revokeUsernames, revokeShare, revokeParticipant, revokeMeeting, reconcile, sessionsOf };
 }

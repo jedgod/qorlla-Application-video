@@ -33,7 +33,7 @@ function renderPeople(){
 function openTab(tab){shell.tab=tab;document.querySelectorAll('[data-tab]').forEach(b=>{const on=b.dataset.tab===tab;b.classList.toggle('selected',on);b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1;});document.querySelectorAll('.tab-view').forEach(v=>v.classList.toggle('hidden',v.id!=='tab-'+tab));}
 async function startMeeting(payload){Object.assign(state,{token:payload.token,meetingId:payload.meetingId,participantId:payload.participantId});const claims=JSON.parse(atob(payload.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));state.role=claims.role;$('recordBtn').classList.toggle('hidden',claims.role!=='host');state.name=claims.name;state.names.set(state.participantId,state.name);state.start=Date.now();sessionStorage.setItem('qorlla-session',JSON.stringify({token:state.token,meetingId:state.meetingId,participantId:state.participantId}));await waitForAdmission();                                                                    // a guest in the waiting room cannot see anything until the host admits them
   await refreshIce();
-  const data=await api('/meetings/'+state.meetingId);state.settings=data.waiting_room===undefined?null:{waitingRoom:data.waiting_room,joinBeforeHost:data.join_before_host,lockOnHostJoin:data.lock_on_host_join,locked:data.locked};$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=(c=>/^\d{11}$/.test(c)?c.slice(0,3)+' '+c.slice(3,7)+' '+c.slice(7):c)(data.meeting_code||state.meetingId.slice(0,8));state.meetingInfo='Meeting ID: '+(data.meeting_code||state.meetingId);$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);try{const cfg=await api('/config');if(!state.iceServers||!state.iceServers.length)state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];state.mainOrigin=cfg.mainOrigin||'';}catch{}try{state.ascs=(await api('/meetings/'+state.meetingId+'/tools')).ascs===true;}catch{}await startMedia();connect();state.tools=data.tools||state.tools;applyTools();if(state.role==='host')loadTools();collab.load();loadWaiting();}
+  const data=await api('/meetings/'+state.meetingId);state.settings=data.waiting_room===undefined?null:{waitingRoom:data.waiting_room,joinBeforeHost:data.join_before_host,lockOnHostJoin:data.lock_on_host_join,locked:data.locked};$('landing').classList.add('hidden');$('app').classList.remove('hidden');$('roomTitle').textContent=data.title;$('roomId').textContent=(c=>/^\d{11}$/.test(c)?c.slice(0,3)+' '+c.slice(3,7)+' '+c.slice(7):c)(data.meeting_code||state.meetingId.slice(0,8));state.meetingInfo='Meeting ID: '+(data.meeting_code||state.meetingId);$('endBtn').classList.toggle('hidden',state.role!=='host');data.messages.forEach(addMessage);try{const cfg=await api('/config');if(!state.iceServers||!state.iceServers.length)state.iceServers=cfg.iceServers;state.returnOrigins=cfg.returnOrigins||[];state.mainOrigin=cfg.mainOrigin||'';}catch{}try{const tl=await api('/meetings/'+state.meetingId+'/tools');state.ascs=tl.ascs===true;state.relay=tl.relay===true;}catch{}await startMedia();connect();state.tools=data.tools||state.tools;applyTools();if(state.role==='host')loadTools();collab.load();loadWaiting();}
 const MEDIA_CONSTRAINTS={audio:{echoCancellation:true,noiseSuppression:true},video:{width:{ideal:1280},height:{ideal:720}}};
 function mediaReason(e){if(!navigator.mediaDevices?.getUserMedia)return 'this page must be opened over HTTPS (https://…:4843) to use camera/microphone';const n=e?.name||'';if(n==='NotAllowedError'||n==='SecurityError')return 'permission was blocked - click the lock icon in the address bar, allow it, then try again';if(n==='NotFoundError'||n==='OverconstrainedError')return 'no device found';if(n==='NotReadableError'||n==='AbortError')return 'device is in use by another app or tab';return e?.message||'unknown error';}
 async function getTrack(kind){if(!navigator.mediaDevices?.getUserMedia)throw new Error('insecure');const s=await navigator.mediaDevices.getUserMedia(kind==='audio'?{audio:MEDIA_CONSTRAINTS.audio}:{video:MEDIA_CONSTRAINTS.video});return s.getTracks()[0];}
@@ -47,7 +47,7 @@ function updateControls(){
 function connect(){state.socket=io({path:BASE+'socket.io',auth:{token:state.token},transports:['websocket','polling']});const s=state.socket;s.on('connect',()=>{state.reconnected=!!state.everConnected;state.everConnected=true;net.signaling='connected';net.lostAt=0;renderNet();if(state.reconnected)collab.load();s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});});s.on('connect_error',e=>{if(!net.lostAt)net.lostAt=Date.now();net.signaling=!s.active||!s.io.reconnection()?'disconnected':(state.everConnected?'reconnecting':'connecting');renderNet();if(!state.everConnected)notify('Connection error: '+e.message);});s.on('disconnect',reason=>{net.lostAt=Date.now();net.signaling=s.active&&s.io.reconnection()?'reconnecting':'disconnected';renderNet();if(reason==='io server disconnect')notify('You were disconnected from the meeting (another session may have joined as you).');});s.on('roster',ids=>{state.roster=new Set([...ids,state.participantId]);renderPeople();
   for(const id of [...state.peers.keys()])if(!state.roster.has(id))removePeer(id);                                  // people who left while we were offline
   for(const id of ids)if(id!==state.participantId){if(state.reconnected)dropPeer(id);createPeer(id,true);}          // after a reconnect every peer connection is rebuilt (the tile stays: no duplicates)
-  state.reconnected=false;renderNet();});s.on('participant-online',p=>{s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});announce(p.name+' joined');state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');});s.on('participant-offline',p=>{announce((state.names.get(p.participantId)||'A participant')+' left');state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();renderNet();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('names',map=>{for(const [pid,n] of Object.entries(map)){state.names.set(pid,n);const t=$('tile-'+pid);if(t&&pid!==state.participantId){t.querySelector('.nameplate').textContent=n;t.querySelector('.avatar').textContent=n.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();}}renderPeople();});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('ai-consent-request',n=>aiPrompt(n));s.on('ai-consent-closed',()=>{if(!document.querySelector('#rcModal[data-ai]'))return;rcClose();notify('The host closed the Qorlla AI request.');});s.on('media-state',({participantId,sharing,mic,cam})=>{if(participantId===state.participantId)return;const t=$('tile-'+participantId);if(t){t.classList.toggle('sharing-remote',!!sharing);setTileMedia(participantId,mic,cam);}else pendingMedia.set(participantId,{sharing,mic,cam});});s.on('hand',({participantId,raised})=>{setHand(participantId,raised);if(raised)announce((state.names.get(participantId)||'Someone')+' raised their hand');});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));collab.attach(s);attachHostControls(s);s.on('limit-reminder',limitReminder);s.on('meeting-limit',endedByLimit);s.on('waiting-changed',()=>loadWaiting());s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
+  state.reconnected=false;renderNet();});s.on('participant-online',p=>{s.emit('media-state',{mic:state.mic,cam:state.cam,sharing:!!state.screen});announce(p.name+' joined');state.roster.add(p.participantId);state.names.set(p.participantId,p.name);tile(p.participantId,p.name);renderPeople();notify(p.name+' joined');if(state.relay&&state.screen&&state.relayCreds)openShareToViewer(p.participantId);});s.on('participant-offline',p=>{announce((state.names.get(p.participantId)||'A participant')+' left');state.roster.delete(p.participantId);removePeer(p.participantId);renderPeople();renderNet();});s.on('signal',async({from,data})=>{try{await onSignal(from,data);}catch(e){console.error(e);notify('Media negotiation failed');}});s.on('names',map=>{for(const [pid,n] of Object.entries(map)){state.names.set(pid,n);const t=$('tile-'+pid);if(t&&pid!==state.participantId){t.querySelector('.nameplate').textContent=n;t.querySelector('.avatar').textContent=n.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();}}renderPeople();});s.on('chat',addMessage);s.on('recording-state',st=>recState(st));s.on('ai-consent-request',n=>aiPrompt(n));s.on('ai-consent-closed',()=>{if(!document.querySelector('#rcModal[data-ai]'))return;rcClose();notify('The host closed the Qorlla AI request.');});s.on('media-state',({participantId,sharing,mic,cam})=>{if(participantId===state.participantId)return;const t=$('tile-'+participantId);if(t){t.classList.toggle('sharing-remote',!!sharing);setTileMedia(participantId,mic,cam);}else pendingMedia.set(participantId,{sharing,mic,cam});});s.on('hand',({participantId,raised})=>{setHand(participantId,raised);if(raised)announce((state.names.get(participantId)||'Someone')+' raised their hand');});s.on('reaction',({name,emoji})=>notify(name+' '+emoji));collab.attach(s);attachHostControls(s);s.on('limit-reminder',limitReminder);s.on('meeting-limit',endedByLimit);s.on('waiting-changed',()=>loadWaiting());s.on('meeting-ended',()=>{notify('Host ended the meeting');setTimeout(()=>leave(),1300);});}
 // One RTCPeerConnection per remote participant. The side that makes the offer owns the pair's "epoch"; every signal carries it, so messages from an
 // older connection (before a reconnect) are ignored instead of corrupting the new one. ICE restarts reuse the epoch; a rebuilt connection gets a new one.
 const ICE_GRACE_MS=4000,MAX_RESTARTS=3;
@@ -62,8 +62,8 @@ function createPeer(id,initiator=false){
   // Always have an audio AND a video slot, even with no camera or microphone: a device (or a shared screen) that arrives later is then sent with replaceTrack,
   // without renegotiating (this page negotiates once per connection). Without the slot a guest whose camera failed could never share their screen.
   {const have=new Set(state.stream.getTracks().map(t=>t.kind));for(const k of ['audio','video'])if(!have.has(k))pc.addTransceiver(k,{direction:'sendrecv'});}
-  if(state.ascs)pc._shareAudio=pc.addTransceiver('audio',{direction:'sendrecv'});
-  if(state.screen){const st=state.screen.getVideoTracks()[0],vs=videoSender(pc),at=state.screen.getAudioTracks()[0];if(st&&vs)vs.replaceTrack(st).catch(()=>{});if(at&&pc._shareAudio)pc._shareAudio.sender.replaceTrack(at).catch(()=>{});}   // someone who joins while you present sees (and hears) the share
+  if(state.ascs&&!state.relay)pc._shareAudio=pc.addTransceiver('audio',{direction:'sendrecv'});
+  if(state.screen&&!state.relay){const st=state.screen.getVideoTracks()[0],vs=videoSender(pc),at=state.screen.getAudioTracks()[0];if(st&&vs)vs.replaceTrack(st).catch(()=>{});if(at&&pc._shareAudio)pc._shareAudio.sender.replaceTrack(at).catch(()=>{});}   // someone who joins while you present sees (and hears) the share
   pc.onicecandidate=e=>{if(e.candidate)sendSignal(id,{type:'candidate',candidate:e.candidate,epoch:pc._epoch||pc._remoteEpoch});};
   pc.ontrack=e=>{const rs=pc._remote||(pc._remote=new MediaStream());if(!rs.getTracks().includes(e.track))rs.addTrack(e.track);setVideo(id,rs);};   // one stream per person: a slot without a sender stream has no stream of its own
   pc.onconnectionstatechange=()=>{
@@ -86,6 +86,7 @@ function recoverPeer(id,pc){
   if(pc._epoch&&pc.signalingState==='stable')offerTo(id,pc,true);else if(!pc._epoch)sendSignal(id,{type:'restart',epoch:pc._remoteEpoch});
 }
 async function onSignal(id,data){
+  if(data&&typeof data.type==='string'&&data.type.startsWith('share-'))return onShareSignal(id,data);          // the dedicated relay-only share channel (ASCS-M1.2)
   let pc=state.peers.get(id);
   if(data.type==='offer'){
     if(pc&&pc._epoch){                                                                  // both sides offered at once: the lower id yields, the other keeps its offer
@@ -128,7 +129,7 @@ function renderNet(){
 setInterval(renderNet,1000);
 window.addEventListener('offline',()=>{net.online=false;renderNet();});
 window.addEventListener('online',()=>{net.online=true;if(state.socket&&!state.socket.connected&&state.socket.active===false)state.socket.connect();for(const [id,pc] of state.peers)if(pc.connectionState!=='connected')recoverPeer(id,pc);renderNet();});
-async function leave(){if(state.recording)await stopRecording();state.socket?.disconnect();state.peers.forEach(pc=>pc.close());state.stream?.getTracks().forEach(t=>t.stop());state.screen?.getTracks().forEach(t=>t.stop());sessionStorage.removeItem('qorlla-session');location.href=safeReturn(returnRaw)||BASE;}
+async function leave(){if(state.recording)await stopRecording();state.socket?.disconnect();closeShareOut();for(const k of [...state.shareIn.keys()])closeShareIn(k);state.peers.forEach(pc=>pc.close());state.stream?.getTracks().forEach(t=>t.stop());state.screen?.getTracks().forEach(t=>t.stop());sessionStorage.removeItem('qorlla-session');location.href=safeReturn(returnRaw)||BASE;}
 $('createBtn').onclick=async()=>{try{const p=await api('/meetings','POST',{title:$('meetingTitle').value,name:$('displayName').value,passcode:$('newPasscode').value});await startMeeting(p);}catch(e){error(e);}};
 $('joinBtn').onclick=async()=>{try{const p=await api('/meetings/'+encodeURIComponent($('meetingId').value.trim())+'/join','POST',{name:$('displayName').value,passcode:$('joinPasscode').value});await startMeeting(p);}catch(e){error(e);}};
 $('chatForm').onsubmit=e=>{e.preventDefault();const input=$('chatText');if(!input.value.trim())return;state.socket.emit('chat',input.value,r=>{if(r?.ok)input.value='';else notify(r?.error||'Chat failed');});};
@@ -160,7 +161,8 @@ function startBeat(leaseExpiresAt){
 }
 async function endShare(opts={}){
   if(!state.screen)return;const screen=state.screen;state.screen=null;const sid=state.shareId;state.shareId=null;stopBeat();screen.getTracks().forEach(t=>t.stop());
-  for(const pc of state.peers.values()){const sender=videoSender(pc);if(sender)await sender.replaceTrack(state.shareOld||null).catch(()=>{});if(pc._shareAudio)await pc._shareAudio.sender.replaceTrack(null).catch(()=>{});}
+  closeShareOut();
+  if(!state.relay)for(const pc of state.peers.values()){const sender=videoSender(pc);if(sender)await sender.replaceTrack(state.shareOld||null).catch(()=>{});if(pc._shareAudio)await pc._shareAudio.sender.replaceTrack(null).catch(()=>{});}
   state.shareOld=null;REC.shareVideo=null;showLocalShare(false);setVideo(state.participantId,state.stream,true);
   $('shareBtn').querySelector('span').textContent='Share';$('shareBtn').classList.remove('on');$('shareBtn').setAttribute('aria-pressed','false');
   state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:false});updateControls();
@@ -172,11 +174,62 @@ async function endShare(opts={}){
 async function publishScreen(screen){
   state.screen=screen;const track=screen.getVideoTracks()[0];state.shareOld=state.stream.getVideoTracks()[0]||null;
   const audio=screen.getAudioTracks()[0]||null;
-  for(const pc of state.peers.values()){const sender=videoSender(pc);if(sender)await sender.replaceTrack(track).catch(()=>{});if(audio&&pc._shareAudio)await pc._shareAudio.sender.replaceTrack(audio).catch(()=>{});}
+  if(state.relay){try{await openShareChannels();}catch(e){state.screen=null;state.shareOld=null;throw e;}}          // the screen goes ONLY through relay-only connections whose credentials the server issued for this share
+  else for(const pc of state.peers.values()){const sender=videoSender(pc);if(sender)await sender.replaceTrack(track).catch(()=>{});if(audio&&pc._shareAudio)await pc._shareAudio.sender.replaceTrack(audio).catch(()=>{});}
   showLocalShare(true);REC.shareVideo=shareVideoFor(track);
   $('shareBtn').querySelector('span').textContent='Stop share';$('shareBtn').classList.add('on');$('shareBtn').setAttribute('aria-pressed','true');
   state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:true});
   track.onended=()=>{endShare();};          // the browser's own "Stop sharing" bar
+}
+// ---- THE RELAY-ENFORCED SHARE CHANNEL (ASCS-M1.2). One dedicated, relay-only RTCPeerConnection per viewer, with TURN credentials the SERVER issued for this meeting + person + share.
+// The server decides the role from who owns the share. When the share ends (host, permission, Shield, lease) the server deletes the credentials and cancels the relay allocations, so a page that
+// ignores every message still stops receiving/sending on this channel, and cannot reconnect: a new allocation needs a credential, and a credential needs a fresh authorization.
+async function fetchRelayCredentials(shareId){return api('/meetings/'+state.meetingId+'/shares/'+shareId+'/relay-credentials','POST',{});}
+async function openShareChannels(){
+  const c=await fetchRelayCredentials(state.shareId);state.relayCreds={shareId:state.shareId,config:{iceServers:c.iceServers,iceTransportPolicy:'relay'}};
+  for(const id of state.peers.keys())openShareToViewer(id);
+}
+async function openShareToViewer(viewerId,attempt=0){
+  if(!state.screen||!state.relayCreds||state.shareOut.has(viewerId))return;
+  const shareId=state.relayCreds.shareId,pc=new RTCPeerConnection(state.relayCreds.config);pc._queue=[];pc._shareId=shareId;pc._attempt=attempt;state.shareOut.set(viewerId,pc);
+  for(const t of state.screen.getTracks())pc.addTrack(t,state.screen);
+  pc.onicecandidate=e=>{if(e.candidate)sendSignal(viewerId,{type:'share-candidate',shareId,candidate:e.candidate});};
+  pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed')recoverShareOut(viewerId,pc);};
+  try{const o=await pc.createOffer();await pc.setLocalDescription(o);sendSignal(viewerId,{type:'share-offer',shareId,sdp:pc.localDescription});}catch(e){console.warn('share offer failed',e);}
+}
+// a share connection that failed: ask the server for FRESH credentials (this is the re-authorization) and start over; if the server refuses, the share is over for this viewer
+async function recoverShareOut(viewerId,pc){
+  if(state.shareOut.get(viewerId)!==pc)return;state.shareOut.delete(viewerId);try{pc.close();}catch{}
+  if(!state.screen||!state.shareId||pc._attempt>=3)return;
+  try{const c=await fetchRelayCredentials(state.shareId);state.relayCreds={shareId:state.shareId,config:{iceServers:c.iceServers,iceTransportPolicy:'relay'}};}catch{return;}
+  openShareToViewer(viewerId,pc._attempt+1);
+}
+function closeShareOut(){for(const pc of state.shareOut.values()){pc.onconnectionstatechange=pc.onicecandidate=null;try{pc.close();}catch{}}state.shareOut.clear();state.relayCreds=null;}
+function closeShareIn(presenterId,shareId){
+  const pc=state.shareIn.get(presenterId);if(!pc||(shareId&&pc._shareId!==shareId))return;
+  pc.onconnectionstatechange=pc.onicecandidate=pc.ontrack=null;try{pc.close();}catch{}state.shareIn.delete(presenterId);
+  const cam=state.peers.get(presenterId)?._remote;if(cam)setVideo(presenterId,cam);                  // the tile goes back to the person's camera
+}
+// signalling for the share channel. The peer is NOT trusted: who presents is what the SERVER says.
+async function onShareSignal(id,data){
+  if(typeof data.shareId!=='string')return;
+  if(data.type==='share-offer'){
+    if(id===state.participantId)return;
+    if(state.presenterId!==id||state.presenterShareId!==data.shareId)await reconcileShares();
+    if(state.presenterId!==id||state.presenterShareId!==data.shareId)return;                              // not the presenter the server knows: ignored
+    closeShareIn(id);
+    let c;try{c=await fetchRelayCredentials(data.shareId);}catch(e){notify('The shared screen could not be received: '+e.message);return;}
+    const pc=new RTCPeerConnection({iceServers:c.iceServers,iceTransportPolicy:'relay'});pc._queue=[];pc._shareId=data.shareId;state.shareIn.set(id,pc);
+    pc.onicecandidate=e=>{if(e.candidate)sendSignal(id,{type:'share-candidate',shareId:data.shareId,candidate:e.candidate});};
+    pc.ontrack=e=>{const rs=pc._remote||(pc._remote=new MediaStream());if(!rs.getTracks().includes(e.track))rs.addTrack(e.track);setVideo(id,rs);};   // the screen replaces the camera in the presenter's tile while it runs
+    await pc.setRemoteDescription(data.sdp);
+    for(const x of [...(state.shareEarly.get(id)||[]).filter((y)=>y.shareId===data.shareId).map((y)=>y.candidate),...pc._queue.splice(0)])await pc.addIceCandidate(x).catch(()=>{});state.shareEarly.delete(id);
+    const a=await pc.createAnswer();await pc.setLocalDescription(a);sendSignal(id,{type:'share-answer',shareId:data.shareId,sdp:pc.localDescription});return;
+  }
+  const pc=state.shareOut.get(id)||state.shareIn.get(id);
+  if(!pc||pc._shareId!==data.shareId){if(data.type==='share-candidate'){const e=state.shareEarly.get(id)||[];e.push({shareId:data.shareId,candidate:data.candidate});state.shareEarly.set(id,e.slice(-40));}return;}   // candidates that beat the offer wait for it
+  if(data.type==='share-answer'){if(pc.signalingState==='have-local-offer'){await pc.setRemoteDescription(data.sdp);for(const x of pc._queue.splice(0))await pc.addIceCandidate(x).catch(()=>{});}}
+  else if(data.type==='share-candidate'){if(pc.remoteDescription)await pc.addIceCandidate(data.candidate).catch(()=>{});else pc._queue.push(data.candidate);}
 }
 async function startShareLegacy(){try{await publishScreen(await getScreen());}catch(e){notify('Screen share unavailable: '+shareReason(e));}}
 async function startAscsShare(kind,wantAudio=false){
@@ -223,6 +276,7 @@ function onShareEvent(m){
   const sh=m.share,ended=m.type==='share.stopped'||m.type==='share.revoked';
   if(m.type==='share.started'&&sh){state.presenterId=sh.ownerId;state.presenterShareId=sh.id;}
   else if(ended&&sh&&sh.id===state.presenterShareId){state.presenterId=null;state.presenterShareId=null;}
+  if(ended&&sh)closeShareIn(sh.ownerId,sh.id);
   if(ended&&sh&&sh.ownerId===state.participantId&&sh.id===state.shareId){
     endShare({server:false});const why=SHARE_END_TEXT[m.reason];if(why){notify(why);announce(why);}
   }
@@ -798,7 +852,7 @@ function endedByLimit(r){
 //   Guests see Share, Polls, Breakout rooms and Whiteboard only after the host switches each one on (or, for Share, grants it to them personally).
 //   The host can mute a guest, mute everyone, or ask a guest to unmute (a microphone is never switched on remotely: the guest decides).
 // ---------------------------------------------------------------------------------------------------------------------------------------------
-state.tools={share:false,polls:false,breakout:false,whiteboard:false};state.guestTools={};state.sharers=new Set();state.ascs=false;state.shareId=null;state.shareRev=0;state.presenterId=null;state.presenterShareId=null;state.shareStarting=false;state.shareBeat=null;state.shareLastOk=0;
+state.tools={share:false,polls:false,breakout:false,whiteboard:false};state.guestTools={};state.sharers=new Set();state.ascs=false;state.shareId=null;state.shareRev=0;state.presenterId=null;state.presenterShareId=null;state.shareStarting=false;state.shareBeat=null;state.shareLastOk=0;state.relay=false;state.relayCreds=null;state.shareOut=new Map();state.shareIn=new Map();state.shareEarly=new Map();
 function applyTools(){
   const host=state.role==='host',t=state.tools||{};
   $('shareBtn').classList.toggle('hidden',!host&&!t.share);
@@ -808,7 +862,7 @@ function applyTools(){
   try{collab.refreshMore();}catch(e){/* tools panel not built yet */}
   renderPeople();
 }
-async function loadTools(){try{const d=await api('/meetings/'+state.meetingId+'/tools');state.tools=d.tools;state.guestTools=d.guestTools||{};state.sharers=new Set(d.sharers||[]);state.ascs=d.ascs===true;}catch(e){/* keep what we have */}applyTools();if(state.ascs&&!loadTools.seen){loadTools.seen=true;reconcileShares();}}
+async function loadTools(){try{const d=await api('/meetings/'+state.meetingId+'/tools');state.tools=d.tools;state.guestTools=d.guestTools||{};state.sharers=new Set(d.sharers||[]);state.ascs=d.ascs===true;state.relay=d.relay===true;}catch(e){/* keep what we have */}applyTools();if(state.ascs&&!loadTools.seen){loadTools.seen=true;reconcileShares();}}
 function askUnmute(){
   rcModal('The host asks you to unmute',box=>{
     box.append(rcEl('p','rc-lead','The host would like you to turn your microphone on.'),rcEl('p','rc-note','Your microphone only comes on if you choose to.'));

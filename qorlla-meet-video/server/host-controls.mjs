@@ -7,7 +7,7 @@
 export const TOOLS = ['share', 'polls', 'breakout', 'whiteboard'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf, ascsEnabled = false, onPermissionChange = null }) {
+export function registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf, ascsEnabled = false, relayEnabled = false, onPermissionChange = null }) {
   // onPermissionChange(meetingId): called AFTER a permission to share was changed, so a share that is no longer allowed is ended before the host's request returns.
   // A failure here is logged and never fails the request (the permission itself has already been saved).
   // It returns false when the follow-up could not be done: the route then says so (503) instead of pretending the share is over. The permission itself is already saved, and
@@ -28,7 +28,7 @@ export function registerHostControls({ app, io, db, auth, member, fail, room, au
 
   app.get(['/api/meetings/:id/tools', '/api/v1/meetings/:id/tools'], auth, member, guard(async (req, res) => {
     const tools = await effective(req.params.id, req.user.participantId, req.user.role);
-    const out = { tools, ascs: ascsEnabled === true };
+    const out = { tools, ascs: ascsEnabled === true, relay: relayEnabled === true };
     if (req.user.role === 'host') {
       const { rows: [m] } = await db.query('SELECT guest_tools FROM meetings WHERE id=$1', [req.params.id]); out.guestTools = clean(m?.guest_tools);
       out.sharers = (await db.query("SELECT id AS \"participantId\" FROM participants WHERE meeting_id=$1 AND can_share", [req.params.id])).rows.map((r) => r.participantId);
