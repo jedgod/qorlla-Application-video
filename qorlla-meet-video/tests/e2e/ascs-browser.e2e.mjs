@@ -12,7 +12,7 @@ import pg from 'pg';
 
 const here = dirname(fileURLToPath(import.meta.url)), ROOT = join(here, '..', '..'), SQL = join(ROOT, 'sql');
 const URL = process.env.TEST_PG_URL || 'postgres://postgres:postgres@127.0.0.1:25611/postgres';
-const { chromium } = createRequire(join(process.env.PLAYWRIGHT_DIR || process.cwd(), 'package.json'))('playwright');
+const { chromium, devices } = createRequire(join(process.env.PLAYWRIGHT_DIR || process.cwd(), 'package.json'))('playwright');
 const ORDER = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', ...readdirSync(SQL).filter((f) => /^v4_\d+_/.test(f)).sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]))];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const SHARE_W = 416;                                  // the width of the stubbed screen on the receiving side; anything else is a camera
@@ -309,6 +309,69 @@ async function main() {
     }
     }
 
+    // ---------------- H. M1.3 CERTIFICATION in REAL pages against the HARDENED relay (tests/cert/relay-hardened-up.sh; RELAY_CERT=1): reconnects, allocation loss, reload, concurrent sharing, malicious viewer, mobile emulation
+    if (run('H')) {
+    if (!process.env.RELAY_CERT) console.log('H. SKIPPED (start tests/cert/relay-hardened-up.sh and set RELAY_CERT=1)');
+    else {
+      console.log('H. real pages, hardened relay (M1.3)');
+      const sec = Object.fromEntries(readFileSync(join(ROOT, 'tests', 'cert', '.relay-secrets.env'), 'utf8').split('\n').filter(Boolean).map((l) => l.split(/=(.*)/s).slice(0, 2)));
+      const relayEnv = { ASCS_RELAY_ENABLED: 'true', ASCS_SWEEP_MS: '1000', RELAY_REDIS_HOST: '127.0.0.1', RELAY_REDIS_PORT: '36391', RELAY_REDIS_PASSWORD: sec.RELAY_REDIS_PASSWORD, RELAY_CLI_HOST: '127.0.0.1', RELAY_CLI_PORT: '35791', RELAY_CLI_PASSWORD: sec.RELAY_CLI_PASSWORD, RELAY_REALM: 'qorlla.cert', RELAY_TURN_URLS: 'turn:' + sec.LAN_IP + ':34791?transport=udp', RELAY_CREDENTIAL_TTL_SECONDS: '300' };
+      const cliH = (cmds) => turnCli(cmds, { port: 35791, password: sec.RELAY_CLI_PASSWORD });
+      const srvH = await bootServer({ ascs: true, port: PORT + 6, extraEnv: relayEnv, leaseMs: 15000 });
+      const startShare = async (page) => { await page.click('#shareBtn'); await page.getByRole('button', { name: 'Start sharing' }).click(); await waitFor(() => isSharing(page)); };
+      const flowsAgain = (page, n = 15, ms = 60000) => waitFor(async () => { const a = await screenFrames(page); await wait(2500); return (await screenFrames(page)) - a > n ? 1 : 0; }, ms, 500);
+      try {
+        // ---- H1: the allocations are LOST on the relay (a NAT rebind, a coturn restart): the page re-authorizes and recovers
+        ({ hp, gp, hctx, gctx } = await room(srvH, withUi, withUi, { guestName: 'Rae', shareForAll: true }));
+        await startShare(gp);
+        check('H1 the share reaches the host through the hardened relay', (await waitFor(async () => ((await screenFrames(hp)) > 20 ? 1 : 0), 40000)) === 1);
+        const count = async () => (await srvH.pool.query('SELECT count(*)::int n FROM relay_credentials')).rows[0].n, credsBefore = await count();
+        const usersLive = (await srvH.pool.query('SELECT username FROM relay_credentials WHERE revoked_at IS NULL')).rows.map((r) => r.username);
+        const ps = (await cliH(usersLive.map((u) => 'ps ' + u))).flatMap(parseSessions); await cliH([...new Set(ps.map((s) => 'cs ' + s.id))]);                  // the relay drops every allocation of the share; the credentials stay valid
+        const f0 = await screenFrames(hp); await wait(3000); note('H1 screen frames in 3 s right after the relay lost the allocations: ' + ((await screenFrames(hp)) - f0));
+        check('H1 the page RECOVERS on its own with a fresh authorization (new credentials were issued) and the screen flows again', (await flowsAgain(hp)) === 1 && (await count()) > credsBefore, 'credentials ' + credsBefore + ' -> ' + (await count()));
+        // ---- H2: a short loss of the page's server connection: the share outlives it
+        await gctx.setOffline(true); await wait(5000); await gctx.setOffline(false); await wait(4000);
+        check('H2 a 5 s network drop of the presenter page (shorter than the lease) does not kill the share', (await isSharing(gp)) && (await flowsAgain(hp, 10, 30000)) === 1);
+        // ---- H3: the viewer reloads: it receives the running share again
+        await hp.reload(); await hp.waitForSelector('#app:not(.hidden)', { timeout: 30000 });
+        check('H3 the viewer RELOADS its page: it receives the running share again through the relay (fresh credentials)', (await waitFor(async () => ((await screenFrames(hp)) > 15 ? 1 : 0), 60000)) === 1);
+        await hctx.close(); await gctx.close();
+
+        // ---- H4: concurrent sharing: a second presenter is refused; the host hands the floor over; the old screen stops
+        ({ hp, gp, hctx, gctx } = await room(srvH, withUi, withUi, { guestName: 'Gail', shareForAll: true }));
+        const second = await joinMore(srvH, withUi, (await hp.textContent('#roomId')).trim(), 'Gus');
+        await startShare(gp);
+        check('H4 Gail presents; the host and Gus receive her screen through the relay', (await waitFor(async () => ((await screenFrames(hp)) > 15 && (await screenFrames(second.p)) > 15 ? 1 : 0), 60000)) === 1, 'host ' + JSON.stringify(await inboundVideos(hp)) + ' gus ' + JSON.stringify(await inboundVideos(second.p)));
+        const rival = await second.p.evaluate(async () => { const r = await fetch('/api/meetings/' + window.__mid + '/shares', { signal: AbortSignal.timeout(20000), method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: window.__auth }, body: JSON.stringify({ kind: 'screen', mode: 'content', clientRequestId: 'rival-' + Date.now() }) }); return r.status; });
+        check('H4 a second person tries to present at the same time: refused (403/409) and Gail keeps presenting', [403, 409].includes(rival) && (await isSharing(gp)), 'status ' + rival);
+        const gusId = (await srvH.pool.query("SELECT id FROM participants WHERE display_name='Gus' ORDER BY joined_at DESC LIMIT 1")).rows[0]?.id;
+        const hoStatus = await hp.evaluate(async (to) => (await fetch('/api/meetings/' + window.__mid + '/shares/handoff', { signal: AbortSignal.timeout(20000), method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: window.__auth }, body: JSON.stringify({ to }) })).status, gusId);
+        check('H4 the host hands the floor to Gus: Gail\'s screen stops at the host (her relay credentials are revoked) while her camera continues', hoStatus === 200 && !!(await waitFor(async () => { const a = await screenFrames(hp); await wait(2000); return (await screenFrames(hp)) - a <= 3 ? 1 : 0; }, 30000)) && (await cameraFrames(hp)) > 0, 'handoff status ' + hoStatus);
+        await second.ctx.close(); await hctx.close(); await gctx.close();
+
+        // ---- H5: a viewer that ignores everything: the sweeper alone removes its credentials; the relay stops feeding it the screen
+        ({ hp, gp, hctx, gctx } = await room(srvH, withUi, withUi, { guestName: 'Rae', shareForAll: true }));
+        await startShare(gp);
+        check('H5 the viewer receives the screen', (await waitFor(async () => ((await screenFrames(hp)) > 20 ? 1 : 0), 40000)) === 1);
+        const hostPid = (await srvH.pool.query("SELECT id FROM participants WHERE role='host' ORDER BY joined_at DESC LIMIT 1")).rows[0].id; const sBefore = await screenFrames(hp); await wait(2000); const rate = ((await screenFrames(hp)) - sBefore) / 2;
+        await srvH.pool.query("UPDATE participants SET admission='denied' WHERE id=$1", [hostPid]);                              // applied to the database only: the page is told nothing, it keeps its peer connection
+        await wait(4000); const v1 = await screenFrames(hp); await wait(4000); const v2 = await screenFrames(hp);
+        check('H5 the viewer\'s credential was revoked by the SWEEPER alone: the relay stops delivering the screen to it', v2 - v1 <= 3, (v2 - v1) + ' frames in 4 s vs about ' + (rate * 4).toFixed(0) + ' before');
+        await hctx.close(); await gctx.close();
+
+        // ---- H6: MOBILE: the same flow with a phone as the viewer (Chromium device EMULATION: viewport, touch, user agent. NOT a real phone, NOT Safari)
+        for (const dev of ['Pixel 7', 'iPhone 13']) {
+          const d = devices[dev]; if (!d) continue; const phone = { newContext: (o) => withUi.newContext({ ...d, ...o }) };
+          ({ hp, gp, hctx, gctx } = await room(srvH, phone, withUi, { guestName: 'Rae', shareForAll: true }));              // the HOST page is the phone (the viewer); the guest presents from a desktop
+          await startShare(gp);
+          check('H6 ' + dev + ' (emulated) as VIEWER: it receives the share through the relay', (await waitFor(async () => ((await screenFrames(hp)) > 15 ? 1 : 0), 60000)) === 1, JSON.stringify(await inboundVideos(hp)));
+          check('H6 ' + dev + ' (emulated): the page fits the phone width (no horizontal scroll) while a share is shown', await hp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
+          await hctx.close(); await gctx.close();
+        }
+      } finally { await srvH.stop(); }
+    }
+    }
     // ---------------- T. TURN-ONLY (relay) share, and what cancelling the presenter's relay session does (needs a coturn: see the header)
     if (run('T')) {
     if (!process.env.TURN_TEST_PORT) console.log('T. SKIPPED (set TURN_TEST_PORT, TURN_TEST_CLI_PORT, TURN_TEST_CLI_PW, TURN_TEST_SECRET: a coturn with --use-auth-secret --lt-cred-mech --cli)');
@@ -358,6 +421,10 @@ async function main() {
   }
   await withUi.close();
   const failed = results.filter((r) => !r.ok); console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
+  if (process.env.CERT_RUN) {          // M1.3: machine-readable evidence for tests/cert/summarize.mjs
+    const dir = join(ROOT, 'docs', 'evidence', 'm13'); (await import('node:fs')).mkdirSync(dir, { recursive: true });
+    (await import('node:fs')).writeFileSync(join(dir, 'browser-' + (process.env.ONLY || 'all').replace(/,/g, '') + '.run' + process.env.CERT_RUN + '.json'), JSON.stringify({ suite: 'browser-' + (process.env.ONLY || 'all').replace(/,/g, ''), at: new Date().toISOString(), passed: results.length - failed.length, total: results.length, failed: failed.map((x) => x.name), metrics: {}, notes: [], results: results.map((r) => ({ name: r.name, ok: r.ok })), run: process.env.CERT_RUN }, null, 1));
+  }
   process.exit(failed.length ? 1 : 0);
 }
 main().catch((e) => { console.error('E2E crashed:', e); process.exit(2); });

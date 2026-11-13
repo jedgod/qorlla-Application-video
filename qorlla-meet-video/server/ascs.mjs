@@ -23,7 +23,7 @@ class HttpError extends Error { constructor(status, message, extra = {}) { super
 
 // onShareEnded(event): awaited AFTER the commit whenever a share stops, is revoked or expires (the relay revokes the share's credentials and terminates its allocations). A failure is logged and
 // never fails the request: the relay's own reconciler finishes it. startGuard(): async, { ok:false, error } refuses a NEW share (fail closed when the relay cannot be controlled).
-export function registerAscs({ app, io, db, auth, member, room, socketOf, mayShare, enabled = false, leaseMs = 30_000, sweepMs = 10_000, disconnectGraceMs = 8_000, onShareEnded = null, startGuard = null, onHeartbeat = null }) {
+export function registerAscs({ app, io, db, auth, member, room, socketOf, mayShare, enabled = false, leaseMs = 30_000, sweepMs = 10_000, disconnectGraceMs = 8_000, onShareEnded = null, startGuard = null, onHeartbeat = null, requireSession = null }) {
   const PATHS = (suffix) => [`/api/meetings/:id/shares${suffix}`, `/api/v1/meetings/:id/shares${suffix}`];
   const gate = (req, res, next) => (enabled ? next() : res.status(404).json({ error: 'Not available' }));
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : res.status(403).json({ error: 'Only the host can do this' }));
@@ -104,6 +104,8 @@ export function registerAscs({ app, io, db, auth, member, room, socketOf, maySha
     if ((b.mode ?? 'content') !== 'content') throw new HttpError(400, 'Only the content mode is available');
     if (typeof b.clientRequestId !== 'string' || b.clientRequestId.length < 1 || b.clientRequestId.length > 128) throw new HttpError(400, 'A request id is required');
     if (req.user.role !== 'host' && !(await mayShare(meetingId, pid, req.user.role))) throw new HttpError(403, 'The host has not allowed you to share your screen');
+    // M1.3: when the Shield is authoritative (SHIELD_MEET_ENFORCE) a NEW share needs a live, Shield-authorized signalling session: the Shield decided nothing about a person it cannot see
+    if (requireSession && !requireSession(meetingId, pid)) throw new HttpError(403, 'No live authorized session: reconnect to the meeting first');
     if (startGuard) { const g = await startGuard(); if (g && g.ok === false) throw new HttpError(503, g.error || 'Screen sharing is unavailable right now'); }
     const out = await tx(async (c) => {
       const m = await lockMeeting(c, meetingId); if (m.ended_at) throw new HttpError(404, 'Meeting unavailable');

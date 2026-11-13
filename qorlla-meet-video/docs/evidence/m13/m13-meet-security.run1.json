@@ -1,0 +1,324 @@
+{
+ "suite": "m13-meet-security",
+ "at": "2026-11-12T23:48:25.920Z",
+ "passed": 60,
+ "total": 60,
+ "failed": [],
+ "metrics": {
+  "meetDownNoReaperPackets": 99,
+  "meetDownBound": {
+   "ttlSeconds": 30,
+   "note": "enforcement bound with Meet down = credential TTL + one reaper sweep (observed 7 s after the reaper started)"
+  },
+  "pgDownBoundSeconds": 31,
+  "shieldDenyViewerToMediaStopMs": 2371,
+  "shieldDenyPresenterToMediaStopMs": 3587,
+  "shieldDownToMediaStopMs": 9772
+ },
+ "notes": [
+  "Meet down for 39 s, NO reaper: media still flowing = 99 packets in 1.5 s (an allocation outlives its credential)"
+ ],
+ "results": [
+  {
+   "name": "GET /api/ops/relay without the service token: refused (401)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "GET /api/ops/relay/metrics without the service token: refused (401)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "with the service token: a snapshot with health, counters, pending revocations and the invariant audit",
+   "ok": true,
+   "detail": "{\"healthy\":true,\"live\":0,\"pending\":0}"
+  },
+  {
+   "name": "Prometheus metrics expose the alerting signals",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "fixture: a meeting, a host, three admitted guests, one allowed to present",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the allowed guest starts a share",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "a viewer that FORGES role/participant fields in the request still gets a VIEWER credential",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "a guest WITHOUT permission cannot start a share (403)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "a viewer cannot revoke the share (403)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "a viewer cannot stop someone else's share (403/404)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "a viewer cannot hand the floor over (403)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "a share id that is not a UUID is refused (400), not passed to the database",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "a token of ANOTHER meeting cannot obtain credentials for this share (403)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "an oversized request body is refused (4xx, never a 5xx)",
+   "ok": true,
+   "detail": "413"
+  },
+  {
+   "name": "credential flooding is bounded: 429 after 6 live credentials, and the registry agrees",
+   "ok": true,
+   "detail": "[200,200,200,200,200,200,429,429,429] live=6"
+  },
+  {
+   "name": "the share flows before the revoke",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "host revokes: the API answers revoked",
+   "ok": true,
+   "detail": "3119 ms"
+  },
+  {
+   "name": "no media is delivered after the revoke",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the revoked presenter's heartbeat is refused (409/404)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the revoked presenter cannot get new credentials for that share (409)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the old presenter credential and the old viewer credential are both refused by coturn (401)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the registry shows every credential of the share revoked AND terminated",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "AUDIT: issued and terminated credentials are recorded per meeting (relay.credential_issued / relay.credential_terminated)",
+   "ok": true,
+   "detail": "{\"relay.credential_issued\":9,\"relay.credential_terminated\":18}"
+  },
+  {
+   "name": "a NEW share needs a NEW authorization and works (policy: the host revoking a SHARE does not silently remove the person; withdraw their permission to stop them presenting)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "host WITHDRAWS the permission: the live share ends at once (server decision, no client cooperation)",
+   "ok": true,
+   "detail": "{\"revision\":4,\"share\":null}"
+  },
+  {
+   "name": "and the guest cannot start another (403)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "six simultaneous start requests from three people leave EXACTLY ONE active share (database invariant)",
+   "ok": true,
+   "detail": "created=2 active=1"
+  },
+  {
+   "name": "two meetings share at the same time through the same relay",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "revoking meeting 1's share stops meeting 1 and does NOT touch meeting 2",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "host hands the floor to someone else: the previous presenter's media stops and the new person may start",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "a live credential of a share that ended behind the hooks' back is revoked and terminated by the sweeper",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "a participant who is no longer admitted loses every relay credential within one sweep",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "after the repairs the invariant audit is clean and no revocation is pending",
+   "ok": true,
+   "detail": "{\"pending\":0,\"v\":0}"
+  },
+  {
+   "name": "(TTL 30 s) the share flows",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "while the presenter heartbeats, credentials are renewed and the share outlives the TTL basis",
+   "ok": true,
+   "detail": "packets/s=77"
+  },
+  {
+   "name": "Meet is killed: media CONTINUES (the relay does not depend on Meet at this instant)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the stand-alone REAPER (Meet still down) ends the media of the expired credential",
+   "ok": true,
+   "detail": "2 s after it started"
+  },
+  {
+   "name": "no allocation of either credential remains in coturn",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Meet restarts: the share whose presenter vanished is ended by its lease (no zombie share)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "and every credential row of it is terminated by the boot reconcile",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "database down: Meet answers an error, does not crash, grants nothing",
+   "ok": true,
+   "detail": "status 0"
+  },
+  {
+   "name": "with the database down and heartbeats failing, the credentials expire and the REAPER ends the media (bound = TTL + sweep)",
+   "ok": true,
+   "detail": "31 s"
+  },
+  {
+   "name": "database back: Meet recovers on its own and ends the share whose lease lapsed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Meet is still serving after the outage (no restart needed)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "WITHOUT a live Shield-authorized session a presenter cannot start a share (403): the Shield decides nothing about a person it cannot see",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the Shield-authorized sessions connect",
+   "ok": true,
+   "detail": "[\"ok\",\"ok\",\"ok\",\"ok\"]"
+  },
+  {
+   "name": "with a live session the share starts",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "a viewer with a live session gets credentials",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "presenter -> viewer 1 flows through the relay",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "presenter -> viewer 2 flows through the relay",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the Shield SUSPENDS viewer 1: his screen media stops, his socket is closed with a reason, his credentials are terminated",
+   "ok": true,
+   "detail": "2371 ms"
+  },
+  {
+   "name": "and everybody else keeps seeing the share (presenter and viewer 2 untouched)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the denied person cannot come back with the same token (403 on the API)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the Shield SUSPENDS the presenter: the share ends in Meet and ALL viewers' media stops (one authoritative state)",
+   "ok": true,
+   "detail": "3587 ms"
+  },
+  {
+   "name": "every relay credential of the share is revoked and terminated",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "(Shield healthy again) a presenter with a live session starts a share",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "it flows",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the SHIELD GOES DOWN: after the grace period the sessions are closed, the lease is cut, the share ends and the relay media STOPS (fail closed, bounded)",
+   "ok": true,
+   "detail": "9772 ms (grace 4 s + disconnect grace 3 s + sweep)"
+  },
+  {
+   "name": "while the Shield is down nobody can mint a new relay credential (no live session)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "and nobody can start a new share (no live session / share ended)",
+   "ok": true,
+   "detail": ""
+  }
+ ],
+ "run": "1"
+}

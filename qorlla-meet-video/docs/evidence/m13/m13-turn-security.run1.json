@@ -1,0 +1,335 @@
+{
+ "suite": "m13-turn-security",
+ "at": "2026-11-12T23:37:01.762Z",
+ "passed": 59,
+ "total": 60,
+ "failed": [
+  "the revoke call itself returns within 5 s in every run (documented API bound)"
+ ],
+ "metrics": {
+  "floodReceivedBytesPerSec": 453006,
+  "cliOutageExposurePacketsPer2s": 128,
+  "bound": {
+   "runs": 20,
+   "revokeCallMs": {
+    "p50": 1638,
+    "p95": 3394,
+    "max": 5062
+   },
+   "lastDeliveredAfterRevokeMs": {
+    "p50": 1056,
+    "p95": 2526,
+    "max": 4139
+   }
+  },
+  "reconcileMs": 2952
+ },
+ "notes": [
+  "the allocation made BEFORE expiry still exists after the TTL: 1 (measured: an allocation outlives its credential)",
+  "EXPOSURE WINDOW: with the coturn CLI unreachable, a revoked share's EXISTING allocation keeps forwarding: 128 packets in 2 s (the key was deleted, so it cannot re-allocate)",
+  "Redis restart without persistence: an unrevoked credential is LOST (refused 401): availability loss, never a security loss; the page asks for fresh credentials"
+ ],
+ "results": [
+  {
+   "name": "an unknown user is refused (401), no anonymous allocation",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "a wrong password for a real user is refused with the SAME code (no user enumeration)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "UDP allocation with a valid credential",
+   "ok": true,
+   "detail": "172.29.98.10:47656"
+  },
+  {
+   "name": "TCP transport (an alternative ICE candidate type) with the same credential: allocation works, so TCP is covered by revocation below",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "name": "TLS transport with the same credential (TURNS)",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "name": "coturn lists those allocations under the credential username (revocation can find them)",
+   "ok": true,
+   "detail": "3 sessions"
+  },
+  {
+   "name": "revoke returns with the credential terminated",
+   "ok": true,
+   "detail": "{\"keys\":1,\"cancelled\":3}"
+  },
+  {
+   "name": "coturn lists NO allocation of the credential any more (all 3 transports)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "re-allocation with the revoked credential over UDP: refused (401)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "re-allocation with the revoked credential over TCP: refused (401)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "re-allocation with the revoked credential over TLS: refused (401)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "REPLAYING the nonce of the old session with the revoked credential: refused",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "REFRESH of the cancelled allocation by the same client: refused (the allocation is gone)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "the same client socket cannot simply allocate again (this is what an ICE restart does)",
+   "ok": true,
+   "detail": "\"timeout\""
+  },
+  {
+   "name": "permission for loopback (127.0.0.1) is refused (403)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "name": "permission for the host LAN address (10.0.0.176) is refused (403)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "name": "permission for a public internet address (8.8.8.8) is refused (403)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "name": "permission for the cloud metadata address (169.254.169.254) is refused (403)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "name": "permission for a private range (192.168.1.1) is refused (403)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "name": "permission for multicast (224.0.0.1) is refused (403)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "name": "permission for the credential store itself (172.29.98.5) is refused (403)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "name": "permission for the relay's OWN address (another allocation) is granted",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "name": "a channel to a public peer is refused too",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "name": "10 datagrams sent DIRECTLY to the viewer's relayed address from a non-permitted source: none reaches the viewer (the only way in is another allocation, which is revocable)",
+   "ok": true,
+   "detail": "sent received=0"
+  },
+  {
+   "name": "share A delivers media through the relay",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "share B delivers media through the relay",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "share A: NO media after its revocation",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "share B (another share, same relay): unaffected by A's revocation",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "share B revoked on its own",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "per-credential allocation quota (24 = the largest audience of one share: the presenter one credential carries every viewer connection): the 25th allocation is refused (486)",
+   "ok": true,
+   "detail": "24 held, then 486"
+  },
+  {
+   "name": "the per-allocation cap (1.25 MB/s) limits a flooding client: delivered rate is far below the offered ~4.4 MB/s",
+   "ok": true,
+   "detail": "453 kB/s delivered"
+  },
+  {
+   "name": "Redis (the credential store) refuses an unauthenticated client",
+   "ok": true,
+   "detail": "redis_error: NOAUTH Authentication required."
+  },
+  {
+   "name": "Redis refuses a wrong password",
+   "ok": true,
+   "detail": "redis_error: WRONGPASS invalid username-password pair or user is disabled."
+  },
+  {
+   "name": "the coturn admin CLI refuses a wrong password",
+   "ok": true,
+   "detail": "turn_cli_auth_failed"
+  },
+  {
+   "name": "Redis and the admin CLI are published on 127.0.0.1 only (never on the LAN)",
+   "ok": true,
+   "detail": "6379/tcp -> 127.0.0.1:36391 | 3478/tcp -> 10.0.0.176:34791 3478/udp -> 10.0.0.176:34791 5349/tcp -> 10.0.0.176:34792 5766/tcp -> 127.0.0.1:35791"
+  },
+  {
+   "name": "the registry stores no secret (no password column or value)",
+   "ok": true,
+   "detail": "username,meeting_id,participant_id,share_id,role,issued_at,expires_at,revoked_at,revoke_reason,terminated_at,termination_error"
+  },
+  {
+   "name": "credentials are random and unique (192-bit username, 144-bit password)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "(the danger, shown) a restored key makes the revoked credential WORK again",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "name": "reconcile() finds and deletes the resurrected key (and cancels its allocations)",
+   "ok": true,
+   "detail": "{\"resurrected\":1}"
+  },
+  {
+   "name": "after the reconcile the credential is dead again (401)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "a fresh 30 s credential allocates",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "after its TTL the credential is refused (401): a stolen or leaked credential has a hard end",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "reconcile() revokes the expired credential and terminates its allocation",
+   "ok": true,
+   "detail": "{\"expired\":1}"
+  },
+  {
+   "name": "a share is flowing before the fault",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "credential store DOWN: a new credential is refused (fail closed) within 3 s",
+   "ok": true,
+   "detail": "2655 ms"
+  },
+  {
+   "name": "revocation while the store is down: recorded durably but NOT yet terminated (pending, visible to monitoring)",
+   "ok": true,
+   "detail": "redis:redis_timeout"
+  },
+  {
+   "name": "stats() reports the unenforced revocation (the alert condition)",
+   "ok": true,
+   "detail": "{\"pending\":2,\"healthy\":false}"
+  },
+  {
+   "name": "store back: the reconciler finishes the termination (rows terminated, key gone, no allocation)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "and media has stopped",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "(CLI fault) a share is flowing",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "control channel DOWN: new credentials are refused (fail closed)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "the revocation is pending (not falsely marked terminated) and nothing can allocate afresh",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "control channel back: the reconciler terminates it and media stops",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "coturn RESTARTED: a still-valid credential re-allocates (availability)",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "name": "coturn RESTARTED: a revoked credential stays refused (revocation survives, it lives in the store)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "Redis RESTARTED (no persistence): a revoked credential cannot come back (401)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "name": "NO media is delivered later than 5 s after the revoke call began (documented bound; 20 runs)",
+   "ok": true,
+   "detail": "{\"p50\":1056,\"p95\":2526,\"max\":4139}"
+  },
+  {
+   "name": "the revoke call itself returns within 5 s in every run (documented API bound)",
+   "ok": false,
+   "detail": "{\"p50\":1638,\"p95\":3394,\"max\":5062}"
+  },
+  {
+   "name": "(simulated crash) the recorded revocation alone has NOT stopped the media yet: this is the window the sweeper closes",
+   "ok": true,
+   "detail": "69 packets/s"
+  },
+  {
+   "name": "one reconcile pass (what a new process runs on boot, and every sweep does) stops it",
+   "ok": true,
+   "detail": "2952 ms"
+  }
+ ],
+ "run": "1"
+}
