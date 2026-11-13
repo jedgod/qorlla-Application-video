@@ -1,0 +1,301 @@
+{
+  "when": "2026-11-12T19:01:04.300Z",
+  "turn": "coturn 4.17 user-database mode (--lt-cred-mech --redis-userdb --cli)",
+  "results": [
+    {
+      "name": "the credential authority sees Redis and the coturn admin CLI",
+      "ok": true
+    },
+    {
+      "name": "a share pair with two individual credentials connects and carries video through the relay",
+      "ok": true
+    },
+    {
+      "name": "the selected candidate pair is a RELAY candidate (no direct path)",
+      "ok": true
+    },
+    {
+      "name": "the credentials are distinct per role and opaque (no account, meeting or share id in them)",
+      "ok": true
+    },
+    {
+      "name": "coturn lists live allocation(s) under the PRESENTER credential, found by username",
+      "ok": true
+    },
+    {
+      "name": "x1: pair up",
+      "ok": true
+    },
+    {
+      "name": "X1: a deleted credential can NOT make a new allocation (401, no relay candidate)",
+      "ok": true
+    },
+    {
+      "name": "x2: pair up",
+      "ok": true
+    },
+    {
+      "name": "X2: cancelling alone is NOT enough: the client reconnects with the still-valid credential (the ASCS-M1.1 weakness, reproduced with a user-database credential)",
+      "ok": true
+    },
+    {
+      "name": "two shares (two sets of credentials) are up",
+      "ok": true
+    },
+    {
+      "name": "revoking share 1 stops share 1 ...",
+      "ok": true
+    },
+    {
+      "name": "... and does NOT touch share 2 (still flowing, its credentials still allocate)",
+      "ok": true
+    },
+    {
+      "name": "the registry shows share 1 revoked and terminated, share 2 untouched",
+      "ok": true
+    },
+    {
+      "name": "x3: pair up (carrying video)",
+      "ok": true
+    },
+    {
+      "name": "revokeShare reports every credential deleted and every allocation terminated",
+      "ok": true
+    },
+    {
+      "name": "C3 existing allocation terminated: the relay stops forwarding the screen",
+      "ok": true
+    },
+    {
+      "name": "coturn no longer lists any allocation of either credential",
+      "ok": true
+    },
+    {
+      "name": "C2 ICE restart after revocation: the connection does NOT come back (25 s)",
+      "ok": true
+    },
+    {
+      "name": "C2 the revoked credential is refused for a NEW allocation (presenter and viewer): 401, no relay candidate",
+      "ok": true
+    },
+    {
+      "name": "a \"camera\" pair and a \"share\" pair are up, on different credentials",
+      "ok": true
+    },
+    {
+      "name": "coturn holds them as SEPARATE allocations (no id in common)",
+      "ok": true
+    },
+    {
+      "name": "revoking the share leaves the camera pair untouched: after the revoke it keeps at least 70% of its own baseline rate in every 2 s window",
+      "ok": true
+    },
+    {
+      "name": "and the share pair is dead",
+      "ok": true
+    },
+    {
+      "name": "issue() re-checks authorization AFTER the credential exists and refuses",
+      "ok": true
+    },
+    {
+      "name": "... the credential it had written is revoked and terminated at once (a probe confirms it is dead)",
+      "ok": true
+    },
+    {
+      "name": "r1: two pairs up",
+      "ok": true
+    },
+    {
+      "name": "coturn restarted and its admin CLI answers again",
+      "ok": true
+    },
+    {
+      "name": "a credential revoked BEFORE the TURN restart is still refused AFTER it",
+      "ok": true
+    },
+    {
+      "name": "control: a FRESH credential from the authority allocates normally after the restart (the relay itself works)",
+      "ok": true
+    },
+    {
+      "name": "an UNREVOKED credential still allocates after the TURN restart (Redis kept the user database): no collateral loss",
+      "ok": true
+    },
+    {
+      "name": "r2: pair up",
+      "ok": true
+    },
+    {
+      "name": "the revocation is recorded durably and the credential key is deleted, but termination is reported incomplete",
+      "ok": true
+    },
+    {
+      "name": "the registry shows the revocation as PENDING termination",
+      "ok": true
+    },
+    {
+      "name": "reconcile() on the new instance terminates it",
+      "ok": true
+    },
+    {
+      "name": "the relay stops forwarding after reconcile",
+      "ok": true
+    },
+    {
+      "name": "and the registry now says terminated",
+      "ok": true
+    },
+    {
+      "name": "TURN control service (admin CLI) unavailable: NEW screen sharing is denied",
+      "ok": true
+    },
+    {
+      "name": "credential store (Redis) unavailable: NEW screen sharing is denied",
+      "ok": true
+    },
+    {
+      "name": "nothing was written to the registry by the denied attempts",
+      "ok": true
+    },
+    {
+      "name": "r4: short-lived pair up",
+      "ok": true
+    },
+    {
+      "name": "reconcile() revokes the expired credentials and terminates their allocations",
+      "ok": true
+    },
+    {
+      "name": "the relay stops forwarding",
+      "ok": true
+    },
+    {
+      "name": "r5: pair up",
+      "ok": true
+    },
+    {
+      "name": "after Redis loses its data NO credential allocates (revoked or not): fail closed, clients must be re-authorized",
+      "ok": true
+    },
+    {
+      "name": "p: relay pair up at 720p",
+      "ok": true
+    },
+    {
+      "name": "relay carries 720p screen content at about the same frame rate as a direct path (>= 80%)",
+      "ok": true
+    }
+  ],
+  "evidence": {
+    "baseline": {
+      "frames": 44,
+      "kbps": 510,
+      "rtt": 0.345,
+      "lt": "relay",
+      "ice": "connected",
+      "errs": []
+    },
+    "X1": {
+      "mediaContinues": true,
+      "frames": 51,
+      "probe": {
+        "relay": 0,
+        "errs": [
+          401
+        ]
+      }
+    },
+    "X2": {
+      "stops": true,
+      "resumesAfterIceRestart": true,
+      "framesAfterCancel": 0
+    },
+    "revokeCallMs": 1255,
+    "isolation": {
+      "cameraFramesPer2sBefore": [
+        31,
+        28,
+        28
+      ],
+      "cameraFramesPer2sAfterShareRevoked": [
+        31,
+        31,
+        28,
+        22
+      ]
+    },
+    "unrevokedAfterTurnRestart": {
+      "relay": 1,
+      "errs": []
+    },
+    "R2exposure": {
+      "frames": 45
+    },
+    "R4": {
+      "frames": 31
+    },
+    "R5": {
+      "expiredNow": 0,
+      "pending": 0,
+      "terminated": 0,
+      "errors": []
+    },
+    "performance": {
+      "relay": {
+        "fps": 14.166666666666666,
+        "kbps": 431.25,
+        "rttMs": 200,
+        "type": "relay"
+      },
+      "direct": {
+        "fps": 14.833333333333334,
+        "kbps": 631.75,
+        "rttMs": 0,
+        "type": "host"
+      }
+    },
+    "P": {
+      "relay": {
+        "fps": 14.166666666666666,
+        "kbps": 431.25,
+        "rttMs": 200,
+        "type": "relay"
+      },
+      "direct": {
+        "fps": 14.833333333333334,
+        "kbps": 631.75,
+        "rttMs": 0,
+        "type": "host"
+      }
+    },
+    "revocationLatency": [
+      {
+        "revokeCallMs": 2851,
+        "stopped": true
+      },
+      {
+        "revokeCallMs": 3714,
+        "stopped": true
+      },
+      {
+        "revokeCallMs": 4952,
+        "stopped": true
+      }
+    ],
+    "Plat": [
+      {
+        "revokeCallMs": 2851,
+        "stopped": true
+      },
+      {
+        "revokeCallMs": 3714,
+        "stopped": true
+      },
+      {
+        "revokeCallMs": 4952,
+        "stopped": true
+      }
+    ]
+  }
+}

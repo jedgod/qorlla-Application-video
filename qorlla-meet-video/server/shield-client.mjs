@@ -33,7 +33,7 @@ export function createShieldClient({ config, fetchImpl = (config.transport && co
 }
 
 /** Periodic re-check of the open signaling sessions. Suspended / unknown / ended => the session is terminated. If the shield stays unreachable past the grace period, sessions are terminated too (fail closed). */
-export function startSessionGuard({ io, db, client, config, log = console }) {
+export function startSessionGuard({ io, db, client, config, log = console, onRevoked = null }) {
   const t = setInterval(async () => {
     const live = [...io.sockets.sockets.values()].filter((s) => s.data && s.data.user);
     if (!live.length) { client.state.lastOk = Date.now(); return; }
@@ -43,6 +43,7 @@ export function startSessionGuard({ io, db, client, config, log = console }) {
     for (const rv of out.revoke) {
       const s = live.find((x) => x.data.user.participantId === rv.participantId && x.data.user.meetingId === rv.meetingId); if (s) stop(s, rv.reason);
       await db.query("UPDATE participants SET admission='denied' WHERE id=$1 AND meeting_id=$2", [rv.participantId, rv.meetingId]).catch(() => { client.report('signaling_termination_failed', rv.participantId); });      // the token cannot be used to come back
+      if (onRevoked) { try { await onRevoked(rv.meetingId, rv.participantId); } catch (e) { log.error('[shield] could not end the revoked participant\'s screen share (the sweeper will):', e && e.message); } }
     }
   }, config.recheckMs); t.unref(); return () => clearInterval(t);
 }

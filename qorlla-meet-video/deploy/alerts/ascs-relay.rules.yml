@@ -1,0 +1,58 @@
+# ASCS-M1.3 alert rules for the relay-enforced screen sharing. Metrics come from Meet:  GET /api/ops/relay/metrics  (service token, header x-qorlla-bridge-secret).
+# Validate with:  promtool check rules deploy/alerts/ascs-relay.rules.yml     (docs/ASCS_M1_3_CERTIFICATION.md section "Operations" has the runbook for each alert)
+groups:
+  - name: qorlla-ascs-relay
+    rules:
+      # A revocation was recorded but the relay has NOT confirmed it ended the media. This is the one alert that means "someone who must not receive/send a screen still can".
+      - alert: RelayRevocationUnenforced
+        expr: qorlla_relay_oldest_pending_revocation_seconds > 30
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "A screen-share revocation has not been enforced for {{ $value }} s"
+          runbook: "Check qorlla_relay_cli_up / redis_up. Restore the coturn CLI or Redis; the reconciler finishes it on its next sweep (10 s). If it cannot be restored, restart coturn (it drops every allocation; credentials stay revoked)."
+      - alert: RelayControlDown
+        expr: qorlla_relay_cli_up == 0 or qorlla_relay_redis_up == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "The relay control plane (coturn CLI or Redis) is unreachable: no new sharing, revocations stay pending"
+          runbook: "Restore the coturn admin CLI / Redis. Meet fails closed (503) meanwhile; the stand-alone relay-reaper still ends expired credentials."
+      - alert: RelayReconcileStalled
+        expr: qorlla_relay_last_reconcile_age_seconds > 120 or qorlla_relay_last_reconcile_ok == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "The relay reconciler is not completing (age {{ $value }} s)"
+          runbook: "Check Meet logs for [ascs-relay] reconcile failed; the database or the relay control is failing."
+      - alert: RelayTerminationFailures
+        expr: increase(qorlla_relay_termination_failed_total[10m]) > 0
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "Relay allocations could not be terminated at revocation time (the reconciler retries)"
+      - alert: RelayKeyResurrected
+        expr: increase(qorlla_relay_keys_resurrected_total[1h]) > 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "A revoked credential's key reappeared in the credential store (restored backup, replica or tampering)"
+          runbook: "Treat as a security incident: who wrote to Redis? The reconciler deleted the key again."
+      - alert: RelayOrphansReaped
+        expr: increase(qorlla_relay_orphans_reaped_total[15m]) > 5
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "Many relay allocations were found without a credential: a revocation path is not firing its hook"
+      - alert: RelayExpiredCredentialsPiling
+        expr: qorlla_relay_credentials_expired_unreaped > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Expired relay credentials are not being reaped"
+      - alert: RelayRevocationsFailingToIssue
+        expr: increase(qorlla_relay_refused_unavailable_total[5m]) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Screen sharing is being refused because the relay control plane is unavailable"
