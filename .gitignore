@@ -38,4 +38,4 @@ qorlla-clips/web/.env.local
 qorlla-clips/.env
 qorlla-clips/deploy/.env
 qorlla-clips/web/.env
-tests/cert/.relay-secrets.env
+qorlla-meet-video/tests/cert/.relay-secrets.env
