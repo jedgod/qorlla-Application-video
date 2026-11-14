@@ -97,3 +97,11 @@ test('joining by Meeting ID from the Join meeting dialog also opens a window of 
   expect(meet).not.toBe(home); expect(home.url()).toContain('/qorlla.html'); expect(await home.evaluate(() => window.__marker)).toBe('home-still-here');
   await meet.close(); await hostMeet.close(); await gc.close();
 });
+
+test('New meeting gives every meeting its OWN name: the person\'s name plus the local date and time (not the same "<name>\'s meeting" every time)', async ({ page, context }) => {
+  test.setTimeout(60000);
+  await organiser(context, MAIN, { name: 'Stryker', title: 'Sprint planning' });
+  await page.goto(MAIN + '/qorlla.html#home'); await page.evaluate(() => localStorage.setItem('zw_name', 'Stryker'));
+  await page.reload(); await page.locator('.action-btn[data-act="meet"]').click();
+  await expect(page.locator('#startDialog')).toBeVisible(); await expect(page.locator('#sdTitleIn')).toHaveValue(/^Stryker's meeting · [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2}\s?(AM|PM)$/, { timeout: 20000 });
+});

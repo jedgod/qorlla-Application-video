@@ -1448,7 +1448,10 @@
   function newMeeting() {
     if (pendingNew) { openStart(pendingNew); return; }
     var name = myName();
-    fetch('/api/meetings/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: (name ? name + "'s meeting" : 'Qorlla meeting').slice(0, 200) }) })
+    // every new meeting gets its OWN name: the person's name plus the local date and time ("Stryker's meeting · Nov 14, 2:35 PM"), so meetings are told apart in History, the invitation and Meet's header
+    var stamp = ''; try { stamp = new Date().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { stamp = ''; }
+    var defaultTitle = (name ? name + "'s meeting" : 'Qorlla meeting') + (stamp ? ' · ' + stamp : '');
+    fetch('/api/meetings/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: defaultTitle.slice(0, 200) }) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (r) {
         if (!r.ok || !r.d.meeting) throw new Error(r.d.error || 'The meeting could not be created.');
