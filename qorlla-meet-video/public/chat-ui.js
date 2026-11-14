@@ -95,13 +95,13 @@ export function initChat(h) {
     nav.textContent = '';
     const chip = (c) => {
       const b = el('button', 'chat-conv', undefined, { type: 'button', role: 'tab', 'aria-selected': String(c.id === current && !composing), 'data-id': c.id, title: c.kind === 'everyone' ? 'The whole meeting' : 'Private: only the people listed can read this' });
-      const box = el('span', 'chat-chipbox'); box.append(icon(c.kind === 'everyone' ? 'people' : 'lock', 20)); b.append(box, el('span', 'chat-convname', convName(c)));
+      const box = el('span', 'chat-chipbox'); box.append(icon(c.kind === 'everyone' ? 'people' : 'lock', 16)); b.append(box, el('span', 'chat-convname', convName(c)));
       if (unread.has(c.id)) b.append(el('span', 'chat-unread', '\u25CF', { 'aria-label': 'New messages', role: 'img' }));
       b.onclick = () => void select(c.id); return b;
     };
     const all = [...convs.values()];
     nav.append(chip(all[0]), el('span', 'chat-navsep', undefined, { 'aria-hidden': 'true' }));
-    const nb = el('button', 'chat-conv chat-new' + (composing ? ' chat-selected' : ''), undefined, { type: 'button', id: 'chatNewBtn', 'aria-pressed': String(composing) }); const nbox = el('span', 'chat-chipbox'); nbox.append(icon('plus', 20)); nb.append(nbox, el('span', 'chat-convname', 'New chat'));
+    const nb = el('button', 'chat-conv chat-new' + (composing ? ' chat-selected' : ''), undefined, { type: 'button', id: 'chatNewBtn', 'aria-pressed': String(composing) }); const nbox = el('span', 'chat-chipbox'); nbox.append(icon('plus', 16)); nb.append(nbox, el('span', 'chat-convname', 'New chat'));
     nb.onclick = () => (composing ? toInput.focus() : startNew()); nav.append(nb);
     for (const c of all.slice(1)) nav.append(chip(c));
     applyPolicy_newBtn(); subtitle();
