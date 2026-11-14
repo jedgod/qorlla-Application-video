@@ -248,3 +248,20 @@ html:has(.chat-popout-shell),body:has(.chat-popout-shell){margin:0;background:#1
 html.portal-only #landing{visibility:hidden}html.portal-only.portal-message #landing{visibility:visible}
 html.portal-only #landing .landing-card>:not(.brand):not(#portalOnlyNote){display:none!important}
 #portalOnlyNote{margin:18px 0 4px}#portalOnlyNote p{margin:0 0 14px;color:#cfdcff}.btnlink{display:inline-block;padding:10px 16px;border-radius:10px;text-decoration:none;font-weight:600}
+
+/* ---- Create New Poll (host editor) ---- */
+.pl-create{background:#10141c;border:1px solid #232a38;border-radius:14px;padding:12px 12px 10px;margin:8px 0;display:flex;flex-direction:column;gap:10px}
+.plc-top{display:flex;justify-content:space-between;align-items:center}.plc-title{margin:0;font-size:16px;font-weight:600;color:#f1f5fb}.plc-badge{font-size:11px;padding:2px 9px;border-radius:999px;background:#1f2633;color:#aab4c6}
+.plc-sec{display:flex;flex-direction:column;gap:6px}.plc-sec[hidden]{display:none}.plc-label{font-size:12px;color:#c4ccdb}.plc-labelrow{display:flex;justify-content:space-between}.plc-count{font-size:11px;color:#8a95a8}
+.pl-create textarea.plc-q,.pl-create .plc-input,.pl-create .plc-select,.pl-create .plc-more{width:100%;box-sizing:border-box;background:#0e1118;border:1px solid #2a3243;border-radius:10px;color:#edf2fa;font:inherit;font-size:13px;padding:9px 12px}
+.pl-create textarea.plc-q{min-height:56px;resize:vertical}.pl-create .plc-select{height:38px;border-radius:12px}.pl-create .plc-more{margin-top:4px;height:30px;padding:0 10px;font-size:12px;color:#aab4c6}
+.plc-radio{display:flex;align-items:center;gap:10px;font-size:14px;color:#edf2fa;cursor:pointer;padding:3px 0}.plc-radio input{position:absolute;opacity:0;width:1px;height:1px}
+.plc-dot{flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid #3a4458;background:#0e1118;box-sizing:border-box;display:inline-block}
+.plc-radio input:checked+.plc-dot{border:6px solid #f1f5fb;background:#0e1118}.plc-radio input:focus-visible+.plc-dot{outline:2px solid #60a5fa;outline-offset:2px}
+.plc-opts{display:flex;flex-direction:column;gap:8px}.plc-orow{display:flex;align-items:center;gap:10px}.plc-orow .plc-opt{flex:1;min-width:0;height:38px;box-sizing:border-box;background:#0e1118;border:1px solid #2a3243;border-radius:999px;color:#edf2fa;font:inherit;font-size:13px;padding:0 16px}
+.plc-correct{flex:none;width:16px;height:16px}.plc-correct[hidden]{display:none}.plc-x{flex:none;width:28px;height:28px;border:0;background:transparent;color:#aab4c6;font-size:15px;cursor:pointer;border-radius:50%}.plc-x:hover{background:#1f2633}
+.plc-add{align-self:flex-start;background:transparent;border:1px solid #3a4458;color:#edf2fa;border-radius:999px;padding:5px 14px;font:inherit;font-size:12px;cursor:pointer}.plc-add:disabled{opacity:.45;cursor:default}
+.plc-hr{border:0;border-top:1px solid #232a38;margin:2px 0;width:100%}.plc-checks{display:flex;flex-direction:column;gap:6px}
+.plc-foot{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:2px}.plc-btn{display:flex;align-items:center;justify-content:center;gap:8px;height:38px;border-radius:999px;border:1px solid #232a38;background:#141923;color:#c4ccdb;font:inherit;font-size:13px;cursor:pointer}
+.plc-btn.plc-go{background:#1d2431;color:#edf2fa}.plc-btn:hover{border-color:#3a4458}.plc-ic{font-size:12px}
+.pl-create label{margin:0}.pl-create .plc-radio{padding:2px 0}.pl-create .plc-sec{gap:5px}.pl-create{gap:8px}

@@ -168,21 +168,42 @@ export function initCollab(h) {
     nb.onclick = () => { P.form = !P.form; renderPolls(); if (P.form) $('pq')?.focus(); };
   }
   function pollForm() {
-    const f = el('form', 'pl-form'); f.id = 'pollFormEl';
-    const row = (label, ctl) => { const l = el('label', 'rc-field'); l.append(el('span', '', label), ctl); f.append(l); return ctl; };
-    const q = row('Question', el('input', '', '', { id: 'pq', maxlength: '300', required: '' }));
-    const kind = row('Type', el('select', '', '', { id: 'pk' })); for (const [k, l] of Object.entries(KIND)) kind.append(new Option(l, k));
-    const opts = row('Options (one per line, 2–10)', el('textarea', '', '', { id: 'po', rows: '4', maxlength: '1200' }));
-    const scale = row('Scale', el('select', '', '', { id: 'ps' })); for (const n of [5, 10, 3]) scale.append(new Option('1 to ' + n, String(n)));
-    const checks = el('div', 'pl-checks'); const ck = (id, l) => { const lab = el('label', 'rc-check'), i = el('input', '', '', { type: 'checkbox', id }); lab.append(i, document.createTextNode(' ' + l)); checks.append(lab); return i; };
-    const anon = ck('pa', 'Anonymous (answers are never stored against names)'), live = ck('pl', 'Show live results to everyone'), quiz = ck('pz', 'Quiz mode (mark the correct answer)'); f.append(checks);
-    const corr = row('Correct option number(s), e.g. 2 or 1,3', el('input', '', '', { id: 'pc', maxlength: '40' })), expl = row('Explanation shown with the results', el('input', '', '', { id: 'pe', maxlength: '400' }));
-    const dur = row('Time limit', el('select', '', '', { id: 'pd' })); for (const [v, l] of [['0', 'No limit'], ['60', '1 minute'], ['120', '2 minutes'], ['300', '5 minutes'], ['600', '10 minutes']]) dur.append(new Option(l, v));
-    const err = el('p', 'rc-err', '', { role: 'alert' }); const br = el('div', 'rc-row'), draft = el('button', 'rc-secondary', 'Save draft', { type: 'button' }), go = el('button', 'rc-primary', 'Launch now', { type: 'submit' }), cancel = el('button', 'rc-secondary', 'Cancel', { type: 'button' }); br.append(go, draft, cancel); f.append(err, br);
-    const sync = () => { const k = kind.value; opts.parentElement.hidden = !['single', 'multiple', 'ranking'].includes(k); scale.parentElement.hidden = k !== 'rating'; quiz.parentElement.hidden = !['single', 'multiple', 'yesno'].includes(k); if (quiz.parentElement.hidden) quiz.checked = false; corr.parentElement.hidden = expl.parentElement.hidden = !quiz.checked; }; kind.onchange = quiz.onchange = sync; sync();
-    const body = (launch) => ({ question: q.value, kind: kind.value, options: opts.value.split('\n'), scale: Number(scale.value), anonymous: anon.checked, liveResults: live.checked, quiz: quiz.checked, correct: corr.value.split(/[ ,]+/).filter(Boolean).map((n) => Number(n) - 1), explanation: expl.value, durationSec: Number(dur.value) || 0, launch });
+    const f = el('form', 'pl-form pl-create'); f.id = 'pollFormEl';
+    const top = el('div', 'plc-top'); top.append(el('h4', 'plc-title', 'Create New Poll'), el('span', 'plc-badge', 'Host editor')); f.append(top);
+    const sect = (label, id) => { const s = el('div', 'plc-sec'); const l = el('label', 'plc-label', label); if (id) l.htmlFor = id; s.append(l); f.append(s); return s; };
+    const qs = sect('Question *', 'pq'); const q = el('textarea', 'plc-q', '', { id: 'pq', rows: '2', maxlength: '300', required: '', placeholder: 'Enter your poll question...' }); qs.append(q);
+    const ts = sect('Question type'); ts.setAttribute('role', 'radiogroup'); ts.setAttribute('aria-label', 'Question type');
+    let kindVal = 'single'; const radios = [];
+    const kindRadio = (k, l) => { const lab = el('label', 'plc-radio'), i = el('input', '', '', { type: 'radio', name: 'pk', value: k }); i.checked = k === kindVal; i.onchange = () => { kindVal = k; more.value = ''; sync(); }; lab.append(i, el('span', 'plc-dot'), el('span', '', l)); ts.append(lab); radios.push(i); };
+    kindRadio('single', 'Single choice'); kindRadio('multiple', 'Multiple choice');
+    const more = el('select', 'plc-more', '', { id: 'pk', 'aria-label': 'Other question type' }); more.append(new Option('Other question type…', '')); for (const k of ['yesno', 'rating', 'ranking']) more.append(new Option(KIND[k], k));
+    more.onchange = () => { if (more.value) { kindVal = more.value; radios.forEach((r) => { r.checked = false; }); } else { kindVal = 'single'; radios[0].checked = true; } sync(); }; ts.append(more);
+    const os = sect('Answer options (2–10)'); const cnt = el('span', 'plc-count', '2/10'); os.firstChild.append(cnt); os.firstChild.classList.add('plc-labelrow');
+    const list = el('div', 'plc-opts'); const add = el('button', 'plc-add', '+ Add option', { type: 'button' }); os.append(list, add);
+    const rows = []; let quiz = null;
+    const renum = () => { rows.forEach((o, i) => { o.inp.placeholder = 'Option ' + (i + 1); o.inp.setAttribute('aria-label', 'Option ' + (i + 1)); o.x.setAttribute('aria-label', 'Remove option ' + (i + 1)); o.ok.hidden = !(quiz && quiz.checked) || !['single', 'multiple', 'yesno'].includes(kindVal); }); cnt.textContent = rows.length + '/10'; add.disabled = rows.length >= 10; };
+    const addRow = () => {
+      if (rows.length >= 10) return; const r = el('div', 'plc-orow');
+      const ok = el('input', 'plc-correct', '', { type: 'checkbox', 'aria-label': 'Correct answer' }); const inp = el('input', 'plc-opt', '', { type: 'text', maxlength: '120' });
+      const x = el('button', 'plc-x', '✕', { type: 'button' }); const rec = { r, ok, inp, x };
+      x.onclick = () => { if (rows.length <= 2) return; rows.splice(rows.indexOf(rec), 1); r.remove(); renum(); };
+      rows.push(rec); r.append(ok, inp, x); list.append(r); renum();
+    };
+    add.onclick = () => { addRow(); rows[rows.length - 1].inp.focus(); }; addRow(); addRow();
+    const ss = sect('Scale', 'ps'); const scale = el('select', 'plc-select', '', { id: 'ps' }); for (const n of [5, 10, 3]) scale.append(new Option('1 to ' + n, String(n))); ss.append(scale);
+    f.append(el('hr', 'plc-hr'));
+    const checks = el('div', 'plc-checks'); const ck = (id, l) => { const lab = el('label', 'plc-radio'), i = el('input', '', '', { type: 'checkbox', id }); lab.append(i, el('span', 'plc-dot'), el('span', '', l)); checks.append(lab); return i; };
+    const anon = ck('pa', 'Anonymous responses'), live = ck('pl', 'Show live results to everyone'); quiz = ck('pz', 'Quiz mode — mark correct answer'); f.append(checks);
+    const es = sect('Explanation shown with the results', 'pe'); const expl = el('input', 'plc-input', '', { id: 'pe', maxlength: '400' }); es.append(expl);
+    const ds = sect('Time limit', 'pd'); const dur = el('select', 'plc-select', '', { id: 'pd' }); for (const [v, l] of [['0', 'No limit'], ['60', '1 minute'], ['120', '2 minutes'], ['300', '5 minutes'], ['600', '10 minutes']]) dur.append(new Option(l, v)); ds.append(dur);
+    const err = el('p', 'rc-err', '', { role: 'alert' }); const br = el('div', 'plc-foot');
+    const draft = el('button', 'plc-btn', '', { type: 'button' }), go = el('button', 'plc-btn plc-go', '', { type: 'submit' });
+    draft.append(el('span', 'plc-ic', '💾'), document.createTextNode('Save draft')); go.append(el('span', 'plc-ic', '▶'), document.createTextNode('Launch poll')); br.append(draft, go); f.append(err, br);
+    const sync = () => { const k = kindVal; os.hidden = !['single', 'multiple', 'ranking'].includes(k); ss.hidden = k !== 'rating'; quiz.parentElement.hidden = !['single', 'multiple', 'yesno'].includes(k); if (quiz.parentElement.hidden) quiz.checked = false; es.hidden = !quiz.checked; renum(); }; quiz.onchange = sync; sync();
+    const correct = () => (kindVal === 'yesno' ? [] : rows.filter((o) => o.inp.value.trim()).map((o, i) => (o.ok.checked ? i : -1)).filter((i) => i >= 0));
+    const body = (launch) => ({ question: q.value, kind: kindVal, options: rows.map((o) => o.inp.value), scale: Number(scale.value), anonymous: anon.checked, liveResults: live.checked, quiz: quiz.checked, correct: correct(), explanation: expl.value, durationSec: Number(dur.value) || 0, launch });
     const send = async (launch) => { err.textContent = ''; try { await call('/polls', 'POST', body(launch)); P.form = false; P.view = launch ? 'active' : 'drafts'; announce(launch ? 'Poll launched' : 'Draft saved'); await loadPolls(); } catch (e) { err.textContent = e.message; } };
-    f.onsubmit = (e) => { e.preventDefault(); send(true); }; draft.onclick = () => { if (f.reportValidity()) send(false); }; cancel.onclick = () => { P.form = false; renderPolls(); $('pollNew')?.focus(); };
+    f.onsubmit = (e) => { e.preventDefault(); send(true); }; draft.onclick = () => { if (f.reportValidity()) send(false); };
     return f;
   }
   const pct = (n, tot) => (tot ? Math.round((n / tot) * 100) : 0);

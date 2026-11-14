@@ -67,6 +67,17 @@ try {
   await host.p.click('[data-tab=polls]');
   check('Polls: the host sees the Polls tab with content', JSON.stringify(await visibleTabs(host.p)) === '["polls"]' && (await host.p.locator('#tab-polls').innerText()).trim().length > 0, (await host.p.locator('#tab-polls').innerText()).slice(0, 80));
   check('Polls: the guest has no Polls tab while the host has not allowed polls', (await tabButton(guest.p, 'polls').count()) === 0 || !(await tabButton(guest.p, 'polls').isVisible()));
+  // the Create New Poll form: question, type radios, option rows with remove and an n/10 counter, switches, time limit, Save draft / Launch poll
+  await host.p.click('#pollNew'); const pf = host.p.locator('#pollFormEl');
+  check('Create New Poll: heading, Host editor badge, two option rows 2/10, Single choice selected', (await pf.innerText()).includes('Create New Poll') && (await pf.innerText()).includes('Host editor') && (await pf.locator('.plc-count').innerText()) === '2/10' && await pf.locator('input[name=pk][value=single]').isChecked());
+  if (OUT) await host.p.screenshot({ path: join(OUT, 'tab-polls-form.png') });
+  await pf.getByRole('button', { name: 'Launch poll' }).click();
+  check('Create New Poll: a poll without a question is refused (nothing is created)', (await host.p.locator('#pollList .pl-card').count()) === 0 && await pf.isVisible());
+  await pf.locator('#pq').fill('Lunch?'); await pf.getByRole('button', { name: '+ Add option' }).click();
+  const opts = pf.locator('.plc-opt'); await opts.nth(0).fill('Pizza'); await opts.nth(1).fill('Salad'); await opts.nth(2).fill('Soup');
+  check('Create New Poll: adding an option shows 3/10, removing one shows 2/10', (await pf.locator('.plc-count').innerText()) === '3/10' && (await (async () => { await pf.locator('.plc-x').nth(2).click(); return pf.locator('.plc-count').innerText(); })()) === '2/10');
+  await pf.getByRole('button', { name: 'Launch poll' }).click(); await host.p.locator('#pollList .pl-card', { hasText: 'Lunch?' }).waitFor({ timeout: 15000 });
+  check('Create New Poll: Launch poll opens the poll and lists it under Active', (await host.p.locator('#pollList .pl-card', { hasText: 'Lunch?' }).innerText()).includes('Pizza') && (await host.p.locator('#pollFormEl').count()) === 0);
   if (OUT) await host.p.screenshot({ path: join(OUT, 'tab-polls.png') });
 
   // More
