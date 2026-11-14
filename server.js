@@ -121,7 +121,7 @@ function loadSnapshot() {
         for (const m of saved) {
             // No sockets survive a restart, so nothing can still be active
             if (m.status === 'active') m.status = 'scheduled';
-            meetingsState.set(m.meetingId, m);
+            meetingsState.set(m.storeKey || m.meetingId, m);                       // a frozen earlier run of a re-used meeting lives under its own key
         }
     } catch (err) {
         console.error('[Persistence]: load failed:', err.message);
@@ -179,7 +179,7 @@ function verifyHostKey(meeting, key) {
 }
 const meetingAccounts = new Map();      // meetingId -> Set(accountId) of signed-in people who joined (they may read that meeting's documents)
 // attendance, outcome and follow-ups are for the history screens (host / attendee checks there), never for the room broadcast or the public lookups
-const publicMeeting = ({ hostKeyHash: _h, passcodeHash: _p, removedAccounts: _r, attendance: _a, meetActivity: _m, joinedAccounts: _j, outcome: _o, actionItems: _i, viaMeet: _v, ...rest }) => ({ ...rest, passcodeRequired: !!_p });
+const publicMeeting = ({ hostKeyHash: _h, passcodeHash: _p, passcodeEnc: _pe, reuse: _ru, storeKey: _sk, removedAccounts: _r, attendance: _a, meetActivity: _m, joinedAccounts: _j, outcome: _o, actionItems: _i, viaMeet: _v, ...rest }) => ({ ...rest, passcodeRequired: !!_p });
 
 // Optional meeting passcode (MAIN meetings: 4-32 characters, scrypt). Meet has its own, separate policy (see docs/PASSCODE_POLICY.md).
 // Attempts go through the durable lockout service: 5 failures lock the meeting for 10 minutes, across restarts and processes.
@@ -197,6 +197,10 @@ function buildLockoutStore() {
 const lockout = createLockoutService({ store: buildLockoutStore() });
 console.log('[Config] Passcode lockout store: ' + lockout.store.kind);
 const scryptAsync = require('util').promisify(crypto.scrypt);
+// The host can see the password again (Meeting ID + password on current and History meetings): it is kept ENCRYPTED (AES-256-GCM, key MEETING_PASSCODE_KEY) next to the scrypt hash that does the checking.
+// Without a key nothing is kept (fail closed): the meeting works as before and the host is told the password cannot be shown. See meeting-passcode-vault.js.
+const vault = require('./meeting-passcode-vault');
+const keepPasscode = (meeting, pc) => { const sealed = vault.seal(meeting.meetingId, pc); if (sealed) meeting.passcodeEnc = sealed; else delete meeting.passcodeEnc; };
 const hashPasscode = (pc, salt = crypto.randomBytes(16).toString('hex')) => salt + ':' + crypto.scryptSync(String(pc), salt, 32).toString('hex');
 async function comparePasscode(meeting, supplied) {
     const [salt, hash] = meeting.passcodeHash.split(':');
@@ -424,7 +428,11 @@ for (const base of ['/api/meetings', '/api/v1/meetings']) {
         try { res.set('Cache-Control', 'no-store').json({ calls: await meetLaunch.phoneCalls(meeting.meetingId) }); } catch (e) { res.json({ calls: [] }); }
     });
 }
-hist.registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRooms, fetchActivity: (m) => meetLaunch.activity(m.meetingId) });   // Meeting History: /api/history/meetings
+let credentials = null;                                                                       // Meeting ID + password and re-use (meeting-credentials.js), created right below
+hist.registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRooms, fetchActivity: (m) => meetLaunch.activity(m.meetingId), decorate: (b, m, u) => (credentials ? credentials.decorate(b, m, u) : b) });   // Meeting History: /api/history/meetings
+credentials = require('./meeting-credentials').registerMeetingCredentials({ app, express, meetingsState, saveSnapshotSoon, auth, hist, meetLaunch, ML, vault, reuse: require('./meeting-reuse'),
+    roomActive: (id) => { const r = activeRooms.get(id); return !!(r && r.size); },
+    onArchived: (id) => { admittedAccounts.delete(id); try { guestSessions.revokeMeeting(id, 'meeting_reused'); } catch (e) { /* none open */ } const cancel = limitTimers.get(id); if (typeof cancel === 'function') cancel(); limitTimers.delete(id); } });   // a new run starts with nobody admitted
 
 // ---- The organiser's pre-meeting screen (v4.0.2b) --------------------------------------------------------------------------------------------------
 // Admission policy lives in meeting.settings and is ENFORCED by Qorlla Meet (waiting room, join before host, lock when the host joins): the page only edits it.
@@ -451,7 +459,7 @@ function applyHostChanges(meeting, b) {                                         
     if (Object.keys(s.value).length) meeting.settings = { ...SETTINGS_RECOMMENDED, ...(meeting.settings || {}), ...s.value };
     if (title !== undefined) { meeting.topic = title; meeting.title = title; }
     if (meeting.status !== 'completed') Object.assign(meeting, hist.cleanMeta({ ...('topic' in b ? { topic: b.topic } : {}), ...('category' in b ? { category: b.category } : {}), ...('description' in b ? { description: b.description } : {}) }));
-    if (b.removePassword === true || pw === null) delete meeting.passcodeHash; else if (typeof pw === 'string' && pw) meeting.passcodeHash = hashPasscode(pw);
+    if (b.removePassword === true || pw === null) { delete meeting.passcodeHash; delete meeting.passcodeEnc; } else if (typeof pw === 'string' && pw) { meeting.passcodeHash = hashPasscode(pw); keepPasscode(meeting, pw); }
     saveSnapshotSoon(); return { ok: true };
 }
 const startRequests = new Map();                                                          // requestId -> promise of the answer: a repeated click gets the same answer, not a second start
@@ -616,7 +624,7 @@ app.post('/api/meetings/create', limitCreate, (req, res) => {
     if (req.body.passcode !== undefined && req.body.passcode !== '') {
         const pc = String(req.body.passcode);
         if (pc.length < 4 || pc.length > 32) { meetingsState.delete(newMeeting.meetingId); return res.status(400).json({ error: 'The passcode must be 4 to 32 characters.' }); }
-        newMeeting.passcodeHash = hashPasscode(pc);
+        newMeeting.passcodeHash = hashPasscode(pc); keepPasscode(newMeeting, pc);
     }
     saveSnapshotSoon();
 

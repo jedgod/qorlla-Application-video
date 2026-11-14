@@ -56,8 +56,9 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
         const job = (async () => {
             const base = await internalBase(); if (!base) throw unavailable('Qorlla Meet is not reachable');
             const meetPass = crypto.randomBytes(18).toString('base64url');
-            const body = { ...(typeof meeting.hostId === 'string' && /^[A-Za-z0-9_.:@-]{1,128}$/.test(meeting.hostId) ? { hostAccountId: meeting.hostId } : {}), sourceId: 'main-' + digits, title, ownerName: String(ownerName || 'Host').slice(0, 70), scheduledAt: meeting.startTime || null, passcodeHash: await bcrypt.hash(meetPass, 10), ...ms };
-            if (/^\d{10,12}$/.test(digits)) body.legacyCode = digits;
+            const run = Number(meeting.reuse && meeting.reuse.index) || 0;                       // a re-used meeting registers a NEW Meet meeting per run (own people, chat, limits and host credential)
+            const body = { ...(typeof meeting.hostId === 'string' && /^[A-Za-z0-9_.:@-]{1,128}$/.test(meeting.hostId) ? { hostAccountId: meeting.hostId } : {}), sourceId: 'main-' + digits + (run ? '-r' + run : ''), title, ownerName: String(ownerName || 'Host').slice(0, 70), scheduledAt: meeting.startTime || null, passcodeHash: await bcrypt.hash(meetPass, 10), ...ms };
+            if (!run && /^\d{10,12}$/.test(digits)) body.legacyCode = digits;            // the typed ID maps to the first Meet meeting only; later runs are entered through this server
             const r = await call(base, '/api/integrations/scheduled-meetings', 'POST', body, bridge());
             if (!r.ok) throw unavailable('Meet refused the registration (' + r.status + ')');
             if (!r.data.created) throw unavailable('This meeting is already registered with Meet by another service');   // no credentials to hand over
@@ -133,9 +134,11 @@ function createMeetLaunch({ dataDir, probePort, env = process.env, fetchImpl = f
         try { return await call(base, '/api/integrations/telephony' + route + (query ? '?' + new URLSearchParams(query) : ''), method, body, { ...bridge(), 'x-qorlla-actor': String((actor && actor.id) || ''), 'x-qorlla-admin': actor && actor.admin ? '1' : '0' }); }
         catch (e) { return down('Qorlla Meet did not answer, so telephony is unavailable.'); }
     }
+    /** A finished run's Meet link is kept under its run number (the Meet record stays as it was) so the next run can register afresh. */
+    const retire = (meetingId, run) => { const d = digitsOf(meetingId); if (links[d]) { links[d + '~r' + (Number(run) || 0)] = links[d]; delete links[d]; persist(); } };
     const known = (meetingId) => !!links[digitsOf(meetingId)];
     const forget = (meetingId) => { const d = digitsOf(meetingId); if (links[d]) { delete links[d]; persist(); } };
-    return { enabled, ensureLink, updateIfLinked, join, url, ping, forget, activity, known, phoneAccess, phoneCalls, telephony, _links: () => links };
+    return { enabled, ensureLink, updateIfLinked, join, url, ping, forget, retire, activity, known, phoneAccess, phoneCalls, telephony, _links: () => links };
 }
 
 module.exports = { createMeetLaunch };

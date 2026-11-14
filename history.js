@@ -104,7 +104,8 @@ function banner(m, user, now = Date.now()) {
         meetingId: m.meetingId, title: m.title || m.topic || '', topic: m.topicText || '', category: m.category || '', hostName: m.hostName || '', isHost: !!user && m.hostId === user.id,
         status: statusOf(m), scheduledStartAt: m.scheduledStartAt || m.startTime || null, actualStartAt: start ? new Date(start).toISOString() : null, actualEndAt: end ? new Date(end).toISOString() : null,
         durationSeconds: start && end ? Math.max(0, Math.round((end - start) / 1000)) : null, uniqueAttendeeCount: st.unique || 0, peakConcurrentCount: st.peak || 0,
-        outcomeSummary: (m.outcome || '').slice(0, 280), previousMeetingId: m.previousMeetingId || null, endReason: m.endReason || null, recurrence: m.recurrenceLabel || ''
+        outcomeSummary: (m.outcome || '').slice(0, 280), previousMeetingId: m.previousMeetingId || null, endReason: m.endReason || null, recurrence: m.recurrenceLabel || '',
+        runKey: m.storeKey || m.meetingId, runIndex: (m.reuse && m.reuse.index) || 0            // a re-used meeting has one frozen record per run; the same Meeting ID, a different runKey
     };
 }
 function details(m, user, now = Date.now()) {
@@ -129,7 +130,8 @@ function cleanActionItems(v) {
     return v.slice(0, 50).map((x) => ({ text: cleanLine(x && x.text, 300), owner: cleanLine(x && x.owner, 80), due: /^\d{4}-\d{2}-\d{2}$/.test((x && x.due) || '') ? x.due : '', done: !!(x && x.done) })).filter((x) => x.text);
 }
 
-function registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRooms, fetchActivity }) {
+function registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRooms, fetchActivity, decorate }) {
+    const dress = (b, m, u) => { if (typeof decorate !== 'function') return b; try { return decorate(b, m, u) || b; } catch (e) { return b; } };   // host-only additions (credentials summary, re-use allowance)
     const pulled = new Map();                                                      // meetingId -> last pull time (a short cache keeps the list fast)
     async function refresh(m, now = Date.now()) {
         const room = activeRooms.get(m.meetingId);
@@ -153,7 +155,10 @@ function registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRoo
     }
     const me = (req, res) => { const u = auth.getUser(req); if (!u) { res.status(401).json({ error: 'Sign in first.' }); return null; } return u; };
     const involved = (m, u) => m.hostId === u.id || (m.joinedAccounts || []).includes(u.id);
-    const find = (req) => meetingsState.get(String(req.params.id || '').replace(/\D/g, '').replace(/^(\d{3})(\d{4})(\d{4})$/, '$1 $2 $3'));
+    const find = (req) => {                                                        // `858 9833 3712` (the live or latest record) or `858 9833 3712~r1` (the frozen record of an earlier run)
+        const raw = String(req.params.id || ''), run = /~r(\d{1,4})\s*$/.exec(raw), base = raw.replace(/~r\d{1,4}\s*$/, '').replace(/\D/g, '').replace(/^(\d{3})(\d{4})(\d{4})$/, '$1 $2 $3');
+        return meetingsState.get(run ? base + '~r' + run[1] : base);
+    };
     app.use('/api/history', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
     app.get('/api/history/meetings', async (req, res) => {
@@ -162,7 +167,7 @@ function registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRoo
         const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? Date.parse(req.query.from + 'T00:00:00') : null, to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? Date.parse(req.query.to + 'T23:59:59') : null;
         const mine = [...meetingsState.values()].filter((m) => involved(m, u));
         await Promise.all(mine.map((m) => refresh(m)));
-        let rows = mine.filter((m) => FINAL.has(statusOf(m)) || m.status === 'completed').map((m) => banner(m, u));
+        let rows = mine.filter((m) => FINAL.has(statusOf(m)) || m.status === 'completed').map((m) => dress(banner(m, u), m, u));
         rows = rows.filter((b) => (!st || b.status === st) && (!cat || b.category === cat) && (!host || b.hostName.toLowerCase().includes(host))
             && (!q || (b.title + ' ' + b.topic + ' ' + b.hostName).toLowerCase().includes(q))
             && (!from || Date.parse(b.actualStartAt || b.scheduledStartAt) >= from) && (!to || Date.parse(b.actualStartAt || b.scheduledStartAt) <= to));
@@ -174,7 +179,7 @@ function registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRoo
         const u = me(req, res); if (!u) return; const m = find(req);
         if (!m || !involved(m, u)) return res.status(404).json({ error: 'This meeting is not in your history.' });
         await refresh(m); if (!FINAL.has(statusOf(m))) return res.status(409).json({ error: 'This meeting has not finished yet.' });
-        res.json(details(m, u));
+        res.json(dress(details(m, u), m, u));
     });
     app.patch('/api/history/meetings/:id', express_json(), async (req, res) => {
         const u = me(req, res); if (!u) return; const m = find(req);
@@ -184,7 +189,7 @@ function registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRoo
         const b = req.body || {};
         if ('outcome' in b) { if (typeof b.outcome !== 'string') return res.status(400).json({ error: 'outcome must be text.' }); m.outcome = clean(b.outcome, 4000); }
         if ('actionItems' in b) { const items = cleanActionItems(b.actionItems); if (!items) return res.status(400).json({ error: 'actionItems must be a list.' }); m.actionItems = items; }
-        m.outcomeUpdatedAt = new Date().toISOString(); saveSnapshotSoon(); res.json(details(m, u));
+        m.outcomeUpdatedAt = new Date().toISOString(); saveSnapshotSoon(); res.json(dress(details(m, u), m, u));
     });
     app.get('/api/history/meetings/:id/report', async (req, res) => {
         const u = me(req, res); if (!u) return; const m = find(req);

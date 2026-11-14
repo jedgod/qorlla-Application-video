@@ -264,6 +264,17 @@
   .hist-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; } .hist-chip { font-size: 13px; font-weight: 500; padding: 2px 12px; border-radius: 999px; background: #e0f2fe; color: #075985; } .hist-chip.s-completed { background: #d9f5e5; color: #0f7a3d; } .hist-chip.s-missed { background: #eef2f7; color: #334155; } .hist-chip.s-cancelled { background: #fee2e2; color: #991b1b; } .hist-chip.s-partial { background: #ede9fe; color: #5b21b6; }
   .hist-body { padding: 0 16px 14px; border-top: 1px solid var(--line); } .hist-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px 16px; padding: 12px 0 4px; } .hist-kv { display: flex; flex-direction: column; font-size: 14px; } .hist-k { font-size: 11px; letter-spacing: .5px; color: #64748b; text-transform: uppercase; }
   .hist-sec h4 { margin: 12px 0 6px; } .hist-body textarea, .hist-body input[type=text] { width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; box-sizing: border-box; } .hist-item { display: flex; gap: 8px; align-items: center; margin: 4px 0; } .hist-item input[type=text] { width: 140px; }
+  .hist-id { font-size: 12px; color: var(--muted, #5b6472); font-variant-numeric: tabular-nums; }
+  .acc-card { background: #eef4ff; border: 1px solid #c9dbff; border-radius: 12px; padding: 10px 14px; margin: 10px 0; } .acc-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; } .acc-title { display: flex; gap: 10px; align-items: center; flex: 1 1 220px; min-width: 0; }
+  .acc-title svg { width: 22px; height: 22px; flex: none; color: #2563eb; } .acc-title strong { display: block; font-size: 14px; } .acc-hint { display: block; font-size: 12px; color: var(--muted, #5b6472); }
+  .acc-fields { display: flex; gap: 12px; flex-wrap: wrap; flex: 2 1 320px; } .acc-field { flex: 1 1 150px; min-width: 0; } .acc-flabel { display: block; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+  .acc-box { display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 5px 6px 5px 10px; min-height: 36px; } .acc-val { flex: 1; min-width: 0; width: 100%; border: 0; background: transparent; padding: 0; font: inherit; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: inherit; outline-offset: 2px; text-overflow: ellipsis; }
+  .acc-copy { flex: none; width: 30px; height: 30px; border: 0; background: transparent; border-radius: 6px; cursor: pointer; color: #334155; display: inline-flex; align-items: center; justify-content: center; } .acc-copy:hover, .acc-copy:focus-visible { background: #e2e8f0; } .acc-copy svg { width: 16px; height: 16px; } .acc-copy.done { background: #dcfce7; color: #166534; }
+  .acc-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 8px; } .acc-sw-wrap { display: inline-flex; align-items: center; gap: 8px; } .acc-sw-label { font-size: 13px; font-weight: 600; }
+  .acc-switch { position: relative; width: 44px; height: 24px; border-radius: 999px; border: 0; background: #94a3b8; cursor: pointer; padding: 0; flex: none; } .acc-switch.on { background: #2563eb; } .acc-switch:disabled { opacity: .5; cursor: not-allowed; } .acc-switch:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+  .acc-knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; } .acc-switch.on .acc-knob { transform: translateX(20px); }
+  .acc-info { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #64748b; color: #475569; font: 600 11px/15px serif; text-align: center; cursor: help; flex: none; } .acc-info:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+  .acc-note { font-size: 12px; margin: 6px 0 0; } .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .hist-table { width: 100%; border-collapse: collapse; font-size: 13px; } .hist-table th, .hist-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); } .hist-actions { margin-top: 12px; flex-wrap: wrap; } .hist-actions a.btn { text-decoration: none; } .hist-note { font-size: 12px; } .hist-err { display: flex; gap: 10px; align-items: center; color: #b91c1c; } .hist-status { font-size: 12px; margin: 8px 0 0; }
   .hist-rowhead:focus-visible, .hist-toggle:focus-visible, .hist-filterchip:focus-visible { outline: 2px solid #4a90ff; outline-offset: 2px; }
   .hist-panel .hidden { display: none !important; }
@@ -966,6 +977,7 @@
         <label class="f" for="sdPass" id="sdPassLab">Meeting password <span class="muted">(optional)</span></label>
         <div class="sd-pass"><input type="password" id="sdPass" maxlength="32" autocomplete="new-password" placeholder="Enter meeting password"><button type="button" class="chip" id="sdPassToggle" aria-pressed="false">Show</button><button type="button" class="chip sd-s" id="sdPassGen">Generate</button></div>
         <p class="hint" id="sdPassNote"></p>
+        <div id="sdAccess"></div>
         <label class="hint sd-s" id="sdRemoveWrap" style="display:none"><input type="checkbox" id="sdRemovePass"> Remove the current password</label>
         <label class="f" for="sdName" id="sdNameLab">Your display name</label><input type="text" id="sdName" maxlength="70" autocomplete="name">
         <fieldset class="sd-quick"><legend>Quick settings</legend>
@@ -1259,6 +1271,7 @@
     $('sdTitleIn').value = m.title || ''; $('sdName').value = myName(); $('sdPass').value = ''; $('sdPass').type = 'password'; $('sdPassToggle').textContent = 'Show'; $('sdPassToggle').setAttribute('aria-pressed', 'false');
     $('sdGo').textContent = 'Start meeting'; $('sdRemovePass').checked = false; $('sdRemoveWrap').style.display = 'none';
     $('sdSub').textContent = m.date ? 'Scheduled for ' + prettyDate(m.date) + ((m.start || m.time) ? ' · ' + t12(m.start || m.time) : '') : 'Configure your Qorlla meeting';
+    var acc = $('sdAccess'); acc.textContent = ''; if (m.meetingId) acc.appendChild(accessCard({ meetingId: m.meetingId, isHost: true, title: m.title }));       // Meeting ID + password of this (current) meeting
     setMode('start'); $('sdMic').checked = store('zw_mic') !== '0'; $('sdCam').checked = store('zw_cam') !== '0'; $('sdPreview').checked = false; stopPreview(); resetDevices(); loadDeviceList();
     $('sdSec').open = !window.matchMedia('(max-width: 700px)').matches;                       // on phones the advanced options start collapsed
     netRow('cam', 'Not tested'); netRow('mic', 'Not tested');
@@ -2318,14 +2331,90 @@
   function api2(path, opts) { opts = opts || {}; var init = { method: opts.method || 'GET', headers: {} }; if (opts.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
     return fetch(BASE + '/api' + path, init).then(function (r) { return r.json().then(function (j) { return { j: j, json: true }; }, function () { return { j: {}, json: false }; }).then(function (x) { var j = x.j; if (r.status === 401) throw new Error('Please sign in.'); if (!r.ok) throw new Error(j.error || (r.status === 404 && !x.json ? 'This server does not have Meeting History yet (it is running an older version). Restart it, then try again.' : 'Request failed (HTTP ' + r.status + ')')); return j; }); }); }
 
+  // =====================================================================
+  // "Meeting access (reusable)": the Meeting ID, the password (host only) and the Allow reuse switch of a meeting. The server decides everything (who may see the password, whether
+  // reuse is switched on, how many re-uses the plan allows, the count); this only presents it. The password is fetched when the card opens (a no-store request to the host-only
+  // endpoint), is never part of a list, export or summary, and attendees only get "Ask the host for the password".
+  // =====================================================================
+  function groupId(id) { var d = String(id || '').replace(/\D/g, ''); return d.length === 11 ? d.replace(/^(\d{3})(\d{4})(\d{4})$/, '$1 $2 $3') : d.length === 10 ? d.replace(/^(\d{3})(\d{3})(\d{4})$/, '$1 $2 $3') : String(id || ''); }
+  var accessLive = null;                                                                      // one polite live region: copying is announced to screen readers as well as shown
+  function announce(msg) { if (!accessLive) { accessLive = h('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' }); document.body.appendChild(accessLive); } accessLive.textContent = ''; setTimeout(function () { accessLive.textContent = msg; }, 30); }
+  function copyField(label, getValue, doneText) {
+    var b = h('button', { class: 'acc-copy', type: 'button', 'aria-label': I18n.t('Copy') + ' ' + label, title: I18n.t('Copy') + ' ' + label }, [icon(IC.copy)]);
+    b.addEventListener('click', function (e) {
+      e.stopPropagation(); var v = getValue(); if (!v) return;
+      var done = function () { b.classList.add('done'); b.setAttribute('aria-label', doneText); announce(doneText); toast(doneText, 'ok'); setTimeout(function () { b.classList.remove('done'); b.setAttribute('aria-label', I18n.t('Copy') + ' ' + label); }, 1800); };
+      if (navigator.clipboard) navigator.clipboard.writeText(v).then(done, function () { toast(v); }); else toast(v);
+    });
+    return b;
+  }
+  /** opts: { meetingId, isHost, title, afterStart(result) }. afterStart given = a finished meeting in History: the card offers "Start again". */
+  function accessCard(opts) {
+    var id = opts.meetingId, base = '/meetings/' + encodeURIComponent(id), plainId = String(id).replace(/\D/g, '');
+    var card = h('section', { class: 'acc-card', 'aria-label': I18n.t('Meeting access (reusable)'), 'data-access': plainId });
+    var ro = { class: 'acc-val', type: 'text', readonly: 'readonly', spellcheck: 'false', autocomplete: 'off' };                       // read-only inputs: labelled, selectable, and not live regions (an <output> would be announced on every change)
+    var idOut = h('input', Object.assign({ id: 'acc-id-' + plainId + '-' + Math.random().toString(36).slice(2, 6), value: groupId(id) }, ro));
+    var pwOut = h('input', Object.assign({ value: opts.isHost ? '\u2026' : I18n.t('Ask the host for the password') }, ro)), pw = '';
+    var uid = Math.random().toString(36).slice(2, 7);
+    var swLabel = h('span', { class: 'acc-sw-label', id: 'acc-sw-' + uid, text: I18n.t('Allow reuse') });
+    var sw = h('button', { class: 'acc-switch', type: 'button', role: 'switch', 'aria-checked': 'false', 'aria-labelledby': 'acc-sw-' + uid, disabled: true }, [h('span', { class: 'acc-knob' })]);
+    var tip = h('span', { class: 'acc-info', tabindex: '0', role: 'img', 'aria-label': I18n.t('About reuse'), title: '' }, ['i']);
+    var again = h('button', { class: 'btn small primary acc-again', type: 'button', text: I18n.t('Start again'), disabled: true });
+    var note = h('p', { class: 'acc-note muted', 'aria-live': 'polite' });
+    var field = function (label, out, copy) { return h('div', { class: 'acc-field' }, [h('label', { class: 'acc-flabel', for: out.id || null, text: label }), h('div', { class: 'acc-box' }, [out, copy])]); };
+    pwOut.id = 'acc-pw-' + uid;
+    var fields = [field(I18n.t('Meeting ID'), idOut, copyField(I18n.t('Meeting ID'), function () { return plainId; }, I18n.t('Meeting ID copied')))];
+    if (opts.isHost) fields.push(field(I18n.t('Password'), pwOut, copyField(I18n.t('Password'), function () { return pw; }, I18n.t('Password copied'))));
+    else fields.push(field(I18n.t('Password'), pwOut, null));
+    card.appendChild(h('div', { class: 'acc-top' }, [
+      h('div', { class: 'acc-title' }, [icon(IC.link || IC.copy), h('div', {}, [h('strong', { text: I18n.t('Meeting access (reusable)') }), h('span', { class: 'acc-hint', text: I18n.t('Use the same Meeting ID and Password to start again.') })])]),
+      h('div', { class: 'acc-fields' }, fields)]));
+    if (!opts.isHost) return card;
+    card.appendChild(h('div', { class: 'acc-bottom' }, [h('div', { class: 'acc-sw-wrap' }, [swLabel, sw, tip]), opts.afterStart ? again : null]));
+    card.appendChild(note);
+    var info = null;
+    function paint(i) {
+      info = i; var r = i.reuse || {}, st = i.passwordState;
+      if (st === 'viewable') pwOut.value = pw || '\u2026'; else { pw = ''; pwOut.value = st === 'none' ? I18n.t('No password') : I18n.t('Password not stored'); }
+      var left = r.limit === null ? I18n.t('Unlimited re-uses on your plan') : (r.remaining + ' ' + I18n.t('of') + ' ' + r.limit + ' ' + I18n.t('re-uses left on your') + ' ' + r.plan + ' ' + I18n.t('plan'));
+      var limitHit = r.allowed === false;
+      var checked = !!r.enabled && !limitHit;                                                  // with no re-use left the effective state is OFF, and the switch is locked (the server refuses ON as well)
+      sw.setAttribute('aria-checked', String(checked)); sw.classList.toggle('on', checked); sw.disabled = limitHit;
+      var why = limitHit ? (r.limit === 0 ? I18n.t('Your plan does not include re-using a meeting.') : I18n.t('You have used all the re-uses your plan allows for this meeting.')) + ' ' + I18n.t('Upgrade to have full access to Qorlla packages') : '';
+      var tipText = I18n.t('Allow starting this meeting again with the same Meeting ID and Password.') + ' ' + left + (why ? '. ' + why : '');
+      tip.title = tipText; tip.setAttribute('aria-label', tipText); sw.setAttribute('aria-describedby', 'acc-note-' + uid); note.id = 'acc-note-' + uid;
+      note.textContent = ''; note.appendChild(document.createTextNode(left + '.')); if (limitHit) { note.appendChild(document.createTextNode(' ' + why + ' ')); note.appendChild(h('a', { href: BASE + '/pricing?reason=meeting-reuse', text: I18n.t('See plans and upgrade') })); }
+      var reasons = { off: I18n.t('Allow reuse is switched off for this meeting.'), open: I18n.t('This meeting is still open.'), not_latest: I18n.t('Only the latest run can be started again.') };
+      again.textContent = I18n.t('Start again') + (r.limit === null ? '' : ' (' + r.remaining + ' ' + I18n.t('left') + ')'); again.disabled = !r.canReuse; again.title = r.canReuse ? '' : (limitHit ? why : reasons[r.reason] || '');
+    }
+    function load() {
+      return api2(base + '/credentials').then(function (i) {
+        paint(i);
+        if (i.passwordState === 'viewable') return api2(base + '/credentials/reveal', { method: 'POST', body: {} }).then(function (r) { pw = r.password; pwOut.value = pw; }).catch(function () { pwOut.value = I18n.t('Password not stored'); });
+      }).catch(function (e) { note.textContent = e.message; });
+    }
+    sw.addEventListener('click', function (e) {
+      e.stopPropagation(); if (sw.disabled) return; var want = sw.getAttribute('aria-checked') !== 'true'; sw.disabled = true;
+      api2(base + '/reuse-setting', { method: 'PUT', body: { allowed: want } }).then(function (res) { paint({ passwordState: info.passwordState, reuse: res.reuse }); announce(want ? I18n.t('Reuse is on') : I18n.t('Reuse is off')); })
+        .catch(function (err) { fail(err); paint(info); });
+    });
+    again.addEventListener('click', function (e) {
+      e.stopPropagation(); again.disabled = true; again._rid = again._rid || 'ru-' + crypto.randomUUID();          // the same id on a retry: a lost answer never uses a second re-use
+      api2(base + '/reuse', { method: 'POST', body: { clientRequestId: again._rid } }).then(function (res) { again._rid = null; toast(I18n.t('Ready again with the same Meeting ID and password'), 'ok'); if (opts.afterStart) opts.afterStart(res); else load(); })
+        .catch(function (err) { fail(err); load(); });
+    });
+    load(); return card;
+  }
+
   /** One meeting as an expandable card. Collapsed: title, topic, date, duration, attendees, status. Expanded (loaded on demand): the full record. */
   function histRow(b, reload, collapseOthers) {
-    var id = b.meetingId.replace(/\D/g, ''), bodyId = 'hb-' + id, det = null, loaded = false;
+    var runId = b.runKey || b.meetingId, id = String(runId).replace(/[^0-9a-z~]/gi, ''), bodyId = 'hb-' + id, det = null, loaded = false;
     var body = h('div', { class: 'hist-body hidden', id: bodyId, role: 'region', 'aria-label': b.title });
     var head = h('button', { class: 'hist-rowhead', type: 'button', 'aria-expanded': 'false', 'aria-controls': bodyId, 'aria-label': b.title + ', ' + (HIST_STATUS[b.status] || b.status) + '. ' + I18n.t('Show details') }, [
       h('span', { class: 'hist-main' }, [
         h('strong', { class: 'hist-title', text: b.title }),
         b.topic ? h('span', { class: 'hist-topic', text: I18n.t('Topic') + ': ' + b.topic }) : null,
+        h('span', { class: 'hist-id', text: I18n.t('Meeting ID') + ': ' + b.meetingId + ((b.runIndex > 0 || String(b.runKey || '').indexOf('~r') > 0) ? ' \u00B7 ' + I18n.t('Run') + ' ' + ((b.runIndex || 0) + 1) : '') }),
         h('span', { class: 'hist-date', text: shortDay(b.actualStartAt || b.scheduledStartAt) }),
         h('span', { class: 'hist-meta' }, [h('span', {}, [icon(IC.clock), fmtDur(b.durationSeconds)]), h('span', {}, [icon(IC.users), b.uniqueAttendeeCount + ' ' + I18n.t(b.uniqueAttendeeCount === 1 ? 'attendee' : 'attendees')])])
       ]),
@@ -2338,7 +2427,7 @@
     }
     head.addEventListener('click', function () { var open = body.classList.contains('hidden'); if (open && collapseOthers) collapseOthers(card); setOpen(open); });
     card._collapse = function () { setOpen(false); };
-    function load() { body.textContent = I18n.t('Loading\u2026'); api2('/history/meetings/' + encodeURIComponent(b.meetingId)).then(function (d) { det = d; paint(d); }).catch(function (e) { body.textContent = ''; body.appendChild(h('div', { class: 'hist-err' }, [h('span', { text: e.message }), h('button', { class: 'btn small', type: 'button', text: I18n.t('Try again'), onclick: load })])); }); }
+    function load() { body.textContent = I18n.t('Loading\u2026'); api2('/history/meetings/' + encodeURIComponent(runId)).then(function (d) { det = d; paint(d); }).catch(function (e) { body.textContent = ''; body.appendChild(h('div', { class: 'hist-err' }, [h('span', { text: e.message }), h('button', { class: 'btn small', type: 'button', text: I18n.t('Try again'), onclick: load })])); }); }
     function paint(d) {
       body.textContent = '';
       var sec = function (t, kids) { return h('section', { class: 'hist-sec' }, [h('h4', { text: t })].concat(kids)); };
@@ -2348,6 +2437,8 @@
         kv(I18n.t('Scheduled'), d.scheduledStartAt ? shortDay(d.scheduledStartAt) + ', ' + clock(d.scheduledStartAt) : '\u2014'),
         kv(I18n.t('Actual'), d.actualStartAt ? clock(d.actualStartAt) + (d.actualEndAt ? ' \u2013 ' + clock(d.actualEndAt) : '') : I18n.t('Did not start')),
         kv(I18n.t('Duration'), fmtDur(d.durationSeconds)), kv(I18n.t('Peak attendance'), String(d.peakConcurrentCount)), kv(I18n.t('Unique attendees'), String(d.uniqueAttendeeCount))]));
+      body.appendChild(accessCard({ meetingId: d.meetingId, isHost: !!d.isHost, title: d.title,
+        afterStart: function (res) { reload(); openStart({ meetingId: res.meetingId, title: d.title }); } }));          // reload() = a real refresh (reload(true) is the quiet no-op used after Save)
       if (d.description) body.appendChild(sec(I18n.t('Description'), [h('p', { text: d.description })]));
       if (d.agenda && d.agenda.length) body.appendChild(sec(I18n.t('Agenda'), [h('ol', {}, d.agenda.map(function (x) { return h('li', { text: x }); }))]));
       var outcome = h('textarea', { rows: '3', maxlength: '4000', 'aria-label': I18n.t('Meeting outcome'), placeholder: d.isHost ? I18n.t('What was decided or concluded?') : '' }); outcome.value = d.outcome || ''; outcome.readOnly = !d.isHost;
@@ -2376,9 +2467,9 @@
       var acts = [];
       if (d.isHost) {
         acts.push(h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Save outcome'), onclick: function () {
-          api2('/history/meetings/' + encodeURIComponent(b.meetingId), { method: 'PATCH', body: { outcome: outcome.value, actionItems: items } }).then(function (nd) { det = nd; toast(I18n.t('Saved'), 'ok'); reload(true); }).catch(fail);
+          api2('/history/meetings/' + encodeURIComponent(runId), { method: 'PATCH', body: { outcome: outcome.value, actionItems: items } }).then(function (nd) { det = nd; toast(I18n.t('Saved'), 'ok'); reload(true); }).catch(fail);
         } }));
-        acts.push(h('a', { class: 'btn small', href: BASE + '/api/history/meetings/' + encodeURIComponent(b.meetingId) + '/report', download: '', text: I18n.t('Export report') }));
+        acts.push(h('a', { class: 'btn small', href: BASE + '/api/history/meetings/' + encodeURIComponent(runId) + '/report', download: '', text: I18n.t('Export report') }));
         acts.push(h('button', { class: 'btn small', type: 'button', text: I18n.t('Reschedule'), title: I18n.t('Creates a NEW meeting with a new ID; this record stays as it was'), onclick: function () {
           var m = newSchedModel(); m.title = d.title; m.topic = d.topic || ''; m.category = d.category || ''; m.description = d.description || ''; m.agenda = (d.agenda || []).join('\n'); m.rescheduledFrom = d.meetingId; m.showAgenda = !!(d.agenda && d.agenda.length);
           openSchedFull(m, null, null);
