@@ -45,8 +45,10 @@ export function initChat(h) {
   const convName = (c) => { if (c.kind === 'everyone') return 'Everyone'; const others = (c.members || []).filter((x) => x.id !== state.participantId).map((x) => x.name); return others.length > 2 ? others.slice(0, 2).join(', ') + ' +' + (others.length - 2) : others.join(', ') || 'Private chat'; };
 
   /** the hint "Message everyone..." shows whenever the editor holds no text (kept in step by JS: :empty never matches a contentEditable after text was typed and deleted) */
-  const syncEmpty = () => { editor.dataset.empty = String(!editor.textContent.trim()); };
-  const hintFor = () => (current === 'everyone' ? 'Message everyone\u2026' : 'Message ' + convName(convs.get(current) || { kind: 'direct', members: [] }) + '\u2026');
+  const syncEmpty = () => { editor.dataset.empty = String(!editor.textContent.trim()); updateSend(); };
+  /** Send is grey and disabled while there is nothing to send (or chat is not allowed here); it is live while editing so an emptied edit can still ask "Delete it instead?" */
+  function updateSend() { const b = $('chatSend'); if (b) b.disabled = !mayPost() || (!editor.textContent.trim() && !editing); }
+  const hintFor = () => (current === 'everyone' ? 'Message everyone' : 'Message ' + convName(convs.get(current) || { kind: 'direct', members: [] }));
 
   // ---------- popovers: one open at a time, closed by a click elsewhere or Escape
   const POPS = ['chatGifPanel', 'chatFileMenu', 'chatFmtPop', 'chatWho', 'chatPinPanel', 'chatOverflow', 'chatLinkPop'];
@@ -65,7 +67,7 @@ export function initChat(h) {
     const ok = mayPost();
     editor.setAttribute('data-placeholder', hintFor()); syncEmpty();
     editor.setAttribute('contenteditable', ok ? 'true' : 'false'); editor.setAttribute('aria-disabled', String(!ok)); editor.classList.toggle('chat-editor-off', !ok);
-    $('chatSend').disabled = !ok; $('chatFmtBtn').disabled = !ok; bar.querySelectorAll('button').forEach((b) => { b.disabled = !ok; });
+    updateSend(); $('chatFmtBtn').disabled = !ok; bar.querySelectorAll('button').forEach((b) => { b.disabled = !ok; });
     if (!ok) { bar.classList.add('hidden'); $('chatFmtBtn').setAttribute('aria-pressed', 'false'); closePops(); }
     notice.textContent = ok ? '' : policyNotice(); notice.classList.toggle('hidden', ok);
     applyFeatures(); applyPolicy_newBtn(); buildSettings();
@@ -78,20 +80,23 @@ export function initChat(h) {
     const pc = $('chatFilePc'); if (pc) { pc.disabled = !ok || !features.attachments; const tip = features.attachments ? '' : 'File attachments are not enabled on this server (no malware scanning is available)'; pc.title = tip; pc.parentElement.title = tip; }
     if (!features.gif) $('chatGifPanel').classList.add('hidden');
   }
-  const subtitle = () => { $('chatSubtitle').textContent = document.getElementById('roomTitle')?.textContent.trim() || 'Meeting conversation'; };
+  const subtitle = () => { $('chatTitle').textContent = document.getElementById('roomTitle')?.textContent.trim() || 'Meeting chat'; };   // the header shows the meeting title only
 
   // ---------- conversation chips (a square with an icon, the name under it; the selected one has a blue ring)
   function renderNav() {
     nav.textContent = '';
-    for (const c of convs.values()) {
+    const chip = (c) => {
       const b = el('button', 'chat-conv', undefined, { type: 'button', role: 'tab', 'aria-selected': String(c.id === current), 'data-id': c.id, title: c.kind === 'everyone' ? 'The whole meeting' : 'Private: only the people listed can read this' });
-      const box = el('span', 'chat-chipbox'); box.append(icon(c.kind === 'everyone' ? 'people' : 'lock', 22)); b.append(box, el('span', 'chat-convname', convName(c)));
-      if (unread.has(c.id)) b.append(el('span', 'chat-unread', '●', { 'aria-label': 'New messages', role: 'img' }));
-      b.onclick = () => void select(c.id); nav.append(b);
-    }
-    const nb = el('button', 'chat-conv chat-new', undefined, { type: 'button', id: 'chatNewBtn' }); const nbox = el('span', 'chat-chipbox'); nbox.append(icon('plus', 22)); nb.append(nbox, el('span', 'chat-convname', 'New chat'));
+      const box = el('span', 'chat-chipbox'); box.append(icon(c.kind === 'everyone' ? 'people' : 'lock', 26)); b.append(box, el('span', 'chat-convname', convName(c)));
+      if (unread.has(c.id)) b.append(el('span', 'chat-unread', '\u25CF', { 'aria-label': 'New messages', role: 'img' }));
+      b.onclick = () => void select(c.id); return b;
+    };
+    const all = [...convs.values()];
+    nav.append(chip(all[0]), el('span', 'chat-navsep', undefined, { 'aria-hidden': 'true' }));
+    const nb = el('button', 'chat-conv chat-new', undefined, { type: 'button', id: 'chatNewBtn' }); const nbox = el('span', 'chat-chipbox'); nbox.append(icon('plus', 26)); nb.append(nbox, el('span', 'chat-convname', 'New chat'));
     nb.onclick = () => { newPanel.classList.contains('hidden') ? openNew() : newPanel.classList.add('hidden'); }; nav.append(nb);
-    applyPolicy_newBtn();
+    for (const c of all.slice(1)) nav.append(chip(c));
+    applyPolicy_newBtn(); subtitle();
   }
   function applyPolicy_newBtn() { const canNew = isHost() || policy === 'all' || policy === 'hosts'; const nb = $('chatNewBtn'); if (nb) { nb.disabled = !canNew; nb.title = canNew ? 'Start a private chat' : policyNotice(); } }
   async function select(id) {
@@ -118,7 +123,9 @@ export function initChat(h) {
   function closeSettings() { settings.classList.add('hidden'); $('chatSettingsBtn').setAttribute('aria-expanded', 'false'); }
   function buildSettings() {
     settings.textContent = '';
-    const save = el('button', '', 'Save chat', { type: 'button', role: 'menuitem' }); save.onclick = () => { closeSettings(); exportChat().catch(fail); }; settings.append(save, el('hr'));
+    const pins = el('button', '', 'Pinned messages', { type: 'button', role: 'menuitem', id: 'chatMenuPinned', 'data-pop': 'chatPinPanel' }); pins.onclick = () => { closeSettings(); void openPinned(); };
+    const saved = el('button', '', (filter.saved ? '\u2713 ' : '') + 'My bookmarks', { type: 'button', role: 'menuitemcheckbox', id: 'chatMenuSaved', 'aria-checked': String(filter.saved) }); saved.onclick = () => { closeSettings(); setSaved(!filter.saved); };
+    const save = el('button', '', 'Save chat', { type: 'button', role: 'menuitem' }); save.onclick = () => { closeSettings(); exportChat().catch(fail); }; settings.append(pins, saved, save, el('hr'));
     settings.append(el('div', 'chat-setlabel', 'Participants can chat with:', { id: 'chatPolicyLabel' }));
     for (const [v, label] of POLICY_LABELS) {
       const b = el('button', '', (policy === v ? '✓ ' : ' ') + label, { type: 'button', role: 'menuitemradio', 'aria-checked': String(policy === v) }); b.disabled = !canManage;
@@ -388,10 +395,18 @@ export function initChat(h) {
   };
 
   // ---------- search, bookmarks filter, and the pinned-messages panel
-  $('chatSearch').addEventListener('input', (e) => { filter.q = e.target.value.trim().toLowerCase(); msgs.forEach(applyFilter); });
-  $('chatSaved').onclick = () => { filter.saved = !filter.saved; $('chatSaved').setAttribute('aria-pressed', String(filter.saved)); msgs.forEach(applyFilter); };
-  const pinBtn = $('chatPinned'); pinBtn.setAttribute('data-pop', 'chatPinPanel');
-  pinBtn.onclick = () => togglePop('chatPinPanel', pinBtn, async (p) => {
+  const searchRow = $('chatSearchRow'), searchBtn = $('chatSearchBtn'), searchIn = $('chatSearch');
+  function setSearch(open) {                                            // the magnifier in the header opens the field; Esc (or the magnifier again) closes it and clears the search
+    searchRow.classList.toggle('hidden', !open); searchBtn.setAttribute('aria-expanded', String(open));
+    if (open) searchIn.focus(); else { searchIn.value = ''; filter.q = ''; msgs.forEach(applyFilter); }
+  }
+  searchBtn.onclick = () => setSearch(searchRow.classList.contains('hidden'));
+  searchIn.addEventListener('input', (e) => { filter.q = e.target.value.trim().toLowerCase(); msgs.forEach(applyFilter); });
+  searchIn.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setSearch(false); searchBtn.focus(); } });
+  function setSaved(on) { filter.saved = on; $('chatFilterBar').classList.toggle('hidden', !on); msgs.forEach(applyFilter); buildSettings(); }
+  $('chatFilterOff').onclick = () => setSaved(false);
+  async function openPinned() {
+    const p = $('chatPinPanel'), open = p.classList.contains('hidden'); closePops(open ? 'chatPinPanel' : null); closeMenu(); closeSettings(); p.classList.toggle('hidden', !open); if (!open) return;
     p.textContent = ''; p.append(el('strong', '', 'Pinned messages'));
     if (current !== 'everyone') { p.append(el('p', 'chat-hint', 'Messages are pinned in Everyone only.')); return; }
     try {
@@ -399,7 +414,7 @@ export function initChat(h) {
       if (!items.length) p.append(el('p', 'chat-hint', 'Nothing is pinned yet. The host can pin a message from its ••• menu.'));
       for (const m of items) { const row = el('div', 'chat-pinrow'); row.append(el('div', 'chat-pinmeta', m.name + ' · ' + timeOf(m)), el('div', 'chat-pintext', (m.kind === 'gif' ? '[GIF]' : m.body).slice(0, 140))); const go = el('button', '', 'Go to message', { type: 'button' }); go.onclick = () => { closePops(); jumpTo(m.id); }; row.append(go); p.append(row); }
     } catch (e) { p.append(el('small', '', e.message || 'Could not load')); }
-  });
+  }
 
   // ---------- pop-out: the chat panel itself moves to its own window (same page, same sign-in, same call connection: nothing is rejoined)
   function popBack() {

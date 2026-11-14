@@ -116,3 +116,14 @@ Reference screenshots (a meeting chat with hover actions, a format toolbar, a GI
 Tests added for V2.1: sanitizer 12 (palette, injection through the new tags, `Object.prototype` tag names, numbered lists); API 19 (audience, no cloud routes, GIPHY base); chat browser 111; optional-features browser 14 (GIF picker and files, with a local stand-in for GIPHY).
 
 A bug found while writing these tests, in the already-pushed V2.0: the sanitizer looked tags up in a plain object, so a tag named like an `Object.prototype` property (for example `<constructor>`) produced broken markup. It was escaped text (not an XSS), and it is fixed and covered by a test.
+
+## V2.2: reference layout (Qorlla look; same features as V2.1)
+
+| Area | Change |
+|---|---|
+| **Header** | One centred bold line with the meeting title only; search, More, Pop-out and Close on the right. The panel keeps the accessible name "Qorlla Meet Chat" (`aria-label` on `#tab-chat`) |
+| **Chips** | 56px rounded squares with an icon; selected = 2px blue ring + bold blue label; "New chat" = grey ring and label; thin vertical divider after Everyone, direct chats after New chat; a rule under the row |
+| **Composer** | One card under the "Who can see your messages?" bar: a tall (about 3 lines) message area with "Message everyone", and a bottom row with T, GIF, File (left) and Send (right). Send is grey and disabled while empty or when chat is not allowed, accent colour when there is text (it stays live while editing so an emptied edit can ask "Delete it instead?"). Popovers (format, link, GIF, file) open above the card |
+| **Search, Pinned, Bookmarks** | No permanent row. A magnifier in the header opens the search field (Esc closes and clears it). "Pinned messages" and "My bookmarks" are the first entries of the "..." More menu; while the bookmarks filter is on, a bar says so with "Show all". All keyboard reachable and covered by tests |
+
+No server, `app.js` or `server/index.js` change. Not production certified.

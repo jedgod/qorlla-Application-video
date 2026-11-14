@@ -47,8 +47,9 @@ try {
   check('V2.1 file menu: the five cloud sources are listed but DISABLED with the "needs provider setup" tooltip (no connector exists)', JSON.stringify(await s.p.locator('#chatFileMenu [data-cloud]').evaluateAll((bs) => bs.map((b) => [b.dataset.cloud, b.disabled, b.title]))) === JSON.stringify(['Dropbox', 'Microsoft OneDrive', 'Google Drive', 'Box', 'Microsoft SharePoint'].map((n) => [n, true, 'Not connected: needs provider setup by an administrator'])));
   check('V2.1 file menu: "Your computer" is disabled with a tooltip while attachments are switched off on the server', (await s.p.locator('#chatFilePc').isDisabled()) && /not enabled/.test(await s.p.locator('#chatFilePc').getAttribute('title')));
   await s.p.keyboard.press('Escape');
-  check('V2.0 header: "Qorlla Meet Chat" with the meeting title as the subtitle, and the More, Pop-out and Close buttons', (await s.p.locator('.chat-titletext strong').textContent()) === 'Qorlla Meet Chat' && (await s.p.locator('#chatSubtitle').textContent()) === 'Chat upgrade test' && (await s.p.locator('#chatSettingsBtn').isVisible()) && (await s.p.locator('#chatPopBtn').isVisible()) && (await s.p.locator('#chatCloseBtn').isVisible()));
-  check('V2.1 composer: the format toolbar is hidden until the T button is pressed; the bottom row is T, GIF, File; an icon Send button sits beside the input', (await s.p.locator('#chatFormat.hidden').count()) === 1 && JSON.stringify(await s.p.locator('.chat-actionrow > button').evaluateAll((bs) => bs.map((b) => b.id))) === JSON.stringify(['chatFmtBtn', 'chatGifBtn', 'chatAttachBtn']) && (await s.p.locator('.chat-composerow #chatSend svg').count()) === 1);
+  const hd = { title: await s.p.locator('#chatTitle').textContent(), strongs: await s.p.locator('.chat-title strong').count(), text: await s.p.locator('#tab-chat .chat-title').innerText(), sub: await s.p.locator('#chatSubtitle').count(), aria: await s.p.locator('#tab-chat').getAttribute('aria-label'), align: await s.p.evaluate(() => getComputedStyle(document.querySelector('#chatTitle')).textAlign) };
+  check('V2.2 header: ONE centred line with the meeting title only (no "Qorlla Meet Chat" text, no subtitle); search, More, Pop-out and Close on the right; the accessible name stays "Qorlla Meet Chat"', (await s.p.locator('#chatTitle').textContent()) === 'Chat upgrade test' && (await s.p.locator('.chat-title strong').count()) === 1 && !/Qorlla Meet Chat/.test(await s.p.locator('#tab-chat .chat-title').innerText()) && (await s.p.locator('#chatSubtitle').count()) === 0 && (await s.p.locator('#tab-chat').getAttribute('aria-label')) === 'Qorlla Meet Chat' && (await s.p.locator('#chatSearchBtn').isVisible()) && (await s.p.locator('#chatSettingsBtn').isVisible()) && (await s.p.locator('#chatPopBtn').isVisible()) && (await s.p.locator('#chatCloseBtn').isVisible()) && (await s.p.evaluate(() => getComputedStyle(document.querySelector('#chatTitle')).textAlign)) === 'center', JSON.stringify(hd));
+  check('V2.2 composer: the format toolbar is hidden until the T button is pressed; the bottom row of the card is T, GIF, File on the left and an icon Send button on the right', (await s.p.locator('#chatFormat.hidden').count()) === 1 && JSON.stringify(await s.p.locator('.chat-actionrow > button').evaluateAll((bs) => bs.map((b) => b.id))) === JSON.stringify(['chatFmtBtn', 'chatGifBtn', 'chatAttachBtn', 'chatSend']) && (await s.p.locator('.chat-actionrow #chatSend svg').count()) === 1);
   await s.p.click('#chatFmtBtn');
   check('V2.1 composer: the who-can-see-your-messages bar sits above the composer', (await s.p.locator('#chatWhoBtn').innerText()).includes('Who can see your messages?') && (await s.p.locator('#chatFormat').isVisible()));
   check('without a GIPHY key the Content-Security-Policy does not allow any GIPHY host (the allowance exists only when the key is set)', !/giphy/i.test((await fetch(base + '/')).headers.get('content-security-policy') || ''));
@@ -87,14 +88,14 @@ try {
   // bookmark (private)
   await more(j.p, 'Hello from Justin', 'Bookmark');
   check('a bookmark is private: the owner sees it, the other person does not', !!(await waitFor(async () => (await msgOf(j.p, 'Hello from Justin').locator('.chat-saved:not(.hidden)').count()) === 1)) && (await msgOf(s.p, 'Hello from Justin').locator('.chat-saved:not(.hidden)').count()) === 0);
-  await j.p.click('#chatSaved'); check('the bookmarks filter shows only bookmarked messages', (await j.p.locator('.chat-msg:not(.hidden)').count()) === 1); await j.p.click('#chatSaved');
+  await j.p.click('#chatSettingsBtn'); await j.p.click('#chatMenuSaved'); check('V2.2 the "My bookmarks" entry of the More menu filters to bookmarked messages and a bar says so', (await j.p.locator('.chat-msg:not(.hidden)').count()) === 1 && (await j.p.locator('#chatFilterBar:not(.hidden)').count()) === 1); await j.p.click('#chatFilterOff'); check('the bar\'s "Show all" ends the bookmarks filter', (await j.p.locator('#chatFilterBar.hidden').count()) === 1 && (await j.p.locator('.chat-msg:not(.hidden)').count()) > 1);
 
   // pin (host only)
   await msgOf(j.p, 'Hello from Justin').getByRole('button', { name: 'More' }).click(); const guestPin = await j.p.getByRole('menuitem', { name: /Pin/ }).count(); await j.p.keyboard.press('Escape');
   check('a guest is not offered Pin', guestPin === 0);
   await more(s.p, 'Hello from Justin', 'Pin for everyone');
   check('when the host pins a message everybody sees the pin', !!(await waitFor(async () => (await msgOf(j.p, 'Hello from Justin').locator('.chat-pin:not(.hidden)').count()) === 1)));
-  await j.p.click('#chatPinned'); check('the pinned-messages panel lists the pinned message', !!(await waitFor(async () => (await j.p.locator('#chatPinPanel .chat-pinrow', { hasText: 'Hello from Justin' }).count()) === 1))); await j.p.keyboard.press('Escape');
+  await j.p.click('#chatSettingsBtn'); await j.p.click('#chatMenuPinned'); check('the pinned-messages panel lists the pinned message', !!(await waitFor(async () => (await j.p.locator('#chatPinPanel .chat-pinrow', { hasText: 'Hello from Justin' }).count()) === 1))); await j.p.keyboard.press('Escape');
 
   // task
   await more(s.p, 'The plan', 'Create task'); await s.p.locator('.chat-taskform input[type=text]').fill('Review the plan'); await s.p.locator('.chat-taskform input[type=date]').fill('2030-05-01'); await s.p.getByRole('button', { name: 'Create' }).click();
@@ -102,8 +103,10 @@ try {
 
   // search
   const total = Number((await pool.query('SELECT count(*) FROM messages')).rows[0].count);
-  await j.p.fill('#chatSearch', 'welcome'); check('search narrows the list (the reply and the quote of it)', (await j.p.locator('.chat-msg:not(.hidden)').count()) === 2); await j.p.fill('#chatSearch', 'zzz-no-match'); check('a search with no match hides everything', (await j.p.locator('.chat-msg:not(.hidden)').count()) === 0); await j.p.fill('#chatSearch', '');
+  await j.p.click('#chatSearchBtn'); await j.p.fill('#chatSearch', 'welcome'); check('search narrows the list (the reply and the quote of it)', (await j.p.locator('.chat-msg:not(.hidden)').count()) === 2); await j.p.fill('#chatSearch', 'zzz-no-match'); check('a search with no match hides everything', (await j.p.locator('.chat-msg:not(.hidden)').count()) === 0); await j.p.fill('#chatSearch', '');
   check('clearing the search brings every message back', (await j.p.locator('.chat-msg:not(.hidden)').count()) === total, total + ' messages in the database');
+  await j.p.keyboard.press('Escape');
+  check('V2.2 search: Esc closes the search field (and the focus returns to the magnifier)', (await j.p.locator('#chatSearchRow.hidden').count()) === 1 && (await j.p.evaluate(() => document.activeElement?.id)) === 'chatSearchBtn' && (await j.p.locator('#chatSearchBtn').getAttribute('aria-expanded')) === 'false');
 
   if (OUT) { await s.p.screenshot({ path: join(OUT, 'chat-desktop.png') }); }
   // phone width
@@ -141,11 +144,11 @@ try {
 
   // policy: no one
   await s.p.click('#chatSettingsBtn'); await s.p.getByRole('menuitemradio', { name: 'No one' }).click();
-  check('when the host turns chat off the guest composer is disabled with an explanation', !!(await waitFor(async () => (await j.p.locator('#chatSend').isDisabled()) && (await j.p.locator('#chatNotice').textContent()).includes('turned chat off'))));
-  check('the host can still chat', (await s.p.locator('#chatSend').isDisabled()) === false);
+  check('when the host turns chat off the guest composer is disabled with an explanation', !!(await waitFor(async () => (await j.p.locator('#chatSend').isDisabled()) && (await j.p.locator('#chatEditor').getAttribute('contenteditable')) === 'false' && (await j.p.locator('#chatNotice').textContent()).includes('turned chat off'))));
+  check('the host can still chat', (await s.p.locator('#chatEditor').getAttribute('contenteditable')) === 'true');
   await s.p.click('#chatSettingsBtn'); await s.p.getByRole('menuitemradio', { name: /Everyone in the meeting/ }).click();
   await j.p.locator('#chatNav .chat-conv', { hasText: 'Everyone' }).click();
-  check('back to group chat: Everyone works again for the guest', !!(await waitFor(async () => !(await j.p.locator('#chatSend').isDisabled()))));
+  check('back to group chat: Everyone works again for the guest', !!(await waitFor(async () => (await j.p.locator('#chatEditor').getAttribute('contenteditable')) === 'true')));
 
   // delete (two clicks) and "Message deleted" for everybody
   await send(j.p, 'delete me please');
@@ -182,7 +185,7 @@ try {
   await setPolicyUi('Host only');
   check('policy "Host only": the guest\'s Everyone composer is disabled with the reason, and New chat stays available (to the host)', !!(await waitFor(async () => (await j.p.locator('#chatSend').isDisabled()) && (await j.p.locator('#chatNotice').textContent()).includes('privately with the host only') && !(await j.p.locator('#chatNewBtn').isDisabled()))));
   await setPolicyUi(/Everyone, and privately/);
-  check('policy "Everyone and privately": the guest can write in Everyone again, live', !!(await waitFor(async () => !(await j.p.locator('#chatSend').isDisabled()))));
+  check('policy "Everyone and privately": the guest can write in Everyone again, live', !!(await waitFor(async () => (await j.p.locator('#chatEditor').getAttribute('contenteditable')) === 'true')));
   await setPolicyUi(/Everyone in the meeting/); await waitFor(async () => (await j.p.locator('#chatNewBtn').isDisabled()));
 
   // ---- pop-out: both windows are ONE live chat
@@ -260,7 +263,7 @@ try {
   await s.p.keyboard.press('Escape'); await s.p.locator('#chatNav .chat-conv', { hasText: 'Everyone' }).click(); await waitFor(async () => (await msgOf(s.p, 'Hello from Justin').count()) === 1);
 
   // pinned panel with jump-to
-  await s.p.click('#chatPinned');
+  await s.p.click('#chatSettingsBtn'); await s.p.click('#chatMenuPinned');
   check('V2.1 pinned panel: lists the pinned message with a "Go to message" button', !!(await waitFor(async () => (await s.p.locator('#chatPinPanel .chat-pinrow', { hasText: 'Hello from Justin' }).count()) === 1)));
   await s.p.locator('#chatPinPanel').getByRole('button', { name: 'Go to message' }).first().click();
   check('V2.1 pinned panel: "Go to message" closes the panel and flashes the message', (await s.p.locator('#chatPinPanel.hidden').count()) === 1 && !!(await waitFor(async () => (await s.p.locator('.chat-msg.chat-flash').count()) >= 1, 3000, 100)));
@@ -311,10 +314,39 @@ try {
   // one composer card
   const geo = await s.p.evaluate(() => { const r = (q) => { const b = document.querySelector(q).getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, right: b.right }; }; return { who: r('#chatWhoBtn'), card: r('.chat-composercard'), fmt: r('#chatFormat'), ed: r('#chatEditor'), send: r('#chatSend'), act: r('.chat-actionrow'), list: r('#messages') }; });
   check('composer card: the toolbar, input, Send and action row are all inside ONE card, and the audience bar sits directly above it', geo.ed.top >= geo.card.top && geo.send.bottom <= geo.card.bottom && geo.act.bottom <= geo.card.bottom && geo.fmt.top >= geo.card.top && geo.card.top >= geo.who.bottom && geo.card.top - geo.who.bottom <= 12 && geo.card.top >= geo.list.bottom, JSON.stringify(geo));
-  check('composer card: the toolbar, input and action row do not touch (8px rhythm) and Send is aligned with the input', geo.ed.top - geo.fmt.bottom >= 6 && geo.act.top - geo.ed.bottom >= 6 && Math.abs(geo.send.bottom - geo.ed.bottom) <= 2 && geo.send.left >= geo.ed.right, JSON.stringify(geo));
+  check('V2.2 composer card: a TALL message area (about 3 lines), the toolbar/input/action row do not touch, and Send sits at the bottom-right of the card', geo.ed.top - geo.fmt.bottom >= 6 && geo.act.top - geo.ed.bottom >= 6 && geo.send.top >= geo.ed.bottom && geo.send.left > geo.ed.left + 100 && geo.card.right - geo.send.right <= 16 && geo.ed.bottom - geo.ed.top >= 60, JSON.stringify(geo));
   check('message actions are small ghost icon buttons (transparent, not link-blue text) and sit apart from the text', (await s.p.locator('.chat-hover .chat-act').first().evaluate((e) => { const c = getComputedStyle(e); return c.backgroundColor === 'rgba(0, 0, 0, 0)' && c.color !== 'rgb(143, 180, 255)'; })));
   const lineGeo = await pj.p.locator('.chat-line').first().evaluate((l) => ({ b: l.querySelector('.chat-bubble').getBoundingClientRect().bottom, h: l.querySelector('.chat-hover').getBoundingClientRect().top }));
   check('on a touch phone the actions stay BELOW the message bubble', lineGeo.h >= lineGeo.b - 1, JSON.stringify(lineGeo));
+
+
+  // ================= V2.2: the reference layout =================
+  const css = (p, q, prop) => p.locator(q).first().evaluate((e, k) => getComputedStyle(e)[k], prop);
+  await s.p.locator('#chatEditor').click(); await s.p.keyboard.press('Control+A'); await s.p.keyboard.press('Backspace');
+  const sendOf = (p) => p.locator('#chatSend');
+  check('V2.2 Send is DISABLED and grey while the message is empty', (await sendOf(s.p).isDisabled()) && (await css(s.p, '#chatSend', 'backgroundColor')) !== (await (async () => { await s.p.keyboard.type('x'); const c = await css(s.p, '#chatSend', 'backgroundColor'); await s.p.keyboard.press('Backspace'); return c; })()));
+  await s.p.keyboard.type('probe'); const accent = await css(s.p, '#chatSend', 'backgroundColor');
+  check('V2.2 Send turns the accent colour and is enabled as soon as there is text', !(await sendOf(s.p).isDisabled()) && accent === 'rgb(37, 99, 235)', accent);
+  await s.p.keyboard.press('Control+A'); await s.p.keyboard.press('Backspace');
+  check('V2.2 Send goes grey and disabled again when the text is deleted', await sendOf(s.p).isDisabled());
+  const chip = await s.p.evaluate(() => { const b = (q) => { const r = document.querySelector(q).getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), l: r.left, r: r.right }; }; const sel = document.querySelector('.chat-conv[aria-selected=true] .chat-chipbox'), nw = document.querySelector('.chat-new .chat-chipbox'); const g = (e, k) => getComputedStyle(e)[k]; return { every: b('.chat-conv[aria-selected=true] .chat-chipbox'), nw: b('.chat-new .chat-chipbox'), selBorder: g(sel, 'borderTopWidth') + ' ' + g(sel, 'borderTopColor'), newBorder: g(nw, 'borderTopWidth') + ' ' + g(nw, 'borderTopColor'), selLabel: g(document.querySelector('.chat-conv[aria-selected=true] .chat-convname'), 'fontWeight') + ' ' + g(document.querySelector('.chat-conv[aria-selected=true] .chat-convname'), 'color'), newLabel: g(document.querySelector('.chat-new .chat-convname'), 'color'), sep: !!document.querySelector('.chat-navsep'), sepOrder: [...document.querySelectorAll('#chatNav > *')].map((e) => e.classList.contains('chat-navsep') ? 'sep' : e.classList.contains('chat-new') ? 'new' : 'conv').join(','), rule: g(document.querySelector('#chatNav'), 'borderBottomWidth') }; });
+  check('V2.2 chips: Everyone and New chat are 56px rounded squares with an icon; the selected one has a 2px blue ring and a bold blue label; New chat has a grey ring and a grey label', chip.every.w === 56 && chip.every.h === 56 && chip.nw.w === 56 && chip.nw.h === 56 && chip.selBorder === '2px rgb(37, 99, 235)' && /^(700|bold) /.test(chip.selLabel) && chip.newBorder.startsWith('2px ') && chip.newBorder !== chip.selBorder && chip.newLabel !== chip.selLabel.split(' ').slice(1).join(' ') && (await s.p.locator('.chat-new .chat-chipbox svg').count()) === 1, JSON.stringify(chip));
+  check('V2.2 chips: a thin vertical divider sits between Everyone and New chat (direct chats follow), and a rule runs under the whole row', chip.sepOrder.startsWith('conv,sep,new') && chip.rule === '1px', chip.sepOrder);
+  // keyboard: the three Qorlla additions stay reachable without a mouse
+  await s.p.locator('#chatSearchBtn').focus(); await s.p.keyboard.press('Enter');
+  check('V2.2 keyboard: Enter on the magnifier opens the search field and moves the focus into it', (await s.p.evaluate(() => document.activeElement?.id)) === 'chatSearch');
+  await s.p.keyboard.press('Escape');
+  await s.p.locator('#chatSettingsBtn').focus(); await s.p.keyboard.press('Enter');
+  const order = await s.p.locator('#chatSettings button').evaluateAll((bs) => bs.map((b) => b.textContent.replace(/^\u2713 /, '').trim()).slice(0, 3));
+  check('V2.2 More menu: "Pinned messages", "My bookmarks" and "Save chat" come first, and the focus lands on the first entry', JSON.stringify(order) === JSON.stringify(['Pinned messages', 'My bookmarks', 'Save chat']) && (await s.p.evaluate(() => document.activeElement?.id)) === 'chatMenuPinned', JSON.stringify(order));
+  await s.p.keyboard.press('Tab'); await s.p.keyboard.press('Enter');
+  check('V2.2 keyboard: Tab then Enter on "My bookmarks" switches the bookmarks filter on', (await s.p.locator('#chatFilterBar:not(.hidden)').count()) === 1);
+  await s.p.click('#chatFilterOff');
+  await s.p.locator('#chatSettingsBtn').focus(); await s.p.keyboard.press('Enter'); await s.p.keyboard.press('Enter');
+  check('V2.2 keyboard: Enter on "Pinned messages" opens the pinned panel', !!(await waitFor(async () => (await s.p.locator('#chatPinPanel:not(.hidden) .chat-pinrow').count()) >= 1)));
+  await s.p.keyboard.press('Escape');
+  check('V2.2 the old permanent search/pin/bookmark row is gone', (await s.p.locator('#chatPinned, #chatSaved, .chat-tools').count()) === 0 && (await s.p.locator('#chatSearchRow.hidden').count()) === 1);
+  await s.p.screenshot({ path: OUT ? OUT + '/chat-v22-host.png' : undefined });
 
   // ---- reconnection: Justin's network drops; messages sent meanwhile must be there afterwards, once each
   await j.ctx.setOffline(true); await wait(3500);
