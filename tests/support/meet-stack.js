@@ -29,4 +29,14 @@ async function organiser(context, base, { name = 'Stryker', title = 'Sprint plan
 }
 async function login(context, base, username) { const r = await context.request.post(base + '/api/auth/login', { data: { username, password: PASSWORD } }); expect(r.status()).toBe(200); }
 
-module.exports = { MEET, startMain, organiser, login, ymd, PASSWORD };
+/** Clicks `trigger` (the click that STARTS or JOINS a meeting from Home) and returns the page that reaches Meet: the window of its own that Home opens for the meeting, or, when
+ *  no window opens (a phone, or the built-in room), the same page. Home itself is never navigated while a window opens. */
+async function followToMeet(page, trigger, { urlRe = /localhost:33\d\d|\/index\.html\?start=join/ } = {}) {
+  const popupP = page.context().waitForEvent('page', { timeout: 20000 }).catch(() => null);
+  await trigger();
+  const target = (await popupP) || page;
+  await target.waitForURL(urlRe, { timeout: 30000 });
+  return target;
+}
+
+module.exports = { MEET, startMain, organiser, login, followToMeet, ymd, PASSWORD };

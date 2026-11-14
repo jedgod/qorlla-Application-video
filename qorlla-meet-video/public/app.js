@@ -7,10 +7,16 @@ const BASE=new URL('.',document.baseURI).pathname;
 // Arriving from Qorlla Home (a hand-off in the address) or with a saved session means "go straight into the meeting": show a short "Starting your meeting" page, never the start/join page.
 const enteringMeeting=(()=>{try{return /[#&](qh|qs)=/.test(location.hash||'')||!!sessionStorage.getItem('qorlla-session');}catch{return false;}})();
 if(enteringMeeting){document.getElementById('landing')?.classList.add('hidden');document.getElementById('joining')?.classList.remove('hidden');}
-const showLanding=()=>{document.documentElement.classList.remove('entering');document.getElementById('joining')?.classList.add('hidden');document.getElementById('landing')?.classList.remove('hidden');};
+const showLanding=(message)=>{const root=document.documentElement;
+  // Portal-only Meet: there is no start or join page here. Nothing to say -> straight to Home's Join dialog; something went wrong -> say so, with a way back.
+  if(root.classList.contains('portal-only')&&root.dataset.portal){const back=root.dataset.portal+'/qorlla.html#join';
+    if(!message){location.replace(back);return;}
+    root.classList.remove('entering');document.getElementById('joining')?.classList.add('hidden');document.getElementById('portalOnlyMsg').textContent=message;document.getElementById('portalOnlyLink').href=back;document.getElementById('portalOnlyNote').classList.remove('hidden');root.classList.add('portal-message');document.getElementById('landing')?.classList.remove('hidden');return;}
+  document.documentElement.classList.remove('entering');document.getElementById('joining')?.classList.add('hidden');document.getElementById('landing')?.classList.remove('hidden');};
+if(!enteringMeeting&&document.documentElement.classList.contains('portal-only'))showLanding();       // portal-only Meet: arriving without a meeting goes to Home's Join dialog
 const state={token:null,meetingId:null,participantId:null,role:'guest',name:'',socket:null,stream:null,screen:null,peers:new Map(),roster:new Set(),names:new Map(),mic:true,cam:true,hand:false,recording:null,recordChunks:[],iceServers:[],start:Date.now()};
 const notify=(message)=>{const t=$('toast');t.textContent=message;t.classList.remove('hidden');clearTimeout(notify.timer);notify.timer=setTimeout(()=>t.classList.add('hidden'),3200);};
-const error=(e)=>{const message=e?.message||String(e);showLanding();$('landingError').textContent=message;notify(message);};
+const error=(e)=>{const message=e?.message||String(e);showLanding(message);$('landingError').textContent=message;notify(message);};
 const api=async(path,method='GET',body)=>{const r=await fetch(BASE+'api'+path,{method,headers:{'Content-Type':'application/json',...(state.token?{Authorization:'Bearer '+state.token}:{})},body:body===undefined?undefined:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(data.error||'Request failed');return data;};
 function escapeText(text){const el=document.createElement('span');el.textContent=String(text);return el;}
 function addMessage(msg){chatUi.add(msg);}
@@ -687,9 +693,11 @@ const mainUrl=(path)=>{try{return new URL(path||'/',mainOriginFor()).href;}catch
 // Where leaving, ending, being removed or a host ending the meeting lands: the page that asked for the meeting, otherwise Qorlla Home (never the Meet start page).
 // A meeting opened from Home in its own window closes that window and shows Home again; otherwise this page goes to Home.
 function goHome(){const dest=safeReturn(returnRaw)||(state.mainOrigin?mainUrl('/'):BASE);
-  // A meeting that was opened in a window of its own closes that window and leaves Qorlla Home where it is; a page that cannot close itself (a normal tab) goes to Home.
-  try{if(window.opener&&!window.opener.closed){try{window.opener.location.href=dest;window.opener.focus();}catch(e){/* cross-origin: setting the address is allowed, the rest may not be */}}}catch(e){/* no opener */}
-  try{window.close();}catch(e){/* not allowed */}
+  // A meeting that Qorlla Home opened in a window of its own (?win=popup, or any window with an opener) closes THAT window and leaves Home exactly where it was: Home is not reloaded or navigated.
+  // A page that cannot close itself (a normal tab, or a window the browser refuses to close) goes to Home instead, so nobody is left on a finished meeting.
+  const ownWindow=query.get('win')==='popup'||!!window.opener;
+  try{if(window.opener&&!window.opener.closed)window.opener.focus();}catch(e){/* cross-origin or severed: nothing to focus */}
+  if(ownWindow){try{window.close();}catch(e){/* not allowed */}setTimeout(()=>{if(!window.closed)location.href=dest;},700);return;}
   setTimeout(()=>{location.href=dest;},350);}
 // Qorlla Home links on the Meet start page and the waiting page (the main address comes from /api/config, which every Meet serves).
 fetch(BASE+'api/config').then(r=>r.ok?r.json():null).then(c=>{if(!c)return;state.mainOrigin=state.mainOrigin||c.mainOrigin||'';state.mainTlsOrigin=c.mainTlsOrigin||'';state.returnOrigins=state.returnOrigins&&state.returnOrigins.length?state.returnOrigins:(c.returnOrigins||[]);if(!state.mainOrigin)return;document.querySelectorAll('.home-link').forEach(a=>{a.href=mainUrl('/');a.hidden=false;});}).catch(()=>{});

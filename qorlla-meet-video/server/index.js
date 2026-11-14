@@ -7,6 +7,7 @@ import { createServer } from 'node:http';
 import { randomUUID, randomBytes, timingSafeEqual, createHmac } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { readFileSync } from 'node:fs';
 // Native bcrypt (libuv thread pool). The pure-JS implementation blocks the event loop: 200 concurrent joins took 15 s p95.
 import bcrypt from 'bcrypt';
 // Host secrets are random 122-256 bit values, so brute force is infeasible whatever the cost; a low bcrypt cost keeps meeting
@@ -72,6 +73,19 @@ app.use('/api', (req, res, next) => {
 const server = createServer(app);
 const io = new Server(server, { cors: { origin: process.env.CORS_ORIGIN || false }, maxHttpBufferSize: 16_384 });
 const directory = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
+// MEET_ALLOW_ANONYMOUS_START=false: this Meet has NO start page and NO join page of its own. Meetings are started and joined from Qorlla Home (its Join meeting dialog); Meet is only the meeting itself.
+// The API refuses to start a meeting, and the start page (/) is served as a redirect to Home's Join dialog (done by public/app.js; the class and address are set here so the page never flashes a form).
+const ALLOW_ANON_START = process.env.MEET_ALLOW_ANONYMOUS_START !== 'false';
+if (!ALLOW_ANON_START) {
+  let startPage = null;
+  app.get(['/', '/index.html'], (req, res, next) => {
+    const portal = (req.protocol === 'https' && /^https:\/\//.test(process.env.MAIN_APP_TLS_URL || '') ? (() => { try { return new URL(process.env.MAIN_APP_TLS_URL).origin; } catch { return ''; } })() : '') || mainAppOrigin();
+    if (!portal) return next();                                                         // no Home address is configured: leave the page as it is rather than send people nowhere
+    try { startPage ||= readFileSync(join(directory, 'index.html'), 'utf8'); } catch { return next(); }
+    res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.send(startPage.replace('<html lang="en">', '<html lang="en" class="portal-only" data-portal="' + portal.replace(/[^A-Za-z0-9:/.\-\[\]]/g, '') + '">'));
+  });
+}
 app.use(express.static(directory));
 const clean = (s, max) => typeof s === 'string' ? s.trim().slice(0, max) : '';
 const fail = (res, status, error) => res.status(status).json({ error });
@@ -265,7 +279,7 @@ app.get('/api/ready',async(_req,res)=>{
 });
 // where the main Qorlla app lives (pricing, landing page): MAIN_APP_URL, else the CORS origin (the main app's own origin), else the first return origin. Empty = the same origin as Meet (single-origin deployments serve both).
 const mainAppOrigin = () => { for (const v of [process.env.MAIN_APP_URL, process.env.CORS_ORIGIN, ...(process.env.RETURN_ORIGINS||'').split(',')]) { try { const u = new URL(String(v||'').trim()); if (['http:','https:'].includes(u.protocol)) return u.origin; } catch {} } return ''; };
-app.get('/api/config', (_req,res) => { let iceServers=[]; try { iceServers=JSON.parse(process.env.ICE_SERVERS_JSON||'[]'); } catch {} res.json({iceServers,mainOrigin:mainAppOrigin(),mainTlsOrigin:(()=>{try{const u=new URL(String(process.env.MAIN_APP_TLS_URL||''));return u.protocol==='https:'?u.origin:'';}catch{return '';}})(),returnOrigins:(process.env.RETURN_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean)}); });
+app.get('/api/config', (_req,res) => { let iceServers=[]; try { iceServers=JSON.parse(process.env.ICE_SERVERS_JSON||'[]'); } catch {} res.json({allowAnonymousStart:ALLOW_ANON_START&&!shieldCfg.enforce,iceServers,mainOrigin:mainAppOrigin(),mainTlsOrigin:(()=>{try{const u=new URL(String(process.env.MAIN_APP_TLS_URL||''));return u.protocol==='https:'?u.origin:'';}catch{return '';}})(),returnOrigins:(process.env.RETURN_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean)}); });
 // ---- TURN. STUN and operator-managed servers keep coming from ICE_SERVERS_JSON through the public /api/config, which must never hold a secret. TURN is different: with TURN_URLS and TURN_SHARED_SECRET every ADMITTED
 // participant gets short-lived credentials of their own (coturn "REST" scheme: username = expiry:participantId, credential = base64(HMAC-SHA1(secret, username))) from GET /api/meetings/:id/ice. They cannot be revoked
 // before they expire, so the lifetime is bounded (TURN_CREDENTIAL_TTL_SECONDS, 60..14400, default 3600); the relay must refuse private peer addresses (docs/TURN.md). ICE_TRANSPORT_POLICY=relay makes every client use
@@ -285,6 +299,7 @@ app.get('/api/meetings/:id/ice', auth, member, (req,res) => {
   res.set('Cache-Control', 'no-store').json({ iceServers, iceTransportPolicy: ICE_POLICY, expiresIn: TURN_TTL });
 });
 app.post('/api/meetings', async (req,res) => {
+ if(!ALLOW_ANON_START) return fail(res,403,'Meetings are started from Qorlla Home');
  if(shieldCfg.enforce) return fail(res,403,'Meetings are created from your Qorlla account');       // guests and anonymous browsers cannot create meetings
  const title=clean(req.body.title,160), name=clean(req.body.name,70), passcode=clean(req.body.passcode,100);
  if (!title || !name) return fail(res,400,'Title and display name required');

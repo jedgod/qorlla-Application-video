@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { MEET, startMain, organiser } = require('./support/meet-stack');
+const { MEET, startMain, organiser, followToMeet } = require('./support/meet-stack');
 
 // Scheduled meetings: the organiser sees START (not Join) and goes straight into the current Meet video page as host, with the meeting ID and password shown first;
 // invited guests JOIN through the pre-join page and land in the same current Meet page (never the old built-in room).
@@ -26,19 +26,20 @@ test('Start shows the meeting ID and password, then goes straight into the Meet 
   await expect(page.locator('#startDialog')).toBeVisible(); await expect(page.locator('#sdPassNote')).not.toHaveText('Checking…'); await expect(page.locator('#sdTitle')).toContainText('Start meeting'); await expect(page.locator('#sdId')).toHaveText(item.meetingId);
   await expect(page.locator('#sdPassNote')).toContainText('No password');
   await page.click('#sdPassGen'); await expect(page.locator('#sdPass')).toHaveValue(/^[A-Za-z0-9]{10}$/);
-  await page.click('#sdWait'); await page.click('#sdGo');                                                                                         // waiting room off: this test is about the hand-off itself
-  await page.waitForURL(/localhost:3310/); await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });                       // the meeting itself, not the landing page
-  await expect(page.locator('#landing')).toBeHidden(); await expect(page.locator('#endBtn')).toBeVisible();                                        // host controls: the organiser is the host
-  await expect(page.locator('#roomTitle')).toHaveText('Sprint planning'); await expect(page.locator('#roomId')).toHaveText(item.meetingId);       // the same ID the pre-join page shows
-  expect(page.url()).not.toContain('qs='); expect(page.url()).not.toContain('token'); await expect(page.locator('#panelToggle')).toBeVisible();    // current video page
-  const stored = await page.evaluate(() => JSON.stringify(sessionStorage) + JSON.stringify(localStorage)); expect(stored).not.toMatch(/hostSecret/i);
+  await page.click('#sdWait'); const meet = await followToMeet(page, () => page.click('#sdGo'));                                                                                         // waiting room off: this test is about the hand-off itself
+  await expect(meet.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });                       // the meeting itself, not the landing page
+  await expect(meet.locator('#landing')).toBeHidden(); await expect(meet.locator('#endBtn')).toBeVisible();                                        // host controls: the organiser is the host
+  await expect(meet.locator('#roomTitle')).toHaveText('Sprint planning'); await expect(meet.locator('#roomId')).toHaveText(item.meetingId);       // the same ID the pre-join page shows
+  expect(meet.url()).not.toContain('qs='); expect(meet.url()).not.toContain('token'); await expect(meet.locator('#panelToggle')).toBeVisible();    // current video page
+  const stored = await meet.evaluate(() => JSON.stringify(sessionStorage) + JSON.stringify(localStorage)); expect(stored).not.toMatch(/hostSecret/i);
+  expect(page.url()).toContain('/qorlla.html');                                                                                                          // Home itself did not move
 });
 
 test('an invited guest joins through the pre-join page, needs the password, and lands in the SAME current Meet page', async ({ browser, context }) => {
   test.setTimeout(120000);
   const oc = await browser.newContext({ permissions: PERM }); const op = await oc.newPage(); const { item } = await organiser(oc, MAIN);
   await op.goto(MAIN + '/qorlla.html#home'); await op.locator('.meeting', { hasText: 'Sprint planning' }).locator('.join-pill').click(); await expect(op.locator('#sdPassNote')).not.toHaveText('Checking…');
-  await op.click('#sdPassGen'); const password = await op.inputValue('#sdPass'); await op.click('#sdWait'); await op.click('#sdGo'); await op.waitForURL(/localhost:3310/); await expect(op.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });
+  await op.click('#sdPassGen'); const password = await op.inputValue('#sdPass'); await op.click('#sdWait'); const om = await followToMeet(op, () => op.click('#sdGo')); await expect(om.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });
   const g = await browser.newContext({ permissions: PERM }); const gp = await g.newPage();
   await gp.goto(MAIN + '/guest/meeting/' + encodeURIComponent(item.meetingId) + '/prejoin'); await expect(gp.locator('#pjTopic')).toContainText('Sprint planning'); await expect(gp.locator('#pjPassWrap')).toBeVisible();
   await gp.fill('#pjName', 'Guest Gail'); await gp.fill('#pjPass', 'definitely-wrong'); await gp.click('#pjGo'); await expect(gp.locator('#pjMsg')).toContainText('Incorrect passcode'); expect(gp.url()).toContain('/prejoin');
@@ -52,12 +53,12 @@ test('an invited guest joins through the pre-join page, needs the password, and 
 test('host and guest meet in the same room; the ID cannot be used to bypass the password directly in Meet; only the organiser can launch', async ({ browser }) => {
   test.setTimeout(150000);
   const oc = await browser.newContext({ permissions: PERM }); const op = await oc.newPage(); const { item } = await organiser(oc, MAIN);
-  await op.goto(MAIN + '/qorlla.html#home'); await op.locator('.meeting', { hasText: 'Sprint planning' }).locator('.join-pill').click(); await expect(op.locator('#sdPassNote')).not.toHaveText('Checking…'); await op.click('#sdWait'); await op.click('#sdGo');
-  await op.waitForURL(/localhost:3310/); await expect(op.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });
+  await op.goto(MAIN + '/qorlla.html#home'); await op.locator('.meeting', { hasText: 'Sprint planning' }).locator('.join-pill').click(); await expect(op.locator('#sdPassNote')).not.toHaveText('Checking…'); await op.click('#sdWait'); const om = await followToMeet(op, () => op.click('#sdGo'));
+  await expect(om.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });
   const gc = await browser.newContext({ permissions: PERM }); const gp = await gc.newPage();
   await gp.goto(MAIN + '/guest/meeting/' + encodeURIComponent(item.meetingId) + '/prejoin'); await gp.fill('#pjName', 'Guest Gus'); await expect(gp.locator('#pjGo')).toBeEnabled(); await gp.click('#pjGo');
   await gp.waitForURL(/localhost:3310/); await expect(gp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });
-  await expect(op.locator('.tile')).toHaveCount(2, { timeout: 30000 }); await expect(gp.locator('.tile')).toHaveCount(2, { timeout: 30000 });
+  await expect(om.locator('.tile')).toHaveCount(2, { timeout: 30000 }); await expect(gp.locator('.tile')).toHaveCount(2, { timeout: 30000 });
   const direct = await fetch(MEET + '/api/meetings/' + encodeURIComponent(item.meetingId.replace(/\D/g, '')) + '/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Sneaky' }) }); expect(direct.status).toBe(403);
   const other = await browser.newContext(); await other.request.post(MAIN + '/api/auth/register', { data: { username: 'oth' + Math.random().toString(36).slice(2, 7), displayName: 'Other', password: 'Handoff-pass-9917!x' } });
   const id = encodeURIComponent(item.meetingId);
@@ -72,9 +73,9 @@ test('New meeting on the homepage: reserves a room, shows the start screen, and 
   const oc = await browser.newContext({ permissions: PERM }); const op = await oc.newPage(); await organiser(oc, MAIN);
   await op.goto(MAIN + '/qorlla.html#home'); await op.locator('.action-btn[data-act="meet"]').click();
   await expect(op.locator('#sdNet [data-k=meet] b')).toContainText('Ready'); const id = (await op.locator('#sdId').textContent()).trim(); expect(id).toMatch(/^\d{3} \d{4} \d{4}$/); await expect(op.locator('#sdGo')).toBeEnabled();
-  await op.click('#sdWait'); await op.click('#sdGo'); await op.waitForURL(/localhost:3310/); await expect(op.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 }); await expect(op.locator('#endBtn')).toBeVisible(); await expect(op.locator('#roomId')).toHaveText(id);
+  await op.click('#sdWait'); const om = await followToMeet(op, () => op.click('#sdGo')); await expect(om.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 }); await expect(om.locator('#endBtn')).toBeVisible(); await expect(om.locator('#roomId')).toHaveText(id);
   const gc = await browser.newContext({ permissions: PERM }); const gp = await gc.newPage();
   await gp.goto(MAIN + '/guest/meeting/' + encodeURIComponent(id) + '/prejoin'); await gp.fill('#pjName', 'Guest Ned'); await expect(gp.locator('#pjGo')).toBeEnabled(); await gp.click('#pjGo');
-  await gp.waitForURL(/localhost:3310/); await expect(gp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 }); await expect(op.locator('.tile')).toHaveCount(2, { timeout: 30000 });
+  await gp.waitForURL(/localhost:3310/); await expect(gp.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 }); await expect(om.locator('.tile')).toHaveCount(2, { timeout: 30000 });
   for (const c of [oc, gc]) await c.close();
 });

@@ -1030,11 +1030,35 @@
   // opened whatever else happened to be running there instead of a meeting.
   // The video meeting opens in its OWN page (a new window or tab, a new window in the desktop app) so Qorlla Home stays where it was; if the browser blocks the new page it opens here instead.
   // On a phone or tablet, and inside the mobile app, the meeting is a different page of the same app (no pop-up windows there).
+  var IN_DESKTOP_SHELL = /Electron\//.test(navigator.userAgent);
+  var MEET_WINDOW_FEATURES = 'popup=yes,width=1280,height=860';
+  var meetReserve = null;                       // a window opened INSIDE the click itself (browsers block a window that is opened after a server round trip); it gets the meeting address when the server has answered
+  function isMobileView() { return /QorllaMobile|Android|iPhone|iPad/i.test(navigator.userAgent) || (window.matchMedia && window.matchMedia('(pointer: coarse) and (max-width: 900px)').matches); }
+  function meetWindowName() { return 'qorlla-meet-' + Date.now().toString(36); }       // a new name each time: starting another meeting never replaces one that is running
+  function reserveMeetWindow() {
+    if (meetReserve && !meetReserve.closed) return;
+    meetReserve = null; if (isMobileView() || IN_DESKTOP_SHELL) return;       // phones have no pop-ups; the desktop app has no pop-up blocker and opens the finished address itself
+    try { meetReserve = window.open('', meetWindowName(), MEET_WINDOW_FEATURES); } catch (e) { meetReserve = null; }
+    if (meetReserve) { try { meetReserve.document.title = 'Starting your meeting'; meetReserve.document.body.style.cssText = 'margin:0;display:grid;place-items:center;height:100vh;background:#0a0d14;color:#edf2fa;font:16px system-ui,sans-serif'; meetReserve.document.body.textContent = 'Starting your meeting…'; } catch (e) { /* cross-origin already */ } }
+  }
+  function releaseMeetWindow() { try { if (meetReserve && !meetReserve.closed) meetReserve.close(); } catch (e) { /* already closed */ } meetReserve = null; }
+  // The query part goes BEFORE the #fragment (the fragment carries the single-use join code). `win=popup` tells Meet it lives in a window of its own, so Leave / End for all close that window and leave this page where it was.
+  function meetUrlForWindow(url) { var i = url.indexOf('#'), base = i < 0 ? url : url.slice(0, i), frag = i < 0 ? '' : url.slice(i); return base + (base.indexOf('?') < 0 ? '?' : '&') + 'win=popup' + frag; }
+  function showMeetBlocked(url) {
+    var box = $('sdErr'); if (!box) return;
+    box.textContent = 'Your browser blocked the meeting window. ';
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'btn small'; b.textContent = 'Open the meeting';
+    b.addEventListener('click', function () { var w = null; try { w = window.open(meetUrlForWindow(url), meetWindowName(), MEET_WINDOW_FEATURES); } catch (e) { w = null; } if (w) { try { w.focus(); } catch (e) { /* ignore */ } document.querySelectorAll('dialog[open]').forEach(function (d) { try { d.close(); } catch (e) { /* closed */ } }); } else box.textContent = 'Allow pop-up windows for this site, then press the button again.'; });
+    box.appendChild(b);
+  }
   function openMeetPage(url) {
-    var mobile = /QorllaMobile|Android|iPhone|iPad/i.test(navigator.userAgent) || (window.matchMedia && window.matchMedia('(pointer: coarse) and (max-width: 900px)').matches);
-    if (mobile) { window.location.href = url; return false; }
-    var w = null; try { w = window.open(url, '_blank', 'popup=yes,width=1280,height=860'); } catch (e) { w = null; }       // a window of its own, not a tab
-    if (!w) { window.location.href = url; return false; }
+    if (isMobileView()) { window.location.href = url; return false; }        // phones and tablets: the meeting is a page of the same app (no pop-up windows there)
+    var target = meetUrlForWindow(url), w = null;
+    if (meetReserve && !meetReserve.closed) { w = meetReserve; try { w.location.href = target; } catch (e) { w = null; } }
+    if (!w) { try { w = window.open(target, meetWindowName(), MEET_WINDOW_FEATURES); } catch (e) { w = null; } }
+    meetReserve = null;
+    if (!w) { showMeetBlocked(url); return false; }                         // never replace Home with the meeting: offer a button instead (a click may open a window)
+    try { w.focus(); } catch (e) { /* ignore */ }
     document.querySelectorAll('dialog[open]').forEach(function (d) { try { d.close(); } catch (e) { /* already closed */ } });       // the meeting is in its own window now: Home must not keep the Start dialog on screen
     return true;
   }
@@ -1406,16 +1430,17 @@
     var body = { requestId: sd.requestId, name: name, title: title, topic: $('sdTopic').value.trim(), category: $('sdCategory').value, mic: mic, camera: cam, camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel, res: camRes(), returnUrl: location.href.split('#')[0],
       waitingRoom: $('sdWait').checked, joinBeforeHost: $('sdBefore').checked, lockAfterJoin: $('sdLock').checked };
     if (pw) body.password = pw; else if ($('sdRemovePass').checked) body.removePassword = true;
+    reserveMeetWindow();                                                                    // opened inside this click, before the server is asked
     stopPreview();                                                                          // release the camera and microphone so Meet can use them
     sd.busy = true; $('sdGo').disabled = true; $('sdGo').textContent = 'Starting…';
     fetch('/api/meetings/' + encodeURIComponent(m.meetingId) + '/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (r) {
         if (r.ok && r.d.mode === 'meet' && r.d.url) { pendingNew = null; openMeetPage(r.d.url); return; }       // straight into the meeting as host
-        if (r.d.mode === 'builtin') { pendingNew = null; goBuiltin({ start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', meetingId: m.meetingId, name: name }); return; }
+        if (r.d.mode === 'builtin') { releaseMeetWindow(); pendingNew = null; goBuiltin({ start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', meetingId: m.meetingId, name: name }); return; }
         throw new Error(r.d.error || 'The meeting could not be started.');
       }).catch(function (er) {                                                              // keep everything the person typed; offer a retry
-        sd.busy = false; sd.requestId = crypto.randomUUID(); $('sdGo').disabled = false; $('sdGo').textContent = 'Retry start'; $('sdErr').textContent = er.message || 'The meeting could not be started.';
+        releaseMeetWindow(); sd.busy = false; sd.requestId = crypto.randomUUID(); $('sdGo').disabled = false; $('sdGo').textContent = 'Retry start'; $('sdErr').textContent = er.message || 'The meeting could not be started.';
       });
   });
   // New meeting (Home tile, quick action, Share): the server reserves the room first, then the organiser gets the same start screen as for a scheduled meeting.
@@ -1459,15 +1484,16 @@
     var p = { start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', name: name, meetingId: dg.length === 11 ? dg : id };
     if (dg.length !== 11) { err.textContent = 'Enter the 11-digit meeting ID (spaces are fine).'; $('sdMid').focus(); return; }
     var fmt = dg.slice(0, 3) + ' ' + dg.slice(3, 7) + ' ' + dg.slice(7);
-    stopPreview(); sd.busy = true; $('sdGo').disabled = true; $('sdGo').textContent = 'Joining…';
+    reserveMeetWindow(); stopPreview(); sd.busy = true; $('sdGo').disabled = true; $('sdGo').textContent = 'Joining…';
     fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: fmt, displayName: name, passcode: pw || undefined, mic: mic, camera: cam, prefs: { camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel, res: camRes() } }) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
       .then(function (r) {
-        if (r.ok) { if (r.d.meet && r.d.meet.url) { openMeetPage(r.d.meet.url); return; } p.meetingId = fmt; goBuiltin(p); return; }
+        if (r.ok) { if (r.d.meet && r.d.meet.url) { openMeetPage(r.d.meet.url); return; } releaseMeetWindow(); p.meetingId = fmt; goBuiltin(p); return; }
+        releaseMeetWindow();
         var msg = r.status === 403 ? (r.d.passcodeRequired ? (pw ? 'We could not join that meeting. Check the meeting ID and password.' : 'This meeting needs a password.') : (r.d.error || 'You cannot join this meeting.'))
           : r.status === 404 ? 'We could not join that meeting. Check the meeting ID and password.' : (r.d.error || 'The meeting could not be joined (HTTP ' + r.status + ').');
         sd.busy = false; $('sdGo').disabled = false; $('sdGo').textContent = 'Join meeting'; err.textContent = msg; if (r.status === 403 && r.d.passcodeRequired) $('sdPass').focus();
-      }).catch(function () { sd.busy = false; $('sdGo').disabled = false; $('sdGo').textContent = 'Join meeting'; err.textContent = 'Could not reach the server. Check your connection.'; });
+      }).catch(function () { releaseMeetWindow(); sd.busy = false; $('sdGo').disabled = false; $('sdGo').textContent = 'Join meeting'; err.textContent = 'Could not reach the server. Check your connection.'; });
   }
   function openDialog(mode, meetingId) {
     if (mode === 'new') { newMeeting(); return; }
@@ -4842,8 +4868,11 @@
   }
   state.userReady.then(function () {
     if (state.user) { api('/mail').then(paintMailBadge).catch(function () {}); connectLive(); }
+    var wantJoin = location.hash === '#join';                  // read BEFORE the router rewrites the address
     var first = parseHash(location.hash);
     if (VIEWS[first.view]) show(first.view, { sub: first.sub, section: first.section }); else show('home');
+    // #join opens the Join meeting dialog (this is where the Meet address sends someone who arrives without a meeting: Meet has no start or join page of its own)
+    if (state.user && wantJoin) { try { history.replaceState(null, '', location.pathname + location.search + '#home'); } catch (e) { /* ignore */ } openDialog('join'); }
   });
 })();
 </script>

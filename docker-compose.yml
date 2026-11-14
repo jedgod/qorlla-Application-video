@@ -177,6 +177,7 @@ services:
       - RECOVERY_ESCROW_KEY=${RECOVERY_ESCROW_KEY:?set RECOVERY_ESCROW_KEY (base64 of 32 bytes) in .env}
       - CORS_ORIGIN=${PUBLIC_ORIGIN:-}
       - TRUST_PROXY_HOPS=1
+      - MEET_ALLOW_ANONYMOUS_START=false          # this Meet is the JOIN-ONLY page (Meeting ID + passcode); meetings are started from Qorlla Home
       - MEET_READ_SECRET=${MEET_READ_SECRET:-}
       - ICE_SERVERS_JSON=${ICE_SERVERS_JSON:-[{"urls":"stun:stun.l.google.com:19302"}]}
       # recording storage (v4.0.3): without a master key recording cannot start (503). Keep the keys backed up separately from the recordings.

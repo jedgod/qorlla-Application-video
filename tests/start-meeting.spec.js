@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { MEET, startMain, organiser, login } = require('./support/meet-stack');
+const { MEET, startMain, organiser, login, followToMeet } = require('./support/meet-stack');
 
 // v4.0.2b secure pre-meeting experience: server-provided facts, opt-in device checks, admission policy that the SERVER (Meet) enforces, safe Start (no duplicates,
 // retry keeps the form), accessible dialog. Real Workplace server (5291) + real Meet (3310: node scripts/start-recording-test-meet.cjs) + real fake-device Chromium.
@@ -92,8 +92,8 @@ test('Start is safe: one click = one start; a failure keeps every entry and offe
   await page.fill('#sdTitleIn', 'Quarterly review'); await page.fill('#sdName', 'stryker'); await page.fill('#sdPass', 'secret-pass-1'); await page.uncheck('#sdWait'); await page.check('#sdLock');
   await page.dblclick('#sdGo'); await expect(page.locator('#sdErr')).toHaveText('Temporary failure'); expect(calls).toBe(1);                                           // a double click sent ONE request
   await expect(page.locator('#sdGo')).toHaveText('Retry start'); await expect(page.locator('#sdTitleIn')).toHaveValue('Quarterly review'); await expect(page.locator('#sdPass')).toHaveValue('secret-pass-1'); await expect(page.locator('#sdLock')).toBeChecked();   // nothing was lost
-  fail = false; await page.click('#sdGo'); await page.waitForURL(/localhost:3310/); await expect(page.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });
-  await expect(page.locator('#roomTitle')).toHaveText('Quarterly review');                                                                                          // the new title reached Meet
+  fail = false; const meet = await followToMeet(page, () => page.click('#sdGo')); await expect(meet.locator('#app')).not.toHaveClass(/hidden/, { timeout: 30000 });       // the meeting opens in a window of its own
+  await expect(meet.locator('#roomTitle')).toHaveText('Quarterly review');                                                                                          // the new title reached Meet
   const pf = await (await api(context, 'get', '/api/meetings/' + encodeURIComponent(item.meetingId) + '/preflight')).json(); expect(pf).toMatchObject({ title: 'Quarterly review', passcodeRequired: true, explicit: true, settings: { waitingRoom: false, lockAfterJoin: true } });
   // idempotency: the same request id returns the same answer (no second start)
   const a = await api(context, 'post', '/api/meetings/' + encodeURIComponent(item.meetingId) + '/start', { requestId: 'same-1', name: 'S' }), b = await api(context, 'post', '/api/meetings/' + encodeURIComponent(item.meetingId) + '/start', { requestId: 'same-1', name: 'S' });
@@ -244,7 +244,7 @@ test.describe('Join meeting screen', () => {
     await page.fill('#sdMid', '000 0000 0000'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('Check the meeting ID and password'); await page.fill('#sdMid', '12345'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('11-digit');
     await page.fill('#sdMid', item.meetingId.replace(/ /g, '')); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('needs a password'); await expect(page.locator('#sdPass')).toBeFocused();
     await page.fill('#sdPass', 'wrong-guess'); await page.click('#sdGo'); await expect(page.locator('#sdErr')).toContainText('Check the meeting ID and password'); await expect(page.locator('#startDialog')).toBeVisible();
-    await page.fill('#sdPass', 'secret-door'); await page.click('#sdGo'); await expect(page).toHaveURL(/localhost:3310|\/index\.html\?start=join/);   // into the meeting: Meet when it is running, else the basic room
+    await page.fill('#sdPass', 'secret-door'); await followToMeet(page, () => page.click('#sdGo'));   // into the meeting: Meet when it is running, else the basic room
     await oc.close();
   });
 });

@@ -140,3 +140,7 @@ html.entering #landing{display:none!important}html.entering #joining.hidden{disp
 @media (max-width:640px){.chat-act{min-height:40px}.chat-menu button{padding:12px}}
 
 html:has(.chat-popout-shell),body:has(.chat-popout-shell){margin:0;background:#151a25;height:100%}
+/* portal-only Meet (MEET_ALLOW_ANONYMOUS_START=false): no start or join page; only a short message with a way back to Qorlla when something went wrong */
+html.portal-only #landing{visibility:hidden}html.portal-only.portal-message #landing{visibility:visible}
+html.portal-only #landing .landing-card>:not(.brand):not(#portalOnlyNote){display:none!important}
+#portalOnlyNote{margin:18px 0 4px}#portalOnlyNote p{margin:0 0 14px;color:#cfdcff}.btnlink{display:inline-block;padding:10px 16px;border-radius:10px;text-decoration:none;font-weight:600}
