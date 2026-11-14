@@ -42,9 +42,16 @@ const more = async (p, text, item) => { await msgOf(p, text).getByRole('button',
 try {
   const s = await open('Stryker'); const code = (await s.p.textContent('#roomId')).trim(); const j = await open('Justin', code);
   check('both are in the meeting with the upgraded chat panel', (await s.p.locator('#chatEditor').count()) === 1 && (await j.p.locator('#chatEditor').count()) === 1);
-  check('GIF and attachments stay visible but disabled, each with a tooltip saying why, while the server has not enabled them', (await s.p.locator('#chatGifBtn').isVisible()) && (await s.p.locator('#chatAttachBtn').isVisible()) && (await s.p.locator('#chatGifBtn').isDisabled()) && (await s.p.locator('#chatAttachBtn').isDisabled()) && /not enabled/.test(await s.p.locator('#chatGifBtn').getAttribute('title')) && /not enabled/.test(await s.p.locator('#chatAttachBtn').getAttribute('title')));
+  check('GIF stays visible but disabled, with a tooltip saying why, while the server has no GIPHY key', (await s.p.locator('#chatGifBtn').isVisible()) && (await s.p.locator('#chatGifBtn').isDisabled()) && /not enabled/.test(await s.p.locator('#chatGifBtn').getAttribute('title')));
+  await s.p.click('#chatAttachBtn');
+  check('V2.1 file menu: the five cloud sources are listed but DISABLED with the "needs provider setup" tooltip (no connector exists)', JSON.stringify(await s.p.locator('#chatFileMenu [data-cloud]').evaluateAll((bs) => bs.map((b) => [b.dataset.cloud, b.disabled, b.title]))) === JSON.stringify(['Dropbox', 'Microsoft OneDrive', 'Google Drive', 'Box', 'Microsoft SharePoint'].map((n) => [n, true, 'Not connected: needs provider setup by an administrator'])));
+  check('V2.1 file menu: "Your computer" is disabled with a tooltip while attachments are switched off on the server', (await s.p.locator('#chatFilePc').isDisabled()) && /not enabled/.test(await s.p.locator('#chatFilePc').getAttribute('title')));
+  await s.p.keyboard.press('Escape');
   check('V2.0 header: "Qorlla Meet Chat" with the meeting title as the subtitle, and the More, Pop-out and Close buttons', (await s.p.locator('.chat-titletext strong').textContent()) === 'Qorlla Meet Chat' && (await s.p.locator('#chatSubtitle').textContent()) === 'Chat upgrade test' && (await s.p.locator('#chatSettingsBtn').isVisible()) && (await s.p.locator('#chatPopBtn').isVisible()) && (await s.p.locator('#chatCloseBtn').isVisible()));
-  check('V2.0 composer: formatting row B, I, U, link, attach, GIF in that order, and an icon Send button', JSON.stringify(await s.p.locator('#chatFormat button').evaluateAll((bs) => bs.map((b) => b.id || b.dataset.cmd))) === JSON.stringify(['bold', 'italic', 'underline', 'chatLinkBtn', 'chatAttachBtn', 'chatGifBtn']) && (await s.p.locator('#chatSend svg').count()) === 1);
+  check('V2.1 composer: the format toolbar is hidden until the T button is pressed; the bottom row is T, GIF, File; an icon Send button sits beside the input', (await s.p.locator('#chatFormat.hidden').count()) === 1 && JSON.stringify(await s.p.locator('.chat-actionrow > button').evaluateAll((bs) => bs.map((b) => b.id))) === JSON.stringify(['chatFmtBtn', 'chatGifBtn', 'chatAttachBtn']) && (await s.p.locator('.chat-composerow #chatSend svg').count()) === 1);
+  await s.p.click('#chatFmtBtn');
+  check('V2.1 composer: the who-can-see-your-messages bar sits above the composer', (await s.p.locator('#chatWhoBtn').innerText()).includes('Who can see your messages?') && (await s.p.locator('#chatFormat').isVisible()));
+  check('without a GIPHY key the Content-Security-Policy does not allow any GIPHY host (the allowance exists only when the key is set)', !/giphy/i.test((await fetch(base + '/')).headers.get('content-security-policy') || ''));
   check('V2.0 empty state text is shown before any message', (await s.p.locator('#messages').getAttribute('data-empty')) === 'Meeting messages appear here' && (await s.p.locator('#messages .chat-msg').count()) === 0);
 
   await send(j.p, 'Hello from Justin');
@@ -87,7 +94,7 @@ try {
   check('a guest is not offered Pin', guestPin === 0);
   await more(s.p, 'Hello from Justin', 'Pin for everyone');
   check('when the host pins a message everybody sees the pin', !!(await waitFor(async () => (await msgOf(j.p, 'Hello from Justin').locator('.chat-pin:not(.hidden)').count()) === 1)));
-  await j.p.click('#chatPinned'); check('the pinned filter shows only pinned messages', (await j.p.locator('.chat-msg:not(.hidden)').count()) === 1); await j.p.click('#chatPinned');
+  await j.p.click('#chatPinned'); check('the pinned-messages panel lists the pinned message', !!(await waitFor(async () => (await j.p.locator('#chatPinPanel .chat-pinrow', { hasText: 'Hello from Justin' }).count()) === 1))); await j.p.keyboard.press('Escape');
 
   // task
   await more(s.p, 'The plan', 'Create task'); await s.p.locator('.chat-taskform input[type=text]').fill('Review the plan'); await s.p.locator('.chat-taskform input[type=date]').fill('2030-05-01'); await s.p.getByRole('button', { name: 'Create' }).click();
@@ -160,6 +167,7 @@ try {
   // pop-out: the chat moves to its own window and keeps working
   const popupPromise = s.ctx.waitForEvent('page'); await s.p.click('#chatPopBtn'); const pop = await popupPromise; await pop.waitForLoadState('domcontentloaded').catch(() => {});
   check('the pop-out window holds the live chat (messages, composer) and the page says where it went', !!(await waitFor(async () => (await pop.locator('#chatEditor').count()) === 1 && (await pop.locator('.chat-msg').count()) > 3)) && (await s.p.locator('.chat-away').count()) === 1);
+  if (OUT) await pop.screenshot({ path: join(OUT, 'popout-before-send.png') });
   await pop.locator('#chatEditor').click(); await pop.keyboard.type('sent from the pop-out'); await pop.keyboard.press('Enter');
   check('a message sent from the pop-out reaches the other participant', !!(await waitFor(async () => (await msgOf(j.p, 'sent from the pop-out').count()) === 1)));
   await j.p.locator('#chatEditor').click(); await j.p.keyboard.type('reply while popped out'); await j.p.keyboard.press('Enter');
@@ -197,6 +205,116 @@ try {
   await j.p.locator('#chatEditor').click(); await j.p.keyboard.type('after reopening'); await j.p.keyboard.press('Enter');
   check('pop-out: reopening it shows the same history and keeps receiving live messages', !!(await waitFor(async () => (await msgOf(pw, 'after reopening').count()) === 1)) && (await pw.locator('.chat-msg').count()) === beforeClose + 1);
   await pw.close(); await waitFor(async () => (await s.p.locator('#chatEditor').count()) === 1);
+
+
+  // ================= V2.1: hover actions, More menu order, format toolbar (colour, size, lists), who-can-see popover, pinned panel =================
+  const hoverOf = (p, text) => msgOf(p, text).locator('.chat-hover');
+  const opacityOf = async (loc) => Number(await loc.evaluate((e) => getComputedStyle(e).opacity));
+  await s.p.mouse.move(2, 2); await wait(250);
+  check('V2.1 hover: Reply and More are hidden until the pointer is over the message', (await opacityOf(hoverOf(s.p, 'Hello from Justin'))) < 0.1);
+  await msgOf(s.p, 'Hello from Justin').hover(); await wait(300);
+  const hb = await hoverOf(s.p, 'Hello from Justin').boundingBox(), bb = await msgOf(s.p, 'Hello from Justin').locator('.chat-bubble').boundingBox();
+  check('V2.1 hover: they appear BESIDE the bubble (to its right) when the pointer is over the message', (await opacityOf(hoverOf(s.p, 'Hello from Justin'))) > 0.9 && hb.x >= bb.x + bb.width - 1 && Math.abs((hb.y + hb.height / 2) - (bb.y + bb.height / 2)) < bb.height);
+  await s.p.mouse.move(2, 2); await wait(250);
+  await msgOf(s.p, 'Hello from Justin').getByRole('button', { name: 'Reply' }).focus(); await wait(300);
+  check('V2.1 hover: they are also reachable and shown by keyboard focus', (await opacityOf(hoverOf(s.p, 'Hello from Justin'))) > 0.9);
+  check('V2.1 hover: on a touch phone they are always shown', (await opacityOf(pj.p.locator('.chat-hover').first())) > 0.9);
+
+  const menuOf = async (p, text) => { await msgOf(p, text).getByRole('button', { name: 'More' }).click(); const items = await p.getByRole('menuitem').allTextContents(); const seps = await p.locator('.chat-menu .chat-menusep').count(); await p.keyboard.press('Escape'); return { items: items.map((t) => t.trim()), seps }; };
+  const hostMenu = await menuOf(s.p, 'Hello from Justin');
+  check('V2.1 More menu (host, on a guest\'s message): Copy, Quote | Bookmark | Unpin/Pin | Create task | Delete, in that order, with separators', JSON.stringify(hostMenu.items.map((t) => t.replace(/^Remove bookmark$/, 'Bookmark').replace(/^Unpin$/, 'Pin for everyone'))) === JSON.stringify(['Copy', 'Quote', 'Bookmark', 'Pin for everyone', 'Create task', 'Delete']) && hostMenu.seps === 4, JSON.stringify(hostMenu));
+  const ownMenu = await menuOf(j.p, 'Hello from Justin');
+  check('V2.1 More menu (author, a guest): Copy, Quote, Edit | Bookmark | Create task | Delete; no Pin', JSON.stringify(ownMenu.items.map((t) => t.replace(/^Remove bookmark$/, 'Bookmark'))) === JSON.stringify(['Copy', 'Quote', 'Edit', 'Bookmark', 'Create task', 'Delete']) && ownMenu.seps === 3, JSON.stringify(ownMenu));
+
+  // the format toolbar on the guest's page: colour and size are a FIXED palette; they survive a round trip
+  if (await j.p.locator('#chatFormat.hidden').count()) await j.p.click('#chatFmtBtn');
+  await j.p.locator('#chatEditor').click(); await j.p.keyboard.type('colourful words'); await j.p.keyboard.press('Control+A');
+  await j.p.click('#chatColorBtn'); await j.p.locator('#chatFmtPop .chat-swatch[data-c="1"]').click();
+  await j.p.click('#chatSizeBtn'); await j.p.locator('#chatFmtPop').getByRole('button', { name: 'Large' }).click();
+  await j.p.keyboard.press('Enter');
+  check('V2.1 format: a red, large word survives the round trip and is drawn from the fixed palette', !!(await waitFor(async () => (await s.p.locator('.chat-msg span[data-c="1"] span[data-z="2"]', { hasText: 'colourful words' }).count()) === 1)));
+  const cw = s.p.locator('.chat-msg span[data-c="1"]').first();
+  check('V2.1 format: the colour is the palette red and the size is larger than the surrounding text', (await cw.evaluate((e) => getComputedStyle(e).color)) === 'rgb(248, 113, 113)' && (await s.p.locator('.chat-msg span[data-z="2"]').first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize) > parseFloat(getComputedStyle(e.closest('.chat-body')).fontSize))));
+  const rr = (await pool.query("SELECT body, body_rich FROM messages WHERE body='colourful words'")).rows[0];
+  check('V2.1 format: stored as fixed tags (<c1><z2>) with plain text for exports', rr?.body_rich === '<c1><z2>colourful words</z2></c1>' && rr?.body === 'colourful words', JSON.stringify(rr));
+  // somebody who bypasses the page and sends their own markup cannot smuggle styles or handlers through the new tags
+  const injected = await j.p.evaluate(async ({ mid, tok }) => (await fetch('/api/meetings/' + mid + '/chat', { method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ rich: '<c2 style="color:url(javascript:1);position:fixed" onclick="window.__x=1" class="evil">evil</c2> <span style="position:fixed;inset:0" onmouseover="window.__x=2">span</span> <font color="red" size="7">font</font> <z9>nine</z9> <c7>seven</c7>' }) })).status, { mid, tok: (j.p.__auth || '').replace(/^Bearer /, '') });
+  const inj = await waitFor(async () => (await s.p.locator('.chat-msg', { hasText: 'evil' }).count()) === 1);
+  const evilRow = s.p.locator('.chat-msg', { hasText: 'evil' });
+  check('V2.1 format: injected style/onclick/class/font/unknown colour and size tags are stripped (server allowlist), nothing runs', injected === 201 && !!inj && (await evilRow.locator('[style],[onclick],[onmouseover],[class="evil"],font').count()) === 0 && (await evilRow.locator('span[data-c="2"]').count()) === 1 && (await s.p.evaluate(() => window.__x)) === undefined && (await evilRow.locator('.chat-body').innerText()).includes('evil span font nine seven'), (await evilRow.locator('.chat-body').innerText()));
+  // lists: Enter starts the next item inside a list, Ctrl+Enter sends
+  if (await s.p.locator('#chatFormat.hidden').count()) await s.p.click('#chatFmtBtn');
+  await s.p.locator('#chatEditor').click(); await s.p.click('#chatMoreFmtBtn'); await s.p.getByRole('menuitem', { name: 'Bulleted list' }).click();
+  await s.p.keyboard.type('alpha item'); await s.p.keyboard.press('Enter'); await s.p.keyboard.type('beta item'); await s.p.keyboard.press('Control+Enter');
+  check('V2.1 format: a bulleted list with two items is delivered as a real list', !!(await waitFor(async () => (await j.p.locator('.chat-msg ul li', { hasText: 'alpha item' }).count()) === 1 && (await j.p.locator('.chat-msg ul li', { hasText: 'beta item' }).count()) === 1)));
+  check('V2.1 format: the plain text (export/AI) keeps the bullets', (await pool.query("SELECT body FROM messages WHERE body LIKE '%alpha item%'")).rows[0]?.body === '• alpha item\n• beta item');
+  check('V2.1 format: the toolbar has Bold, Italic, Underline, Strikethrough, colour, size, link, heading and a more menu, in that order', JSON.stringify(await s.p.locator('#chatFormat > button').evaluateAll((bs) => bs.map((b) => b.id || b.dataset.cmd))) === JSON.stringify(['bold', 'italic', 'underline', 'strikeThrough', 'chatColorBtn', 'chatSizeBtn', 'chatLinkBtn', 'chatHeadBtn', 'chatMoreFmtBtn']));
+
+  // who can see your messages
+  await s.p.click('#chatWhoBtn');
+  check('V2.1 who can see: Everyone says how many people, from the server', !!(await waitFor(async () => (await s.p.locator('#chatWho').innerText()).includes('Everyone in this meeting (3 people)'))), await s.p.locator('#chatWho').innerText());
+  await s.p.keyboard.press('Escape'); await s.p.locator('#chatNav .chat-conv', { hasText: 'Justin' }).click(); await waitFor(async () => (await msgOf(s.p, 'for your eyes only').count()) === 1);
+  await s.p.click('#chatWhoBtn');
+  const whoText = await waitFor(async () => { const t = await s.p.locator('#chatWho').innerText(); return t.includes('Only you and Justin') ? t : ''; });
+  check('V2.1 who can see: a private chat says "Only you and <names>" and that the host cannot read private chats they are not part of', !!whoText && /cannot read private chats they are not part of/.test(whoText), String(whoText));
+  await s.p.keyboard.press('Escape'); await s.p.locator('#chatNav .chat-conv', { hasText: 'Everyone' }).click(); await waitFor(async () => (await msgOf(s.p, 'Hello from Justin').count()) === 1);
+
+  // pinned panel with jump-to
+  await s.p.click('#chatPinned');
+  check('V2.1 pinned panel: lists the pinned message with a "Go to message" button', !!(await waitFor(async () => (await s.p.locator('#chatPinPanel .chat-pinrow', { hasText: 'Hello from Justin' }).count()) === 1)));
+  await s.p.locator('#chatPinPanel').getByRole('button', { name: 'Go to message' }).first().click();
+  check('V2.1 pinned panel: "Go to message" closes the panel and flashes the message', (await s.p.locator('#chatPinPanel.hidden').count()) === 1 && !!(await waitFor(async () => (await s.p.locator('.chat-msg.chat-flash').count()) >= 1, 3000, 100)));
+
+
+  // ================= V2.1 composer fixes: placeholder, edit/cancel, link popover, one composer card, ghost actions =================
+  const phOf = (p) => p.locator('#chatEditor').evaluate((e) => getComputedStyle(e, '::before').content);
+  const isEmpty = async (p) => (await p.locator('#chatEditor').getAttribute('data-empty')) === 'true';
+  const placeholderShown = async (p) => (await isEmpty(p)) && /Message everyone/.test(await phOf(p));
+  if (await s.p.locator('#chatFormat.hidden').count()) await s.p.click('#chatFmtBtn');
+  await s.p.locator('#chatEditor').click();
+  check('composer: the "Message everyone..." hint is visible while the editor is empty', await placeholderShown(s.p));
+  await s.p.keyboard.type('draft text');
+  check('composer: the hint is hidden while there is text', !(await isEmpty(s.p)) && !/Message everyone/.test(await phOf(s.p)));
+  await s.p.keyboard.press('Control+A'); await s.p.keyboard.press('Backspace');
+  check('composer: after typing and deleting everything the hint is back (a contentEditable keeps a <br>, so :empty cannot be used)', await placeholderShown(s.p));
+  await s.p.keyboard.type('to be edited'); await s.p.keyboard.press('Enter'); await waitFor(async () => (await msgOf(s.p, 'to be edited').count()) === 1);
+  check('composer: after sending, the hint is back', !!(await waitFor(() => placeholderShown(s.p), 3000, 100)));
+  // edit: a preview of the original text, Esc and the X cancel, the hint returns
+  await more(s.p, 'to be edited', 'Edit');
+  check('edit: the context bar says "Editing:" followed by a one-line preview of the ORIGINAL text', (await s.p.locator('#chatContext').innerText()).replace(/\s+/g, ' ').includes('Editing: to be edited') && (await s.p.locator('#chatEditor').innerText()).trim() === 'to be edited');
+  await s.p.keyboard.press('Escape');
+  check('edit: Esc cancels it: no context bar, an empty composer with its hint, the message unchanged', (await s.p.locator('#chatContext.hidden').count()) === 1 && (await placeholderShown(s.p)) && (await msgOf(s.p, 'to be edited').count()) === 1);
+  await more(s.p, 'to be edited', 'Edit'); await s.p.locator('#chatContext .chat-ctxclose').click();
+  check('edit: the X in the context bar cancels it the same way', (await s.p.locator('#chatContext.hidden').count()) === 1 && (await placeholderShown(s.p)));
+  // emptying an edit never silently does nothing: it asks whether to delete the message instead
+  await s.p.keyboard.type('throwaway message'); await s.p.keyboard.press('Enter'); await waitFor(async () => (await msgOf(s.p, 'throwaway message').count()) === 1);
+  await more(s.p, 'throwaway message', 'Edit'); await s.p.keyboard.press('Control+A'); await s.p.keyboard.press('Backspace'); await s.p.keyboard.press('Enter');
+  check('edit: emptying the text and pressing Enter asks "Delete it instead?" (and the message is still there)', (await s.p.locator('#chatContext').innerText()).includes('Delete it instead?') && (await msgOf(s.p, 'throwaway message').count()) === 1);
+  await s.p.locator('#chatContext').getByRole('button', { name: 'Keep editing' }).click();
+  check('edit: "Keep editing" returns to the edit', (await s.p.locator('#chatContext').innerText()).includes('Editing: throwaway message'));
+  await s.p.keyboard.press('Control+A'); await s.p.keyboard.press('Backspace'); await s.p.keyboard.press('Enter'); await s.p.locator('#chatContext').getByRole('button', { name: 'Delete message' }).click();
+  check('edit: "Delete message" deletes it for everybody and clears the composer', !!(await waitFor(async () => (await s.p.locator('.chat-deleted').count()) >= 1 && (await msgOf(j.p, 'throwaway message').count()) === 0)) && (await s.p.locator('#chatContext.hidden').count()) === 1);
+
+  // link: a small popover anchored to the link button, by keyboard
+  await s.p.locator('#chatEditor').click(); await s.p.keyboard.type('see our site'); await s.p.keyboard.press('Control+A'); await s.p.click('#chatLinkBtn');
+  const lp = s.p.locator('#chatLinkPop'), lg = await Promise.all([lp.boundingBox(), s.p.locator('#chatLinkBtn').boundingBox()]);
+  check('link: opens as a small popover just above the toolbar next to the link button (not a row in the layout), with the address box focused', (await lp.isVisible()) && (await lp.evaluate((e) => getComputedStyle(e).position)) === 'absolute' && lg[0].y + lg[0].height <= lg[1].y + 2 && (await s.p.evaluate(() => document.activeElement?.id)) === 'chatLink');
+  await s.p.keyboard.press('Escape');
+  check('link: Esc closes it and gives the focus back to the message box', (await s.p.locator('#chatLinkPop.hidden').count()) === 1 && (await s.p.evaluate(() => document.activeElement?.id)) === 'chatEditor');
+  await s.p.locator('#chatEditor').click(); await s.p.keyboard.press('Control+A'); await s.p.click('#chatLinkBtn'); await s.p.keyboard.type('not a link'); await s.p.keyboard.press('Enter');
+  check('link: an invalid address is refused and the popover stays open', (await s.p.locator('#chatLinkPop.hidden').count()) === 0 && (await s.p.locator('#chatEditor a').count()) === 0);
+  await s.p.fill('#chatLink', 'https://example.com/docs'); await s.p.keyboard.press('Enter');
+  check('link: Enter adds the link to the selected text and closes the popover', (await s.p.locator('#chatLinkPop.hidden').count()) === 1 && (await s.p.locator('#chatEditor a[href="https://example.com/docs"]', { hasText: 'see our site' }).count()) === 1);
+  await s.p.keyboard.press('Enter');
+  check('link: the other person receives a safe link (opens in a new tab, no referrer or opener)', !!(await waitFor(async () => (await j.p.locator('.chat-msg a[href="https://example.com/docs"][target="_blank"][rel~="noopener"]', { hasText: 'see our site' }).count()) === 1)));
+
+  // one composer card
+  const geo = await s.p.evaluate(() => { const r = (q) => { const b = document.querySelector(q).getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, right: b.right }; }; return { who: r('#chatWhoBtn'), card: r('.chat-composercard'), fmt: r('#chatFormat'), ed: r('#chatEditor'), send: r('#chatSend'), act: r('.chat-actionrow'), list: r('#messages') }; });
+  check('composer card: the toolbar, input, Send and action row are all inside ONE card, and the audience bar sits directly above it', geo.ed.top >= geo.card.top && geo.send.bottom <= geo.card.bottom && geo.act.bottom <= geo.card.bottom && geo.fmt.top >= geo.card.top && geo.card.top >= geo.who.bottom && geo.card.top - geo.who.bottom <= 12 && geo.card.top >= geo.list.bottom, JSON.stringify(geo));
+  check('composer card: the toolbar, input and action row do not touch (8px rhythm) and Send is aligned with the input', geo.ed.top - geo.fmt.bottom >= 6 && geo.act.top - geo.ed.bottom >= 6 && Math.abs(geo.send.bottom - geo.ed.bottom) <= 2 && geo.send.left >= geo.ed.right, JSON.stringify(geo));
+  check('message actions are small ghost icon buttons (transparent, not link-blue text) and sit apart from the text', (await s.p.locator('.chat-hover .chat-act').first().evaluate((e) => { const c = getComputedStyle(e); return c.backgroundColor === 'rgba(0, 0, 0, 0)' && c.color !== 'rgb(143, 180, 255)'; })));
+  const lineGeo = await pj.p.locator('.chat-line').first().evaluate((l) => ({ b: l.querySelector('.chat-bubble').getBoundingClientRect().bottom, h: l.querySelector('.chat-hover').getBoundingClientRect().top }));
+  check('on a touch phone the actions stay BELOW the message bubble', lineGeo.h >= lineGeo.b - 1, JSON.stringify(lineGeo));
 
   // ---- reconnection: Justin's network drops; messages sent meanwhile must be there afterwards, once each
   await j.ctx.setOffline(true); await wait(3500);

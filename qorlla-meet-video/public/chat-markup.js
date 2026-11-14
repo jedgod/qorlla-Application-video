@@ -12,15 +12,18 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
   const MAX_OUT = 8000, MAX_DEPTH = 8, MAX_TAGS = 200, MAX_URL = 500;
-  const KEEP = { b: 'b', strong: 'b', i: 'i', em: 'i', u: 'u', s: 's', strike: 's', del: 's', ul: 'ul', li: 'li', h1: 'h2', h2: 'h2', h3: 'h2', blockquote: 'blockquote', a: 'a' };
-  const BLOCKS = new Set(['p', 'div', 'ol', 'tr', 'pre']);                                   // become a line break when they close
+  // Colour and size are NOT styles: they are fixed tags c1..c6 (a six-colour palette) and z1..z3 (small, large, huge). There is no way to say any other colour or size, and no attribute is
+  // ever kept on them; the page draws them from its own style sheet (data-c / data-z), never from anything the sender supplied.
+  const KEEP = Object.assign(Object.create(null), { b: 'b', strong: 'b', i: 'i', em: 'i', u: 'u', s: 's', strike: 's', del: 's', ul: 'ul', ol: 'ol', li: 'li', h1: 'h2', h2: 'h2', h3: 'h2', blockquote: 'blockquote', a: 'a' });
+  for (const n of ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'z1', 'z2', 'z3']) KEEP[n] = n;
+  const BLOCKS = new Set(['p', 'div', 'tr', 'pre']);                                   // become a line break when they close
   const DROP_WITH_CONTENT = new Set(['script', 'style', 'iframe', 'object', 'embed', 'noscript', 'template', 'textarea', 'svg', 'math', 'title', 'head']);
   const CTRL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;   // control, zero-width and bidi-override characters
 
   const CTRL_TEST = new RegExp(CTRL.source);
   const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const escAttr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+  const NAMED = Object.assign(Object.create(null), { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' });
   function decode(t) {
     return t.replace(/&(#x[0-9a-f]{1,6}|#[0-9]{1,7}|[a-z]{2,6});/gi, (m, g) => {
       if (g[0] === '#') {
@@ -89,7 +92,7 @@
 
   // canonical -> events (the canonical string is produced by sanitize(), so a simple scan is enough)
   function* events(canon) {
-    const re = /<(\/?)(b|i|u|s|br|ul|li|h2|blockquote|a)((?: href="[^"<>]*")?)>/g; let last = 0, m;
+    const re = /<(\/?)(b|i|u|s|br|ul|ol|li|h2|blockquote|a|c[1-6]|z[1-3])((?: href="[^"<>]*")?)>/g; let last = 0, m;
     while ((m = re.exec(canon))) {
       if (m.index > last) yield { type: 'text', text: decode(canon.slice(last, m.index)) };
       if (m[2] === 'br') yield { type: 'br' };
@@ -102,35 +105,39 @@
 
   function toPlain(canon) {
     if (typeof canon !== 'string') return '';
-    let t = '';
+    let t = ''; const lists = [];
     for (const e of events(canon)) {
       if (e.type === 'text') t += e.text;
       else if (e.type === 'br') t += '\n';
-      else if (e.type === 'open' && e.name === 'li') t += (t && !t.endsWith('\n') ? '\n' : '') + '\u2022 ';
+      else if (e.type === 'open' && (e.name === 'ul' || e.name === 'ol')) lists.push({ ordered: e.name === 'ol', n: 0 });
+      else if (e.type === 'close' && (e.name === 'ul' || e.name === 'ol')) lists.pop();
+      else if (e.type === 'open' && e.name === 'li') { const l = lists[lists.length - 1]; if (l) l.n++; t += (t && !t.endsWith('\n') ? '\n' : '') + (l && l.ordered ? l.n + '. ' : '\u2022 '); }
       else if (e.type === 'close' && (e.name === 'li' || e.name === 'h2' || e.name === 'blockquote') && !t.endsWith('\n')) t += '\n';
     }
     return t.replace(/\n{3,}/g, '\n\n').trim();
   }
-  const hasMarkup = (canon) => typeof canon === 'string' && /<(?:b|i|u|s|ul|li|h2|blockquote|a|br)[ >]/.test(canon);
+  const hasMarkup = (canon) => typeof canon === 'string' && /<(?:b|i|u|s|ul|ol|li|h2|blockquote|a|br|c[1-6]|z[1-3])[ >]/.test(canon);
 
   function render(canon, parent) {
-    const doc = parent.ownerDocument, stack = [parent];
+    const doc = parent.ownerDocument, stack = [{ el: parent, name: null }];
     for (const e of events(String(canon || ''))) {
-      const top = stack[stack.length - 1];
+      const top = stack[stack.length - 1].el;
       if (e.type === 'text') top.appendChild(doc.createTextNode(e.text));
       else if (e.type === 'br') top.appendChild(doc.createElement('br'));
       else if (e.type === 'open') {
-        const el = doc.createElement(e.name);
+        const colour = /^c[1-6]$/.test(e.name), size = /^z[1-3]$/.test(e.name);
+        const el = doc.createElement(colour || size ? 'span' : e.name);
+        if (colour) el.setAttribute('data-c', e.name.slice(1)); else if (size) el.setAttribute('data-z', e.name.slice(1));
         if (e.name === 'a') { const h = isSafeUrl(e.href || ''); if (h) { el.setAttribute('href', h); el.setAttribute('target', '_blank'); el.setAttribute('rel', 'noopener noreferrer nofollow'); } }
-        top.appendChild(el); stack.push(el);
-      } else if (e.type === 'close' && stack.length > 1 && stack[stack.length - 1].localName === e.name) stack.pop();
+        top.appendChild(el); stack.push({ el, name: e.name });
+      } else if (e.type === 'close' && stack.length > 1 && stack[stack.length - 1].name === e.name) stack.pop();
     }
     return parent;
   }
 
   // the page's contentEditable -> raw markup (walks the DOM; the server sanitizes the result again)
   function fromEditor(rootEl) {
-    const MAP = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u', S: 's', STRIKE: 's', DEL: 's', UL: 'ul', LI: 'li', H1: 'h2', H2: 'h2', H3: 'h2', BLOCKQUOTE: 'blockquote' };
+    const MAP = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u', S: 's', STRIKE: 's', DEL: 's', UL: 'ul', OL: 'ol', LI: 'li', H1: 'h2', H2: 'h2', H3: 'h2', BLOCKQUOTE: 'blockquote' };
     const walk = (node) => {
       let s = '';
       node.childNodes.forEach((c, idx, all) => {
@@ -140,6 +147,10 @@
           if (tag === 'BR') s += '<br>';
           else if (tag === 'A') { const h = isSafeUrl(c.getAttribute('href') || ''); s += h ? '<a href="' + escAttr(h) + '">' + walk(c) + '</a>' : walk(c); }
           else if (MAP[tag]) s += '<' + MAP[tag] + '>' + walk(c) + '</' + MAP[tag] + '>';
+          else if (tag === 'SPAN' && (/^[1-6]$/.test(c.getAttribute('data-c') || '') || /^[1-3]$/.test(c.getAttribute('data-z') || ''))) {
+            let inner = walk(c); const z = c.getAttribute('data-z'), k = c.getAttribute('data-c');
+            if (/^[1-3]$/.test(z || '')) inner = '<z' + z + '>' + inner + '</z' + z + '>'; if (/^[1-6]$/.test(k || '')) inner = '<c' + k + '>' + inner + '</c' + k + '>'; s += inner;
+          }
           else if (tag === 'DIV' || tag === 'P') { s += walk(c); if (idx < all.length - 1) s += '<br>'; }
           else if (!DROP_WITH_CONTENT.has(tag.toLowerCase())) s += walk(c);
         }
@@ -149,5 +160,5 @@
     return walk(rootEl);
   }
 
-  return { sanitize, toPlain, hasMarkup, isSafeUrl, render, fromEditor, esc };
+  return { sanitize, toPlain, hasMarkup, isSafeUrl, render, fromEditor, esc, COLOURS: 6, SIZES: 3 };
 }));

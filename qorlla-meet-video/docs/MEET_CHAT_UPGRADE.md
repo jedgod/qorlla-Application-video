@@ -37,8 +37,8 @@ The package could not be dropped in as is: it is a separate React/SQLite app, an
 ## Tests
 
 * `tests/chat-markup.test.mjs`: 9 tests on the sanitizer (script, handlers, images, frames, `javascript:`/`data:` links, entity and nesting tricks, control and bidi characters, limits, idempotence).
-* `tests/chat.test.mjs`: 17 tests against a real PostgreSQL (the first 10 are the v4.25 set): permissions, cross-meeting isolation, validation, edit/pin/bookmark/task rules, search escaping, GIF and attachment limits.
-* `tests/e2e/chat-browser.e2e.mjs`: 71 checks (the v4.25 25 plus the v4.26 set below) in real browsers (Stryker host, Justin guest) plus an emulated phone: live delivery, bold, reply, quote, edit, private bookmark, host-only pin, task, search, typed HTML shown as text and not executed, phone layout, no JavaScript errors.
+* `tests/chat.test.mjs`: 19 tests against a real PostgreSQL (the first 10 are the v4.25 set): permissions, cross-meeting isolation, validation, edit/pin/bookmark/task rules, search escaping, GIF and attachment limits.
+* `tests/e2e/chat-browser.e2e.mjs`: 111 checks (V2.1 included) (the v4.25 25 plus the v4.26 set below) in real browsers (Stryker host, Justin guest) plus an emulated phone: live delivery, bold, reply, quote, edit, private bookmark, host-only pin, task, search, typed HTML shown as text and not executed, phone layout, no JavaScript errors.
 * The existing Meet suite still passes together with the new tests (see the V2.0 section for the final counts).
 
 ## Not covered
@@ -75,8 +75,8 @@ Title "Qorlla Meet Chat" with the meeting title as the subtitle; More, Pop-out a
 
 ### Tests added
 
-* `tests/chat.test.mjs`: 17 tests (7 new): policy matrix, private visibility (reads, events, tasks, search, export), delete, Save chat, idempotency, attachments in private chats, and a denied participant (no events, every route refused).
-* `tests/e2e/chat-browser.e2e.mjs`: 71 checks in real browsers (Stryker host, Justin guest, Pia on an emulated phone): V2.0 header/composer/empty state; the policy (none, host only, group, all) changing live for guests; a private chat a third person never sees; the integration export staying clean; delete with confirmation; Save chat; pop-out synchronisation (send, edit, pin, delete in both directions, close and reopen); a dropped network resyncing without loss or duplicates; a removed participant receiving nothing in the main or the pop-out window and being refused by every route.
+* `tests/chat.test.mjs`: 19 tests (7 new in V2.0, 2 in V2.1): policy matrix, private visibility (reads, events, tasks, search, export), delete, Save chat, idempotency, attachments in private chats, and a denied participant (no events, every route refused).
+* `tests/e2e/chat-browser.e2e.mjs`: 111 checks (V2.1 included) in real browsers (Stryker host, Justin guest, Pia on an emulated phone): V2.0 header/composer/empty state; the policy (none, host only, group, all) changing live for guests; a private chat a third person never sees; the integration export staying clean; delete with confirmation; Save chat; pop-out synchronisation (send, edit, pin, delete in both directions, close and reopen); a dropped network resyncing without loss or duplicates; a removed participant receiving nothing in the main or the pop-out window and being refused by every route.
 * `tests/e2e/meet-tabs.e2e.mjs`: 17 checks over **all five tabs** (Chat, People, Notes, Polls, More) with a host and a guest: one tab visible at a time, People roles, Notes and More content, Polls host-only, nothing lost when returning to Chat, messages that arrive while another tab is open, Close and reopen.
 * The existing ASCS browser regression (A to F) and the whole Meet server suite still pass.
 
@@ -94,3 +94,25 @@ Title "Qorlla Meet Chat" with the meeting title as the subtitle; More, Pop-out a
 * Retention, moderation and legal hold are not part of this change.
 * Co-hosts do not exist in Meet, so "host and co-hosts" means the host.
 * Production verdict: **NO-GO** until certification.
+
+## V2.1: message actions, full format toolbar, popovers, composer card (Qorlla look; no third-party branding)
+
+Reference screenshots (a meeting chat with hover actions, a format toolbar, a GIF picker and a file menu) were used for **layout ideas only**: the wording, colours and icons are Qorlla's own.
+
+| Area | What it does |
+|---|---|
+| **Message actions** | Reply and More (the three dots) appear beside the bubble on hover or keyboard focus, as small ghost icon buttons; on touch screens they stay below the bubble. More menu: Copy, Quote, Edit (own text only) / Bookmark / Pin for everyone (host, Everyone only) / Create task / Delete (author or host, second click confirms) |
+| **Format toolbar** (the **T** button shows it) | Bold, Italic, Underline, Strikethrough, text colour, text size, link, heading, and a "..." menu (bulleted list, numbered list, quote, clear formatting). Enter makes the next item inside a list and leaves the list on an empty item; Ctrl+Enter always sends |
+| **Colour and size are NOT styles** | A fixed palette of six colours (tags `c1` to `c6`) and three sizes (`z1` small, `z2` large, `z3` huge). The server sanitizer is an allowlist: no attribute is ever kept (so no `style`, `class`, `onclick`, `data-*`), `<span>`/`<font>`/unknown or out-of-range tags (`c0`, `c7`, `z4`) are dropped keeping their text, and the page draws the colours from its own style sheet. The same module renders, converts to plain text (exports and the AI summary keep bullets and numbers) and reads the editor |
+| **Who can see your messages?** | A bar above the composer opens a popover whose text comes from the server: "Everyone in this meeting (N people)" or "Only you and <names>", and that the host cannot read private chats they are not part of and that private chats are never in summaries or exports |
+| **GIF picker** | Needs `GIPHY_API_KEY`. A "Search GIPHY" box, a two-column masonry of previews, "Powered by GIPHY" and a note that the search words go to GIPHY through this meeting's server. The server proxies the search (the key never reaches the page) and the policy allows GIPHY images **only when the key is set**. Without a key the button stays visible, disabled, with a tooltip |
+| **File menu** | "Your computer" works only when the server has `CHAT_ATTACHMENTS_ENABLED=true`. Dropbox, Microsoft OneDrive, Google Drive, Box and Microsoft SharePoint are listed **disabled** with the tooltip "Not connected: needs provider setup by an administrator". There is **no OAuth or connector code in this repository**, the server exposes no such routes (tested), and nothing pretends otherwise. Security of attachments is unchanged: type decided by the file's bytes, 10 MB limit, authorized download only through a message the person can read. **No malware scanner exists**: keep the flag off until files are scanned and stored in private object storage |
+| **Pinned messages panel** | The pin button lists the pinned messages with "Go to message" |
+| **Composer** | One distinct card: context bar / toolbar (when T is on) / input and Send / T, GIF, File. The hint "Message everyone..." is driven by state (not CSS `:empty`, which never matches a contentEditable after text was deleted). Editing shows "Editing: <the original text>"; Esc or the X cancels; emptying an edit asks "Delete it instead?" instead of silently doing nothing |
+| **Link** | A small popover next to the link button (Enter adds, Esc closes, closes after use); the selected text becomes the link |
+
+**Not built, on purpose:** QorllaMate / AI in the Meet chat. Meet has no AI client; AI runs only through the Portal AI gateway with consent, and **no chat content is sent to any AI or third-party service from this panel** (the only external call is the optional GIPHY search, described above).
+
+Tests added for V2.1: sanitizer 12 (palette, injection through the new tags, `Object.prototype` tag names, numbered lists); API 19 (audience, no cloud routes, GIPHY base); chat browser 111; optional-features browser 14 (GIF picker and files, with a local stand-in for GIPHY).
+
+A bug found while writing these tests, in the already-pushed V2.0: the sanitizer looked tags up in a plain object, so a tag named like an `Object.prototype` property (for example `<constructor>`) produced broken markup. It was escaped text (not an XSS), and it is fixed and covered by a test.

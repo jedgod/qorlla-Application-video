@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sanitize, toPlain, hasMarkup, isSafeUrl } from '../server/chat-markup.mjs';
 
-const ALLOWED = /^(?:[^<]|&(?:amp|lt|gt);|<\/?(?:b|i|u|s|ul|li|h2|blockquote)>|<br>|<a href="https:\/\/[^"<>]*">|<\/a>)*$/;
+const ALLOWED = /^(?:[^<]|&(?:amp|lt|gt);|<\/?(?:b|i|u|s|ul|ol|li|h2|blockquote|c[1-6]|z[1-3])>|<br>|<a href="https:\/\/[^"<>]*">|<\/a>)*$/;
 const safe = (s) => { const out = sanitize(s); assert.ok(out === null || ALLOWED.test(out), 'unexpected output: ' + out); return out; };
 
 test('formatting the page offers is kept', () => {
@@ -81,4 +81,30 @@ test('sanitizing is idempotent', () => {
 test('non-breaking spaces (what a browser inserts after a formatting change) become normal spaces', () => {
   assert.equal(safe('<b>Important</b>\u00A0agenda'), '<b>Important</b> agenda');
   assert.equal(safe('a&nbsp;b'), 'a b');
+});
+
+test('V2.1: colour and size are a FIXED palette of tags, never styles', () => {
+  assert.equal(safe('<c3>warm</c3> and <z2>big</z2> and <c5><z3>both</z3></c5>'), '<c3>warm</c3> and <z2>big</z2> and <c5><z3>both</z3></c5>');
+  assert.equal(toPlain(safe('<c3>warm</c3> <z2>big</z2>')), 'warm big');
+  assert.equal(hasMarkup(safe('<z1>small</z1>')), true);
+  // nothing outside the palette, no attributes of any kind, no styles
+  for (const [evil, expect] of [
+    ['<c1 style="color:url(javascript:alert(1))" onclick="alert(1)" class="x">a</c1>', '<c1>a</c1>'],
+    ['<span style="color:red;background:url(//evil)">x</span>', 'x'], ['<span data-c="1">x</span>', 'x'], ['<font color="red" size="7">x</font>', 'x'],
+    ['<c0>x</c0>', 'x'], ['<c7>x</c7>', 'x'], ['<c10>x</c10>', 'x'], ['<z0>x</z0>', 'x'], ['<z4>x</z4>', 'x'], ['<c1x>x</c1x>', 'x'],
+    ['<c1><script>alert(1)</script>ok</c1>', '<c1>ok</c1>'], ['<C2>upper</C2>', '<c2>upper</c2>'],
+  ]) assert.equal(safe(evil), expect, evil);
+  assert.ok(!/style|onclick|class=|data-/.test(safe('<c1 style="x" onclick="y" class="z" data-c="9">t</c1>')));
+});
+
+test('V2.1: tag names that exist on Object.prototype are just unknown tags', () => {
+  for (const name of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'toLocaleString']) {
+    assert.equal(safe(`<${name}>x</${name}>`), 'x', name);
+  }
+  assert.equal(safe('&constructor; &toString;'), '&amp;constructor; &amp;toString;');
+});
+
+test('V2.1: numbered lists keep their numbers in the plain text (exports, AI summary)', () => {
+  assert.equal(safe('<ol><li>one</li><li>two</li></ol>'), '<ol><li>one</li><li>two</li></ol>');
+  assert.equal(toPlain(safe('<ol><li>one</li><li>two</li></ol><ul><li>dot</li></ul>')), '1. one\n2. two\n• dot');
 });
