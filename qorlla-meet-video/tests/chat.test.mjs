@@ -322,3 +322,24 @@ test('a person whose admission was withdrawn stops receiving chat at once and ca
     assert.equal((await h.call(method, path, m.bo, body)).status, 403, method + ' ' + path);                    // their token no longer reads, posts or exports anything
   await h.close();
 });
+
+test('"who can see your messages": the audience comes from the server; no cloud-storage connector routes exist', async () => {
+  const h = await harness(); const m = await h.meeting(); await setPolicy(h, m, 'all');
+  const everyone = (await h.call('GET', P(m, '/audience'), m.ann)).body; assert.deepEqual(everyone, { kind: 'everyone', count: 3 });            // host, Ann, Bo (the waiting person is not counted)
+  const c = (await dm(h, m, m.ann, m.ids.bo)).body;
+  const direct = (await h.call('GET', P(m, '/audience') + '?conversation=' + c.id, m.ann)).body; assert.equal(direct.kind, 'direct'); assert.deepEqual(direct.members.map((x) => x.name).sort(), ['Ann', 'Bo']);
+  assert.equal((await h.call('GET', P(m, '/audience') + '?conversation=' + c.id, m.host)).status, 404);                                             // the host is not in it: it does not exist for them
+  assert.equal((await h.call('GET', P(m, '/audience'), m.waiting)).status, 403);
+  // there is no connector code in this repo, so none of these routes may exist (the page shows those sources as disabled)
+  for (const src of ['dropbox', 'onedrive', 'google-drive', 'box', 'sharepoint', 'cloud', 'connectors', 'oauth']) {
+    for (const path of [P(m, '/' + src), P(m, '/cloud/' + src), P(m, '/attachments/' + src + '/authorize'), `/api/meetings/${m.mid}/${src}`]) assert.ok([404, 403].includes((await h.call('GET', path, m.ann)).status), path);
+  }
+  await h.close();
+});
+
+test('GIF search talks to the configured GIPHY address only, with the key on the server', async () => {
+  let asked = null;
+  const fetchImpl = async (url) => { asked = url; return { ok: true, json: async () => ({ data: [{ id: '1', title: 't', images: { fixed_height: { url: 'https://media1.giphy.com/media/a/200.gif' }, fixed_width_small: { url: 'https://media1.giphy.com/media/a/100w.gif' } } }] }) }; };
+  const h = await harness({ giphyKey: 'k', fetchImpl, giphyBase: 'http://127.0.0.1:9' }); const m = await h.meeting();
+  assert.equal((await h.call('GET', P(m, '/gifs/search?q=cat'), m.ann)).status, 200); assert.ok(asked.startsWith('http://127.0.0.1:9/v1/gifs/search?api_key=k')); await h.close();
+});

@@ -34,7 +34,7 @@ const cleanText = (s, max) => (typeof s === 'string' ? s.replace(/[\u0000-\u0008
 const cleanName = (s) => cleanText(String(s || 'file').split(/[\\/]/).pop(), 120).replace(/[^\w.\- ()À-ɏ]/g, '_') || 'file';
 
 export function registerChat({ app, io, db, auth, member, room, fail, socketOf = () => null, giphyKey = process.env.GIPHY_API_KEY || '', attachmentsEnabled = process.env.CHAT_ATTACHMENTS_ENABLED === 'true',
-  attachmentsDir = process.env.CHAT_ATTACHMENTS_DIR || resolve('data', 'chat-attachments'), fetchImpl = globalThis.fetch }) {
+  attachmentsDir = process.env.CHAT_ATTACHMENTS_DIR || resolve('data', 'chat-attachments'), fetchImpl = globalThis.fetch, giphyBase = process.env.GIPHY_API_BASE || 'https://api.giphy.com' }) {
   const features = Object.freeze({ gif: !!giphyKey, attachments: !!attachmentsEnabled });
   if (attachmentsEnabled) mkdirSync(attachmentsDir, { recursive: true });
   const PATHS = (suffix) => [`/api/meetings/:id/chat${suffix}`, `/api/v1/meetings/:id/chat${suffix}`];
@@ -275,6 +275,17 @@ export function registerChat({ app, io, db, auth, member, room, fail, socketOf =
     res.json({ tasks: rows.map((t) => ({ id: t.id, messageId: t.message_id, conversationId: t.conversation_id || null, title: t.title, assigneeId: t.assignee_id, dueDate: t.due_date, createdBy: t.created_by, createdAt: t.created_at })) });
   }));
 
+  // ---------- "Who can see your messages?": the truth about the conversation on screen, from the server (not from the page)
+  app.get(PATHS('/audience'), auth, member, handle(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const conv = await conversationOf(req.params.id, req.query.conversation, req.user.participantId);
+    if (conv.id === null) {
+      const { rows: [r] } = await db.query("SELECT count(*)::int AS n FROM participants WHERE meeting_id=$1 AND admission='admitted'", [req.params.id]);
+      return res.json({ kind: 'everyone', count: r.n });
+    }
+    res.json({ kind: 'direct', count: conv.members.length, members: conv.members.map((m) => ({ id: m.id, name: m.name, role: m.role })), you: req.user.participantId });
+  }));
+
   // ---------- Save chat: the conversation the person is looking at, as a text file (only what that person may see; deleted messages are left out)
   app.get(PATHS('/export'), auth, member, handle(async (req, res) => {
     const conv = await conversationOf(req.params.id, req.query.conversation, req.user.participantId);
@@ -293,7 +304,7 @@ export function registerChat({ app, io, db, auth, member, room, fail, socketOf =
     if (!features.gif) throw new HttpError(404, 'GIFs are not enabled');
     const k = req.user.participantId, now = Date.now(); if (now - (gifSeen.get(k) || 0) < 700) throw new HttpError(429, 'Slow down'); gifSeen.set(k, now); if (gifSeen.size > 5000) gifSeen.clear();
     const q = cleanText(req.query.q, 60); if (!q) return res.json({ gifs: [] });
-    const r = await fetchImpl('https://api.giphy.com/v1/gifs/search?api_key=' + encodeURIComponent(giphyKey) + '&q=' + encodeURIComponent(q) + '&limit=12&rating=g', { signal: AbortSignal.timeout(5000) }).catch(() => null);
+    const r = await fetchImpl(giphyBase + '/v1/gifs/search?api_key=' + encodeURIComponent(giphyKey) + '&q=' + encodeURIComponent(q) + '&limit=12&rating=g', { signal: AbortSignal.timeout(5000) }).catch(() => null);
     if (!r?.ok) throw new HttpError(503, 'GIF search is unavailable');
     const d = await r.json().catch(() => ({}));
     res.json({ gifs: (d.data || []).map((g) => ({ id: String(g.id).slice(0, 40), title: String(g.title || '').slice(0, 100), url: g.images?.fixed_height?.url, preview: g.images?.fixed_width_small?.url })).filter((g) => GIF_URL.test(g.url || '') && GIF_URL.test(g.preview || '')) });

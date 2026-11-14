@@ -9,6 +9,10 @@ test.use({ permissions: ['camera', 'microphone'], launchOptions: { args: ['--use
 test.beforeAll(async () => { main = await startMain(5291); MAIN = main.base; });
 test.afterAll(() => main && main.stop());
 
+// The meeting is only really "in" once Meet's socket is connected and the first seconds of start-up (chat history, consent, roster) have settled: clicking a confirmation dialog in the
+// first second can lose it to start-up work (seen on the qlaunch line after the chat was added). Real people take longer than that; the tests wait for it.
+async function settled(meet) { await meet.waitForFunction(() => window.__qorlla?.state?.socket?.connected === true, null, { timeout: 30000 }); await meet.waitForTimeout(2500); }
+
 async function startFromHome(page, context) {
   await page.goto(MAIN + '/qorlla.html#home'); await page.locator('.meeting', { hasText: 'Sprint planning' }).locator('.join-pill').click();
   await expect(page.locator('#startDialog')).toBeVisible(); await expect(page.locator('#sdPassNote')).not.toHaveText('Checking…'); await page.click('#sdWait');
@@ -40,7 +44,7 @@ test('End for all closes the meeting window and leaves Home exactly where it was
   await page.goto(MAIN + '/qorlla.html#home'); await page.evaluate(() => { window.__marker = 'home-still-here'; });
   const homeUrl = page.url();
   const meet = await startFromHome(page, context);
-  await expect(meet.locator('#endBtn')).toBeVisible({ timeout: 30000 });
+  await expect(meet.locator('#endBtn')).toBeVisible({ timeout: 30000 }); await settled(meet);
   const closed = meet.waitForEvent('close');
   await meet.click('#endBtn'); await meet.locator('.rc-danger', { hasText: 'End for all' }).click();       // the confirmation, not the toolbar button
   await closed;                                                                                // the meeting window closed itself
@@ -54,7 +58,7 @@ test('Leave also closes the meeting window; Home is untouched', async ({ page, c
   await organiser(context, MAIN);
   await page.goto(MAIN + '/qorlla.html#home'); await page.evaluate(() => { window.__marker = 'home-still-here'; });
   const meet = await startFromHome(page, context);
-  await expect(meet.locator('#leaveBtn')).toBeVisible({ timeout: 30000 });
+  await expect(meet.locator('#leaveBtn')).toBeVisible({ timeout: 30000 }); await settled(meet);
   const closed = meet.waitForEvent('close'); await meet.click('#leaveBtn'); await closed;
   expect(await page.evaluate(() => window.__marker)).toBe('home-still-here');
 });
