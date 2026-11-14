@@ -22,6 +22,7 @@ import { registerPhone } from './phone.mjs';
 import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
 import { registerAiConsent } from './ai-consent.mjs';
+import { registerChat } from './chat.mjs';
 import { registerHandoff } from './handoff.mjs';
 import { registerHostControls } from './host-controls.mjs';
 import { registerRecording } from './recording.mjs';
@@ -44,7 +45,7 @@ app.use(helmet({
     useDefaults: false,
     directives: {
       defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", 'data:', 'blob:'], mediaSrc: ["'self'", 'blob:', 'mediastream:'],
+      imgSrc: ["'self'", 'data:', 'blob:', ...(process.env.GIPHY_API_KEY ? ['https://media.giphy.com', 'https://media0.giphy.com', 'https://media1.giphy.com', 'https://media2.giphy.com', 'https://media3.giphy.com', 'https://media4.giphy.com', 'https://i.giphy.com'] : [])], mediaSrc: ["'self'", 'blob:', 'mediastream:'],
       connectSrc: ["'self'", 'ws:', 'wss:'], fontSrc: ["'self'"], objectSrc: ["'none'"],
       baseUri: ["'self'"], formAction: ["'self'"], frameAncestors: ["'none'"]
     }
@@ -182,7 +183,7 @@ app.get('/api/integrations/meetings/:id/chat',readAuth,async(req,res)=>{
  try{
   const m=await db.query('SELECT id,title,created_at,ended_at FROM meetings WHERE id=$1',[req.params.id]);
   if(!m.rowCount)return fail(res,404,'Meeting unavailable');
-  const {rows}=await db.query('SELECT p.id AS pid, p.display_name AS name, p.role, c.body, c.created_at FROM messages c JOIN participants p ON p.id=c.participant_id WHERE c.meeting_id=$1 ORDER BY c.created_at,c.id LIMIT 5000',[req.params.id]);
+  const {rows}=await db.query('SELECT p.id AS pid, p.display_name AS name, p.role, c.body, c.created_at FROM messages c JOIN participants p ON p.id=c.participant_id WHERE c.meeting_id=$1 AND c.conversation_id IS NULL AND c.deleted_at IS NULL ORDER BY c.created_at,c.id LIMIT 5000',[req.params.id]);
   res.json({meetingId:m.rows[0].id,title:m.rows[0].title,startedAt:m.rows[0].created_at,endedAt:m.rows[0].ended_at,messages:rows.map(r=>({participantId:r.pid,speaker:r.name,speakerRole:r.role,text:r.body,at:r.created_at}))});
  }catch(e){console.error('chat export failed');fail(res,503,'Unavailable');}
 });
@@ -338,7 +339,7 @@ app.post('/api/meetings/:id/join', async(req,res) => {
 app.get('/api/meetings/:id',auth,member,async(req,res)=>{
  const {rows:[m]}=await db.query('SELECT id,meeting_code,title,created_at,notes,locked,waiting_room,join_before_host,lock_on_host_join FROM meetings WHERE id=$1',[req.params.id]);
  if(req.user.role!=='host'){delete m.waiting_room;delete m.join_before_host;delete m.lock_on_host_join;}
- const {rows:messages}=await db.query('SELECT p.display_name AS name, x.id,x.body,x.created_at FROM messages x JOIN participants p ON p.id=x.participant_id WHERE x.meeting_id=$1 ORDER BY x.created_at DESC LIMIT 100',[req.params.id]);
+ const {rows:messages}=await db.query('SELECT p.display_name AS name, x.id,x.body,x.created_at FROM messages x JOIN participants p ON p.id=x.participant_id WHERE x.meeting_id=$1 AND x.conversation_id IS NULL AND x.deleted_at IS NULL ORDER BY x.created_at DESC LIMIT 100',[req.params.id]);
  const {rows:polls}=await db.query('SELECT id,question,options FROM polls WHERE meeting_id=$1 ORDER BY created_at DESC LIMIT 30',[req.params.id]);
  // a meeting that was scheduled elsewhere shows the ID people were given (its registered alias), not Meet's internal code
  const {rows:[al]}=await db.query('SELECT alias_code FROM meeting_code_aliases WHERE meeting_id=$1 ORDER BY alias_code LIMIT 1',[req.params.id]).catch(()=>({rows:[]}));
@@ -404,6 +405,7 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
 });
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
 const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
+const chat = registerChat({ app, io, db, auth, member, room, fail, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid) });       // meeting chat upgrade (v4.25+)
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
@@ -468,11 +470,11 @@ io.on('connection',socket=>{
   const target=isOnline(to); if(!target) return ackError(ack,'Participant offline');
   io.to(target).emit('signal',{from:pid,data}); if(typeof ack==='function')ack({ok:true});
  });
- socket.on('chat',async(body,ack)=>{
-  body=clean(body,4000); if(!body)return ackError(ack,'Empty message');
-  try {const mid=randomUUID();const {rows:[msg]}=await db.query('INSERT INTO messages(id,meeting_id,participant_id,body) VALUES($1,$2,$3,$4) RETURNING created_at',[mid,id,pid,body]);
-   io.to(room(id)).emit('chat',{id:mid,name:u.name,body,created_at:msg.created_at}); if(typeof ack==='function')ack({ok:true});
-  } catch {ackError(ack,'Message failed');}
+ socket.on('chat',async(payload,ack)=>{
+  const p=typeof payload==='string'?{body:payload}:(payload&&typeof payload==='object'?payload:null); if(!p)return ackError(ack,'Empty message');
+  try {const msg=await chat.post({meetingId:id,participantId:pid,role:u.role,body:p.body,rich:p.rich,kind:p.kind,replyTo:p.replyTo,attachmentId:p.attachmentId,conversationId:p.conversationId,idempotencyKey:p.idempotencyKey});
+   await chat.deliver(id,msg); if(typeof ack==='function')ack({ok:true,id:msg.id});
+  } catch(e){ackError(ack,e?.status&&e.status<500?e.message:'Message failed');}
  });
  socket.on('hand',raised=>{socket.to(room(id)).emit('hand',{participantId:pid,raised:!!raised});});
  hostControls.attach(socket,{id,pid,role:u.role});
