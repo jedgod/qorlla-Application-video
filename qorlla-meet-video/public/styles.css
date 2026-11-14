@@ -209,6 +209,25 @@ html:has(.chat-popout-shell),body:has(.chat-popout-shell){margin:0;background:#1
 .chat-gifpanel,.chat-filemenu{bottom:100%;margin-bottom:6px}
 @media (max-height:640px){.chat-composerow .chat-editor{min-height:44px}}
 .chat-head-actions button{padding:0;flex:none}.chat-head-actions button svg{flex:none;width:18px;height:18px}
+
+/* ---- Qorlla Meet Chat V2.3: smaller chips, filled "New chat", the To: row, new-chat composer ---- */
+.chat-nav{gap:8px;padding:8px 2px 8px}
+.chat-chipbox{width:44px;height:44px;border-radius:12px}
+.chat-convname{max-width:64px;font-size:12px}
+.chat-navsep{margin:2px 4px 20px}
+.chat-new[aria-pressed=true] .chat-chipbox,.chat-new.chat-selected .chat-chipbox{background:#2563eb;border:2px solid #2563eb;color:#fff}.chat-new[aria-pressed=true] .chat-convname{font-weight:700;color:#60a5fa}
+.chat-torow{position:relative;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:none;border:0;border-bottom:1px solid #2a3350;border-radius:0;padding:6px 2px;margin:-8px 0 0;flex:none}
+.chat-tolabel{font-size:13px;color:#edf2fa;padding:0 4px}.chat-tochips{display:contents}
+.chat-tochip{display:inline-flex;align-items:center;gap:2px;background:#223056;color:#dbe6ff;border-radius:999px;padding:2px 4px 2px 10px;font-size:13px}.chat-tochip button{background:none;border:0;color:#b9c9ee;cursor:pointer;min-width:24px;min-height:24px;padding:0;border-radius:50%;font-size:11px}
+.chat-torow input{flex:1 1 120px;min-width:0;margin:0;border:0;background:none;color:#edf2fa;padding:8px 2px;outline:none;font-size:14px}
+.chat-torow #chatToCancel{background:none;border:0;color:#c9d3ea;width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;cursor:pointer;margin-left:auto}.chat-torow #chatToCancel:hover,.chat-torow #chatToCancel:focus-visible{background:#1d2740}
+.chat-tolist{position:absolute;top:100%;left:0;right:0;z-index:28;list-style:none;margin:4px 0 0;padding:4px;max-height:220px}
+.chat-toitem{padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px;min-height:20px}.chat-toitem[aria-selected=true],.chat-toitem:hover{background:#26314f}.chat-tonone{padding:8px 12px;color:#8b97b0;font-size:12px}
+#messages.chat-blank{visibility:hidden}
+.chat-form.chat-composing .chat-composercard{border-radius:14px;border-top:1px solid #2a3350}
+.chat-conv.chat-new[aria-pressed=true]:hover .chat-chipbox,.chat-conv.chat-new[aria-pressed=true] .chat-chipbox{background:#2563eb;border-color:#2563eb;color:#fff}
+.chat-conv{overflow:visible;min-width:48px}.chat-convname{max-width:84px}
+.chat-torow{flex-direction:row;flex-wrap:wrap}.chat-torow .chat-tolabel{display:inline-block;width:auto;margin:0}.chat-torow input{width:auto}
 /* portal-only Meet (MEET_ALLOW_ANONYMOUS_START=false): no start or join page; only a short message with a way back to Qorlla when something went wrong */
 html.portal-only #landing{visibility:hidden}html.portal-only.portal-message #landing{visibility:visible}
 html.portal-only #landing .landing-card>:not(.brand):not(#portalOnlyNote){display:none!important}
