@@ -30,3 +30,23 @@ export async function withWorkspaceLock(pool, workspaceId, fn) {
     return out;
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
 }
+
+/** The usage_events store used by POST /usage: one row per (workspace, feature, idempotency key), counted per calendar month. */
+export const usageEventsStore = (ws, feature) => ({
+  exists: async (c, key) => (await c.query('SELECT 1 FROM portal.usage_events WHERE workspace_id=$1 AND feature=$2 AND idempotency_key=$3', [ws, feature, key])).rowCount > 0,
+  used: async (c) => Number((await c.query(`SELECT COALESCE(SUM(units),0) s FROM portal.usage_events WHERE workspace_id=$1 AND feature=$2 AND created_at >= date_trunc('month', now())`, [ws, feature])).rows[0].s),
+  insert: (c, key, units) => c.query('INSERT INTO portal.usage_events(workspace_id,feature,units,idempotency_key) VALUES($1,$2,$3,$4)', [ws, feature, units, key]),
+});
+/** Atomic, idempotent quota consumption: under the workspace lock, a repeat of `key` spends nothing ({duplicate:true}); otherwise the units are counted against the plan's quota
+ *  for `feature` (no entitlement row = not granted = PlanLimitError, quota NULL = unlimited) and recorded in the same transaction, so concurrent callers cannot exceed the quota.
+ *  POST /usage uses the default usage_events store; Portal Chat passes its own store (`exists(c,key)`, `used(c)`, `insert(c,key,units)`) so a failed model call can be marked and not counted. */
+export async function consumeQuota(pool, { workspace, feature, units = 1, key, store = usageEventsStore(workspace, feature) }) {
+  return withWorkspaceLock(pool, workspace, async (c) => {
+    if (await store.exists(c, key)) return { duplicate: true };
+    const q = await quotaFor(c, workspace, feature);
+    const used = await store.used(c);
+    if (!q.granted || (q.quota !== null && used + units > q.quota)) throw new PlanLimitError(feature, q.quota, q.plan, { used });
+    await store.insert(c, key, units);
+    return { duplicate: false, used: used + units, limit: q.quota };
+  });
+}

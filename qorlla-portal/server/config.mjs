@@ -64,6 +64,9 @@ export function loadConfig(env = process.env) {
     apiBase: production ? 'https://api.twilio.com' : (trim(env.TWILIO_API_BASE) || 'https://api.twilio.com'),
     complianceAck: trim(env.TELEPHONY_COMPLIANCE_ACK), allowInternational: env.TELEPHONY_ALLOW_INTERNATIONAL === 'true'
   };
+  // Portal Chat optional features: all OFF. GIFs need CHAT_GIF_ENABLED=true AND a server-side key (the key never reaches a browser). Attachments have NO safe implementation yet
+  // (no object store, no malware scanner): CHAT_ATTACHMENTS_ENABLED only changes the answer from 403 to 501. There is no OAuth flag because there is no OAuth code.
+  cfg.chat = { gifEnabled: env.CHAT_GIF_ENABLED === 'true', gifKey: trim(env.CHAT_GIPHY_API_KEY), attachmentsEnabled: env.CHAT_ATTACHMENTS_ENABLED === 'true' };
   cfg.platformAdmins = String(env.PLATFORM_ADMIN_USER_IDS || '').split(',').map((x) => x.trim().toLowerCase()).filter((x) => /^[0-9a-f-]{36}$/.test(x));
   cfg.metricsToken = trim(env.METRICS_TOKEN).length >= 24 ? trim(env.METRICS_TOKEN) : '';   // shorter tokens are ignored: the endpoint then stays off
   cfg.authProblems = authProblems;

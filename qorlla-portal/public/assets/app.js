@@ -3,6 +3,7 @@ import { $, esc, money, day, cookie, notice, ApiError, api, heading, panel, desc
 import { renderAiDashboard, renderReport } from './ai.js';
 import { renderPhone, renderReceptionist } from './phone.js';
 import { renderNotes, renderMate, renderSuite } from './workspace.js';
+import { renderChat } from './chat.js';
 import { renderChangePlan, renderUsage } from './billing-ops.js';
 import { renderAdmin } from './admin.js';
 import { paintCrumbs } from './crumbs.js';
@@ -12,6 +13,7 @@ const modules = [
   ['meet', '📹', 'Meet', 'Host, schedule and join secure meetings.'],
   ['receptionist', '🎧', 'AI Receptionist', 'Manage incoming calls, business hours, intelligent routing and appointments.'],
   ['phone', '📞', 'Phone', 'Business dialer, numbers, extensions, voicemail and call history.'],
+  ['chat', '💬', 'Chat', 'Channels, groups and direct messages for your workspace, with QorllaMate.'],
   ['notes', '📝', 'My Notes', 'Create notes, review meeting summaries and organize your knowledge.'],
   ['mate', '🤖', 'QorllaMate', 'Your AI companion for meeting preparation and workplace tasks.'],
   ['suite', '✨', 'Qorlla Docs','Docs, Sheets, Slides, Paper and shared team workspaces.'],
@@ -37,6 +39,7 @@ const routes = {
   solutions: () => heading('Solutions for Every Team', 'Purpose-built workflows across organizations.', '🏢') + tiles([['Education', 'Classes, tutoring and office hours'], ['Healthcare', 'Administrative communication and scheduling'], ['Small Business', 'Customer engagement and meetings'], ['Enterprise', 'Security, governance and scale'], ['Events', 'Webinars, registration and reporting'], ['Remote Teams', 'Async collaboration and meetings']]),
   support: () => heading('Support Center', 'Get help, report problems and track requests.', '🛟') + `<div class="cards">${[['Help Center', 'Documentation and troubleshooting'], ['Technical Diagnostics', 'Browser, connection and meeting checks'], ['Billing Support', 'Plan, invoice and payment questions']].map(([a, b]) => `<article class="card"><h3>${a}</h3><p>${b}</p></article>`).join('')}</div>` +
     panel('Create support ticket', '<form id="ticket-form"><label>Subject<input name="subject" required minlength="3" maxlength="160"></label><label>Describe the issue<textarea name="details" required minlength="5"></textarea></label><button>Submit Ticket</button></form>') + panel('Your tickets', '<div id="tickets" class="empty">Loading…</div>'),
+  chat: () => heading('Chat', 'Channels, groups and direct messages for your workspace.', '💬') + '<div id="chat-root"></div>',
   notes: () => heading('My Notes', 'Capture ideas, meeting takeaways and workplace knowledge.', '📝') + '<div id="notes-root"></div>',
   billing: () => heading('Plans & Billing', 'Your plan, subscription status, invoices and receipts.', '💳') + '<div id="billing" class="empty">Loading…</div>',
   admin: () => heading('Platform admin', 'Billing operations, sales leads and launch controls.', '🛡️') + '<div id="admin-root"></div>',
@@ -118,7 +121,7 @@ async function bootPage() {
   if (state.signedIn) { who.innerHTML = '<button id="signout" class="linkbtn">Sign out</button>'; $('#signout').onclick = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/login.html'; }; }
   else who.innerHTML = `<a class="button small" href="${esc(signInUrl())}">Sign in</a>`;
 
-  const privateRoute = ['notes', 'support', 'billing', 'team', 'phone', 'receptionist', 'mate', 'suite', 'admin'].includes(slug) || slug === 'ai';
+  const privateRoute = ['chat', 'notes', 'support', 'billing', 'team', 'phone', 'receptionist', 'mate', 'suite', 'admin'].includes(slug) || slug === 'ai';
   if (!privateRoute) return;
   if (state.signedIn === false) { $('#page').innerHTML = heading('Sign in', 'This page is private to your workspace.', '🔒') + signInPrompt(); return; }
   if (state.signedIn === null) { notice('The service is temporarily unavailable. Please try again shortly.'); return; }
@@ -132,6 +135,7 @@ async function bootPage() {
   const role = state.me.workspaces[0]?.role;
   if (slug === 'phone') { try { await renderPhone($('#phone-root'), { role }); } catch (e) { $('#phone-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
   if (slug === 'receptionist') { try { await renderReceptionist($('#receptionist-root'), { role }); } catch (e) { $('#receptionist-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
+  if (slug === 'chat') { try { await renderChat($('#chat-root'), { role }); } catch (e) { $('#chat-root').innerHTML = `<div class="empty">${esc(e.status === 402 ? 'Chat is not included in your plan.' : describe(e))}</div>`; } }
   if (slug === 'notes') { try { await renderNotes(); } catch (e) { $('#notes-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
   if (slug === 'mate') { try { await renderMate($('#mate-root')); } catch (e) { $('#mate-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }
   if (slug === 'suite') { try { await renderSuite($('#suite-root')); } catch (e) { $('#suite-root').innerHTML = `<div class="empty">${esc(describe(e))}</div>`; } }

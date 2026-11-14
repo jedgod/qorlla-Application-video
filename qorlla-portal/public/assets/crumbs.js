@@ -2,7 +2,7 @@
 // every Qorlla application). If that file is not reachable the portal simply has no trail: nothing else depends on it.
 import { ADMIN_SECTIONS } from './admin.js';
 
-const PRIVATE = ['notes', 'support', 'billing', 'team', 'phone', 'receptionist', 'mate', 'suite', 'ai'];
+const PRIVATE = ['chat', 'notes', 'support', 'billing', 'team', 'phone', 'receptionist', 'mate', 'suite', 'ai'];
 const TITLES = { suite: 'Documents', billing: 'Plans & Billing', team: 'Team', notes: 'Notes' };       // what the trail calls them (the page heading can be longer)
 
 /** The portal's route table. `modules` is the portal's own module list ([slug, icon, title, blurb]). */

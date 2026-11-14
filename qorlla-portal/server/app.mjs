@@ -10,7 +10,7 @@ import { createAuth, UUID_RE } from './auth.mjs';
 import { createLogger, requestLogger } from './log.mjs';
 import { createBillingService, BillingError } from './billing/service.mjs';
 import { createStripe } from './billing/stripe.mjs';
-import { PlanLimitError, entitlementsFor, quotaFor, withWorkspaceLock } from './entitlements.mjs';
+import { PlanLimitError, entitlementsFor, quotaFor, withWorkspaceLock, consumeQuota } from './entitlements.mjs';
 import { registerMeetingAi } from './meeting-ai.mjs';
 import { createAiGateway } from './ai/gateway.mjs';
 import { registerAiGateway } from './ai-gateway.mjs';
@@ -27,6 +27,7 @@ import { createBillingLaunch } from './billing/launch.mjs';
 import { registerBillingLaunch } from './billing/routes.mjs';
 import { createPhoneWorker } from './telephony/worker.mjs';
 import { createDirectory } from './directory.mjs';
+import { registerChat } from './chat.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
 const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -55,7 +56,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   const { identity, member, roles } = auth;
   // limits are per signed-in user (these run after `member`), so one noisy or compromised account cannot burn the model budget or the phone bill
   const perUser = (name, limit) => rateLimit({ windowMs: 60_000, limit: cfg.rateLimits?.[name] ?? limit, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: (req) => `${name}:${req.actor}`, message: { error: 'Too many requests. Please slow down.', code: 'rate_limited' } });
-  const limiters = { docsWrite: perUser('docsWrite', 90), docsComment: perUser('docsComment', 30), ai: perUser('ai', 30), draft: perUser('draft', 10), job: perUser('job', 10), call: perUser('call', 6), refund: perUser('refund', 10),
+  const limiters = { docsWrite: perUser('docsWrite', 90), docsComment: perUser('docsComment', 30), ai: perUser('ai', 30), draft: perUser('draft', 10), job: perUser('job', 10), call: perUser('call', 6), refund: perUser('refund', 10), chatWrite: perUser('chatWrite', 120), chatGif: perUser('chatGif', 20),
     webhook: rateLimit({ windowMs: 60_000, limit: cfg.rateLimits?.webhook ?? 1200, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many requests' }) };
   const directory = aiOverride.directory || createDirectory({ baseUrl: cfg.ai.directoryUrl, secret: cfg.introspectionSecret, fetchImpl, now });
   // every model call goes through the Qorlla AI Gateway: provider choice, failover, external-processing consent per workspace, quotas and an audit trail without prompt text
@@ -208,15 +209,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   app.get('/api/v1/usage', member, h(async (req, res) => res.json((await pool.query(`SELECT feature,SUM(units)::int AS units FROM portal.usage_events WHERE workspace_id=$1 AND created_at >= date_trunc('month', now()) GROUP BY feature`, [req.workspace])).rows)));
   app.post('/api/v1/usage', member, h(async (req, res) => {
     const p = z.object({ feature: z.enum(['ai.queries_per_month']), units: z.number().int().min(1).max(1000), idempotency_key: z.string().min(8).max(100) }).parse(req.body);
-    const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
-      const dup = await c.query('SELECT 1 FROM portal.usage_events WHERE workspace_id=$1 AND feature=$2 AND idempotency_key=$3', [req.workspace, p.feature, p.idempotency_key]);
-      if (dup.rowCount) return { duplicate: true };
-      const q = await quotaFor(c, req.workspace, p.feature);
-      const used = Number((await c.query(`SELECT COALESCE(SUM(units),0) s FROM portal.usage_events WHERE workspace_id=$1 AND feature=$2 AND created_at >= date_trunc('month', now())`, [req.workspace, p.feature])).rows[0].s);
-      if (!q.granted || (q.quota !== null && used + p.units > q.quota)) throw new PlanLimitError(p.feature, q.quota, q.plan, { used });
-      await c.query('INSERT INTO portal.usage_events(workspace_id,feature,units,idempotency_key) VALUES($1,$2,$3,$4)', [req.workspace, p.feature, p.units, p.idempotency_key]);
-      return { duplicate: false, used: used + p.units, limit: q.quota };
-    });
+    const out = await consumeQuota(pool, { workspace: req.workspace, feature: p.feature, units: p.units, key: p.idempotency_key });      // atomic + idempotent: see entitlements.mjs
     res.status(out.duplicate ? 200 : 201).json(out);
   }));
 
@@ -257,6 +250,7 @@ export function createApp({ pool, cfg, jwks, fetchImpl = fetch, log = createLogg
   registerWorkspaceTools(app, { pool, cfg, auth, h, log, llm, overage, flags, limiters, citations });
   registerAiGateway(app, { pool, cfg, auth, h, llm, flags, limiters });
   registerPhone(app, { pool, cfg, auth, h, log, llm, limiters, ...(aiOverride.phone || {}) });
+  registerChat(app, { pool, cfg, auth, h, log, llm, directory, limiters, fetchImpl: aiOverride.chatFetch || fetch });      // Portal Chat (sql/017); beside, not instead of, the main-app JSON chat
   app.get('/shared/report/:token', (req, res) => { res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' }); res.sendFile(path.join(root, 'shared.html')); });
 
   app.get('/api/v1/:module/status', member, (req, res) => {
