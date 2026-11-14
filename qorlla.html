@@ -264,6 +264,19 @@
   .hist-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; } .hist-chip { font-size: 13px; font-weight: 500; padding: 2px 12px; border-radius: 999px; background: #e0f2fe; color: #075985; } .hist-chip.s-completed { background: #d9f5e5; color: #0f7a3d; } .hist-chip.s-missed { background: #eef2f7; color: #334155; } .hist-chip.s-cancelled { background: #fee2e2; color: #991b1b; } .hist-chip.s-partial { background: #ede9fe; color: #5b21b6; }
   .hist-body { padding: 0 16px 14px; border-top: 1px solid var(--line); } .hist-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px 16px; padding: 12px 0 4px; } .hist-kv { display: flex; flex-direction: column; font-size: 14px; } .hist-k { font-size: 11px; letter-spacing: .5px; color: #64748b; text-transform: uppercase; }
   .hist-sec h4 { margin: 12px 0 6px; } .hist-body textarea, .hist-body input[type=text] { width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; box-sizing: border-box; } .hist-item { display: flex; gap: 8px; align-items: center; margin: 4px 0; } .hist-item input[type=text] { width: 140px; }
+  .hist-sub, .hist-pager { display: none; } .hist-pager:not(.hidden) { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 10px 0 4px; } .hist-pager .btn[disabled] { opacity: .45; cursor: default; }
+  @media (min-width: 900px) {
+    .hist-split { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); column-gap: 16px; align-items: start; }
+    .hist-split > .muted, .hist-split > .hist-err, .hist-split > .empty { grid-column: 1 / -1; }
+    .hist-split .hist-row { display: contents; border: 0; background: none; }
+    .hist-split .hist-rowhead { grid-column: 1; margin-bottom: 8px; border: 1px solid var(--line); background: #fff; padding: 8px 12px; border-radius: 12px; align-items: center; }
+    .hist-split .hist-row.open > .hist-rowhead { border-color: #1d4ed8; box-shadow: 0 0 0 1px #1d4ed8 inset; }
+    .hist-split .hist-title { font-size: 14px; } .hist-split .hist-main { gap: 2px; } .hist-split .hist-topic, .hist-split .hist-id, .hist-split .hist-meta, .hist-split .hist-date { display: none; } .hist-split .hist-sub { display: block; color: #52658b; font-size: 12px; }
+    .hist-split .hist-side { flex-direction: row; align-items: center; gap: 8px; } .hist-split .hist-chip { font-size: 12px; padding: 1px 10px; } .hist-split .hist-chev svg { display: none; } .hist-split .hist-chev::after { content: 'EE'; font-size: 18px; color: #64748b; }
+    .hist-split .hist-body { grid-column: 2; grid-row: 1 / span 12; border: 1px solid var(--line); border-radius: 14px; background: #fff; padding: 0 16px 12px; position: sticky; top: 8px; }
+    .hist-split .hist-facts { grid-template-columns: 1fr 1fr; gap: 6px 12px; } .hist-split .hist-kv { font-size: 13px; } .hist-split .hist-sec h4 { margin: 10px 0 4px; font-size: 14px; }
+    .hist-split .hist-filterchip { padding: 3px 12px; }
+  }
   .hist-id { font-size: 12px; color: var(--muted, #5b6472); font-variant-numeric: tabular-nums; }
   .acc-card { background: #eef4ff; border: 1px solid #c9dbff; border-radius: 12px; padding: 10px 14px; margin: 10px 0; } .acc-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; } .acc-title { display: flex; gap: 10px; align-items: center; flex: 1 1 220px; min-width: 0; }
   .acc-title svg { width: 22px; height: 22px; flex: none; color: #2563eb; } .acc-title strong { display: block; font-size: 14px; } .acc-hint { display: block; font-size: 12px; color: var(--muted, #5b6472); }
@@ -2445,6 +2458,7 @@
         b.topic ? h('span', { class: 'hist-topic', text: I18n.t('Topic') + ': ' + b.topic }) : null,
         h('span', { class: 'hist-id', text: I18n.t('Meeting ID') + ': ' + b.meetingId + ((b.runIndex > 0 || String(b.runKey || '').indexOf('~r') > 0) ? ' \u00B7 ' + I18n.t('Run') + ' ' + ((b.runIndex || 0) + 1) : '') }),
         h('span', { class: 'hist-date', text: shortDay(b.actualStartAt || b.scheduledStartAt) }),
+        h('span', { class: 'hist-sub', text: shortDay(b.actualStartAt || b.scheduledStartAt) + ' • ' + b.uniqueAttendeeCount + ' ' + I18n.t(b.uniqueAttendeeCount === 1 ? 'attendee' : 'attendees') }),
         h('span', { class: 'hist-meta' }, [h('span', {}, [icon(IC.clock), fmtDur(b.durationSeconds)]), h('span', {}, [icon(IC.users), b.uniqueAttendeeCount + ' ' + I18n.t(b.uniqueAttendeeCount === 1 ? 'attendee' : 'attendees')])])
       ]),
       h('span', { class: 'hist-side' }, [h('span', { class: 'hist-chip s-' + b.status, text: I18n.t(HIST_STATUS[b.status] || b.status) }), h('span', { class: 'hist-chev', 'aria-hidden': 'true' }, [icon(IC.chevR)])])
@@ -2517,9 +2531,12 @@
     var f = { q: '', status: '', from: '', to: '' }, offset = 0, total = 0, timer = 0, seq = 0, STORE = 'zw_hist_open';
     var open = opts.collapsible ? store(STORE) !== '0' : true;
     var count = h('span', { class: 'hist-count', 'aria-label': I18n.t('Meetings in history') , text: '\u2026' });
-    var list = h('div', { class: 'hist-list', 'aria-live': 'polite' }), more = h('button', { class: 'btn small hidden', type: 'button', text: I18n.t('Show more') }), status = h('p', { class: 'muted hist-status' });
+    var split = !opts.collapsible, PAGE = split ? 5 : 10, wide = window.matchMedia('(min-width: 900px)');
+    var list = h('div', { class: 'hist-list' + (split ? ' hist-split' : ''), 'aria-live': 'polite' }), more = h('button', { class: 'btn small hidden', type: 'button', text: I18n.t('Show more') }),
+      prev = h('button', { class: 'btn small', type: 'button', text: I18n.t('Prev') }), next = h('button', { class: 'btn small', type: 'button', text: I18n.t('Next') }), pageLbl = h('span', { class: 'hist-pageno muted' }),
+      pager = h('div', { class: 'hist-pager' + (split ? '' : ' hidden'), role: 'navigation', 'aria-label': I18n.t('Pages') }, [prev, pageLbl, next]), status = h('p', { class: 'muted hist-status' });
     var chips = h('div', { class: 'hist-chips', role: 'group', 'aria-label': I18n.t('Filter by status') });
-    [['', 'All meetings'], ['completed', 'Completed'], ['missed', 'Missed'], ['cancelled', 'Cancelled'], ['partial', 'Partial']].forEach(function (c) {
+    [['', 'All'], ['completed', 'Completed'], ['cancelled', 'Cancelled'], ['missed', 'No Show']].forEach(function (c) {
       var b = h('button', { type: 'button', class: 'hist-filterchip', 'data-status': c[0], 'aria-pressed': String(c[0] === ''), text: I18n.t(c[1]) });
       b.addEventListener('click', function () { f.status = c[0]; Array.prototype.forEach.call(chips.children, function (x) { x.setAttribute('aria-pressed', String(x === b)); }); reset(); }); chips.appendChild(b);
     });
@@ -2528,24 +2545,33 @@
     var from = h('input', { type: 'date', 'aria-label': I18n.t('From date') }), to = h('input', { type: 'date', 'aria-label': I18n.t('To date') });
     from.addEventListener('change', function () { f.from = from.value; reset(); }); to.addEventListener('change', function () { f.to = to.value; reset(); });
     var bodyId = 'histBody' + (opts.collapsible ? 'Home' : 'Page');
-    var body = h('div', { class: 'hist-panelbody' + (open ? '' : ' hidden'), id: bodyId }, [chips, h('div', { class: 'hist-filter', role: 'search' }, [search, from, to]), list, status, more]);
+    var body = h('div', { class: 'hist-panelbody' + (open ? '' : ' hidden'), id: bodyId }, [chips, h('div', { class: 'hist-filter', role: 'search' }, [search, from, to]), list, pager, status, more]);
     var toggle = opts.collapsible ? h('button', { class: 'hist-toggle', type: 'button', 'aria-expanded': String(open), 'aria-controls': bodyId }, [
       h('span', { class: 'hist-ico', 'aria-hidden': 'true' }, [icon(IC.history)]), h('span', { class: 'hist-tt' }, [h('strong', { text: I18n.t('History Meetings') }), h('span', { class: 'muted', text: I18n.t('Past meetings and activity reports') })]), count,
       h('span', { class: 'hist-chev big', 'aria-hidden': 'true' }, [icon(IC.chevR)])]) : null;
     if (toggle) toggle.addEventListener('click', function () { open = !open; body.classList.toggle('hidden', !open); toggle.setAttribute('aria-expanded', String(open)); store(STORE, open ? '1' : '0'); });
-    var collapseOthers = function (except) { if (window.matchMedia('(max-width: 700px)').matches) Array.prototype.forEach.call(list.children, function (c) { if (c !== except && c._collapse) c._collapse(); }); };   // phones: one card open at a time
+    var collapseOthers = function (except) { if (!opts.collapsible || window.matchMedia('(max-width: 700px)').matches) Array.prototype.forEach.call(list.children, function (c) { if (c !== except && c._collapse) c._collapse(); }); };   // phones: one card open at a time
     function fetchPage() {
-      var mine = ++seq, qs = Object.keys(f).filter(function (k) { return f[k]; }).map(function (k) { return k + '=' + encodeURIComponent(f[k]); }).concat(['limit=10', 'offset=' + offset]).join('&');
+      var mine = ++seq, qs = Object.keys(f).filter(function (k) { return f[k]; }).map(function (k) { return k + '=' + encodeURIComponent(f[k]); }).concat(['limit=' + PAGE, 'offset=' + offset]).join('&');
       return api2('/history/meetings?' + qs).then(function (d) {
         if (mine !== seq) return; total = d.total; if (!f.status && !f.q && !f.from && !f.to) count.textContent = String(d.total);
         d.meetings.forEach(function (b) { list.appendChild(histRow(b, reload, collapseOthers)); }); offset += d.meetings.length;
+        if (split) {
+          var pages = Math.max(1, Math.ceil(total / PAGE)), pg = Math.floor((offset - d.meetings.length) / PAGE) + 1;
+          pageLbl.textContent = I18n.t('Page {a} of {b}', { a: pg, b: pages }); prev.disabled = pg <= 1; next.disabled = pg >= pages; pager.classList.toggle('hidden', total <= PAGE);
+          status.textContent = ''; more.classList.add('hidden');
+          if (wide.matches && !list.querySelector('.hist-row.open')) { var first = list.querySelector('.hist-rowhead'); if (first) first.click(); }          // the right-hand pane is never empty on a wide screen
+        } else {
         status.textContent = total ? I18n.t('Showing {a} of {b}', { a: offset, b: total }) : '';
         more.classList.toggle('hidden', offset >= total);
+        }
         if (!total) list.appendChild(emptyState(f.status || f.q || f.from || f.to ? I18n.t('No meetings match these filters.') : I18n.t('No finished meetings yet. A meeting appears here once it has ended.')));
       }).catch(function (e) { if (mine !== seq) return; list.textContent = ''; list.appendChild(h('div', { class: 'hist-err' }, [h('span', { text: e.message }), h('button', { class: 'btn small', type: 'button', text: I18n.t('Try again'), onclick: reset })])); });
     }
     function reset() { offset = 0; list.textContent = ''; list.appendChild(h('p', { class: 'muted hist-loading', text: I18n.t('Loading…') })); return fetchPage().then(function () { var l = list.querySelector('.hist-loading'); if (l) l.remove(); }); }
     function reload(quiet) { return quiet ? Promise.resolve() : reset(); }
+    prev.addEventListener('click', function () { var cur = Math.ceil(offset / PAGE); offset = Math.max(0, (cur - 2) * PAGE); list.textContent = ''; fetchPage(); });
+    next.addEventListener('click', function () { list.textContent = ''; fetchPage(); });
     more.addEventListener('click', function () { more.disabled = true; fetchPage().then(function () { more.disabled = false; }); });
     var root = h('section', { class: 'card hist-panel', 'aria-label': I18n.t('History Meetings') }, [toggle, body]);
     reset();
