@@ -127,3 +127,7 @@ A bug found while writing these tests, in the already-pushed V2.0: the sanitizer
 | **Search, Pinned, Bookmarks** | No permanent row. A magnifier in the header opens the search field (Esc closes and clears it). "Pinned messages" and "My bookmarks" are the first entries of the "..." More menu; while the bookmarks filter is on, a bar says so with "Show all". All keyboard reachable and covered by tests |
 
 No server, `app.js` or `server/index.js` change. Not production certified.
+
+## V2.3: smaller chips and the "New chat" state
+
+Chips are 44px (20px icon, 12px label). Selecting **New chat** fills its square accent blue with a bold accent label (Everyone goes back to the grey ring) and shows a **To:** row under the chip row: a focused "Search by name" field, an X that cancels back to Everyone, and a result list of the *other people currently in this meeting* (case-insensitive; arrows, Enter, Esc; Backspace removes the last chip). Chosen people become removable chips (up to 20, the server's limit). The message area stays blank and the composer says "Type message here..." with only T and File (no GIF, no audience bar). Send stays grey until there is at least one recipient **and** text. **Nothing is created until the first message is sent**: the existing `POST /conversations` (which reuses a conversation with the same people) is then called, the chat switches to it and the message is sent there. A host policy that forbids private chats keeps New chat disabled; if it changes while composing, the new chat closes with the notice. No server change.

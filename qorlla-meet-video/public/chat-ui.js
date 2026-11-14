@@ -23,11 +23,12 @@ export function initChat(h) {
   const el = (tag, cls, text, attrs) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; if (attrs) for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
   const NS = 'http://www.w3.org/2000/svg';
   const icon = (name, size = 18) => { const s = document.createElementNS(NS, 'svg'); for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: String(size), height: String(size), fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) s.setAttribute(k, v); for (const d of ICONS[name]) { const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); s.append(p); } return s; };
-  const list = $('messages'), form = $('chatForm'), editor = $('chatEditor'), nav = $('chatNav'), notice = $('chatNotice'), settings = $('chatSettings'), newPanel = $('chatNewChat'), bar = $('chatFormat');
+  const list = $('messages'), form = $('chatForm'), editor = $('chatEditor'), nav = $('chatNav'), notice = $('chatNotice'), settings = $('chatSettings'), bar = $('chatFormat');
   const msgs = new Map();                                              // id -> { data, el, bodyEl, tasks }   (the CURRENT conversation only)
   const convs = new Map([['everyone', { id: 'everyone', kind: 'everyone', members: [] }]]);
   const unread = new Set();
   let current = 'everyone', policy = 'group', canManage = false, features = { gif: false, attachments: false };
+  let composing = false; const picks = new Map();                    // "New chat" mode: the people chosen in the To: row (id -> name)
   let replyTo = null, editing = null, openMenu = null, filter = { q: '', saved: false }, popup = null, stub = null;
   const api = async (path, method = 'GET', body, raw) => {
     const r = await fetch(BASE + 'api/meetings/' + state.meetingId + '/chat' + path, { method, headers: { ...(raw ? raw.headers : { 'Content-Type': 'application/json' }), Authorization: 'Bearer ' + state.token }, body: raw ? raw.body : (body === undefined ? undefined : JSON.stringify(body)) });
@@ -47,8 +48,8 @@ export function initChat(h) {
   /** the hint "Message everyone..." shows whenever the editor holds no text (kept in step by JS: :empty never matches a contentEditable after text was typed and deleted) */
   const syncEmpty = () => { editor.dataset.empty = String(!editor.textContent.trim()); updateSend(); };
   /** Send is grey and disabled while there is nothing to send (or chat is not allowed here); it is live while editing so an emptied edit can still ask "Delete it instead?" */
-  function updateSend() { const b = $('chatSend'); if (b) b.disabled = !mayPost() || (!editor.textContent.trim() && !editing); }
-  const hintFor = () => (current === 'everyone' ? 'Message everyone' : 'Message ' + convName(convs.get(current) || { kind: 'direct', members: [] }));
+  function updateSend() { const b = $('chatSend'); if (!b) return; const text = !!editor.textContent.trim(); b.disabled = !mayPost() || (composing ? !(text && picks.size) : (!text && !editing)); }
+  const hintFor = () => composing ? 'Type message here...' : (current === 'everyone' ? 'Message everyone' : 'Message ' + convName(convs.get(current) || { kind: 'direct', members: [] }));
 
   // ---------- popovers: one open at a time, closed by a click elsewhere or Escape
   const POPS = ['chatGifPanel', 'chatFileMenu', 'chatFmtPop', 'chatWho', 'chatPinPanel', 'chatOverflow', 'chatLinkPop'];
@@ -56,15 +57,22 @@ export function initChat(h) {
   function togglePop(id, btn, onOpen) { const p = $(id), open = p.classList.contains('hidden'); closePops(open ? id : null); closeMenu(); closeSettings(); p.classList.toggle('hidden', !open); btn.setAttribute('aria-expanded', String(open)); if (open && onOpen) onOpen(p); }
 
   // ---------- who may post here (a mirror of the server's rule, so the composer can explain itself; the server still decides)
+  const canNew = () => isHost() || policy === 'all' || policy === 'hosts';
   function mayPost() {
+    if (composing) return canNew();
     if (isHost()) return true;
     if (policy === 'none') return false; if (policy === 'all') return true; if (policy === 'group') return current === 'everyone';
     if (policy === 'hosts') return current !== 'everyone' && (convs.get(current)?.members || []).some((m) => m.role === 'host');
     return false;
   }
   const policyNotice = () => ({ none: 'The host has turned chat off for participants.', hosts: 'The host allows participants to chat privately with the host only.', group: 'The host allows participants to chat in Everyone only.' }[policy] || '');
+  function applyCompose() {                                           // the New chat layout: To: row, blank list, no audience bar, no GIF
+    $('chatNewChat').classList.toggle('hidden', !composing); list.classList.toggle('chat-blank', composing); $('chatWhoBtn').classList.toggle('hidden', composing); form.classList.toggle('chat-composing', composing);
+    if (composing) $('chatWho').classList.add('hidden');
+  }
   function applyPolicy() {
-    const ok = mayPost();
+    if (composing && !canNew()) { composing = false; picks.clear(); renderChips(); renderResults(); resetComposer(); renderNav(); notify(policyNotice() || 'Private chats are not allowed'); }
+    applyCompose(); const ok = mayPost();
     editor.setAttribute('data-placeholder', hintFor()); syncEmpty();
     editor.setAttribute('contenteditable', ok ? 'true' : 'false'); editor.setAttribute('aria-disabled', String(!ok)); editor.classList.toggle('chat-editor-off', !ok);
     updateSend(); $('chatFmtBtn').disabled = !ok; bar.querySelectorAll('button').forEach((b) => { b.disabled = !ok; });
@@ -75,7 +83,7 @@ export function initChat(h) {
   // GIF and File stay visible; without the server's switch GIF is disabled (and File's "Your computer" entry is), and the tooltip says why
   function applyFeatures() {
     const ok = mayPost(), gif = $('chatGifBtn'), att = $('chatAttachBtn');
-    gif.disabled = !ok || !features.gif; gif.title = features.gif ? 'Search GIFs' : 'GIF search is not enabled for this meeting server (no GIPHY key is configured)'; gif.setAttribute('aria-label', gif.title);
+    gif.classList.toggle('hidden', composing); gif.disabled = !ok || !features.gif; gif.title = features.gif ? 'Search GIFs' : 'GIF search is not enabled for this meeting server (no GIPHY key is configured)'; gif.setAttribute('aria-label', gif.title);
     att.disabled = !ok; att.title = 'Add a file'; att.setAttribute('aria-label', 'Add a file');
     const pc = $('chatFilePc'); if (pc) { pc.disabled = !ok || !features.attachments; const tip = features.attachments ? '' : 'File attachments are not enabled on this server (no malware scanning is available)'; pc.title = tip; pc.parentElement.title = tip; }
     if (!features.gif) $('chatGifPanel').classList.add('hidden');
@@ -86,37 +94,57 @@ export function initChat(h) {
   function renderNav() {
     nav.textContent = '';
     const chip = (c) => {
-      const b = el('button', 'chat-conv', undefined, { type: 'button', role: 'tab', 'aria-selected': String(c.id === current), 'data-id': c.id, title: c.kind === 'everyone' ? 'The whole meeting' : 'Private: only the people listed can read this' });
-      const box = el('span', 'chat-chipbox'); box.append(icon(c.kind === 'everyone' ? 'people' : 'lock', 26)); b.append(box, el('span', 'chat-convname', convName(c)));
+      const b = el('button', 'chat-conv', undefined, { type: 'button', role: 'tab', 'aria-selected': String(c.id === current && !composing), 'data-id': c.id, title: c.kind === 'everyone' ? 'The whole meeting' : 'Private: only the people listed can read this' });
+      const box = el('span', 'chat-chipbox'); box.append(icon(c.kind === 'everyone' ? 'people' : 'lock', 20)); b.append(box, el('span', 'chat-convname', convName(c)));
       if (unread.has(c.id)) b.append(el('span', 'chat-unread', '\u25CF', { 'aria-label': 'New messages', role: 'img' }));
       b.onclick = () => void select(c.id); return b;
     };
     const all = [...convs.values()];
     nav.append(chip(all[0]), el('span', 'chat-navsep', undefined, { 'aria-hidden': 'true' }));
-    const nb = el('button', 'chat-conv chat-new', undefined, { type: 'button', id: 'chatNewBtn' }); const nbox = el('span', 'chat-chipbox'); nbox.append(icon('plus', 26)); nb.append(nbox, el('span', 'chat-convname', 'New chat'));
-    nb.onclick = () => { newPanel.classList.contains('hidden') ? openNew() : newPanel.classList.add('hidden'); }; nav.append(nb);
+    const nb = el('button', 'chat-conv chat-new' + (composing ? ' chat-selected' : ''), undefined, { type: 'button', id: 'chatNewBtn', 'aria-pressed': String(composing) }); const nbox = el('span', 'chat-chipbox'); nbox.append(icon('plus', 20)); nb.append(nbox, el('span', 'chat-convname', 'New chat'));
+    nb.onclick = () => (composing ? toInput.focus() : startNew()); nav.append(nb);
     for (const c of all.slice(1)) nav.append(chip(c));
     applyPolicy_newBtn(); subtitle();
   }
-  function applyPolicy_newBtn() { const canNew = isHost() || policy === 'all' || policy === 'hosts'; const nb = $('chatNewBtn'); if (nb) { nb.disabled = !canNew; nb.title = canNew ? 'Start a private chat' : policyNotice(); } }
+  function applyPolicy_newBtn() { const nb = $('chatNewBtn'); if (nb) { nb.disabled = !canNew(); nb.title = canNew() ? 'Start a private chat' : policyNotice(); } }
   async function select(id) {
-    if (!convs.has(id)) return; current = id; unread.delete(id); resetComposer(); renderNav(); applyPolicy(); newPanel.classList.add('hidden'); closeSettings(); closePops();
+    if (!convs.has(id)) return; current = id; composing = false; picks.clear(); renderChips(); renderResults(); unread.delete(id); resetComposer(); renderNav(); applyPolicy(); closeSettings(); closePops();
     await loadMessages();
   }
-  function openNew() {
-    newPanel.textContent = ''; closeSettings(); closePops();
-    newPanel.append(el('strong', '', 'To:'));
-    const people = [...state.names.entries()].filter(([pid]) => pid !== state.participantId);
-    const box = el('div', 'chat-people'); const picks = new Map();
-    for (const [pid, name] of people) { const lab = el('label'); const cb = el('input', '', undefined, { type: 'checkbox' }); lab.append(cb, document.createTextNode(' ' + name)); box.append(lab); picks.set(pid, cb); }
-    if (!people.length) box.append(el('small', '', 'Nobody else is here yet.'));
-    const hint = policy === 'hosts' && !isHost() ? 'The host allows participants to chat privately with the host only.' : 'Only the people you choose can read this chat.';
-    const go = el('button', 'primary', 'Start chat', { type: 'button' }), no = el('button', '', 'Cancel', { type: 'button' }); no.onclick = () => newPanel.classList.add('hidden');
-    go.onclick = async () => {
-      const recipients = [...picks].filter(([, cb]) => cb.checked).map(([pid]) => pid); if (!recipients.length) return notify('Choose at least one person');
-      try { const { data } = await api('/conversations', 'POST', { recipients }); convs.set(data.id, data); await select(data.id); } catch (e) { fail(e); }
-    };
-    newPanel.append(box, el('small', 'chat-hint', hint), go, no); newPanel.classList.remove('hidden');
+  // ---------- New chat: the "To:" row (type a name, pick people, they become chips); the conversation is created by the first message
+  const toInput = $('chatTo'), toList = $('chatToList'), toChips = $('chatToChips'); let active = -1;
+  const candidates = () => { const q = toInput.value.trim().toLowerCase(); return [...state.roster].filter((id) => id !== state.participantId && !picks.has(id)).map((id) => [id, state.names.get(id) || 'Participant']).filter(([, n]) => !q || n.toLowerCase().includes(q)); };
+  function renderChips() {
+    toChips.textContent = '';
+    for (const [id, name] of picks) { const c = el('span', 'chat-tochip'); const x = el('button', '', '\u2715', { type: 'button', 'aria-label': 'Remove ' + name, title: 'Remove ' + name }); x.onclick = () => { picks.delete(id); renderChips(); renderResults(); updateSend(); toInput.focus(); }; c.append(el('span', '', name), x); toChips.append(c); }
+  }
+  function renderResults(forceOpen) {
+    const open = composing && (!!toInput.value.trim() || !!forceOpen); toList.textContent = ''; toList.classList.toggle('hidden', !open); toInput.setAttribute('aria-expanded', String(open)); toInput.removeAttribute('aria-activedescendant');
+    if (!open) { active = -1; return; }
+    const c = candidates(); active = c.length ? Math.max(0, Math.min(active, c.length - 1)) : -1;
+    c.forEach(([id, name], i) => { const li = el('li', 'chat-toitem', name, { role: 'option', id: 'chatToOpt' + i, 'aria-selected': String(i === active), 'data-id': id }); li.onmousedown = (e) => e.preventDefault(); li.onclick = () => pick(id, name); toList.append(li); });
+    if (!c.length) toList.append(el('li', 'chat-tonone', picks.size >= [...state.roster].length - 1 ? 'Everyone here is already added' : 'Nobody in this meeting matches', { role: 'presentation' }));
+    if (policy === 'hosts' && !isHost()) toList.append(el('li', 'chat-tonone', 'The host allows participants to chat privately with the host only.', { role: 'presentation' }));
+    if (active >= 0) toInput.setAttribute('aria-activedescendant', 'chatToOpt' + active);
+  }
+  function pick(id, name) { if (picks.size >= 20) return notify('You can message up to 20 people'); picks.set(id, name); toInput.value = ''; active = -1; renderChips(); renderResults(); updateSend(); toInput.focus(); }
+  function startNew() {
+    if (!canNew()) return notify(policyNotice() || 'You cannot start a private chat');
+    closeSettings(); closePops(); closeMenu(); composing = true; picks.clear(); toInput.value = ''; active = -1; renderChips(); resetComposer(); renderNav(); applyPolicy(); renderResults(); toInput.focus();
+  }
+  toInput.addEventListener('input', () => { active = 0; renderResults(); });
+  toInput.addEventListener('keydown', (e) => {
+    const open = !toList.classList.contains('hidden'), c = candidates();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!open) { active = 0; renderResults(true); return; } if (c.length) { active = (active + (e.key === 'ArrowDown' ? 1 : c.length - 1)) % c.length; renderResults(true); } }
+    else if (e.key === 'Enter') { e.preventDefault(); if (open && c.length) { const [id, name] = c[Math.max(0, active)]; pick(id, name); } }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (open) { toInput.value = ''; renderResults(); } else void select('everyone'); }
+    else if (e.key === 'Backspace' && !toInput.value && picks.size) { const last = [...picks.keys()].pop(); picks.delete(last); renderChips(); renderResults(); updateSend(); }
+  });
+  $('chatToCancel').onclick = () => void select('everyone');
+  /** creates (or reuses) the private conversation with exactly the chosen people and switches to it; false when it could not */
+  async function openChosen() {
+    if (!picks.size) { notify('Choose who to message first'); toInput.focus(); return false; }
+    try { const { data } = await api('/conversations', 'POST', { recipients: [...picks.keys()] }); convs.set(data.id, data); await select(data.id); return true; } catch (e) { fail(e); return false; }
   }
 
   // ---------- settings menu: Save chat and (for the host) who can chat with whom
@@ -276,6 +304,11 @@ export function initChat(h) {
       return;
     }
     if (!plain) return;
+    if (composing) {                                                      // first message of a new chat: needs people; creates the conversation, switches to it, then sends
+      const rich = MK.fromEditor(editor); if (!(await openChosen())) return;
+      try { await emit({ rich }); } catch (e) { fail(e); const canon = MK.sanitize ? MK.sanitize(rich) : null; if (canon) MK.render(canon, editor); else editor.textContent = plain; syncEmpty(); }
+      return;
+    }
     // the composer is cleared AT ONCE (what was typed is captured first), so whatever is typed while the server answers is the NEXT message and is never lost;
     // if the send fails the text comes back
     const rich = MK.fromEditor(editor), sentReply = replyTo, sentEdit = editing; resetComposer();
@@ -388,6 +421,7 @@ export function initChat(h) {
   $('chatAttachBtn').onclick = () => togglePop('chatFileMenu', $('chatAttachBtn'));
   $('chatFile').onchange = async (e) => {
     const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; if (f.size > MAX_FILE) return notify('File is too large (10 MB maximum)');
+    if (composing) { const keep = MK.fromEditor(editor); if (!(await openChosen())) return; if (keep && editor.textContent.trim() === '') { const canon = MK.sanitize ? MK.sanitize(keep) : null; if (canon) MK.render(canon, editor); syncEmpty(); } }
     try {
       const { data } = await api('/attachments', 'POST', undefined, { headers: { 'Content-Type': 'application/octet-stream', 'x-file-name': encodeURIComponent(f.name) }, body: f });
       await emit({ kind: 'file', attachmentId: data.attachmentId, replyTo }); resetComposer();

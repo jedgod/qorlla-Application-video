@@ -117,7 +117,7 @@ try {
 
   // ================= v4.26: host policy, private conversations, delete, Save chat, pop-out =================
   const lock = async (p) => p.locator('#chatNewBtn').isDisabled();
-  check('with the default policy (group chat) a guest cannot start a private chat', await lock(j.p));
+  check('with the default policy (group chat) a guest cannot start a private chat (New chat is disabled, no To: row)', (await lock(j.p)) && (await j.p.locator('#chatNewChat.hidden').count()) === 1);
   await s.p.click('#chatSettingsBtn'); check('the host sees the policy options enabled', (await s.p.getByRole('menuitemradio', { name: /Host only/ }).isDisabled()) === false);
   await s.p.keyboard.press('Escape');
   await j.p.click('#chatSettingsBtn'); check('a guest sees the policy options but cannot change them', await j.p.getByRole('menuitemradio', { name: /Host only/ }).isDisabled()); await j.p.keyboard.press('Escape');
@@ -125,10 +125,45 @@ try {
   check('when the host allows private chats a guest can start one (live, no reload)', !!(await waitFor(async () => !(await lock(j.p)))));
 
   // Justin starts a private chat with Stryker
-  await j.p.click('#chatNewBtn'); await j.p.locator('#chatNewChat label', { hasText: 'Stryker' }).locator('input').check(); await j.p.getByRole('button', { name: 'Start chat' }).click();
+  // V2.3: the New chat state (reference layout): small chips, filled New chat, a To: row with name search, recipient chips, a new-chat composer
+  const css = (p, q, prop) => p.locator(q).first().evaluate((e, k) => getComputedStyle(e)[k], prop);
+  const box = (p, q) => p.locator(q).first().evaluate((e) => { const r = e.getBoundingClientRect(), c = getComputedStyle(e); return { w: Math.round(r.width), h: Math.round(r.height), bg: c.backgroundColor, bd: c.borderTopColor, color: c.color, fw: c.fontWeight, fs: c.fontSize }; });
+  const ev0 = await box(j.p, '.chat-conv[aria-selected=true] .chat-chipbox'), nw0 = await box(j.p, '#chatNewBtn .chat-chipbox');
+  check('V2.3 chips are about 44px rounded squares with a 20px icon and a 12px label', ev0.w === 44 && ev0.h === 44 && nw0.w === 44 && (await j.p.locator('#chatNewBtn .chat-chipbox svg').getAttribute('width')) === '20' && (await box(j.p, '#chatNewBtn .chat-convname')).fs === '12px', JSON.stringify([ev0, nw0]));
+  await j.p.click('#chatNewBtn');
+  const nw1 = await box(j.p, '#chatNewBtn .chat-chipbox'), nl1 = await box(j.p, '#chatNewBtn .chat-convname'), ev1 = await box(j.p, '#chatNav .chat-conv:not(.chat-new) .chat-chipbox'), el1 = await box(j.p, '#chatNav .chat-conv:not(.chat-new) .chat-convname');
+  check('V2.3 New chat selected: a FILLED accent-blue square with a bold accent label; Everyone goes back to the plain grey ring and label', nw1.bg === 'rgb(37, 99, 235)' && nl1.fw === '700' && (await j.p.locator('#chatNewBtn.chat-selected[aria-pressed=true]').count()) === 1 && (await j.p.locator('#chatNav .chat-conv:not(.chat-new)').first().getAttribute('aria-selected')) === 'false' && ev1.bg !== 'rgb(37, 99, 235)' && el1.fw !== '700' && el1.color !== nl1.color, JSON.stringify([nw1, nl1, ev1, el1]));
+  const toGeo = await j.p.evaluate(() => { const r = (q) => document.querySelector(q).getBoundingClientRect(); return { nav: r('#chatNav').bottom, row: r('#chatNewChat'), msgs: r('#messages').top, label: document.querySelector('.chat-tolabel').textContent, ph: document.querySelector('#chatTo').placeholder, focus: document.activeElement?.id, vis: getComputedStyle(document.querySelector('#messages')).visibility, who: getComputedStyle(document.querySelector('#chatWhoBtn')).display, x: document.querySelector('#chatToCancel').getBoundingClientRect().right, rowRight: r('#chatNewChat').right }; });
+  check('V2.3 the To: row sits directly under the chip row: label "To:", a focused "Search by name" field, an X on the right; the message area is blank', toGeo.row.top >= toGeo.nav - 1 && toGeo.row.top - toGeo.nav < 20 && toGeo.label === 'To:' && toGeo.ph === 'Search by name' && toGeo.focus === 'chatTo' && toGeo.vis === 'hidden' && toGeo.who === 'none' && toGeo.rowRight - toGeo.x < 12, JSON.stringify(toGeo));
+  if (OUT) await j.p.screenshot({ path: OUT + '/chat-v23-newchat.png' });
+  const cg = await j.p.evaluate(() => ({ ph: getComputedStyle(document.querySelector('#chatEditor'), '::before').content, gif: document.querySelector('#chatGifBtn').classList.contains('hidden') || getComputedStyle(document.querySelector('#chatGifBtn')).display === 'none', row: [...document.querySelectorAll('.chat-actionrow > button')].filter((b) => getComputedStyle(b).display !== 'none').map((b) => b.id).join(','), send: document.querySelector('#chatSend').disabled }));
+  check('V2.3 new-chat composer: "Type message here...", only T and file icons plus Send, GIF hidden, Send grey', /Type message here/.test(cg.ph) && cg.gif && cg.row === 'chatFmtBtn,chatAttachBtn,chatSend' && cg.send, JSON.stringify(cg));
+  await j.p.keyboard.type('zzz-nobody'); const none = await j.p.locator('#chatToList .chat-toitem').count(); const noneTxt = await j.p.locator('#chatToList').innerText();
+  check('V2.3 a name that matches nobody shows no people (just a hint)', none === 0 && /Nobody in this meeting matches/.test(noneTxt), noneTxt);
+  await j.p.fill('#chatTo', 'STRY');
+  const found = await j.p.locator('#chatToList .chat-toitem').allInnerTexts();
+  check('V2.3 results are filtered by name (case-insensitive) to other admitted people: Stryker is offered, Justin (me) and Pia are not', JSON.stringify(found) === JSON.stringify(['Stryker']), JSON.stringify(found));
+  await j.p.fill('#chatTo', ''); await j.p.keyboard.press('ArrowDown'); const all = (await j.p.locator('#chatToList .chat-toitem').allInnerTexts()).sort();
+  check('V2.3 ArrowDown on an empty field lists everybody else in the meeting (never me)', JSON.stringify(all) === JSON.stringify(['Pia', 'Stryker']), JSON.stringify(all));
+  await j.p.keyboard.press('Escape'); check('V2.3 Esc closes the result list first (the new chat stays open)', (await j.p.locator('#chatToList.hidden').count()) === 1 && (await j.p.locator('#chatNewChat:not(.hidden)').count()) === 1);
+  await j.p.keyboard.type('pi'); await j.p.keyboard.press('ArrowDown'); await j.p.keyboard.press('Enter');
+  check('V2.3 keyboard: typing, arrows and Enter turn a name into a removable chip and clear the field', (await j.p.locator('#chatToChips .chat-tochip', { hasText: 'Pia' }).count()) === 1 && (await j.p.inputValue('#chatTo')) === '');
+  await j.p.fill('#chatTo', 'stry'); await j.p.locator('#chatToList .chat-toitem', { hasText: 'Stryker' }).click();
+  check('V2.3 clicking a result adds a second recipient chip', (await j.p.locator('#chatToChips .chat-tochip').count()) === 2);
+  await j.p.click('#chatEditor'); await j.p.keyboard.type('hello team'); check('V2.3 Send turns the accent colour once there are recipients AND text', !(await j.p.locator('#chatSend').isDisabled()) && (await css(j.p, '#chatSend', 'backgroundColor')) === 'rgb(37, 99, 235)');
+  await j.p.getByRole('button', { name: 'Remove Pia' }).click();
+  check('V2.3 the x on a chip removes that recipient (one left, Send still live)', (await j.p.locator('#chatToChips .chat-tochip').count()) === 1 && !(await j.p.locator('#chatSend').isDisabled()));
+  await j.p.keyboard.press('Backspace');
+  check('V2.3 Backspace in the empty field removes the last chip; with no recipient Send is grey and disabled although there is text', (await j.p.locator('#chatToChips .chat-tochip').count()) === 0 && (await j.p.locator('#chatSend').isDisabled()));
+  await j.p.locator('#chatToCancel').click();
+  const cx = await j.p.evaluate(() => ({ row: document.querySelector('#chatNewChat').classList.contains('hidden'), sel: document.querySelector('#chatNav .chat-conv:not(.chat-new)').getAttribute('aria-selected'), pressed: document.querySelector('#chatNewBtn').getAttribute('aria-pressed'), ph: getComputedStyle(document.querySelector('#chatEditor'), '::before').content, gif: getComputedStyle(document.querySelector('#chatGifBtn')).display, vis: getComputedStyle(document.querySelector('#messages')).visibility, text: document.querySelector('#chatEditor').textContent }));
+  check('V2.3 the X cancels the new chat: back to Everyone, "Message everyone", GIF is back, the list is visible and the draft is gone', cx.row && cx.sel === 'true' && cx.pressed === 'false' && /Message everyone/.test(cx.ph) && cx.gif !== 'none' && cx.vis === 'visible' && cx.text === '', JSON.stringify(cx));
+  check('V2.3 cancelling created NOTHING: no private conversation exists yet', Number((await pool.query('SELECT count(*) FROM chat_conversations')).rows[0].count) === 0);
+  // Justin starts a private chat with Stryker; the conversation is created by the first message
+  await j.p.click('#chatNewBtn'); await j.p.fill('#chatTo', 'stry'); await j.p.keyboard.press('Enter'); await j.p.click('#chatEditor'); await j.p.keyboard.type('for your eyes only'); await j.p.keyboard.press('Enter');
   check('the private chat opens for Justin as its own tab', !!(await waitFor(async () => (await j.p.locator('#chatNav .chat-conv[aria-selected=true]', { hasText: 'Stryker' }).count()) === 1)));
   check("Stryker is told, and gets an unread marker on the new private tab", !!(await waitFor(async () => (await s.p.locator('#chatNav .chat-conv', { hasText: 'Justin' }).locator('.chat-unread').count()) === 1)));
-  await send(j.p, 'for your eyes only');
+  check('V2.3 sending created the conversation with exactly Stryker, closed the To: row and put the message there', !!(await waitFor(async () => (await msgOf(j.p, 'for your eyes only').count()) === 1)) && (await j.p.locator('#chatNewChat.hidden').count()) === 1 && (await j.p.locator('#chatNav > *').evaluateAll((es) => es.map((e) => (e.classList.contains('chat-navsep') ? 'sep' : e.classList.contains('chat-new') ? 'new' : 'conv')).join(','))) === 'conv,sep,new,conv' && Number((await pool.query('SELECT count(*) FROM chat_conversations')).rows[0].count) === 1);
   await s.p.locator('#chatNav .chat-conv', { hasText: 'Justin' }).click();
   check('Stryker reads it in the private tab', !!(await waitFor(async () => (await msgOf(s.p, 'for your eyes only').count()) === 1)));
   await send(s.p, 'understood, private reply');
@@ -321,7 +356,6 @@ try {
 
 
   // ================= V2.2: the reference layout =================
-  const css = (p, q, prop) => p.locator(q).first().evaluate((e, k) => getComputedStyle(e)[k], prop);
   await s.p.locator('#chatEditor').click(); await s.p.keyboard.press('Control+A'); await s.p.keyboard.press('Backspace');
   const sendOf = (p) => p.locator('#chatSend');
   check('V2.2 Send is DISABLED and grey while the message is empty', (await sendOf(s.p).isDisabled()) && (await css(s.p, '#chatSend', 'backgroundColor')) !== (await (async () => { await s.p.keyboard.type('x'); const c = await css(s.p, '#chatSend', 'backgroundColor'); await s.p.keyboard.press('Backspace'); return c; })()));
@@ -330,7 +364,7 @@ try {
   await s.p.keyboard.press('Control+A'); await s.p.keyboard.press('Backspace');
   check('V2.2 Send goes grey and disabled again when the text is deleted', await sendOf(s.p).isDisabled());
   const chip = await s.p.evaluate(() => { const b = (q) => { const r = document.querySelector(q).getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), l: r.left, r: r.right }; }; const sel = document.querySelector('.chat-conv[aria-selected=true] .chat-chipbox'), nw = document.querySelector('.chat-new .chat-chipbox'); const g = (e, k) => getComputedStyle(e)[k]; return { every: b('.chat-conv[aria-selected=true] .chat-chipbox'), nw: b('.chat-new .chat-chipbox'), selBorder: g(sel, 'borderTopWidth') + ' ' + g(sel, 'borderTopColor'), newBorder: g(nw, 'borderTopWidth') + ' ' + g(nw, 'borderTopColor'), selLabel: g(document.querySelector('.chat-conv[aria-selected=true] .chat-convname'), 'fontWeight') + ' ' + g(document.querySelector('.chat-conv[aria-selected=true] .chat-convname'), 'color'), newLabel: g(document.querySelector('.chat-new .chat-convname'), 'color'), sep: !!document.querySelector('.chat-navsep'), sepOrder: [...document.querySelectorAll('#chatNav > *')].map((e) => e.classList.contains('chat-navsep') ? 'sep' : e.classList.contains('chat-new') ? 'new' : 'conv').join(','), rule: g(document.querySelector('#chatNav'), 'borderBottomWidth') }; });
-  check('V2.2 chips: Everyone and New chat are 56px rounded squares with an icon; the selected one has a 2px blue ring and a bold blue label; New chat has a grey ring and a grey label', chip.every.w === 56 && chip.every.h === 56 && chip.nw.w === 56 && chip.nw.h === 56 && chip.selBorder === '2px rgb(37, 99, 235)' && /^(700|bold) /.test(chip.selLabel) && chip.newBorder.startsWith('2px ') && chip.newBorder !== chip.selBorder && chip.newLabel !== chip.selLabel.split(' ').slice(1).join(' ') && (await s.p.locator('.chat-new .chat-chipbox svg').count()) === 1, JSON.stringify(chip));
+  check('V2.2 chips: Everyone and New chat are 44px rounded squares with an icon; the selected one has a 2px blue ring and a bold blue label; New chat has a grey ring and a grey label', chip.every.w === 44 && chip.every.h === 44 && chip.nw.w === 44 && chip.nw.h === 44 && chip.selBorder === '2px rgb(37, 99, 235)' && /^(700|bold) /.test(chip.selLabel) && chip.newBorder.startsWith('2px ') && chip.newBorder !== chip.selBorder && chip.newLabel !== chip.selLabel.split(' ').slice(1).join(' ') && (await s.p.locator('.chat-new .chat-chipbox svg').count()) === 1, JSON.stringify(chip));
   check('V2.2 chips: a thin vertical divider sits between Everyone and New chat (direct chats follow), and a rule runs under the whole row', chip.sepOrder.startsWith('conv,sep,new') && chip.rule === '1px', chip.sepOrder);
   // keyboard: the three Qorlla additions stay reachable without a mouse
   await s.p.locator('#chatSearchBtn').focus(); await s.p.keyboard.press('Enter');
