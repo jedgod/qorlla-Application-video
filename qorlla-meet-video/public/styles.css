@@ -227,3 +227,19 @@ html:has(.chat-popout-shell),body:has(.chat-popout-shell){margin:0;background:#1
 .chat-conv.chat-new[aria-pressed=true]:hover .chat-chipbox,.chat-conv.chat-new[aria-pressed=true] .chat-chipbox{background:#2563eb;border-color:#2563eb;color:#fff}
 .chat-conv{overflow:visible;min-width:48px}.chat-convname{max-width:84px}
 .chat-torow{flex-direction:row;flex-wrap:wrap}.chat-torow .chat-tolabel{display:inline-block;width:auto;margin:0}.chat-torow input{width:auto}
+
+/* ---- Qorlla Meet Chat V2.4: compact side panel (tab strip, header, chips) ---- */
+#panel .tabs{min-height:0;height:auto;gap:0;margin:0;padding-top:0;padding-bottom:0;align-items:stretch}
+#panel .tabs button{height:34px;min-height:0;padding:0 8px;margin:0;font-size:13px;line-height:1;border-radius:0}
+#panel .panel-close{top:3px;padding:3px 8px;font-size:13px;line-height:1}
+@media (pointer:coarse){#panel .tabs button{position:relative}#panel .tabs button::after{content:"";position:absolute;left:0;right:0;top:-3px;bottom:-3px}}
+#tab-chat.tab-view{padding-top:4px;padding-bottom:8px}
+#tab-chat .chat-title{min-height:34px;padding:0 0 2px;gap:2px}
+#tab-chat .chat-titletext{font-size:14px;font-weight:600;line-height:1.2}
+#tab-chat .chat-head-actions button{width:28px;height:28px;min-width:28px;min-height:28px;font-size:13px}#tab-chat .chat-head-actions button svg{width:16px;height:16px}
+#tab-chat .chat-nav{gap:6px;padding:2px 2px 3px;margin:0 0 6px}
+#tab-chat .chat-chipbox{width:36px;height:36px;border-radius:10px}
+#tab-chat .chat-conv{gap:2px;min-width:40px}
+#tab-chat .chat-convname{font-size:11px;line-height:14px;max-width:72px}
+#tab-chat .chat-navsep{margin:2px 4px 16px}
+#tab-chat .chat-torow{margin-top:-6px}
