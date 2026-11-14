@@ -184,6 +184,31 @@ span[data-z="1"]{font-size:.85em}span[data-z="2"]{font-size:1.3em}span[data-z="3
 @media (max-width:640px){.chat-act{min-height:40px}.chat-menu button{padding:12px}}
 
 html:has(.chat-popout-shell),body:has(.chat-popout-shell){margin:0;background:#151a25;height:100%}
+
+/* ---- Qorlla Meet Chat V2.2: reference layout (meeting title header, 56px chips, one tall composer card, grey send, search icon) ---- */
+.chat-title{align-items:center;gap:4px;padding-bottom:8px}.chat-titletext{flex:1;min-width:0;text-align:center;font-size:15px;font-weight:700;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:4px}
+.chat-head-actions{gap:0}.chat-head-actions button{min-width:30px;min-height:30px;width:30px;height:30px}
+.chat-rule{margin:0 0 2px}
+.chat-searchrow{margin:8px 0 0;flex:none}.chat-filterbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding:6px 10px;background:#1a2540;border-radius:8px;font-size:12px;color:#b9c9ee;flex:none}.chat-filterbar button{background:none;border:0;color:#8fb4ff;cursor:pointer;font-size:12px;padding:2px 4px}
+.chat-nav{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;margin:0 0 8px;padding:10px 2px 10px;border-bottom:1px solid #2a3350}
+.chat-conv{width:auto;padding:0;gap:6px}
+.chat-chipbox{box-sizing:border-box;width:56px;height:56px;border-radius:16px;border:2px solid #2f3a57}
+.chat-convname{max-width:76px;font-size:12px;color:#8b97b0}
+.chat-conv[aria-selected=true] .chat-convname{font-weight:700;color:#60a5fa}
+.chat-conv[aria-selected=true] .chat-chipbox{border:2px solid #2563eb;box-shadow:none}
+.chat-new .chat-chipbox{background:transparent;border:2px solid #4a5370;color:#60a5fa}.chat-new .chat-convname{color:#8b97b0}
+.chat-navsep{width:1px;align-self:stretch;margin:2px 4px 24px;background:#33405f;flex:none}
+.chat-unread{top:-2px;right:0}
+/* the composer: the audience bar is the lid of one card holding the tall message area and, on its bottom row, T / GIF / File (left) and Send (right) */
+.chat-form-rich{gap:0}
+.chat-who{border-radius:8px 8px 0 0}
+.chat-composercard{position:relative;border-radius:0 0 14px 14px;border-top:0;padding:10px 12px 8px;gap:6px;background:#161c2b;box-shadow:none}.chat-composercard:focus-within{border-color:#3b82f6}
+.chat-composerow .chat-editor{min-height:72px;max-height:160px;padding:2px;background:transparent;border-radius:0;font-size:15px}.chat-composerow .chat-editor:focus{box-shadow:none}
+.chat-actionwrap{position:static}.chat-actionrow{margin:0;gap:2px}
+.chat-actionrow .chat-sendbtn{margin-left:auto;width:40px;height:36px;border-radius:10px;background:#2563eb;color:#fff;opacity:1}.chat-actionrow .chat-sendbtn:hover:not(:disabled){background:#1d4ed8}.chat-actionrow .chat-sendbtn:disabled{background:#2a3144;color:#6f7b95;opacity:1;cursor:not-allowed}
+.chat-gifpanel,.chat-filemenu{bottom:100%;margin-bottom:6px}
+@media (max-height:640px){.chat-composerow .chat-editor{min-height:44px}}
+.chat-head-actions button{padding:0;flex:none}.chat-head-actions button svg{flex:none;width:18px;height:18px}
 /* portal-only Meet (MEET_ALLOW_ANONYMOUS_START=false): no start or join page; only a short message with a way back to Qorlla when something went wrong */
 html.portal-only #landing{visibility:hidden}html.portal-only.portal-message #landing{visibility:visible}
 html.portal-only #landing .landing-card>:not(.brand):not(#portalOnlyNote){display:none!important}
