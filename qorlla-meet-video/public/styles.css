@@ -321,3 +321,15 @@ html.portal-only #landing .landing-card>:not(.brand):not(#portalOnlyNote){displa
 .mg-opt{gap:6px;padding:5px 6px;border-radius:8px}.mg-opt .mi{width:16px;height:16px}.mg-opt-t strong{font-size:11.5px}.mg-opt-t small{font-size:9.5px}
 #tab-more .mg-sw{width:32px;height:18px}.mg-knob{top:2px;left:2px;width:14px;height:14px}#tab-more .mg-sw[aria-checked=true] .mg-knob{transform:translateX(14px)}
 .mg-note{font-size:9.5px;margin:1px 2px 0}.mg-info{padding:5px 7px;border-radius:8px}.mg-info p{font-size:10px}#tab-more .mg-link{font-size:10.5px;padding:2px}
+/* More tab: Q&A, timer, attendance */
+.mg-qa{margin:0 0 2px;padding:6px;background:#0c1118;border:1px solid #1f2736;border-radius:10px}.mg-qa[hidden]{display:none}
+.mg-qform{display:flex;gap:4px}.mg-qform input,.mg-trow input,.mg-trow select{flex:1;min-width:0;height:26px;background:#0e1118;border:1px solid #2a3243;border-radius:7px;color:#edf2fa;font:inherit;font-size:11px;padding:0 8px}
+.mg-qlist{display:flex;flex-direction:column;gap:5px;margin-top:6px;max-height:260px;overflow:auto}
+.mg-q{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;padding:5px 6px;background:#111823;border:1px solid #1f2736;border-radius:8px}.mg-q-hidden{opacity:.55}
+.mg-vote{height:22px;min-width:38px;padding:0 6px;border-radius:6px;border:1px solid #28324a;background:#161e2c;color:#c4ccdb;font:inherit;font-size:10.5px;cursor:pointer}.mg-vote[aria-pressed=true]{background:#143a73;border-color:#2f5fb8;color:#fff}
+.mg-q-t{display:flex;flex-direction:column;min-width:0}.mg-q-t strong{font-size:11.5px;color:#f1f5fb;overflow-wrap:anywhere}.mg-q-t small{font-size:9.5px;color:#9aa6ba}
+.mg-ans{grid-column:1/-1;margin:2px 0 0;padding:4px 6px;border-left:2px solid #2563eb;font-size:11px;color:#dfe8f7;overflow-wrap:anywhere}
+.mg-trow{grid-column:1/-1;display:flex;gap:4px;margin-top:4px;align-items:center}
+.mg-timer-big{font-size:26px;font-weight:600;letter-spacing:1px;text-align:center;margin:4px 0;font-variant-numeric:tabular-nums;color:#f1f5fb}
+.mg-att{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-top:1px solid #1f2736;font-size:11px}.mg-att small{color:#9aa6ba;font-size:10px}
+.more-timer-chip{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;background:#143a73;color:#fff;font-size:12px;font-variant-numeric:tabular-nums;margin-right:8px}.more-timer-chip.hidden{display:none}

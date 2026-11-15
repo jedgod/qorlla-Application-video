@@ -83,6 +83,27 @@ try {
   // More
   await host.p.click('[data-tab=more]'); await guest.p.click('[data-tab=more]');
   check('More: only the More tab is showing and it has content for both', JSON.stringify(await visibleTabs(host.p)) === '["more"]' && JSON.stringify(await visibleTabs(guest.p)) === '["more"]' && (await host.p.locator('#tab-more').innerText()).trim().length > 0 && (await guest.p.locator('#tab-more').innerText()).trim().length > 0);
+  // More tab, REAL tools: Q&A (guest asks, host answers), the server-clock timer, attendance, focus mode
+  const qaOpen = async (pg) => { const row = pg.locator('#tab-more .mg-row', { hasText: 'Q&A' }); await row.getByRole('button', { name: /Open|Close/ }).waitFor(); if ((await row.getByRole('button').innerText()).trim() === 'Open') await row.getByRole('button').click(); };
+  await host.p.waitForFunction(() => { const b = [...document.querySelectorAll('#tab-more .mg-row')].find((r) => r.textContent.includes('Q&A'))?.querySelector('button'); return b && !b.disabled; }, null, { timeout: 15000 });
+  await guest.p.waitForFunction(() => { const b = [...document.querySelectorAll('#tab-more .mg-row')].find((r) => r.textContent.includes('Q&A'))?.querySelector('button'); return b && !b.disabled; }, null, { timeout: 15000 });
+  await qaOpen(guest.p); await guest.p.locator('.mg-qform input').fill('Will the recording be shared?'); await guest.p.locator('.mg-qform').getByRole('button', { name: 'Ask' }).click();
+  await qaOpen(host.p); await host.p.locator('.mg-q', { hasText: 'Will the recording be shared?' }).waitFor({ timeout: 15000 });
+  check('Q&A: a guest question reaches the host live, with the guest name', (await host.p.locator('.mg-q', { hasText: 'Will the recording be shared?' }).innerText()).includes('Gus'));
+  check('Q&A: a guest has no answer or hide controls', (await guest.p.locator('.mg-q input').count()) === 0 && (await guest.p.getByRole('button', { name: 'Hide', exact: true }).count()) === 0);
+  await host.p.locator('.mg-q', { hasText: 'Will the recording be shared?' }).locator('input').fill('Only to the host.'); await host.p.locator('.mg-q', { hasText: 'Will the recording be shared?' }).getByRole('button', { name: 'Answer' }).click();
+  await guest.p.locator('.mg-ans', { hasText: 'Only to the host.' }).waitFor({ timeout: 15000 }); check('Q&A: the host answer reaches the guest live', true);
+  await host.p.locator('#tab-more .mg-tile', { hasText: 'Timer' }).click(); await host.p.locator('#tab-more select[aria-label="Timer length"]').selectOption('60'); await host.p.getByRole('button', { name: 'Start', exact: true }).click();
+  await guest.p.locator('.more-timer-chip:not(.hidden)').waitFor({ timeout: 15000 }); const chip = await guest.p.locator('.more-timer-chip').innerText();
+  check('Timer: the host starts it and the guest counts down from the server clock (' + chip.trim() + ')', /\d:\d\d/.test(chip) && /^\D*(0|1):/.test(chip.trim()));
+  check('Timer: the guest has no start button', (await guest.p.locator('#tab-more .mg-tile', { hasText: 'Timer' }).count()) === 1 && (await guest.p.getByRole('button', { name: 'Start', exact: true }).count()) === 0);
+  await host.p.getByRole('button', { name: 'Stop', exact: true }).click(); await guest.p.locator('.more-timer-chip.hidden').waitFor({ state: 'attached', timeout: 15000 }); check('Timer: Stop clears it for everyone', true);
+  await host.p.locator('#tab-more .mg-tile', { hasText: 'Attendance' }).click(); await host.p.locator('.mg-att', { hasText: 'Gus' }).waitFor({ timeout: 15000 });
+  check('Attendance: the host sees who is in the meeting (Gus and Hana)', (await host.p.locator('.mg-att', { hasText: 'Hana' }).count()) === 1 && (await host.p.locator('.mg-att', { hasText: 'Gus' }).innerText()).includes('In the meeting'));
+  check('Attendance: the guest cannot open the report', await guest.p.locator('#tab-more .mg-tile', { hasText: 'Attendance' }).isDisabled());
+  const pt = host.p.locator('#panelToggle'); await host.p.locator('#tab-more .mg-tile', { hasText: 'Focus mode' }).click(); await host.p.waitForTimeout(400);
+  check('Focus mode: the side panel steps aside', (await pt.getAttribute('aria-expanded')) === 'false'); await pt.click(); await host.p.waitForTimeout(300);
+  check('Disabled tools stay disabled: Whiteboard, Breakout rooms, Shared files, AI', await host.p.locator('#tab-more .mg-row', { hasText: 'Whiteboard' }).getByRole('button').isDisabled() && await host.p.locator('#tab-more .mg-card', { hasText: 'AI Summary' }).getByRole('button').isDisabled());
   if (OUT) await host.p.screenshot({ path: join(OUT, 'tab-more.png') });
 
   // back to Chat: nothing was lost, and live delivery still works after the tour

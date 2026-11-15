@@ -24,6 +24,7 @@ import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
 import { registerAiConsent } from './ai-consent.mjs';
 import { registerChat } from './chat.mjs';
+import { registerMore } from './more.mjs';
 import { registerHandoff } from './handoff.mjs';
 import { registerHostControls } from './host-controls.mjs';
 import { registerRecording } from './recording.mjs';
@@ -421,6 +422,7 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
 const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
 const chat = registerChat({ app, io, db, auth, member, room, fail, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid) });       // meeting chat upgrade (v4.25+)
+const more = registerMore({ app, io, db, auth, member, room, fail, rateLimit });       // More tab (v4.27): Q&A, timer, preferences, attendance
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });

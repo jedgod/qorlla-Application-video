@@ -267,6 +267,76 @@ export function initCollab(h) {
 
   // =================================================================================================================================== MORE
   const openGroups = new Set(['collab', 'intel', 'manage', 'sec', 'tools']);                // which groups of the More tab are open: kept when the tab is rebuilt (a host switching a tool must not see the group fold up)
+
+  // =================================================================================================================================== MORE (v4.27): real Q&A, timer, preferences, attendance
+  const M = { features: null, timer: { running: false, endsAt: null }, offset: 0, qaBox: null, qaList: null, pref: null, applied: false, chip: null, tick: 0, done: false };
+  const more = (path, method, body) => call('/more' + path, method, body);
+  const isOn = (k) => !!(M.features && M.features[k]);
+  const fmt = (sec) => { const s = Math.max(0, Math.ceil(sec)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  const remaining = () => (M.timer.running && M.timer.endsAt ? (Date.parse(M.timer.endsAt) - (Date.now() + M.offset)) / 1000 : 0);
+  function paintTimer() {
+    const left = remaining(), on = M.timer.running && left > 0;
+    document.querySelectorAll('[data-more-timer]').forEach((n) => { n.textContent = on ? fmt(left) : '0:00'; });
+    if (!M.chip) { const top = document.querySelector('.stage-top'); if (top) { M.chip = el('span', 'more-timer-chip hidden', '', { role: 'timer', 'aria-label': 'Meeting timer' }); top.prepend(M.chip); } }
+    if (M.chip) { M.chip.classList.toggle('hidden', !on); M.chip.textContent = on ? '\u23F1 ' + fmt(left) : ''; }
+    if (M.timer.running && left <= 0 && !M.done) { M.done = true; M.timer.running = false; announce('Timer finished'); notify('Timer finished'); }
+    if (!on && M.tick) { clearInterval(M.tick); M.tick = 0; }
+  }
+  function setTimer(t) { M.timer = t; M.offset = Date.parse(t.serverNow) - Date.now(); M.done = false; clearInterval(M.tick); M.tick = 0; if (t.running) M.tick = setInterval(paintTimer, 1000); paintTimer(); }
+  async function renderQa() {
+    if (!M.qaList) return; if (M.qaList.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;          // never wipe an answer someone is typing
+    let list; try { list = (await more('/questions')).questions; } catch (e) { M.qaList.textContent = e.message; return; }
+    const host = state.role === 'host'; M.qaList.textContent = '';
+    if (!list.length) M.qaList.append(el('p', 'mg-note', 'No questions yet. Ask the first one.'));
+    for (const q of list) {
+      const c = el('div', 'mg-q' + (q.state === 'hidden' ? ' mg-q-hidden' : ''));
+      const v = el('button', 'mg-vote', '\u25B2 ' + q.votes, { type: 'button', 'aria-pressed': String(q.voted), 'aria-label': 'Upvote, ' + q.votes + (q.votes === 1 ? ' vote' : ' votes') });
+      v.onclick = async () => { try { await more('/questions/' + q.id + '/vote', 'POST', {}); await renderQa(); } catch (e) { notify(e.message); } };
+      const t = el('div', 'mg-q-t'); t.append(el('strong', '', q.question), el('small', '', q.author + (q.state === 'hidden' ? ' \u00B7 hidden' : '') + (q.state === 'answered' ? ' \u00B7 answered' : '')));
+      c.append(v, t); if (q.answer) c.append(el('p', 'mg-ans', 'Answer: ' + q.answer));
+      if (host) {
+        const row = el('div', 'mg-trow'); const a = el('input', '', '', { type: 'text', maxlength: '4000', placeholder: q.answer ? 'Edit the answer' : 'Type an answer', 'aria-label': 'Answer to: ' + q.question.slice(0, 60) });
+        const ab = el('button', 'mg-act', q.answer ? 'Update' : 'Answer', { type: 'button' }); ab.onclick = async () => { if (!a.value.trim()) return; ab.disabled = true; try { await more('/questions/' + q.id + '/answer', 'POST', { answer: a.value }); await renderQa(); } catch (e) { notify(e.message); ab.disabled = false; } };
+        const hb = el('button', 'mg-act', q.state === 'hidden' ? 'Unhide' : 'Hide', { type: 'button' }); hb.onclick = async () => { try { await more('/questions/' + q.id + '/hide', 'POST', { hidden: q.state !== 'hidden' }); await renderQa(); } catch (e) { notify(e.message); } };
+        row.append(a, ab, hb); c.append(row);
+      }
+      M.qaList.append(c);
+    }
+  }
+  function qaPanel() {
+    const box = el('div', 'mg-qa'); box.hidden = true; M.qaBox = box; M.qaList = el('div', 'mg-qlist');
+    const form = el('form', 'mg-qform'); const inp = el('input', '', '', { type: 'text', maxlength: '2000', placeholder: 'Ask a question\u2026', 'aria-label': 'Your question', required: '' }); const go = el('button', 'mg-act', 'Ask', { type: 'submit' });
+    form.onsubmit = async (e) => { e.preventDefault(); go.disabled = true; try { await more('/questions', 'POST', { question: inp.value }); inp.value = ''; await renderQa(); } catch (err) { notify(err.message); } go.disabled = false; };
+    form.append(inp, go); box.append(form, M.qaList); return box;
+  }
+  function timerPanel() {
+    const d = el('div', 'mg-info'); d.append(el('strong', '', 'Meeting timer'), el('div', 'mg-timer-big', '0:00', { 'data-more-timer': '' }));
+    if (state.role === 'host') {
+      const sel = el('select', '', '', { 'aria-label': 'Timer length' }); for (const [sec, l] of [[60, '1 minute'], [120, '2 minutes'], [300, '5 minutes'], [600, '10 minutes'], [900, '15 minutes'], [1800, '30 minutes']]) sel.append(new Option(l, String(sec)));
+      const start = el('button', 'mg-act', 'Start', { type: 'button' }), stop = el('button', 'mg-act', 'Stop', { type: 'button' });
+      start.onclick = async () => { try { setTimer(await more('/timer', 'POST', { action: 'start', seconds: Number(sel.value) })); } catch (e) { notify(e.message); } };
+      stop.onclick = async () => { try { setTimer(await more('/timer', 'POST', { action: 'stop' })); } catch (e) { notify(e.message); } };
+      const row = el('div', 'mg-trow'); row.append(sel, start, stop); d.append(row);
+    } else d.append(el('p', 'muted', 'The host starts the timer; it counts down at the same moment for everyone.'));
+    paintTimer(); return d;
+  }
+  async function attendancePanel() {
+    const d = el('div', 'mg-info'); d.append(el('strong', '', 'Attendance'));
+    try { const { attendance } = await more('/attendance');
+      if (!attendance.length) d.append(el('p', 'muted', 'Nobody has joined yet.'));
+      for (const a of attendance) { const r = el('div', 'mg-att'); r.append(el('span', '', a.name + (a.role === 'host' ? ' (host)' : '')), el('small', '', (a.online ? 'In the meeting' : 'Left') + ' \u00B7 ' + Math.max(1, Math.round(a.seconds / 60)) + ' min \u00B7 ' + a.joins + (a.joins === 1 ? ' join' : ' joins'))); d.append(r); }
+    } catch (e) { d.append(el('p', 'muted', e.message)); }
+    return d;
+  }
+  async function savePref(patch) { try { M.pref = await more('/preferences', 'PUT', patch); } catch (e) { notify(e.message); } }
+  function setFocus(on) { document.body.classList.toggle('more-focus', on); const b = $('panelToggle'); if (b && (b.getAttribute('aria-expanded') === 'true') === on) b.click(); }     // focus mode = the side panel steps aside so the video has the room
+  function applyPrefs() {
+    if (M.applied || !M.pref) return; M.applied = true;
+    if (M.pref.layout) { const b = document.querySelector('[data-layout="' + M.pref.layout + '"]'); if (b && !b.classList.contains('selected')) b.click(); }
+    if (M.pref.focusMode) setFocus(true);
+  }
+  async function loadMore() { try { const st = await more('/state'); M.features = st.features; M.pref = st.preferences; setTimer(st.timer); buildMore(); applyPrefs(); } catch { /* the tools stay disabled */ } }
+  function onMore(e) { if (!e) return; if (e.kind === 'timer') setTimer(e.payload); else if (String(e.kind).startsWith('question.') && M.qaBox && !M.qaBox.hidden) renderQa(); }
   function buildMore() {
     const t = $('tab-more'); t.textContent = ''; t.classList.add('more-v41-compact');
     const host = state.role === 'host';
@@ -316,8 +386,11 @@ export function initCollab(h) {
         const emoji = el('div', 'mg-emoji'); for (const e of ['👍', '👏', '❤️', '🎉', '😂']) { const b = el('button', '', e, { type: 'button', 'aria-label': 'React with ' + e }); b.onclick = () => state.socket?.emit('reaction', e); emoji.append(b); }
         body.append(row('smile', 'Reactions', 'Send quick reactions to the meeting.', emoji));
         const off = (label, icon) => { const b = el('button', 'mg-act', '', { type: 'button', disabled: '', title: NA, 'aria-disabled': 'true' }); b.append(svg(icon), document.createTextNode(label)); return b; };
+        const qaBtn = el('button', 'mg-act', '', { type: 'button' }); qaBtn.append(svg('open'), document.createTextNode('Open'));
+        if (!isOn('qa')) { qaBtn.disabled = true; qaBtn.title = NA; qaBtn.setAttribute('aria-disabled', 'true'); }
+        else qaBtn.onclick = () => { const bx = M.qaBox; bx.hidden = !bx.hidden; qaBtn.lastChild.textContent = bx.hidden ? 'Open' : 'Close'; qaBtn.setAttribute('aria-expanded', String(!bx.hidden)); if (!bx.hidden) renderQa(); };
         body.append(row('pen', 'Whiteboard', 'Collaborative board for visual brainstorming.', off('Open', 'open')), row('people', 'Breakout rooms', 'Split participants into smaller discussion groups.', off('Create', 'userplus')),
-          row('folder', 'Shared files', 'Share and access meeting files (host controlled).', off('Open', 'open')), row('qa', 'Q&A', 'Collect, review and answer participant questions.', off('Open', 'open')));
+          row('folder', 'Shared files', 'Share and access meeting files (host controlled).', off('Open', 'open')), row('qa', 'Q&A', 'Collect, review and answer participant questions.', qaBtn), qaPanel());
       },
       intel(body) {
         const grid = el('div', 'mg-grid4');
@@ -337,7 +410,7 @@ export function initCollab(h) {
           tile('info', 'Meeting info', () => show(detail.hidden || detail.dataset.k !== 'info' ? (detail.dataset.k = 'info', info()) : (detail.dataset.k = '', null))),
           tile('gear', 'Meeting settings', () => $('settingsBtn').click()),
           tile('shield', 'Role & permissions', () => { if (detail.dataset.k === 'roles') { detail.dataset.k = ''; show(null); return; } detail.dataset.k = 'roles'; const d = el('div'); hostPanel(d); show(d); }, host && state.settings ? {} : { off: true, title: 'Only the host manages roles and permissions' }),
-          tile('users', 'Attendance', () => {}, { off: true, title: 'Attendance is in the People tab and in History after the meeting' }));
+          tile('users', 'Attendance', async () => { if (detail.dataset.k === 'att') { detail.dataset.k = ''; show(null); return; } detail.dataset.k = 'att'; show(await attendancePanel()); }, host && isOn('attendance') ? {} : { off: true, title: host ? NA : 'Only the host sees the attendance report; everyone sees who is here in the People tab' }));
         body.append(grid, detail);
         if (host) { const exp = el('button', 'mg-link', 'Export notes (Markdown)', { type: 'button' }); exp.onclick = () => exportNotes('md'); body.append(exp); }
       },
@@ -358,10 +431,15 @@ export function initCollab(h) {
       },
       tools(body) {
         const grid = el('div', 'mg-grid6');
-        const layoutNext = () => { const order = ['gallery', 'speaker', 'stage']; const cur = order.findIndex((k) => document.querySelector('[data-layout="' + k + '"].selected')); const nxt = document.querySelector('[data-layout="' + order[(cur + 1) % 3] + '"]'); nxt?.click(); };
-        grid.append(tile('timer', 'Timer', () => {}, { off: true }), tile('target', 'Focus mode', () => {}, { off: true }), tile('layout', 'Layout', layoutNext),
+        const detail = el('div', 'mg-detail'); detail.hidden = true;
+        const layoutNext = () => { const order = ['gallery', 'speaker', 'stage']; const cur = order.findIndex((k) => document.querySelector('[data-layout="' + k + '"].selected')); const nk = order[(cur + 1) % 3]; document.querySelector('[data-layout="' + nk + '"]')?.click(); if (isOn('preferences')) savePref({ layout: nk }); };
+        const timerTile = tile('timer', 'Timer', () => { if (detail.dataset.k === 'timer') { detail.dataset.k = ''; detail.hidden = true; return; } detail.dataset.k = 'timer'; detail.textContent = ''; detail.append(timerPanel()); detail.hidden = false; }, isOn('timer') ? {} : { off: true });
+        const focusOn = document.body.classList.contains('more-focus');
+        const focusTile = tile('target', 'Focus mode', () => { const on = !document.body.classList.contains('more-focus'); setFocus(on); focusTile.setAttribute('aria-pressed', String(on)); if (isOn('preferences')) savePref({ focusMode: on }); }, isOn('preferences') ? {} : { off: true });
+        focusTile.setAttribute('aria-pressed', String(focusOn));
+        grid.append(timerTile, focusTile, tile('layout', 'Layout', layoutNext),
           tile('image', 'Background & effects', () => {}, { off: true }), tile('sliders', 'Audio & video', () => $('settingsBtn').click()), tile('dots', 'More settings', () => $('settingsBtn').click()));
-        body.append(grid);
+        body.append(grid, detail);
       },
     };
     for (const g of groups) {
@@ -393,8 +471,8 @@ export function initCollab(h) {
   }
   buildNotes(); buildPolls(); buildMore();
   return {
-    attach(s) { s.on('notes-updated', remoteNotes); s.on('notes-editors', (m) => { N.editors = m.editors; const can = state.role === 'host' || m.editors.includes(state.participantId); if (can !== N.canEdit && !N.ended) { N.canEdit = can; renderAll(); announce(can ? 'You can now edit the notes' : 'Your edit access to the notes was removed'); } }); s.on('polls-changed', polls$); },
-    load() { buildMore(); loadNotes(); loadPolls(); },
+    attach(s) { s.on('notes-updated', remoteNotes); s.on('notes-editors', (m) => { N.editors = m.editors; const can = state.role === 'host' || m.editors.includes(state.participantId); if (can !== N.canEdit && !N.ended) { N.canEdit = can; renderAll(); announce(can ? 'You can now edit the notes' : 'Your edit access to the notes was removed'); } }); s.on('polls-changed', polls$); s.on('more', onMore); s.on('connect', () => { if (M.features) loadMore(); }); },
+    load() { buildMore(); loadNotes(); loadPolls(); loadMore(); },
     refreshMore() { buildMore(); },
   };
 }
