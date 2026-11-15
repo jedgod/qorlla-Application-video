@@ -64,7 +64,7 @@ try {
   check('rooms open: Gus and Ivy see only each other (and themselves); the host sees only the host', JSON.stringify((await nameplates(gus.p)).sort()) .includes('Ivy') && !(await nameplates(gus.p)).some((n) => n.includes('Hana')) && !(await nameplates(ivy.p)).some((n) => n.includes('Hana')) && (await nameplates(host.p)).every((n) => !n.includes('Gus') && !n.includes('Ivy')));
   await waitFor(async () => (await flowing(gus.p, 'Ivy')) && (await flowing(ivy.p, 'Gus')), 45000, 500);
   check('rooms open: audio/video is re-established inside the room (Gus and Ivy decode each other\'s frames)', (await flowing(gus.p, 'Ivy')) && (await flowing(ivy.p, 'Gus')));
-  check('rooms open: the room chip shows the room name and a countdown for a guest, and the host chip says rooms are open', /Design\s*·\s*\d+:\d\d/.test(await gus.p.locator('.bk-chip').innerText()) && /Rooms open/.test(await host.p.locator('.bk-chip').innerText()));
+  check('rooms open: the room chip shows the room name and a countdown for a guest, and the host chip says rooms are open', !!(await waitFor(async () => /Design\s*·\s*\d+:\d\d/.test(await gus.p.locator('.bk-chip').innerText()) && /Rooms open/.test(await host.p.locator('.bk-chip').innerText()), 15000)));
 
   // chat stays in the room
   await chatSend(gus.p, 'room secret'); await waitFor(async () => chatHas(ivy.p, 'room secret'));

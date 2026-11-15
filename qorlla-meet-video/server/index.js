@@ -29,6 +29,7 @@ import { registerBreakouts } from './breakouts.mjs';
 import { registerClassroom } from './classroom.mjs';
 import { registerChatExport } from './chat-export.mjs';
 import { createRoomEvents, PgNotifyBus, RedisStreamsBus, audienceMatches } from './room-events.mjs';
+import { createMediaRelay } from './media-relay.mjs';
 import { registerHandoff } from './handoff.mjs';
 import { registerHostControls } from './host-controls.mjs';
 import { registerRecording } from './recording.mjs';
@@ -289,8 +290,14 @@ if (process.env.ICE_TRANSPORT_POLICY && !['all', 'relay'].includes(process.env.I
 const ICE_POLICY = process.env.ICE_TRANSPORT_POLICY === 'relay' ? 'relay' : 'all';
 if (ICE_POLICY === 'relay' && !TURN_URLS.length) throw new Error('ICE_TRANSPORT_POLICY=relay needs TURN_URLS (otherwise nobody could connect)');
 export const turnCredentialsFor = (participantId, now = Math.floor(Date.now() / 1000), ttl = TURN_TTL, secret = TURN_SECRET) => { const username = (now + ttl) + ':' + participantId; return { username, credential: createHmac('sha1', secret).update(username).digest('base64') }; };
-app.get('/api/meetings/:id/ice', auth, member, (req,res) => {
+// Relay media through the Voice Engine's TURN services (VOICE_ENGINE_URL + VOICE_ENGINE_ADMIN_SECRET): credentials name the participant's room epoch and are revoked when they move, leave or the rooms end.
+const mediaRelay = createMediaRelay();
+app.get('/api/meetings/:id/ice', auth, member, async (req,res) => {
   let iceServers = []; try { iceServers = JSON.parse(process.env.ICE_SERVERS_JSON || '[]'); } catch { /* none */ }
+  if (mediaRelay.configured) {
+    try { await breakouts.ensure(req.params.id); return res.set('Cache-Control', 'no-store').json(await mediaRelay.iceFor(req.params.id, req.user.participantId, breakouts.epochOf(req.params.id, req.user.participantId), iceServers.filter((s) => !s.username))); }
+    catch (e) { console.error('[media-relay] credentials unavailable:', e.code || e.message); return fail(res, 503, 'Relay media is unavailable right now. Try again in a moment.'); }          // never a silent fall back to direct connections
+  }
   if (TURN_URLS.length) iceServers = [...iceServers, { urls: TURN_URLS, ...turnCredentialsFor(req.user.participantId) }];
   res.set('Cache-Control', 'no-store').json({ iceServers, iceTransportPolicy: ICE_POLICY, expiresIn: TURN_TTL });
 });
@@ -420,7 +427,7 @@ const hostControls = registerHostControls({ app, io, db, auth, member, fail, roo
 const roomEventsMode = (process.env.ROOM_EVENTS || 'off').toLowerCase();
 const roomEvents = roomEventsMode === 'off' ? null : createRoomEvents({ db, deliver: (...a) => breakouts.deliverLocal(...a), onInternal: (...a) => breakouts.applyRemote(...a),
   bus: roomEventsMode === 'redis' ? new RedisStreamsBus({ url: process.env.REDIS_URL }) : new PgNotifyBus({ pool: db }) });
-const breakouts = registerBreakouts({ app, io, db, auth, member, fail, active, room, events: roomEvents });       // breakout rooms (v4.29): scoped rosters, signaling and events; blocks recording while rooms are open
+const breakouts = registerBreakouts({ app, io, db, auth, member, fail, active, room, events: roomEvents, relay: mediaRelay });       // breakout rooms (v4.29): scoped rosters, signaling and events; blocks recording while rooms are open
 const classroom = registerClassroom({ app, io, db, auth, member, fail, breakouts });       // Room Mission Board, timed exercises, room whiteboard, group reports, classroom dashboard (v4.31)
 const chat = registerChat({ app, io, db, auth, member, room, fail, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), scopeOf: breakouts.scopeOf });       // meeting chat upgrade (v4.25+)
 const more = registerMore({ app, io, db, auth, member, room, fail, rateLimit, scopeOf: breakouts.scopeOf, emitMain: (meetingId, type, payload) => breakouts.emitToScope(meetingId, null, type, payload) });       // More tab (v4.27): Q&A, timer, preferences, attendance
@@ -533,7 +540,7 @@ io.on('connection',socket=>{
    const {rows}=await db.query('SELECT choice,count(*)::int AS count FROM poll_votes WHERE poll_id=$1 GROUP BY choice',[pollId]);io.to(room(id)).emit('poll-results',{pollId,counts:rows});ack?.({ok:true});
   }catch{ackError(ack,'Vote failed');}
  });
- socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}breakouts.emitScope(id,pid,'participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
+ socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);mediaRelay.revokeParticipant(id,pid).catch(()=>{});recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}breakouts.emitScope(id,pid,'participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE disconnected_at IS NULL').catch(()=>{});   // a restart ends every connection: close what the last run left open
 server.listen(PORT,()=>{console.log(`Qorlla Meet listening on http://localhost:${PORT}`);if(roomEvents){roomEvents.start().catch(e=>console.error('[room-events] not started:',e.message));setInterval(()=>roomEvents.purge(24).catch(()=>{}),3600_000).unref();console.log(`Shared room events: ${roomEventsMode} (instance ${roomEvents.instanceId})`);}});

@@ -34,6 +34,17 @@ export async function turnCli(commands, { host, port, password, timeoutMs = 3000
 /** "  1) id=003000000000000001, user <u1>:" -> [{ id, user }] */
 export function parseSessions(text) { return [...String(text).matchAll(/^\s*\d+\)\s+id=([0-9a-fA-F]+),\s+user\s+<([^>]*)>/gm)].map((m) => ({ id: m[1], user: m[2] })); }
 
+/** coturn `ps` output, one block per allocation: "  1) id=..., user <u>:" ... "usage: rp=<pkts in>, rb=<bytes in>, sp=<pkts out>, sb=<bytes out>". Counters are the relay's own; a missing line counts as zero. */
+export function parseSessionUsage(text) {
+  const parts = String(text).split(/^(?=\s*\d+\)\s+id=)/m), out = [];
+  for (const block of parts) {
+    const head = /^\s*\d+\)\s+id=([0-9a-fA-F]+),\s+user\s+<([^>]*)>/.exec(block); if (!head) continue;
+    const u = /usage:\s*rp=(\d+),\s*rb=(\d+),\s*sp=(\d+),\s*sb=(\d+)/.exec(block);
+    out.push({ id: head[1], user: head[2], packets: u ? Number(u[1]) + Number(u[3]) : 0, bytes: u ? Number(u[2]) + Number(u[4]) : 0 });
+  }
+  return out;
+}
+
 export function createTurnControl({ env = process.env, createRedis = (url) => createClient({ url }) } = {}) {
   const mode = env.TURN_AUTH_MODE === 'userdb' ? 'userdb' : 'rest';
   const cli = env.TURN_CLI_HOST && env.TURN_CLI_PASSWORD ? { host: env.TURN_CLI_HOST, port: Number(env.TURN_CLI_PORT || 5766), password: env.TURN_CLI_PASSWORD, timeoutMs: Number(env.TURN_CLI_TIMEOUT_MS || 3000) } : null;
@@ -82,5 +93,17 @@ export function createTurnControl({ env = process.env, createRedis = (url) => cr
     } else if (mode === 'rest') out.errors.push('cli_not_configured');
     return out;
   }
-  return { mode, ttl, cliConfigured: !!cli, issue, revokeAccount, close: async () => { try { await redis?.quit(); } catch { /* closed */ } } };
+  /** What the RELAY itself says this principal holds right now: allocations and the bytes it has carried. This is the relay's observation, authenticated by the admin CLI: it proves traffic crossed the relay for
+   *  this credential, NOT what that traffic contained or who decoded it, so callers must never present it as verified media. */
+  async function observeAccount(accountId) {
+    if (!cli) return { mode, observed: false, reason: 'cli_not_configured' };
+    try {
+      let probe, names = [];
+      if (mode === 'userdb') { const r = await getRedis(); names = await r.sMembers(acctSet(accountId)); probe = names.map((u) => 'ps ' + u); } else probe = ['psp :' + accountId];
+      if (!probe.length) return { mode, observed: true, credentials: 0, allocations: 0, relayedBytes: 0, relayedPackets: 0 };
+      const sessions = (await turnCli(probe, cli)).flatMap(parseSessionUsage).filter((s) => mode === 'userdb' || s.user.endsWith(':' + accountId));
+      return { mode, observed: true, credentials: mode === 'userdb' ? names.length : undefined, allocations: sessions.length, relayedBytes: sessions.reduce((a, s) => a + s.bytes, 0), relayedPackets: sessions.reduce((a, s) => a + s.packets, 0) };
+    } catch (e) { return { mode, observed: false, reason: 'cli_error' }; }
+  }
+  return { mode, ttl, cliConfigured: !!cli, issue, revokeAccount, observeAccount, close: async () => { try { await redis?.quit(); } catch { /* closed */ } } };
 }

@@ -8,7 +8,7 @@ import helmet from 'helmet';
 import { WebSocketServer } from 'ws';
 import { bearer } from './auth.mjs';
 import { createTurnControl } from './turn.mjs';
-import { validExtension, validCallId, validIdempotencyKey, validAccountId, safeSignal, cleanCandidate, iceServersFor, secretEquals, makeLimiter, ringSeconds, callSeconds, publicCall } from './core.mjs';
+import { validExtension, validCallId, validIdempotencyKey, validAccountId, safeSignal, cleanCandidate, iceServersFor, turnCredentials, secretEquals, makeLimiter, ringSeconds, callSeconds, publicCall } from './core.mjs';
 import { issueTicket, consumeTicketFull, originAllowed, ticketFromRequest, PROTOCOL } from './tickets.mjs';
 import { startMaintenance } from './maintenance.mjs';
 import { createReliability, safeCursor } from './reliability.mjs';
@@ -126,6 +126,32 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.get('/v1/voice/ice', auth, route(async (req, res) => {
     let issued; if (turn.mode === 'userdb') { try { issued = await turn.issue(req.account, { stillActive: () => mediaAllowed(req.account) }); } catch (e) { if (e.code === 'suspended') return res.status(403).json({ error: 'suspended' }); throw e; } }
     const { iceServers, iceTransportPolicy } = iceServersFor(req.account, env, undefined, issued); res.set('Cache-Control', 'no-store').json({ iceServers, iceTransportPolicy, expiresIn: issued ? issued.ttl : 600 });
+  }));
+
+  // ---- Meet media (v4.32): a Meet participant in ONE room epoch gets short-lived relay credentials that name that epoch. Moving rooms revokes the old epoch's credentials and cancels its live allocations, so media
+  // of a room somebody has left cannot keep flowing through the relay. Called by Meet's server only (admin secret or Shield workload identity); a browser never reaches these routes.
+  const UUIDV = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, MEET_P = /^meet:[0-9a-f-]{36}:[0-9a-f-]{36}:\d{1,9}$/;
+  const meetPrincipal = (b) => (b && UUIDV.test(String(b.meetingId)) && UUIDV.test(String(b.participantId)) && Number.isInteger(b.epoch) && b.epoch >= 0 && b.epoch <= 999999999 ? `meet:${String(b.meetingId).toLowerCase()}:${String(b.participantId).toLowerCase()}:${b.epoch}` : null);
+  const principalsOf = (b) => (Array.isArray(b?.principals) && b.principals.length >= 1 && b.principals.length <= 200 && b.principals.every((p) => typeof p === 'string' && MEET_P.test(p)) ? [...new Set(b.principals.map((p) => p.toLowerCase()))] : null);
+  app.post('/v1/voice/admin/turn/meet-credentials', adminAuth, route(async (req, res) => {
+    const principal = meetPrincipal(req.body); if (!principal) return res.status(400).json({ error: 'invalid_input' });
+    // userdb mode: opaque credentials that can be DELETED (a revoked credential cannot allocate again). REST mode: stateless HMAC credentials cannot be deleted, so a credential for a room epoch the person has left could
+    // still allocate until it expires: they live 5 minutes (60..600 on request) and revoking also cancels live allocations. Use userdb mode where stale-room relay media must stop at once.
+    let issued; if (turn.mode === 'userdb') issued = await turn.issue(principal); else if (env.TURN_SHARED_SECRET) issued = turnCredentials(principal, Math.min(600, Math.max(60, Number.isInteger(req.body.ttlSeconds) ? req.body.ttlSeconds : 300)), undefined, env.TURN_SHARED_SECRET);
+    const relayOnly = req.body.relayOnly !== false;
+    const { iceServers, turn: turnOn } = iceServersFor(principal, { ...env, VOICE_RELAY_ONLY: 'false', VOICE_MEDIA_POLICY: '', VOICE_REQUIRE_TURN: 'false' }, undefined, issued);
+    if (!turnOn) return res.status(503).json({ error: 'turn_not_configured' });
+    res.set('Cache-Control', 'no-store').json({ iceServers, iceTransportPolicy: relayOnly ? 'relay' : 'all', expiresIn: issued ? issued.ttl : 600, principal });
+  }));
+  app.post('/v1/voice/admin/turn/revoke', adminAuth, route(async (req, res) => {
+    const ps = principalsOf(req.body); if (!ps) return res.status(400).json({ error: 'invalid_input' });
+    const results = {}; for (const p of ps) results[p] = await turn.revokeAccount(p);
+    res.set('Cache-Control', 'no-store').json({ results });
+  }));
+  app.post('/v1/voice/admin/turn/observe', adminAuth, route(async (req, res) => {
+    const ps = principalsOf(req.body); if (!ps) return res.status(400).json({ error: 'invalid_input' });
+    const results = {}; for (const p of ps) results[p] = await turn.observeAccount(p);
+    res.set('Cache-Control', 'no-store').json({ results, note: 'relay observation only: it is not proof of what the media contained' });
   }));
 
   // ---- one-to-one calls

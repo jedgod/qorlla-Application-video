@@ -16,13 +16,14 @@
 // Not covered here (documented, not hidden): the portal's AI export reads all Everyone-chat of consenting people.
 import { randomInt } from 'node:crypto';
 import { DISTRIBUTED, audienceMatches } from './room-events.mjs';
+import { mediaEvidence } from './media-relay.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const LIMITS = Object.freeze({ maxRooms: 20, minMinutes: 1, maxMinutes: 240, nameMax: 60 });
 export const CAPS = Object.freeze(['help_triage', 'room_announcement', 'room_notes', 'room_polls']);
 const bad = (status, error) => Object.assign(new Error(error), { status });
 
-export function registerBreakouts({ app, io, db, auth, member, fail, active, room, tickMs = 5000, events = null }) {
+export function registerBreakouts({ app, io, db, auth, member, fail, active, room, tickMs = 5000, events = null, relay = null, relayObserveMs = 15000 }) {
   const meetings = new Map();          // meetingId -> { active, deadline, map: Map(pid -> roomId), rooms: Map(roomId -> name) }
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
   const paths = (p) => ['/api/meetings/:id/breakouts' + p, '/api/v1/meetings/:id/breakouts' + p];
@@ -37,7 +38,7 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
       db.query('SELECT participant_id, room_id, capability FROM more_breakout_leads WHERE meeting_id=$1', [mid]),
     ]);
     const on = s.rows[0]?.state === 'active';
-    const m = { pending: new Map(), media: new Map(), epochs: new Map(asg.rows.map((a) => [a.participant_id, Number(a.move_epoch)])), leads: new Map(), q: Promise.resolve(), active: on, deadline: on ? s.rows[0].deadline : null, rooms: new Map(rooms.rows.map((r) => [r.id, r.name])), map: new Map(on ? asg.rows.filter((a) => a.room_id).map((a) => [a.participant_id, a.room_id]) : []) };
+    const m = { pending: new Map(), media: new Map(), relayObs: new Map(), epochs: new Map(asg.rows.map((a) => [a.participant_id, Number(a.move_epoch)])), leads: new Map(), q: Promise.resolve(), active: on, deadline: on ? s.rows[0].deadline : null, rooms: new Map(rooms.rows.map((r) => [r.id, r.name])), map: new Map(on ? asg.rows.filter((a) => a.room_id).map((a) => [a.participant_id, a.room_id]) : []) };
     if (on) for (const l of ld.rows) { const e = m.leads.get(l.participant_id) || { room: l.room_id, caps: new Set() }; e.caps.add(l.capability); m.leads.set(l.participant_id, e); }
     if (meetings.has(mid)) return meetings.get(mid); meetings.set(mid, m); return m;
   }
@@ -88,7 +89,9 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
   function move(mid, pid, to, remote = null) {
     const m = meetings.get(mid); const from = scopeOf(mid, pid); if (from === to && !(remote && remote.epoch !== m.epochs.get(pid))) { if (remote) m.epochs.set(pid, remote.epoch); return; }
     if (to) m.map.set(pid, to); else m.map.delete(pid);
-    const epoch = remote ? remote.epoch : (m.epochs.get(pid) || 0) + 1; m.epochs.set(pid, epoch); m.media.set(pid, 'switching'); m.leads.delete(pid);          // a new epoch: every signal made before this move is stale. Leads lose their powers with the room.
+    const prevEpoch = m.epochs.get(pid) || 0, epoch = remote ? remote.epoch : prevEpoch + 1; m.epochs.set(pid, epoch); m.relayObs.delete(pid);
+    if (!remote && relay?.configured) relay.revokeEpoch(mid, pid, prevEpoch).catch(() => {});          // the room somebody left loses its relay credentials and live allocations
+    m.media.set(pid, 'switching'); m.leads.delete(pid);          // a new epoch: every signal made before this move is stale. Leads lose their powers with the room.
     if (!remote) { m.q = m.q.then(() => recordMove(mid, pid, from, to, epoch)).catch((e) => console.error('[breakouts] move log failed', e.message)); if (events) events.publish(mid, { scope: 'none' }, 'scope-sync', { pid, to, epoch }).catch((e) => console.error('[breakouts] scope-sync not stored:', e.message)); }
     const sid = sockets(mid).get(pid), u = sid ? userOf(sid) : null; if (sid) m.pending.set(pid, Date.now());          // 'connecting' until their page says its new peer connections are up (breakout-ready)
     for (const [p, s] of sockets(mid)) { if (p === pid) continue; const sc = scopeOf(mid, p);
@@ -125,7 +128,7 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
       db.query('SELECT participant_id, room_id FROM more_breakout_assignments WHERE meeting_id=$1 AND room_id IS NOT NULL', [mid]),
     ]);
     const of = new Map(asg.rows.map((a) => [a.participant_id, a.room_id])); const online = sockets(mid);
-    const person = (p) => ({ id: p.id, name: p.display_name, role: p.role, online: online.has(p.id), connecting: online.has(p.id) && Date.now() - (m.pending.get(p.id) || 0) < 20000, media: m.media.get(p.id) || 'unknown', caps: capsOf(mid, p.id), epoch: epochOf(mid, p.id) });
+    const person = (p) => ({ id: p.id, name: p.display_name, role: p.role, online: online.has(p.id), connecting: online.has(p.id) && Date.now() - (m.pending.get(p.id) || 0) < 20000, media: m.media.get(p.id) || 'unknown', evidence: mediaEvidence({ client: m.media.get(p.id), relay: m.relayObs.get(p.id)?.epoch === epochOf(mid, p.id) ? m.relayObs.get(p.id) : null }), caps: capsOf(mid, p.id), epoch: epochOf(mid, p.id) });
     const members = (rid) => ppl.rows.filter((p) => p.role !== 'host' && of.get(p.id) === rid).map(person);
     out.rooms = rooms.rows.map((r) => ({ id: r.id, name: r.name, members: members(r.id) }));
     out.unassigned = ppl.rows.filter((p) => p.role !== 'host' && !of.get(p.id)).map(person); out.hostRoom = of.get(req.user.participantId) || null;
@@ -183,7 +186,7 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
   async function end(mid, actor, reason) {
     const m = await ensure(mid); await db.query("UPDATE more_breakout_sessions SET state='idle', deadline=NULL, revision=revision+1, updated_at=now() WHERE meeting_id=$1", [mid]); await closeHelp(mid);
     await db.query('UPDATE more_breakout_assignments SET room_id=NULL, updated_at=now() WHERE meeting_id=$1 AND room_id IS NOT NULL', [mid]);
-    m.active = false; m.deadline = null; publishState(mid, 'session'); applyScopes(mid, new Map()); m.leads.clear(); await db.query('DELETE FROM more_breakout_leads WHERE meeting_id=$1', [mid]);
+    m.active = false; m.deadline = null; publishState(mid, 'session'); applyScopes(mid, new Map()); m.leads.clear(); relay?.revokeMeeting(mid).catch(() => {}); await db.query('DELETE FROM more_breakout_leads WHERE meeting_id=$1', [mid]);
     fanout(mid, { scope: '*' }, 'breakout-ended', { reason }); await logEvent(mid, actor, 'breakout.ended', { reason }); broadcast(mid);
   }
   app.post(paths('/recall'), auth, member, hostOnly, run(async (req, res) => { const m = await ensure(req.params.id); if (!m.active) throw bad(409, 'Breakout rooms are not open'); await end(req.params.id, req.user.participantId, 'recalled'); res.json({ ok: true }); }));
@@ -263,10 +266,23 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
   // sessions whose time is up end by themselves: ONE atomic UPDATE decides which instance ends which session
   async function tick() {
     const { rows } = await db.query("UPDATE more_breakout_sessions SET state='idle', deadline=NULL, revision=revision+1, updated_at=now() WHERE state='active' AND deadline <= now() RETURNING meeting_id, started_by");
-    for (const r of rows) { try { const m = await ensure(r.meeting_id); await db.query('UPDATE more_breakout_assignments SET room_id=NULL, updated_at=now() WHERE meeting_id=$1 AND room_id IS NOT NULL', [r.meeting_id]); await closeHelp(r.meeting_id); m.active = false; m.deadline = null; publishState(r.meeting_id, 'session'); applyScopes(r.meeting_id, new Map()); m.leads.clear(); await db.query('DELETE FROM more_breakout_leads WHERE meeting_id=$1', [r.meeting_id]);
+    for (const r of rows) { try { const m = await ensure(r.meeting_id); await db.query('UPDATE more_breakout_assignments SET room_id=NULL, updated_at=now() WHERE meeting_id=$1 AND room_id IS NOT NULL', [r.meeting_id]); await closeHelp(r.meeting_id); m.active = false; m.deadline = null; publishState(r.meeting_id, 'session'); applyScopes(r.meeting_id, new Map()); m.leads.clear(); relay?.revokeMeeting(r.meeting_id).catch(() => {}); await db.query('DELETE FROM more_breakout_leads WHERE meeting_id=$1', [r.meeting_id]);
       fanout(r.meeting_id, { scope: '*' }, 'breakout-ended', { reason: 'time' }); await logEvent(r.meeting_id, r.started_by || r.meeting_id, 'breakout.ended', { reason: 'time' }); broadcast(r.meeting_id); } catch (e) { console.error('[breakouts] expiry failed', e.message); } }
     return rows.length;
   }
+  /** ask the relay what it carries for the people in open rooms (their CURRENT epoch only). Their answers are observations, kept in memory for the host's list and noted on the move record. */
+  async function observeRelay() {
+    if (!relay?.configured) return 0; let n = 0;
+    for (const [mid, m] of meetings) {
+      if (!m.active) continue; const mine = relay.principalsOfMeeting(mid).filter((x) => x.epoch === epochOf(mid, x.pid)); if (!mine.length) continue;
+      const res = await relay.observe(mine.map((x) => x.principal));
+      for (const x of mine) { const r = res[x.principal]; if (!r) continue; m.relayObs.set(x.pid, { ...r, epoch: x.epoch, at: Date.now() }); n++;
+        if (r.observed && r.allocations > 0) db.query('UPDATE more_breakout_moves SET relay_observation=$4, relay_observed_at=now() WHERE meeting_id=$1 AND participant_id=$2 AND epoch=$3 AND (relay_observation IS NULL OR relay_observation=\'allocation_observed\')', [mid, x.pid, x.epoch, r.relayedBytes > 0 ? 'traffic_observed' : 'allocation_observed']).catch(() => {}); }
+      emitHosts(mid, 'breakouts-changed', {});
+    }
+    return n;
+  }
+  const obsTimer = relay?.configured ? setInterval(() => { observeRelay().catch((e) => console.error('[breakouts] relay observation failed', e.message)); }, relayObserveMs) : null; obsTimer?.unref?.();
   const timer = setInterval(() => { tick().catch((e) => console.error('[breakouts] tick failed', e.message)); }, tickMs); timer.unref?.();
 
   // recording is a local capture of the host's page: with rooms open it would only hold one room, so it cannot start then
@@ -283,5 +299,5 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
       m.leads = new Map(); if (m.active) for (const l of ld.rows) { const e = m.leads.get(l.participant_id) || { room: l.room_id, caps: new Set() }; e.caps.add(l.capability); m.leads.set(l.participant_id, e); }
     }
   }
-  return { ensure, deliverLocal, applyRemote, ctxOf, scopeOf, epochOf, signalGate, mayLead, capsOf, assign: async (mid, pid, rid) => { await assignOne(mid, await ensure(mid), pid, rid); }, broadcast, settle: (mid) => meetings.get(mid)?.q, logEvent, hostSocks, sameScope, emitScope, emitToScope, emitScopeAndHosts, ready, scopedList, scopeInfo, namesOf, tick, stop: () => clearInterval(timer), isActive: (mid) => !!meetings.get(mid)?.active };
+  return { observeRelay, ensure, deliverLocal, applyRemote, ctxOf, scopeOf, epochOf, signalGate, mayLead, capsOf, assign: async (mid, pid, rid) => { await assignOne(mid, await ensure(mid), pid, rid); }, broadcast, settle: (mid) => meetings.get(mid)?.q, logEvent, hostSocks, sameScope, emitScope, emitToScope, emitScopeAndHosts, ready, scopedList, scopeInfo, namesOf, tick, stop: () => { clearInterval(timer); if (obsTimer) clearInterval(obsTimer); }, isActive: (mid) => !!meetings.get(mid)?.active };
 }
