@@ -266,36 +266,112 @@ export function initCollab(h) {
   const polls$ = () => { clearTimeout(pollLoadTimer); pollLoadTimer = setTimeout(loadPolls, 250); };
 
   // =================================================================================================================================== MORE
-  const openGroups = new Set(['collab']);                // which groups of the More tab are open: kept when the tab is rebuilt (a host switching a tool must not see the group fold up)
+  const openGroups = new Set(['collab', 'intel', 'manage', 'sec', 'tools']);                // which groups of the More tab are open: kept when the tab is rebuilt (a host switching a tool must not see the group fold up)
   function buildMore() {
-    const t = $('tab-more'); t.textContent = '';
-    const soon = (label, note) => ({ label, note: note || 'Planned for v4.1', soon: true });
+    const t = $('tab-more'); t.textContent = ''; t.classList.add('more-v41-compact');
+    const host = state.role === 'host';
+    const ICO = {
+      people: '<circle cx="9" cy="8" r="3"/><path d="M3 20c.6-3.4 3-5 6-5s5.4 1.6 6 5"/><circle cx="17" cy="9" r="2.3"/><path d="M16.5 14.2c2.6.1 4.1 1.5 4.5 4.3"/>',
+      smile: '<circle cx="12" cy="12" r="9"/><path d="M8.5 14c.9 1.4 2.1 2.1 3.5 2.1s2.6-.7 3.5-2.1M9 9.5h.01M15 9.5h.01"/>',
+      pen: '<path d="M4 20l4-1 11-11a2.1 2.1 0 0 0-3-3L5 16l-1 4Z"/><path d="M14 7l3 3"/>',
+      folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
+      qa: '<path d="M4 5h12a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-4 3v-3H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/><path d="M8 9a1.6 1.6 0 1 1 2.2 1.5c-.5.2-.7.5-.7 1M9.5 13h.01"/>',
+      spark: '<path d="M12 3l2.2 6.3L21 12l-6.8 2.7L12 21l-2.2-6.3L3 12l6.8-2.7Z"/>',
+      doc: '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/>',
+      cc: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 10.5a2 2 0 1 0 0 3M17 10.5a2 2 0 1 0 0 3"/>',
+      list: '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+      bot: '<rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M9 13h.01M15 13h.01M9.5 16.5h5"/><circle cx="12" cy="4" r="1"/>',
+      cal: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/>',
+      userplus: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c.6-3.4 3-5 6-5s5.4 1.6 6 5M18 8v6M15 11h6"/>',
+      info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+      gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/>',
+      shield: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6Z"/>',
+      users: '<circle cx="12" cy="8" r="3"/><circle cx="5.5" cy="10" r="2"/><circle cx="18.5" cy="10" r="2"/><path d="M6.5 19c.5-3 2.6-4.5 5.5-4.5s5 1.5 5.5 4.5"/>',
+      lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+      video: '<rect x="3" y="6" width="13" height="12" rx="3"/><path d="m16 10.5 5-3v9l-5-3"/>',
+      layers: '<path d="M12 3l9 5-9 5-9-5Z"/><path d="m3 13 9 5 9-5M3 17.5l9 5 9-5"/>',
+      timer: '<circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.5 1.5M9.5 3h5"/>',
+      target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>',
+      layout: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+      image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4 18 5-5 4 4 3-3 4 4"/>',
+      sliders: '<path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h12M20 17h0"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="17" r="2"/>',
+      dots: '<path d="M5 12h.01M12 12h.01M19 12h.01"/>',
+      open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+      chev: '<path d="m6 9 6 6 6-6"/>',
+    };
+    const svg = (k, cls) => { const x = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); x.setAttribute('viewBox', '0 0 24 24'); x.setAttribute('aria-hidden', 'true'); x.setAttribute('class', 'mi ' + (cls || '')); x.innerHTML = ICO[k]; return x; };   // static icon markup only
+    const NA = 'Unavailable: needs its meeting service and privacy checks first';
+    const swtch = (label, on, disabled, change) => { const b = el('button', 'mg-sw', '', { type: 'button', role: 'switch', 'aria-checked': String(!!on), 'aria-label': label }); b.append(el('span', 'mg-knob')); if (disabled) { b.disabled = true; b.title = NA; } else b.onclick = change; return b; };
+    const tile = (k, label, run, opts = {}) => { const b = el('button', 'mg-tile', '', { type: 'button' }); b.append(svg(k), el('span', '', label)); if (opts.off) { b.disabled = true; b.title = opts.title || NA; b.setAttribute('aria-disabled', 'true'); } else b.onclick = run; return b; };
     const groups = [
-      { id: 'collab', title: 'Collaboration', items: [{ label: 'Reactions', reactions: true }, ...(state.role === 'host' || (state.tools && state.tools.whiteboard) ? [soon('Whiteboard')] : []), ...(state.role === 'host' || (state.tools && state.tools.breakout) ? [soon('Breakout rooms')] : []), soon('Shared files'), soon('Q&A')] },
-      { id: 'intel', title: 'Meeting intelligence', items: [soon('AI meeting summary', 'Planned v4.2 — needs its own consent'), soon('Live transcription', 'Planned v4.2 — needs its own consent'), soon('Translated captions', 'Planned v4.2')] },
-      { id: 'manage', title: 'Meeting management', items: [{ label: 'Copy invitation link', run: () => $('copyLink').click() }, ...(state.role === 'host' && state.settings ? [{ custom: true }, { toggle: 'locked', label: 'Lock meeting: nobody new can join' }] : []), { label: 'Export notes (Markdown)', run: () => exportNotes('md') }, { label: 'Meeting information', info: () => state.meetingInfo || '' }, soon('Attendance report'), soon('Lock meeting / remove people')] },
-      { id: 'sec', title: 'Security and recording', items: [{ label: state.role === 'host' ? 'Recording and consent…' : 'About recording', run: () => (state.role === 'host' ? $('recordBtn').click() : notify('Recording only happens if everyone present agrees. You will be asked, and you can withdraw at any time.')) }, ...(state.role === 'host' ? [{ label: 'Recordings (download or delete)…', run: openRecordings }] : []), { label: 'Calls and chat are encrypted in transit', info: () => 'Audio and video use WebRTC (DTLS-SRTP); the page uses HTTPS in production. Recordings are not stored by Qorlla.' }] },
-      { id: 'tools', title: 'Tools and settings', items: [{ label: 'Settings and keyboard shortcuts', run: () => $('settingsBtn').click() }, { label: 'Panel position and lock', info: () => 'On wide screens use the arrow buttons at the top of this panel to dock it left, right, top or bottom, and the lock to keep it stable.' }] },
+      { id: 'collab', icon: 'people', title: 'Collaboration', sub: 'Work together during the meeting' },
+      { id: 'intel', icon: 'spark', title: 'Meeting intelligence', sub: 'AI-powered meeting assistance' },
+      { id: 'manage', icon: 'cal', title: 'Meeting management', sub: 'Host and co-host controls' },
+      { id: 'sec', icon: 'lock', title: 'Security and recording', sub: 'Control access, recording and privacy' },
+      { id: 'tools', icon: 'layers', title: 'Tools and settings', sub: 'Productivity tools and personal preferences' },
     ];
-    for (const [gi, g] of groups.entries()) {
-      const sec = el('section', 'mg'); const hb = el('button', 'mg-h', '', { 'aria-expanded': String(openGroups.has(g.id)), 'aria-controls': 'mg-' + g.id, id: 'mgh-' + g.id }); hb.append(el('span', '', g.title), el('span', 'mg-chev', openGroups.has(g.id) ? '▴' : '▾', { 'aria-hidden': 'true' }));
+    const fill = {
+      collab(body) {
+        const row = (k, title, desc, action) => { const r = el('div', 'mg-row'); const tt = el('div', 'mg-row-t'); tt.append(el('strong', '', title), el('small', '', desc)); r.append(el('span', 'mg-ic', ''), tt); r.firstChild.append(svg(k)); if (action) r.append(action); return r; };
+        const emoji = el('div', 'mg-emoji'); for (const e of ['👍', '👏', '❤️', '🎉', '😂']) { const b = el('button', '', e, { type: 'button', 'aria-label': 'React with ' + e }); b.onclick = () => state.socket?.emit('reaction', e); emoji.append(b); }
+        body.append(row('smile', 'Reactions', 'Send quick reactions to the meeting.', emoji));
+        const off = (label, icon) => { const b = el('button', 'mg-act', '', { type: 'button', disabled: '', title: NA, 'aria-disabled': 'true' }); b.append(svg(icon), document.createTextNode(label)); return b; };
+        body.append(row('pen', 'Whiteboard', 'Collaborative board for visual brainstorming.', off('Open', 'open')), row('people', 'Breakout rooms', 'Split participants into smaller discussion groups.', off('Create', 'userplus')),
+          row('folder', 'Shared files', 'Share and access meeting files (host controlled).', off('Open', 'open')), row('qa', 'Q&A', 'Collect, review and answer participant questions.', off('Open', 'open')));
+      },
+      intel(body) {
+        const grid = el('div', 'mg-grid4');
+        const card = (k, title, desc, ctl) => { const c = el('div', 'mg-card'); const h = el('div', 'mg-card-h'); h.append(svg(k), el('strong', '', title)); c.append(h, el('small', '', desc), ctl); grid.append(c); };
+        const btn = (label) => el('button', 'mg-act', label, { type: 'button', disabled: '', title: NA, 'aria-disabled': 'true' });
+        card('doc', 'AI Summary', 'Generate key notes, decisions and action items', btn('Generate'));
+        card('cc', 'Live Transcript', 'Real-time captions and transcript', swtch('Live transcript', false, true));
+        card('list', 'Key Takeaways', 'Auto-extract topics and action items', swtch('Key takeaways', false, true));
+        card('bot', 'Ask QorllaMate', 'Get answers from the meeting content', btn('Ask AI'));
+        body.append(grid, el('p', 'mg-note', 'These stay disabled until their meeting services, consent and verified access are in place.'));
+      },
+      manage(body) {
+        const grid = el('div', 'mg-grid5'); const detail = el('div', 'mg-detail'); detail.hidden = true;
+        const show = (node) => { detail.textContent = ''; if (node) { detail.append(node); detail.hidden = false; } else detail.hidden = true; };
+        const info = () => { const d = el('div', 'mg-info'); d.append(el('strong', '', 'Meeting information'), el('p', 'muted', state.meetingInfo || 'Share the invitation link to bring people in.')); return d; };
+        grid.append(tile('userplus', 'Invite people', () => $('copyLink').click()),
+          tile('info', 'Meeting info', () => show(detail.hidden || detail.dataset.k !== 'info' ? (detail.dataset.k = 'info', info()) : (detail.dataset.k = '', null))),
+          tile('gear', 'Meeting settings', () => $('settingsBtn').click()),
+          tile('shield', 'Role & permissions', () => { if (detail.dataset.k === 'roles') { detail.dataset.k = ''; show(null); return; } detail.dataset.k = 'roles'; const d = el('div'); hostPanel(d); show(d); }, host && state.settings ? {} : { off: true, title: 'Only the host manages roles and permissions' }),
+          tile('users', 'Attendance', () => {}, { off: true, title: 'Attendance is in the People tab and in History after the meeting' }));
+        body.append(grid, detail);
+        if (host) { const exp = el('button', 'mg-link', 'Export notes (Markdown)', { type: 'button' }); exp.onclick = () => exportNotes('md'); body.append(exp); }
+      },
+      sec(body) {
+        const wrap = el('div', 'mg-sec3');
+        const rec = el('div', 'mg-opt'); const rt = el('div', 'mg-opt-t'); rt.append(el('strong', '', 'Recording'), el('small', '', host ? 'Record and save this meeting' : 'Only the host can record')); rec.append(svg('video', 'mg-blue'), rt, swtch('Recording', !!state.recording, !host, () => $('recordBtn').click()));
+        const lock = el('div', 'mg-opt'); const lt = el('div', 'mg-opt-t'); lt.append(el('strong', '', 'Lock meeting'), el('small', '', 'Prevent new participants from joining'));
+        const lockOn = !!(state.settings && state.settings.locked); const lsw = swtch('Lock meeting', lockOn, !(host && state.settings), async () => {
+          lsw.disabled = true; const want = lsw.getAttribute('aria-checked') !== 'true';
+          try { const r = await fetch(BASE + 'api/meetings/' + state.meetingId + '/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.token }, body: JSON.stringify({ locked: want }) }); const j = await r.json(); if (!r.ok) throw Error(j.error); Object.assign(state.settings, j); lsw.setAttribute('aria-checked', String(want)); announce('Lock meeting ' + (want ? 'on' : 'off')); } catch (e) { notify(e.message); }
+          lsw.disabled = false; });
+        lock.append(svg('lock', 'mg-blue'), lt, lsw);
+        const detail = el('div', 'mg-detail'); detail.hidden = true;
+        const sb = el('button', 'mg-act mg-wide', '', { type: 'button' }); sb.append(svg('gear'), document.createTextNode('Security settings'));
+        sb.onclick = () => { if (!detail.hidden) { detail.hidden = true; return; } detail.textContent = ''; const d = el('div', 'mg-info'); d.append(el('strong', '', 'Calls and chat are encrypted in transit'), el('p', 'muted', 'Audio and video use WebRTC (DTLS-SRTP); the page uses HTTPS in production. Recording only happens if everyone present agrees, and anyone can withdraw at any time.')); detail.append(d);
+          if (host) { const rb = el('button', 'mg-link', 'Recordings (download or delete)…', { type: 'button' }); rb.onclick = openRecordings; detail.append(rb); } detail.hidden = false; };
+        wrap.append(rec, lock, sb); body.append(wrap, detail);
+      },
+      tools(body) {
+        const grid = el('div', 'mg-grid6');
+        const layoutNext = () => { const order = ['gallery', 'speaker', 'stage']; const cur = order.findIndex((k) => document.querySelector('[data-layout="' + k + '"].selected')); const nxt = document.querySelector('[data-layout="' + order[(cur + 1) % 3] + '"]'); nxt?.click(); };
+        grid.append(tile('timer', 'Timer', () => {}, { off: true }), tile('target', 'Focus mode', () => {}, { off: true }), tile('layout', 'Layout', layoutNext),
+          tile('image', 'Background & effects', () => {}, { off: true }), tile('sliders', 'Audio & video', () => $('settingsBtn').click()), tile('dots', 'More settings', () => $('settingsBtn').click()));
+        body.append(grid);
+      },
+    };
+    for (const g of groups) {
+      const sec = el('section', 'mg'); const hb = el('button', 'mg-h', '', { type: 'button', 'aria-expanded': String(openGroups.has(g.id)), 'aria-controls': 'mg-' + g.id, id: 'mgh-' + g.id });
+      const tt = el('span', 'mg-h-t'); tt.append(el('strong', '', g.title), el('small', '', g.sub)); hb.append(svg(g.icon, 'mg-h-ic'), tt, svg('chev', 'mg-chev'));
       const body = el('div', 'mg-b', '', { id: 'mg-' + g.id, role: 'region', 'aria-labelledby': 'mgh-' + g.id }); body.hidden = !openGroups.has(g.id);
-      for (const it of g.items) {
-        if (it.reactions) { const row = el('div', 'emoji'); for (const e of ['👍', '👏', '❤️', '🎉', '😂']) { const b = el('button', '', e, { 'aria-label': 'React with ' + e }); b.onclick = () => state.socket?.emit('reaction', e); row.append(b); } body.append(el('p', '', 'Reactions'), row); }
-        else if (it.toggle) {
-          const lab = el('label', 'rc-check'), cb = el('input', '', '', { type: 'checkbox' }); cb.checked = !!state.settings[it.toggle]; lab.append(cb, document.createTextNode(' ' + it.label));
-          cb.onchange = async () => { cb.disabled = true; try { const r = await fetch(BASE + 'api/meetings/' + state.meetingId + '/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.token }, body: JSON.stringify({ [it.toggle]: cb.checked }) }); const j = await r.json(); if (!r.ok) throw Error(j.error); Object.assign(state.settings, j); announce(it.label.split(':')[0] + (cb.checked ? ' on' : ' off')); } catch (e) { cb.checked = !cb.checked; notify(e.message); } cb.disabled = false; };
-          body.append(lab);
-        }
-        else if (it.custom) { hostPanel(body); }
-        else if (it.soon) { const b = el('button', 'mg-i', '', { disabled: '', 'aria-disabled': 'true' }); b.append(el('span', '', it.label), el('small', 'muted', it.note)); body.append(b); }
-        else if (it.info) { const d = el('div', 'mg-info'); d.append(el('strong', '', it.label), el('p', 'muted', it.info())); body.append(d); }
-        else { const b = el('button', 'mg-i', it.label); b.onclick = it.run; body.append(b); }
-      }
-      hb.onclick = () => { const open = hb.getAttribute('aria-expanded') !== 'true'; if (open) openGroups.add(g.id); else openGroups.delete(g.id); hb.setAttribute('aria-expanded', String(open)); body.hidden = !open; hb.querySelector('.mg-chev').textContent = open ? '▴' : '▾'; };
+      fill[g.id](body);
+      hb.onclick = () => { const open = hb.getAttribute('aria-expanded') !== 'true'; if (open) openGroups.add(g.id); else openGroups.delete(g.id); hb.setAttribute('aria-expanded', String(open)); body.hidden = !open; };
       sec.append(hb, body); t.append(sec);
     }
-    t.append(el('p', 'muted', 'Items marked “Planned” are not available yet.'));
   }
 
   async function openRecordings() {
