@@ -265,3 +265,14 @@ html.portal-only #landing .landing-card>:not(.brand):not(#portalOnlyNote){displa
 .plc-foot{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:2px}.plc-btn{display:flex;align-items:center;justify-content:center;gap:8px;height:38px;border-radius:999px;border:1px solid #232a38;background:#141923;color:#c4ccdb;font:inherit;font-size:13px;cursor:pointer}
 .plc-btn.plc-go{background:#1d2431;color:#edf2fa}.plc-btn:hover{border-color:#3a4458}.plc-ic{font-size:12px}
 .pl-create label{margin:0}.pl-create .plc-radio{padding:2px 0}.pl-create .plc-sec{gap:5px}.pl-create{gap:8px}
+
+/* ---- Polls header (compact card, segmented lists, friendly empty state) ---- */
+.plh-card{background:#10141c;border:1px solid #232a38;border-radius:14px;padding:10px 10px 8px}
+.plh{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.plh-title{display:flex;align-items:center;gap:8px}.plh-title h3{margin:0;font-size:16px;font-weight:600;color:#f1f5fb}
+.plh-ic{width:16px;height:16px;fill:#3b82f6;stroke:none}
+.plh-new{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 14px;border:0;border-radius:999px;background:#f1f3f7;color:#10141c;font:inherit;font-size:13px;font-weight:500;cursor:pointer}.plh-new.hidden{display:none}.plh-new:hover{background:#fff}
+.plh-plus{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.plh-seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;margin:0 0 6px}.plh-seg button{height:30px;border:0;border-radius:999px;background:transparent;color:#aab4c6;font:inherit;font-size:12px;padding:0 6px}
+.plh-seg button[aria-pressed=true]{background:#1b1f27;color:#f1f5fb;border:0}.plh-seg button[hidden]{display:none}
+.plh-empty{text-align:center;padding:18px 8px 14px}.plh-eic{width:30px;height:30px;fill:none;stroke:#8c97ab;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.plh-et{margin:8px 0 4px;font-size:14px;color:#dfe5f0}.plh-eh{margin:0;font-size:11px;color:#8a95a8}

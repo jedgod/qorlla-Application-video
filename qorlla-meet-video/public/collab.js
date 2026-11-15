@@ -161,10 +161,13 @@ export function initCollab(h) {
   const KIND = { single: 'Single choice', multiple: 'Multiple choice', yesno: 'Yes / No', rating: 'Rating scale', ranking: 'Ranking' };
   function buildPolls() {
     const t = $('tab-polls'); t.textContent = '';
-    const head = el('div', 'nt-head'); head.append(el('h3', '', 'Polls')); const nb = el('button', 'rc-primary hidden', 'New poll', { id: 'pollNew', 'aria-expanded': 'false', 'aria-controls': 'pollForm2' }); head.append(nb); t.append(head);
-    const views = el('div', 'pl-views', '', { role: 'group', 'aria-label': 'Poll lists' });
+    const svg = (d, cls) => { const x = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); x.setAttribute('viewBox', '0 0 24 24'); x.setAttribute('aria-hidden', 'true'); x.setAttribute('class', cls || ''); x.innerHTML = d; return x; };   // static icon markup only
+    const head = el('div', 'plh'); const ttl = el('div', 'plh-title'); ttl.append(svg('<rect x="3" y="12" width="4" height="8" rx="1"/><rect x="10" y="5" width="4" height="15" rx="1"/><rect x="17" y="9" width="4" height="11" rx="1"/>', 'plh-ic'), el('h3', '', 'Polls'));
+    const nb = el('button', 'plh-new hidden', '', { id: 'pollNew', type: 'button', 'aria-expanded': 'false', 'aria-controls': 'pollForm2' }); nb.append(svg('<path d="M12 5v14M5 12h14"/>', 'plh-plus'), document.createTextNode('New poll')); head.append(ttl, nb);
+    P.svg = svg;
+    const views = el('div', 'pl-views plh-seg', '', { role: 'group', 'aria-label': 'Poll lists' });
     for (const [k, l] of [['active', 'Active'], ['drafts', 'Drafts'], ['results', 'Results']]) { const b = el('button', '', l, { 'data-pv': k, 'aria-pressed': String(k === P.view) }); b.onclick = () => { P.view = k; renderPolls(); }; views.append(b); }
-    t.append(views, el('div', '', '', { id: 'pollForm2' }), el('div', '', '', { id: 'pollList', 'aria-live': 'off' }));
+    const card = el('div', 'plh-card'); card.append(head, views, el('div', '', '', { id: 'pollForm2' }), el('div', '', '', { id: 'pollList', 'aria-live': 'off' })); t.append(card);
     nb.onclick = () => { P.form = !P.form; renderPolls(); if (P.form) $('pq')?.focus(); };
   }
   function pollForm() {
@@ -254,7 +257,7 @@ export function initCollab(h) {
     const list = $('pollList'); const focusId = document.activeElement?.closest?.('.pl-vote') ? null : undefined;
     if (document.activeElement?.closest?.('.pl-vote')) return;                                        // never rebuild a ballot someone is filling in
     list.textContent = ''; const show = P.view === 'drafts' ? drafts : P.view === 'results' ? done : active;
-    if (!show.length) list.append(el('p', 'muted', P.view === 'active' ? 'No poll is open right now.' : P.view === 'drafts' ? 'No drafts.' : 'No finished polls yet.')); for (const p of show) list.append(pollCard(p));
+    if (!show.length) { const e = el('div', 'plh-empty'); e.append(P.svg('<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h.01M9 14h.01M12 10h4M12 14h4"/>', 'plh-eic'), el('p', 'plh-et', P.view === 'active' ? 'No poll is open right now' : P.view === 'drafts' ? 'No drafts' : 'No finished polls yet'), el('p', 'plh-eh', host ? 'Create a poll to gather participant feedback during your meeting.' : 'Polls the host opens will appear here.')); list.append(e); } for (const p of show) list.append(pollCard(p));
     clearInterval(P.timer); if (document.querySelector('[data-closes]:not([data-closes=""])')) P.timer = setInterval(tick, 1000); tick();
   }
   function tick() { document.querySelectorAll('.pl-count[data-closes]').forEach((e) => { const c = e.dataset.closes; if (!c) return; const s = Math.max(0, Math.round((new Date(c) - Date.now()) / 1000)); e.textContent = e.textContent.replace(/ · closes in.*$/, '') + ' · closes in ' + stamp(s); if (s === 0 && !tick.asked) { tick.asked = true; setTimeout(() => { tick.asked = false; loadPolls(); }, 1500); } }); }
