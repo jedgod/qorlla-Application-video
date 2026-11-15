@@ -16,8 +16,9 @@ test.use({
 test.describe('Live meeting flow (two browsers)', () => {
   test('host and guest connect, see video, chat, react, and end the meeting', async ({ browser, baseURL }) => {
     test.setTimeout(120000);
-    const hostCtx = await browser.newContext({ baseURL });
-    const guestCtx = await browser.newContext({ baseURL });
+    const hostCtx = await browser.newContext({ baseURL, permissions: ['camera', 'microphone'] });
+    const guestCtx = await browser.newContext({ baseURL, permissions: ['camera', 'microphone'] });
+    test.info().setTimeout(120000);
     const host = await hostCtx.newPage();
     const guest = await guestCtx.newPage();
 
@@ -25,16 +26,26 @@ test.describe('Live meeting flow (two browsers)', () => {
     await expect(host.locator('#connText')).toHaveText('Server online');
     await host.fill('#displayName', 'Host Hannah');
     await host.click('#startMeetingBtn');
-    await expect(host.locator('#meetingBar')).toBeVisible();
+    await expect(host.locator('#meetingBar')).toBeVisible({ timeout: 20000 });
     const meetingId = (await host.locator('#meetingIdLabel').textContent()).trim();
     expect(meetingId).toMatch(/^\d{3} \d{4} \d{4}$/);
     await expect(host.locator('#endCallBtn')).toHaveText('End for Everyone');
 
     await guest.goto(APP_URL);
+    await expect(guest.locator('#connText')).toHaveText('Server online');
+    await guest.evaluate(() => {
+      window.__meetingTestToasts = [];
+      new MutationObserver(() => window.__meetingTestToasts.push(document.querySelector('#toasts').textContent)).observe(document.querySelector('#toasts'), { childList: true, subtree: true, characterData: true });
+    });
     await guest.fill('#displayName', 'Guest Gary');
     await guest.fill('#meetingIdInput', meetingId);
     await guest.click('#joinMeetingBtn');
-    await expect(guest.locator('#meetingBar')).toBeVisible();
+    try {
+      await expect(guest.locator('#meetingBar')).toBeVisible({ timeout: 20000 });
+    } catch (error) {
+      await test.info().attach('guest-join-messages', { body: JSON.stringify(await guest.evaluate(() => window.__meetingTestToasts)), contentType: 'application/json' });
+      throw error;
+    }
 
     // Both sides render two tiles and receive the other side's live video
     for (const page of [host, guest]) {

@@ -13,6 +13,9 @@ export function createPhoneJoinRouter(deps: {
   /** Durable call-id ledger and timeouts; see AdmissionOptions. Production must supply a ledger. */
   admission?: AdmissionOptions;
 }) {
+  if (process.env.NODE_ENV === 'production' && deps.admission?.ledger?.durable !== true) {
+    throw new Error('telephone admission requires a durable shared CallLedger in production');
+  }
   const router = express.Router();
   router.get('/capabilities', deps.authenticateGateway, deps.rateLimit, async (_req, res) => {
     try {

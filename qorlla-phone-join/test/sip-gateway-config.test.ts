@@ -9,7 +9,14 @@ import { SyntheticPhone } from './helpers/synthetic-phone.js';
 const good = (): SipGatewayConfig => ({ enabled: true, sip: { host: '127.0.0.1', port: 0, realm: 'qorlla-gw', allowedSources: ['127.0.0.1'], maxCalls: 4 }, digest: { secret: crypto.randomBytes(32), ha1ByUser: { trunk1: ha1('SHA-256', 'trunk1', 'qorlla-gw', 'trunk-secret') } },
   media: { bindHost: '127.0.0.1', publicHost: '127.0.0.1', portRange: [32000, 32100] } });
 const deps = (ready: Partial<Readiness> = {}) => ({ authority: { verifyPhoneJoin: async () => ({ allowed: false, requiresHostApproval: false }), requestHostApproval: async () => false }, reporter: { reportMedia: async () => ({ result: 'rejected' }) },
-  meeting: { open: async () => { throw new Error('no meeting audio in this test'); } }, readiness: async () => ({ carrierConnected: false, inboundNumberCertified: false, gatewayHealthy: false, mediaBridgeCertified: false, billingCertified: false, productionApproved: false, ...ready }) });
+  meeting: { open: async () => { throw new Error('no meeting audio in this test'); } }, ledger: { durable: true as const, claim: async () => true, release: async () => {} }, readiness: async () => ({ carrierConnected: false, inboundNumberCertified: false, gatewayHealthy: false, mediaBridgeCertified: false, billingCertified: false, productionApproved: false, ...ready }) });
+
+test('non-lab startup refuses a missing or process-local ledger before binding any sockets', () => {
+  assert.throws(() => createSipGateway(good(), { ...deps(), ledger: undefined }), /durable shared CallLedger/);
+  assert.throws(() => createSipGateway(good(), { ...deps(), ledger: { claim: async () => true, release: async () => {} } }), /durable shared CallLedger/);
+  const lab = good(); lab.labMode = true;
+  assert.doesNotThrow(() => createSipGateway(lab, { ...deps(), ledger: undefined }));
+});
 
 test('a complete configuration has no problems; every missing or unsafe part is named and stops the gateway from starting', () => {
   assert.deepEqual(configProblems(good()), []);

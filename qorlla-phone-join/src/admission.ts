@@ -43,6 +43,8 @@ export type CallState = 'claimed' | 'authorizing' | 'awaiting_host' | 'attaching
  * it returns false when the move is not allowed from the current state.
  */
 export interface CallLedger {
+  /** Set only by an adapter with durable, shared, atomic storage. */
+  readonly durable?: boolean;
   claim(callId: string): Promise<boolean>;
   release(callId: string): Promise<void>;
   transition?(callId: string, to: CallState, detail?: { meetingSessionId?: string; reason?: string }): Promise<boolean>;
@@ -50,6 +52,8 @@ export interface CallLedger {
 export type AdmissionResult = { status: 200 | 403 | 409 | 503; code: string; announcement: string };
 export type AdmissionOptions = {
   ledger?: CallLedger;
+  /** Enforced at production entry points; unit/lab callers may use an in-memory ledger. */
+  requireDurableLedger?: boolean;
   /** Meeting lookup and media attach must answer within this time (default 10 s). */
   stepTimeoutMs?: number;
   /** Each durable ledger operation must finish within this time (default 5 s); a ledger that does not answer stops the admission. */
@@ -89,6 +93,7 @@ export async function admitTelephoneCall(
 ): Promise<AdmissionResult> {
   const stepMs = options.stepTimeoutMs ?? 10_000, ledgerMs = options.ledgerTimeoutMs ?? 5_000, hostMs = options.hostApprovalTimeoutMs ?? 60_000, ledger = options.ledger;
   if (!telephoneReady(readiness)) return { status: 503, code: 'PHONE_JOIN_UNAVAILABLE', announcement: UNAVAILABLE_MESSAGE };
+  if ((options.requireDurableLedger || process.env.NODE_ENV === 'production') && (!ledger || ledger.durable !== true)) return { status: 503, code: 'PHONE_JOIN_UNAVAILABLE', announcement: UNAVAILABLE_MESSAGE };
   if (typeof req?.meetingId !== 'string' || typeof req.passcode !== 'string' || typeof req.callId !== 'string' || typeof req.dialedNumber !== 'string' || (req.callerNumber !== undefined && (typeof req.callerNumber !== 'string' || !/^\+[1-9]\d{5,14}$/.test(req.callerNumber))) ||
       normalizeMeetingCode(req.meetingId) === null || req.passcode.length < 4 || req.passcode.length > 128 ||
       !/^[-A-Za-z0-9_:]{8,128}$/.test(req.callId) || !/^\+[1-9]\d{5,14}$/.test(req.dialedNumber)) {

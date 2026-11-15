@@ -16,8 +16,14 @@ const cors = require('cors');
 const crypto = require('crypto');
 
 const isProduction = process.env.NODE_ENV === 'production';
+// The root room and mock APIs are development prototypes. Production uses Meet.
+const legacyRoomsEnabled = !isProduction && process.env.ENABLE_LEGACY_ROOMS !== 'false';
+const prototypeApisEnabled = !isProduction && process.env.ENABLE_PROTOTYPE_APIS !== 'false';
 if (isProduction) {
     const problems = [];
+    try {
+        if (new URL(process.env.PUBLIC_URL || '').protocol !== 'https:') throw new Error();
+    } catch { problems.push('PUBLIC_URL must be an absolute HTTPS URL in production.'); }
     if (!/^[0-9a-f]{64}$/i.test(process.env.ENCRYPT_KEY || '')) {
         problems.push('ENCRYPT_KEY must be 64 hexadecimal characters (32 bytes).');
     }
@@ -57,9 +63,18 @@ function originAllowed(req, origin) {
 }
 
 const app = express();
+app.disable('x-powered-by');
+app.use(['/api/docs', '/api/appointments', '/api/post-meeting', '/api/notifications'], (req, res, next) => {
+    if (!prototypeApisEnabled) return res.status(404).json({ error: 'Prototype service unavailable.' });
+    next();
+});
+app.use('/api/meetings', (req, res, next) => {
+    if (!legacyRoomsEnabled) return res.status(404).json({ error: 'Use the authenticated Qorlla Meet service.' });
+    next();
+});
 // Behind nginx (private network) so req.ip reflects the real client for sign-in throttling
 app.set('trust proxy', 'loopback, linklocal, uniquelocal');
-// Baseline response hardening. (A strict script CSP is not possible yet: the pages use inline scripts.)
+// Baseline response hardening; HTML responses additionally receive a nonce CSP.
 app.use((req, res, next) => {
     res.set({
         'X-Content-Type-Options': 'nosniff',
@@ -108,6 +123,11 @@ console.log('[Config] Email service: ' + (mailer.enabled ? 'ON (links use ' + ma
     : mailer.configured ? 'OFF - SMTP is set but PUBLIC_URL is missing (required in production)'
     : 'OFF (set SMTP_URL, SMTP_FROM and PUBLIC_URL to enable reset links and outside mail)'));
 const auth = require('./auth')({ dataDir: DATA_ROOT, mailer });
+app.use('/api', (req, res, next) => {
+    if (!isProduction || ['GET', 'HEAD', 'OPTIONS'].includes(req.method) || !auth.getUser(req)) return next();
+    if (!auth.verifyCsrf(req)) return res.status(403).json({ error: 'Invalid CSRF token.' });
+    next();
+});
 app.use('/api/auth', auth.router);
 
 // Workplace carries whiteboard images, so it parses its own (larger) JSON bodies
@@ -124,6 +144,7 @@ app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, {
+    maxHttpBufferSize: 65536,
     cors: {
         origin: Array.from(allowedOrigins),
         methods: ['GET', 'POST'],
@@ -150,6 +171,8 @@ const activeRooms = new Map(); // meetingId -> Map(socketId -> participant)
 const ALLOWED_REACTIONS = new Set(['👍', '👏', '❤️', '😂', '🎉', '😮']);
 const MAX_CHAT_LENGTH = 2000;
 const MAX_NOTES_LENGTH = 20000;
+const MAX_CHAT_HISTORY = 200;
+const MAX_DOCUMENTS = 100;
 
 const normalizeId = (id) => String(id || '').replace(/\s+/g, ' ').trim();
 const HOST_COOKIE = 'qh';
@@ -263,20 +286,36 @@ app.get('/api/health', (req, res) => {
 
 // Serve only the two UI pages (never the server source directory)
 // "/" is the Workplace home page; it links on to the video page.
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'qorlla.html'));
-});
+const htmlCache = new Map();
+function sendHtml(res, filename) {
+    let html = htmlCache.get(filename);
+    if (!html) {
+        html = fs.readFileSync(path.join(__dirname, filename), 'utf8');
+        htmlCache.set(filename, html);
+    }
+    const nonce = crypto.randomBytes(24).toString('base64');
+    res.set('Cache-Control', 'no-store');
+    res.set('Content-Security-Policy', `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' ws: wss:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`);
+    html = html.replace(/<head>/i, '<head><script src="/assets/security-fetch.js"></script>');
+    res.type('html').send(html.replace(/<script\b/g, `<script nonce="${nonce}"`));
+}
+app.get('/', (req, res) => sendHtml(res, 'qorlla.html'));
 app.get('/qorlla.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'qorlla.html'));
+    sendHtml(res, 'qorlla.html');
 });
 app.get('/login.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'login.html'));
+    sendHtml(res, 'login.html');
 });
 app.get('/chat.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'chat.html'));
+    sendHtml(res, 'chat.html');
 });
 app.get('/index.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    if (!legacyRoomsEnabled) {
+        const meetUrl = process.env.MEET_PUBLIC_URL;
+        if (meetUrl && allowedOrigins.has(new URL(meetUrl).origin)) return res.redirect(302, meetUrl);
+        return res.status(503).type('text').send('Legacy meetings are disabled. Configure the authenticated Qorlla Meet service.');
+    }
+    sendHtml(res, 'index.html');
 });
 
 // ==========================================
@@ -419,6 +458,24 @@ function leaveCurrentRoom(socket) {
 }
 
 io.on('connection', (socket) => {
+    // Bound every inbound event, including signaling, before its handler runs.
+    let eventWindow = Date.now(), eventCount = 0;
+    let signalWindow = Date.now(), signalCount = 0;
+    socket.use(([event, payload], next) => {
+        if (!legacyRoomsEnabled) {
+            socket.emit('error_response', { message: 'Legacy rooms are disabled. Use authenticated Qorlla Meet.' });
+            return;
+        }
+        if (payload !== undefined && (payload === null || typeof payload !== 'object' || Array.isArray(payload))) return;
+        const now = Date.now();
+        if (now - eventWindow >= 10000) { eventWindow = now; eventCount = 0; }
+        if (now - signalWindow >= 1000) { signalWindow = now; signalCount = 0; }
+        if (++eventCount > 300 || (event === 'webrtc_signal' && ++signalCount > 60)) {
+            socket.disconnect(true);
+            return;
+        }
+        next();
+    });
     console.log(`[Socket Connected]: Socket Session initialized (${socket.id})`);
 
     // Signed-in visitors get a private room so chat/mail changes can be pushed to them instantly.
@@ -432,6 +489,10 @@ io.on('connection', (socket) => {
     };
 
     socket.on('join_room', ({ meetingId, userId, userName } = {}) => {
+        if (!legacyRoomsEnabled) {
+            socket.emit('error_response', { message: 'Legacy rooms are disabled. Use authenticated Qorlla Meet.' });
+            return;
+        }
         const cleanId = normalizeId(meetingId);
         const currentMeeting = meetingsState.get(cleanId);
 
@@ -517,6 +578,7 @@ io.on('connection', (socket) => {
             };
 
             meeting.chatHistory.push(chatPayload);
+            if (meeting.chatHistory.length > MAX_CHAT_HISTORY) meeting.chatHistory.splice(0, meeting.chatHistory.length - MAX_CHAT_HISTORY);
             saveSnapshotSoon();
             io.to(roomId).emit('chat_message_received', chatPayload);
         }
@@ -525,7 +587,7 @@ io.on('connection', (socket) => {
     socket.on('notes_update', ({ text } = {}, ack) => {
         const meeting = meetingsState.get(socket.currentRoom);
         const me = currentParticipant();
-        if (!meeting || !me || typeof text !== 'string') {
+        if (!meeting || !me || !isHostFor(socket, meeting) || typeof text !== 'string') {
             if (typeof ack === 'function') ack({ ok: false });
             return;
         }
@@ -559,7 +621,7 @@ io.on('connection', (socket) => {
     socket.on('document_linked', ({ fileName, fileUrl, fileSize } = {}) => {
         const meeting = meetingsState.get(socket.currentRoom);
 
-        if (meeting && currentParticipant()) {
+        if (meeting && currentParticipant() && meeting.documents.length < MAX_DOCUMENTS) {
             const assetPayload = {
                 id: uuidv4(),
                 fileName: String(fileName || '').slice(0, 255),

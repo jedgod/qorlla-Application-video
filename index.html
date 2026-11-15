@@ -124,18 +124,18 @@
             <!-- Join bar (before joining) -->
             <div id="joinBar" class="flex flex-wrap items-end gap-3 rounded-2xl border border-white/5 bg-slate-950/40 p-3">
               <label class="flex min-w-[140px] flex-1 flex-col gap-1 text-[11px] font-semibold text-slate-400">Your name
-                <input id="displayName" maxlength="40" autocomplete="name" placeholder="e.g. Jane Doe" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-400" />
+                <input id="displayName" maxlength="40" autocomplete="name" placeholder="e.g. Jane Doe" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-400" disabled />
               </label>
               <label class="flex min-w-[160px] flex-1 flex-col gap-1 text-[11px] font-semibold text-slate-400"><span data-i18n="Meeting ID">Meeting ID</span>
-                <input id="meetingIdInput" inputmode="numeric" placeholder="858 9833 3712" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2 font-mono text-sm text-white outline-none focus:border-blue-400" />
+                <input id="meetingIdInput" inputmode="numeric" placeholder="858 9833 3712" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2 font-mono text-sm text-white outline-none focus:border-blue-400" disabled />
               </label>
               <div class="flex flex-wrap items-center gap-3 text-[11px] text-slate-300">
                 <label class="flex items-center gap-1.5"><input id="joinMic" type="checkbox" checked class="accent-blue-500" /> Mic</label>
                 <label class="flex items-center gap-1.5"><input id="joinCam" type="checkbox" checked class="accent-blue-500" /> <span data-i18n="Camera">Camera</span></label>
               </div>
               <div class="flex gap-2">
-                <button id="startMeetingBtn" class="rounded-xl bg-gradient-to-r from-blue-500 to-cyan-400 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-blue-900/30 hover:brightness-110 disabled:opacity-50">New Meeting</button>
-                <button id="joinMeetingBtn" class="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20 disabled:opacity-50"><span data-i18n="Join">Join</span></button>
+                <button id="startMeetingBtn" class="rounded-xl bg-gradient-to-r from-blue-500 to-cyan-400 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-blue-900/30 hover:brightness-110 disabled:opacity-50" disabled>New Meeting</button>
+                <button id="joinMeetingBtn" class="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20 disabled:opacity-50" disabled><span data-i18n="Join">Join</span></button>
               </div>
             </div>
 
@@ -198,12 +198,12 @@
             </div>
             <div id="schedBody" class="space-y-4">
               <div class="flex flex-wrap items-center gap-3">
-                <input id="slotDate" type="date" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-1.5 text-xs text-white outline-none focus:border-blue-400" aria-label="Select date" />
-                <select id="slotRange" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-1.5 text-xs text-white outline-none focus:border-blue-400" aria-label="Day range">
+                <input id="slotDate" type="date" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-1.5 text-xs text-white outline-none focus:border-blue-400" aria-label="Select date" disabled />
+                <select id="slotRange" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-1.5 text-xs text-white outline-none focus:border-blue-400" aria-label="Day range" disabled>
                   <option value="day">Selected day</option>
                   <option value="week">Next 7 days (see all)</option>
                 </select>
-                <select id="slotFilter" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-1.5 text-xs text-white outline-none focus:border-blue-400" aria-label="Slot filter">
+                <select id="slotFilter" class="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-1.5 text-xs text-white outline-none focus:border-blue-400" aria-label="Slot filter" disabled>
                   <option value="all">All slots</option>
                   <option value="available">Available only</option>
                   <option value="booked">Booked only</option>
@@ -1040,18 +1040,21 @@
       setJoinBusy(true);
       saveName();
       try {
-        await ensureSocket();
         let meetingId;
         if (create) {
           const res = await postJson('/api/meetings/create', { topic: myName() + "'s Meeting", hostId: me.id });
           if (!res.ok) throw new Error('Could not create the meeting.');
           meetingId = res.body.meeting.meetingId;
+          // Allocation may issue a new host cookie. Reconnect so the socket's
+          // handshake carries that cookie before the server derives our role.
+          if (socket) { socket.disconnect(); socket = null; }
         } else {
           meetingId = formatMeetingId($('meetingIdInput').value);
           if (!meetingId) throw new Error('Enter a meeting ID first.');
           const res = await api('/api/meetings/validate/' + encodeURIComponent(meetingId));
-          if (!res.ok) throw new Error('That meeting ID is invalid or has ended.');
+          if (!res.ok) throw new Error(res.status === 429 ? (res.body.error || 'Too many meeting checks. Try again shortly.') : 'That meeting ID is invalid or has ended.');
         }
+        await ensureSocket();
         if ($('joinMic').checked && !micOn) await setMic(true);
         if ($('joinCam').checked && !camOn) await setCam(true);
         socket.emit('join_room', { meetingId, userId: me.id, userName: myName() });
@@ -1279,6 +1282,7 @@
     layout();
     renderPeople();
     const invited = params.get('meeting');
+    ['displayName', 'meetingIdInput', 'startMeetingBtn', 'joinMeetingBtn', 'slotDate', 'slotRange', 'slotFilter'].forEach((id) => { $(id).disabled = false; });
     if (invited) { $('meetingIdInput').value = invited; toast('Enter your name and press Join to enter meeting ' + invited); }
     // Launched from the Workplace home page (qorlla.html)
     const startMode = params.get('start');

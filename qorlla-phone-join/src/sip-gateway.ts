@@ -38,11 +38,14 @@ export function configProblems(c: SipGatewayConfig | null | undefined): string[]
 }
 export type SipGatewayDeps = { authority: MeetingAuthority; reporter: MediaReporter; meeting: MeetingAudio; readiness: () => Promise<Readiness>; ledger?: CallLedger; log?: Logger; onEnded?: ControllerConfig['onEnded'] };
 export function createSipGateway(c: SipGatewayConfig, d: SipGatewayDeps) {
+  if (c?.labMode !== true && (!d.ledger || d.ledger.durable !== true)) {
+    throw new Error('telephone gateway not started: a durable shared CallLedger is required outside explicit lab mode');
+  }
   const problems = configProblems(c); if (problems.length) throw new Error('telephone gateway not started: ' + problems.join('; '));
   const digest = new DigestAuthenticator({ realm: c.sip.realm, secret: c.digest.secret, lookup: (u) => (Object.prototype.hasOwnProperty.call(c.digest.ha1ByUser, u) ? c.digest.ha1ByUser[u] : undefined), algorithms: c.digest.algorithms });
   const ingress = new UdpSipIngress({ ...c.sip, digest, requireDigest: true, log: d.log }), gateway = new SipMediaGateway({ meeting: d.meeting, log: d.log });
   const bridge = meetConfirmedBridge({ gateway, meet: d.reporter });
-  const controller = new TelephoneController({ ingress, gateway, bridge, authority: d.authority, readiness: d.readiness, media: c.media, admission: { ledger: d.ledger }, onEnded: d.onEnded, log: d.log });
+  const controller = new TelephoneController({ ingress, gateway, bridge, authority: d.authority, readiness: d.readiness, media: c.media, admission: { ledger: d.ledger, requireDurableLedger: c.labMode !== true }, onEnded: d.onEnded, log: d.log });
   return {
     ingress, gateway, bridge, controller,
     async start() { controller.start(); return ingress.start(); },

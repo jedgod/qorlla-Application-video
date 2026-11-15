@@ -1,6 +1,8 @@
 # Qorlla Join Meeting by Telephone — Fail-Closed Integration Starter
 
-**Status: NOT a working PSTN/SIP/RTP gateway.** This starter supplies a safe admission contract and tests. It cannot accept actual telephone calls, play IVR announcements, transcode audio, or bridge media. Never advertise a dial-in number until an operator-certified inbound carrier and SIP/RTP-to-Qorlla SFU/mixer bridge are deployed.
+**Status: implemented lab gateway components; NOT certified or approved for production PSTN.** Source includes SIP ingress, DTMF/IVR, RTP/SRTP and a WebRTC mesh audio bridge. Local tests are not evidence of carrier connectivity, a public number, physical-phone interoperability or production deployment. All six readiness gates remain required and must stay false without independent evidence. Never advertise a dial-in number before carrier and end-to-end certification.
+
+Non-lab SIP startup requires a shared durable `CallLedger` (`PostgresCallLedger` supplies the durable adapter). Production HTTP admission and direct production admission also refuse a missing/non-durable ledger. An in-memory fixture is not a production ledger. Explicit lab mode is only for isolated lab runs and does not waive the six readiness gates. See `docs/MEET_INTEGRATION.md` for outstanding release gates.
 
 ## Install and test
 

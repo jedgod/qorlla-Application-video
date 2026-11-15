@@ -14,7 +14,11 @@ const { v4: uuidv4 } = require('uuid');
 const store = require('./store');
 
 const COOKIE = 'qs';
-const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+const sessionHours = Number(process.env.SESSION_TTL_HOURS || 12);
+if (!Number.isFinite(sessionHours) || sessionHours < 1 || sessionHours > 168) {
+    throw new Error('SESSION_TTL_HOURS must be between 1 and 168.');
+}
+const SESSION_MS = sessionHours * 60 * 60 * 1000;
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 60 * 60 * 1000;
 const USERNAME_RE = /^[a-z0-9][a-z0-9_.-]{2,23}$/;
@@ -22,6 +26,7 @@ const CODE_COUNT = 10;
 const HOUR = 60 * 60 * 1000;
 
 module.exports = function createAuth({ dataDir, mailer }) {
+    const csrfSecret = crypto.randomBytes(32);
     const dir = path.join(dataDir, 'auth');
     const usersFile = path.join(dir, 'users.json');
     const sessionsFile = path.join(dir, 'sessions.json');
@@ -91,14 +96,16 @@ module.exports = function createAuth({ dataDir, mailer }) {
         const out = {};
         String(req.headers.cookie || '').split(';').forEach((part) => {
             const i = part.indexOf('=');
-            if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+            if (i > 0) {
+                try { out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); } catch { /* malformed cookies are not sessions */ }
+            }
         });
         return out;
     }
     // Secure when the site is configured for https, or when this very request arrived over https
     // (req.secure honours the proxy headers because server.js trusts private-network proxies)
     function setCookie(req, res, token, maxAgeMs) {
-        const secure = ((process.env.PUBLIC_URL || '').startsWith('https://') || req.secure) ? ['Secure'] : [];
+        const secure = (process.env.NODE_ENV === 'production' || (process.env.PUBLIC_URL || '').startsWith('https://') || req.secure) ? ['Secure'] : [];
         res.setHeader('Set-Cookie', [`${COOKIE}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${Math.floor(maxAgeMs / 1000)}`, ...secure].join('; '));
     }
     function loadSessions() {
@@ -119,6 +126,14 @@ module.exports = function createAuth({ dataDir, mailer }) {
         store.writeJson(sessionsFile, sessions);
     }
     const currentHash = (req) => { const t = parseCookies(req)[COOKIE]; return t ? sha(t) : null; };
+    function csrfToken(req) {
+        const hash = currentHash(req);
+        return hash && getUser(req) ? crypto.createHmac('sha256', csrfSecret).update(hash).digest('hex') : null;
+    }
+    function verifyCsrf(req) {
+        const expected = csrfToken(req), supplied = req.get('x-csrf-token');
+        return !!expected && /^[0-9a-f]{64}$/.test(supplied || '') && crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(supplied, 'hex'));
+    }
 
     function getUser(req) {
         const token = parseCookies(req)[COOKIE];
@@ -190,6 +205,9 @@ module.exports = function createAuth({ dataDir, mailer }) {
         return l;
     }
     const loginLimit = limiter('login', 5, 15 * 60 * 1000);
+    const signupMax = Number(process.env.SIGNUP_LIMIT || 10);
+    if (!Number.isInteger(signupMax) || signupMax < 1 || signupMax > 100) throw new Error('SIGNUP_LIMIT must be between 1 and 100.');
+    const signupLimit = limiter('signup', signupMax, HOUR);
     const recoverLimit = limiter('recover', 5, 15 * 60 * 1000);
     const pwLimit = limiter('password', 5, 15 * 60 * 1000);
     const forgotIpLimit = limiter('forgotIp', 5, HOUR);
@@ -219,7 +237,33 @@ module.exports = function createAuth({ dataDir, mailer }) {
         res.json({ emailEnabled: mailer.enabled, encryptedAtRest: store.enabled });
     });
 
+    router.get('/csrf', (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        res.json({ token: csrfToken(req) });
+    });
+    router.get('/sessions', requireUser, (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        res.json({ sessions: Object.entries(loadSessions()).filter(([, s]) => s.userId === req.user.id).map(([id, s]) => ({ id, expiresAt: new Date(s.exp).toISOString(), current: id === currentHash(req) })) });
+    });
+    router.delete('/sessions/:id', requireUser, (req, res) => {
+        const sessions = loadSessions(), session = sessions[req.params.id];
+        if (!session || session.userId !== req.user.id) return res.status(404).json({ error: 'Session not found.' });
+        delete sessions[req.params.id];
+        store.writeJson(sessionsFile, sessions);
+        if (req.params.id === currentHash(req)) setCookie(req, res, '', 0);
+        res.json({ ok: true });
+    });
+    router.post('/logout-all', requireUser, (req, res) => {
+        dropSessions(req.user.id);
+        setCookie(req, res, '', 0);
+        res.json({ ok: true });
+    });
+
     router.post('/register', async (req, res) => {
+        const signupKey = req.ip || req.socket.remoteAddress || 'unknown';
+        if (signupLimit.blocked(signupKey)) return res.status(429).json({ error: 'Too many signup attempts. Try again later.' });
+        // Count invalid and successful requests before any expensive hashing or email.
+        signupLimit.record(signupKey);
         const body = req.body || {};
         const username = String(body.username || '').trim().toLowerCase();
         const displayName = String(body.displayName || '').trim().slice(0, 60) || username;
@@ -445,5 +489,5 @@ module.exports = function createAuth({ dataDir, mailer }) {
         res.status(500).json({ error: 'Server error.' });
     });
 
-    return { router, getUser, requireUser, listUsers: () => loadUsers().map(publicUser) };
+    return { router, getUser, requireUser, verifyCsrf, listUsers: () => loadUsers().map(publicUser) };
 };

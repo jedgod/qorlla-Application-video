@@ -9,8 +9,8 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5000
-      # Optional. Put real values in a .env file next to this one (see .env.example).
-      - PUBLIC_URL=${PUBLIC_URL:-}
+      # Required public HTTPS URL; optional mail settings follow (see .env.example).
+      - PUBLIC_URL=${PUBLIC_URL:?set PUBLIC_URL to the HTTPS public URL}
       - ENCRYPT_KEY=${ENCRYPT_KEY:?set ENCRYPT_KEY in .env}
       - ENCRYPT_KEY_OLD=${ENCRYPT_KEY_OLD:-}
       - SMTP_URL=${SMTP_URL:-}
@@ -92,7 +92,7 @@ services:
     volumes:
       - ./Qorlla-Logo.jpg:/usr/share/nginx/html/Qorlla-Logo.jpg:ro
       - ./deploy/nginx/snippets:/etc/nginx/snippets:ro
-      - ${PROXY_TLS_CONF:-./deploy/nginx/tls-disabled.conf}:/etc/nginx/conf.d/tls.conf:ro
+      - ${PROXY_TLS_CONF:?set PROXY_TLS_CONF to the reviewed TLS configuration}:/etc/nginx/conf.d/tls.conf:ro
       - ${PROXY_CERT_DIR:-./deploy/certs}:/etc/nginx/certs:ro
       - ./index.html:/usr/share/nginx/html/index.html:ro
       - ./qorlla.html:/usr/share/nginx/html/qorlla.html:ro

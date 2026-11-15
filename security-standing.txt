@@ -1,3 +1,6 @@
+LOCAL SOURCE REMEDIATION NOTICE ? 2026-11-14
+This historical standing review does not certify the current source or deployment. See AUDIT-REMEDIATION-2026-11-14.md for changes, validation limits and remaining release blockers. Production release remains NO-GO.
+
 QORLLA SECURITY STANDING
 Updated 2026-11-06. Defensive review and isolated automated verification.
 

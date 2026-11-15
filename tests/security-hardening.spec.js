@@ -62,6 +62,11 @@ test('anonymous host powers require the server-issued cookie and private identif
   expect(guestState.participants.find((participant) => participant.socketId === guest.id).role).toBe('participant');
   expect(guestState.participants.every((participant) => !Object.hasOwn(participant, 'userId'))).toBe(true);
 
+  const guestNotes = await new Promise((resolve) => guest.timeout(3000).emit('notes_update', { text: 'Unauthorized overwrite' }, (_err, result) => resolve(result)));
+  expect(guestNotes).toEqual({ ok: false });
+  const hostNotes = await new Promise((resolve) => host.timeout(3000).emit('notes_update', { text: 'Host-owned agenda' }, (_err, result) => resolve(result)));
+  expect(hostNotes).toEqual({ ok: true });
+
   const valid = await request.get(`/api/meetings/validate/${encodeURIComponent(meetingId)}`);
   expect(valid.status()).toBe(200);
   expect(await valid.json()).toEqual({ isValid: true });
@@ -98,7 +103,9 @@ test('cross-origin state changes are denied and meeting validation does not reve
 
   let throttled;
   for (let attempt = 0; attempt < 21; attempt++) {
-    throttled = await request.get('/api/meetings/validate/000%200000%200000');
+    // Exhaust a dedicated test source, not the browser tests' shared localhost
+    // quota. The disposable backend trusts this loopback reverse-proxy header.
+    throttled = await request.get('/api/meetings/validate/000%200000%200000', { headers: { 'X-Forwarded-For': '192.0.2.211' } });
   }
   expect(throttled.status()).toBe(429);
 });

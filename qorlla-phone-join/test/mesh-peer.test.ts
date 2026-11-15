@@ -59,6 +59,12 @@ test('ICE restart: when a browser asks (restart), the gateway re-offers with NEW
   await eventually(() => session.isConnected() && a.connectedTo('g-phone'), 15000); await eventually(() => power(a.heard.slice(-25), 440) > 0.01 && power(heardByPhone.slice(-25), 1000) > 0.003, 15000); const first = a.offerUfrags.length;
   a.restart('g-phone'); await eventually(() => a.offerUfrags.length > first, 10000); assert.ok(a.offerUfrags.length > first, 'the gateway sent a new offer');
   const known = new Set(a.offerUfrags.slice(0, first)); assert.ok(a.offerUfrags.slice(first).some((u) => u && !known.has(u)), 'the new offer carries new ICE credentials: ' + a.offerUfrags.join(','));
-  await eventually(() => session.isConnected() && a.connectedTo('g-phone'), 15000); const nA = a.heard.length, nP = heardByPhone.length; await sleep(800);
-  assert.ok(a.heard.length > nA + 10 && heardByPhone.length > nP + 10, 'audio flows both ways after the restart'); assert.ok(power(a.heard.slice(-25), 440) > 0.01); assert.equal(relay.rejected.length, 0, 'the relay carried the restart request');
+  assert.ok(await eventually(() => session.isConnected() && a.connectedTo('g-phone'), 15000), 'the restarted connection becomes connected');
+  // Count and measure NEW frames, not stale pre-restart audio. A fixed 800 ms
+  // wall-clock sleep assumes the host schedules 20 ms pumps on time; that is
+  // not a media-recovery assertion on a saturated host or a latency threshold.
+  a.heard.length = 0; heardByPhone.length = 0;
+  assert.ok(await eventually(() => a.heard.length > 10 && heardByPhone.length > 10 && power(a.heard.slice(-25), 440) > 0.01 && power(heardByPhone.slice(-25), 1000) > 0.003, 15000),
+    'new two-way audio is verified after restart: ' + JSON.stringify({ browserFrames: a.heard.length, phoneFrames: heardByPhone.length, stats: session.stats() }));
+  assert.equal(relay.rejected.length, 0, 'the relay carried the restart request');
 });

@@ -16,6 +16,7 @@ import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import { Server } from 'socket.io';
 import { recoveryService } from './recovery-service.mjs';
+import { createSignalBudget } from './signal-budget.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const SECRET = process.env.JWT_SECRET;
@@ -51,7 +52,9 @@ const directory = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 app.use(express.static(directory));
 const clean = (s, max) => typeof s === 'string' ? s.trim().slice(0, max) : '';
 const fail = (res, status, error) => res.status(status).json({ error });
-const sign = (p) => jwt.sign(p, SECRET, { expiresIn: '8h', issuer: 'qorlla-meet' });
+const tokenMinutes = Number(process.env.JWT_TTL_MINUTES || 60);
+if (!Number.isInteger(tokenMinutes) || tokenMinutes < 5 || tokenMinutes > 480) throw Error('JWT_TTL_MINUTES must be between 5 and 480');
+const sign = (p) => jwt.sign(p, SECRET, { expiresIn: tokenMinutes * 60, issuer: 'qorlla-meet' });
 const verify = (token) => jwt.verify(token, SECRET, { issuer: 'qorlla-meet' });
 const audit = (meetingId, participantId, eventType, detail={}) => db.query('INSERT INTO audit_events(meeting_id,participant_id,event_type,detail) VALUES($1,$2,$3,$4)', [meetingId,participantId,eventType,JSON.stringify(detail)]).catch(console.error);
 const room = id => `meeting:${id}`;
@@ -260,10 +263,14 @@ io.use(async(socket,next)=>{
 });
 io.on('connection',socket=>{
  const u=socket.data.user, id=u.meetingId, pid=u.participantId;
- // Flood control: signalling is exempt (WebRTC negotiation bursts); every other event shares a sliding budget.
+ // Negotiation has a separate burst/sustained budget; it is never exempt.
+ const allowSignal=createSignalBudget();
  const BUDGET=Number(process.env.SOCKET_EVENT_BUDGET||40), BUDGET_MS=10_000; let stamps=[];
  socket.use(([event,...args],next)=>{
-  if(event==='signal')return next();
+  if(event==='signal'){
+   if(allowSignal())return next();
+   const ack=args.find(a=>typeof a==='function');if(ack)ack({ok:false,error:'Signaling rate limited'});return;
+  }
   const now=Date.now();stamps=stamps.filter(t=>now-t<BUDGET_MS);
   if(stamps.length>=BUDGET){const ack=args.find(a=>typeof a==='function');if(ack)ack({ok:false,error:'Rate limited'});return;}
   stamps.push(now);next();

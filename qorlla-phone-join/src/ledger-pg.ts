@@ -41,6 +41,7 @@ type Held = { generation: number; state: CallState; confirmedAt: number };
  * A reaper never assumes: a lapsed lease is first CHALLENGED; the owner's next renewal clears the challenge; only a lease that stayed lapsed for the whole grace period is taken over (generation + 1).
  */
 export class PostgresCallLedger implements CallLedger {
+  readonly durable = true;
   private readonly held = new Map<string, Held>();
   private readonly lost: ((callId: string, reason: LossReason) => void)[] = [];
   private readonly lease: LeasePolicy; private readonly clock: () => number;

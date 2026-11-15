@@ -1,0 +1,130 @@
+[
+  {
+    "file": "server.js",
+    "sha256": "95db7355d36f1ac6b78c424ff82776a0ce2e8da71004aeee18b9273001857d87"
+  },
+  {
+    "file": "auth.js",
+    "sha256": "7d556fa162648b789efe6faea7690f685ca8bc2397d1404d1ea7e9b379d149a7"
+  },
+  {
+    "file": "index.html",
+    "sha256": "ad76b4a11b04e6f6d2ef277fc36d3f71e0f822cbe99bec6a5d65572dbcedc732"
+  },
+  {
+    "file": "assets/security-fetch.js",
+    "sha256": "fb9190954223a0321c91907dca410d8d2fe73a09ed60884f82fffd174e75bbd9"
+  },
+  {
+    "file": "Dockerfile",
+    "sha256": "dacb2de14cb89a8e797da53384bbc6ebe83da7cc21316725c10ce5fa49734730"
+  },
+  {
+    "file": ".dockerignore",
+    "sha256": "d38fd98129ebb8843966c700d6419f2a49fa9d28edc36f6f2c33b81c3a489557"
+  },
+  {
+    "file": ".env.example",
+    "sha256": "fea7e9cd986de38e0a66b9d5a882f428cd756d19832a0b129185ed75eef9c872"
+  },
+  {
+    "file": "package.json",
+    "sha256": "f812e19ca977840c7b22aeb6fe983675c224b3c45900cba0821092f2a86313b1"
+  },
+  {
+    "file": "package-lock.json",
+    "sha256": "f32095c9f24e3c06237048dc10cd2f491479eebf57c2ed1ba6c473d1b4a67158"
+  },
+  {
+    "file": "playwright.config.js",
+    "sha256": "4d0c27c7718d1697ae73f3f4eaec458a299e4e8df1ce2b2b45bc964acd02e6e3"
+  },
+  {
+    "file": "deploy/nginx/snippets/main-locations.conf",
+    "sha256": "71440fa0b9e9efed99a0e78f72a528a65259b54322a623e3e8ad369977bfe90f"
+  },
+  {
+    "file": "scripts/audit-security.test.cjs",
+    "sha256": "bfe269fbf178b507bbe1bb282b506560d254e569e44575c3fec6cbb3beb10f1c"
+  },
+  {
+    "file": "tests/security-hardening.spec.js",
+    "sha256": "1568fa20012c72e77d7cb68f20ff7111caa5f370cfa2ee681985ef9e2c1f3474"
+  },
+  {
+    "file": "tests/meeting.spec.js",
+    "sha256": "9cb6f082a433dc7a2dffff04d6c7cea84f65580f120777407c47254dfd156f22"
+  },
+  {
+    "file": "qorlla-meet-video/server/index.js",
+    "sha256": "ace570f461044e73c531aa6c8037fac3e9eaee942ef17ad4c9cf887c0bc4589b"
+  },
+  {
+    "file": "qorlla-meet-video/server/signal-budget.mjs",
+    "sha256": "1564207defe37bac7a94d76eb4a44fb09e01d0c244b7655ce0c22be345ec699d"
+  },
+  {
+    "file": "qorlla-meet-video/tests/signal-budget.test.mjs",
+    "sha256": "08ebf62da9479a8c29c6b5569052758d6c5021665c33a80389e4628a68068352"
+  },
+  {
+    "file": "qorlla-phone-join/src/admission.ts",
+    "sha256": "35526dea5d6301599813aca5f03c3950ef74d7b65ad6b9cb6350b1333b5bb83a"
+  },
+  {
+    "file": "qorlla-phone-join/src/sip-gateway.ts",
+    "sha256": "013155888f48eed83fa4e29a7020f8a9b4c16158a2ba2d3ca86d22f10090939a"
+  },
+  {
+    "file": "qorlla-phone-join/src/server.ts",
+    "sha256": "b65117dcc056b2b923706e4c1f56fc4293b446ae5048012f002387eb031410b0"
+  },
+  {
+    "file": "qorlla-phone-join/src/ledger-pg.ts",
+    "sha256": "06a1583a41d334382e01050a966669c705471079109df3b878fdb1a84cd6944e"
+  },
+  {
+    "file": "qorlla-phone-join/test/sip-gateway-config.test.ts",
+    "sha256": "0edd547b4332fcf589a84e707345730b269e4611bd3dc4902279f7484d15b921"
+  },
+  {
+    "file": "qorlla-phone-join/test/mesh-peer.test.ts",
+    "sha256": "ed8d72e1b4943fe133be4c8243cf0de5cb3d104492f5f837b072503971d9a574"
+  },
+  {
+    "file": "qorlla-phone-join/package.json",
+    "sha256": "0a733f7dd9d76edc0337fa49ac2fa9ddb5163b76836990f46e4c68f33ab9ef63"
+  },
+  {
+    "file": "qorlla-phone-join/package-lock.json",
+    "sha256": "fb36d58435a2defb51dcb093fa678e31dca8ea20529372a683c915d4eefc979e"
+  },
+  {
+    "file": "qorlla-phone-join/README.md",
+    "sha256": "0440835cd32c79ed912e8af2396dd4b0027e0d00aa4651ad9207b1ff183364b9"
+  },
+  {
+    "file": "qorlla-telephony/package-lock.json",
+    "sha256": "b906bde4dee61b7e4cc1a5e3e0b0c92e67142c5b4b8afca1e41bf02b7ad2e772"
+  },
+  {
+    "file": "docker-compose.yml",
+    "sha256": "0761315e8671319eec3f058a8dccfbbc0d7a752d889281968f4d62ec84710a0f"
+  },
+  {
+    "file": "nginx.conf",
+    "sha256": "682ebf0056789b12c5eb44d2b78e7e3d97e76847df9b015164736700269a4375"
+  },
+  {
+    "file": "security-standing.txt",
+    "sha256": "8ed85d9b3d9bc3a7aa9bd6a6ceaf69bab6febabd45d5eafb1b94aec0f567f74e"
+  },
+  {
+    "file": "scripts/playwright-server.cjs",
+    "sha256": "3da48d52d1dadd21f1069e4d9f4da4510ddf15b6ad3dd6e7ff0be288ba9165c2"
+  },
+  {
+    "file": "scripts/playwright-teardown.cjs",
+    "sha256": "ccff1664771982159d998f6e2e4d824f6652824ab23bec75160f1bdc2e459564"
+  }
+]
