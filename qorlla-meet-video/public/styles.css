@@ -347,7 +347,12 @@ html.portal-only #landing .landing-card>:not(.brand):not(#portalOnlyNote){displa
 .bk-acts{display:inline-flex;gap:6px;margin-right:8px}.bk-acts.hidden{display:none}.bk-act{height:24px;padding:0 10px;border-radius:999px;border:1px solid #6d28d9;background:#1b1330;color:#e9ddff;font:inherit;font-size:12px;cursor:pointer}.bk-act:hover:not(:disabled){background:#2a1b4d}.bk-act[aria-pressed=true]{background:#6d28d9;color:#fff}.bk-act:disabled{opacity:.5;cursor:default}.bk-act:focus-visible{outline:2px solid #c4b5fd;outline-offset:2px}
 .bk-help{border-color:#7c3aed;background:#17102a}
 .bk-chip{display:inline-flex;align-items:center;padding:2px 10px;border-radius:999px;background:#5b21b6;color:#fff;font-size:12px;margin-right:8px;font-variant-numeric:tabular-nums}.bk-chip.hidden{display:none}
-.bk-box{display:flex;flex-direction:column;gap:6px}.bk-head{display:flex;align-items:center;gap:8px}.bk-head strong{flex:1;font-size:12px}.bk-left{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.bk-box,.cl-box{display:flex;flex-direction:column;gap:6px}.bk-head{display:flex;align-items:center;gap:8px}.bk-head strong{flex:1;font-size:12px}.bk-left{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
 .bk-room{padding:5px 6px;background:#111823;border:1px solid #1f2736;border-radius:8px}.bk-room-h{display:flex;align-items:center;gap:8px}.bk-room-h strong{flex:1;font-size:11.5px;color:#f1f5fb}.bk-room-h small{color:#9aa6ba;font-size:10px}
 .bk-p{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px}.bk-p span:nth-child(2){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}.bk-on{color:#22c55e}.bk-off{color:#64748b}
-.bk-sel,.bk-box select{height:24px;background:#0e1118;border:1px solid #2a3243;border-radius:6px;color:#edf2fa;font:inherit;font-size:10.5px;padding:0 4px;max-width:46%}
+.bk-sel,.bk-box select,.cl-box select{height:24px;background:#0e1118;border:1px solid #2a3243;border-radius:6px;color:#edf2fa;font:inherit;font-size:10.5px;padding:0 4px;max-width:46%}
+
+/* Room board (v4.31) */
+.cl-h{font-size:12px;color:#f1f5fb}.cl-tabs,.cl-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.cl-tabs .mg-act[aria-pressed=true],.cl-tools .mg-act[aria-pressed=true]{background:#143a73;border-color:#2f5fb8;color:#fff}
+.cl-form{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.cl-form input,.cl-form textarea{flex:1 1 140px;min-width:0;background:#0e1118;border:1px solid #2a3243;border-radius:6px;color:#edf2fa;font:inherit;font-size:11px;padding:4px 6px}.cl-form textarea{min-height:44px;resize:vertical}
+.cl-cap{display:flex;gap:6px;align-items:center;margin:4px 0;font-size:12.5px}.bk-stats{display:block;margin:2px 0 4px}.cl-box .nt-preview{max-height:140px;overflow:auto;white-space:pre-wrap}

@@ -109,7 +109,7 @@ test('ready acknowledgement: a moved person shows as connecting until their page
   const h = await harness(); const { m } = await running(h);
   const st = async () => (await h.call('GET', m.P(''), m.host.user)).body; const ann = async () => (await st()).rooms.flatMap((r) => r.members).find((p) => p.name === 'Ann');
   assert.equal((await ann()).connecting, true);
-  h.sent.length = 0; h.b.ready(m.mid, m.ann.id); assert.equal((await ann()).connecting, false); assert.ok(to(h, m.sid('host'), 'breakouts-changed').length >= 1);      // the host's list refreshes
+  h.sent.length = 0; h.b.ready(m.mid, m.ann.id, { epoch: h.b.epochOf(m.mid, m.ann.id), ok: true }); assert.equal((await ann()).connecting, false); assert.ok(to(h, m.sid('host'), 'breakouts-changed').length >= 1);      // the host's list refreshes
   assert.equal(to(h, m.sid('cy'), 'breakouts-changed').length, 0);                                                  // other people are not bothered
   await h.close();
 });

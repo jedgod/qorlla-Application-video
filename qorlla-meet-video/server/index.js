@@ -26,6 +26,7 @@ import { registerAiConsent } from './ai-consent.mjs';
 import { registerChat } from './chat.mjs';
 import { registerMore } from './more.mjs';
 import { registerBreakouts } from './breakouts.mjs';
+import { registerClassroom } from './classroom.mjs';
 import { registerHandoff } from './handoff.mjs';
 import { registerHostControls } from './host-controls.mjs';
 import { registerRecording } from './recording.mjs';
@@ -423,9 +424,10 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
 const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
 const breakouts = registerBreakouts({ app, io, db, auth, member, fail, active, room });       // breakout rooms (v4.29): scoped rosters, signaling and events; blocks recording while rooms are open
+const classroom = registerClassroom({ app, io, db, auth, member, fail, breakouts });       // Room Mission Board, timed exercises, room whiteboard, group reports, classroom dashboard (v4.31)
 const chat = registerChat({ app, io, db, auth, member, room, fail, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), scopeOf: breakouts.scopeOf });       // meeting chat upgrade (v4.25+)
 const more = registerMore({ app, io, db, auth, member, room, fail, rateLimit, scopeOf: breakouts.scopeOf, emitMain: (meetingId, type, payload) => breakouts.emitToScope(meetingId, null, type, payload) });       // More tab (v4.27): Q&A, timer, preferences, attendance
-const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, scopeOf: breakouts.scopeOf, roomsOf: async (meetingId) => (await breakouts.ensure(meetingId)).rooms, roomsOpen: breakouts.isActive, emitToScope: breakouts.emitToScope, emitScopeAndHosts: breakouts.emitScopeAndHosts, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
+const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, scopeOf: breakouts.scopeOf, roomsOf: async (meetingId) => (await breakouts.ensure(meetingId)).rooms, roomsOpen: breakouts.isActive, emitToScope: breakouts.emitToScope, emitScopeAndHosts: breakouts.emitScopeAndHosts, mayLead: breakouts.mayLead, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 registerHandoff({ app, db, sign, fail, bridgeAuth, audit });          // single-use hand-off codes (Workplace -> Meet page), see server/handoff.mjs
@@ -489,8 +491,8 @@ io.on('connection',socket=>{
  const isOnline=(target)=>roster.get(target);
  socket.on('signal',({to,data}={},ack)=>{
   if(typeof to!=='string'||!data||!['offer','answer','candidate'].includes(data.type)) return ackError(ack,'Invalid signal');
-  const target=isOnline(to); if(!target||!breakouts.sameScope(id,pid,to)) return ackError(ack,'Participant offline');          // never across rooms
-  io.to(target).emit('signal',{from:pid,data}); if(typeof ack==='function')ack({ok:true});
+  const target=isOnline(to); const gate=target?breakouts.signalGate(id,pid,to,data):{error:'Participant offline'}; if(gate.error) return ackError(ack,gate.error);          // never across rooms, never from before the sender's last move
+  io.to(target).emit('signal',{from:pid,data,toEpoch:gate.toEpoch}); if(typeof ack==='function')ack({ok:true});          // stamped with the RECIPIENT'S current epoch: the page drops anything addressed to an older one
  });
  socket.on('chat',async(payload,ack)=>{
   const p=typeof payload==='string'?{body:payload}:(payload&&typeof payload==='object'?payload:null); if(!p)return ackError(ack,'Empty message');
@@ -498,7 +500,7 @@ io.on('connection',socket=>{
    await chat.deliver(id,msg); if(typeof ack==='function')ack({ok:true,id:msg.id});
   } catch(e){ackError(ack,e?.status&&e.status<500?e.message:'Message failed');}
  });
- socket.on('breakout-ready',()=>breakouts.ready(id,pid));          // this page rebuilt its peer connections for a new room
+ socket.on('breakout-ready',report=>breakouts.ready(id,pid,report));          // this page rebuilt its peer connections for a new room
  socket.on('hand',raised=>{breakouts.emitScope(id,pid,'hand',{participantId:pid,raised:!!raised});});
  hostControls.attach(socket,{id,pid,role:u.role});
  socket.on('media-state',async state=>{

@@ -74,7 +74,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Breakout rooms (v4.30): Notes and Polls belong to the room their author was in (null = the main room). `scopeOf` says where a person is; the emitters deliver only to that scope
 // (polls also to the hosts, who oversee every room). Without these hooks everything stays in the main room, as before.
-export function registerCollab({ app, io, db, auth, fail, room, getName, audit, getRoster, toolOn = async () => true, scopeOf = () => null, roomsOf = async () => new Map(), roomsOpen = () => false,
+export function registerCollab({ app, io, db, auth, fail, room, getName, audit, getRoster, toolOn = async () => true, scopeOf = () => null, mayLead = () => false, roomsOf = async () => new Map(), roomsOpen = () => false,
   emitToScope = (mid, scope, ev, payload) => io.to(room(mid)).emit(ev, payload), emitScopeAndHosts = (mid, scope, ev, payload) => io.to(room(mid)).emit(ev, payload) }) {
   const paths = (p) => ['/api/meetings/:id' + p, '/api/v1/meetings/:id' + p];
   // Any participant of the meeting, even after it ended (post-meeting review); `edit` routes use `live` as well.
@@ -186,6 +186,10 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
 
   // ------------------------------------------------------------------ polls
   const isHost = (req) => req.user.role === 'host';
+  // V1.2: a room lead holding room_polls runs polls of their own room (never the main room's, never another room's: getPoll already hides those)
+  const isLead = (req) => myScope(req) !== null && mayLead(req.params.id, req.user.participantId, 'room_polls');
+  const isMgr = (req) => isHost(req) || isLead(req);
+  const pollMgr = (req, res, next) => (isMgr(req) ? next() : fail(res, 403, 'Only the host or a room lead can do this'));
   const seeResults = (p, host) => host || (p.status === 'closed' && p.published) || (p.status === 'open' && p.live_results);
   async function expire(meetingId) {                              // lazy close of timed polls
     const { rows } = await db.query("UPDATE meeting_polls SET status='closed', closed_at=now() WHERE status='open' AND closes_at IS NOT NULL AND closes_at<=now() " + (meetingId ? 'AND meeting_id=$1 ' : '') + 'RETURNING meeting_id, breakout_room', meetingId ? [meetingId] : []);
@@ -195,7 +199,7 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
   const ballotsOf = async (pollId) => (await db.query('SELECT choices FROM poll_ballots WHERE poll_id=$1', [pollId])).rows.map((r) => r.choices);
   async function pollView(p, req) {
     const rooms = p.breakout_room ? await roomsOf(p.meeting_id) : null;
-    const host = isHost(req), voters = (await db.query('SELECT count(*)::int AS n FROM poll_voters WHERE poll_id=$1', [p.id])).rows[0].n;
+    const host = isMgr(req), voters = (await db.query('SELECT count(*)::int AS n FROM poll_voters WHERE poll_id=$1', [p.id])).rows[0].n;
     const mine = (await db.query('SELECT 1 FROM poll_voters WHERE poll_id=$1 AND participant_id=$2', [p.id, req.user.participantId])).rowCount > 0;
     const v = { id: p.id, question: p.question, kind: p.kind, options: p.options, scale: p.scale, anonymous: p.anonymous, liveResults: p.live_results, quiz: p.quiz, status: p.status, published: p.published, durationSec: p.duration_sec, closesAt: p.closes_at, responses: voters, hasVoted: mine, createdAt: p.created_at, roomId: p.breakout_room || null, roomName: p.breakout_room ? (rooms.get(p.breakout_room) || 'Closed room') : '' };
     if (seeResults(p, host)) v.results = tally(p, await ballotsOf(p.id));
@@ -209,14 +213,14 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
   app.get(paths('/polls'), auth, participant, guard(async (req, res) => {
     if (!isHost(req) && !(await toolOn(req.params.id, req.user.participantId, req.user.role, 'polls'))) return res.set('Cache-Control', 'no-store').json({ polls: [], disabled: true });          // guests see nothing of polls until the host switches them on
     await expire(req.params.id);
-    const { rows } = await db.query('SELECT * FROM meeting_polls WHERE meeting_id=$1 ' + (isHost(req) ? '' : "AND status<>'draft' AND breakout_room IS NOT DISTINCT FROM $2 ") + 'ORDER BY created_at DESC LIMIT 60', isHost(req) ? [req.params.id] : [req.params.id, myScope(req)]);
+    const { rows } = await db.query('SELECT * FROM meeting_polls WHERE meeting_id=$1 ' + (isHost(req) ? '' : (isLead(req) ? 'AND ' : "AND status<>'draft' AND ") + 'breakout_room IS NOT DISTINCT FROM $2 ') + 'ORDER BY created_at DESC LIMIT 60', isHost(req) ? [req.params.id] : [req.params.id, myScope(req)]);
     res.set('Cache-Control', 'no-store').json({ polls: await Promise.all(rows.map((p) => pollView(p, req))) });
   }, 'Polls unavailable'));
 
-  app.post(paths('/polls'), auth, participant, live, hostOnly, guard(async (req, res) => {
+  app.post(paths('/polls'), auth, participant, live, pollMgr, guard(async (req, res) => {
     const c = cleanPoll(req.body); if (c.error) return fail(res, 400, c.error);
     const { rows: [n] } = await db.query('SELECT count(*)::int AS n FROM meeting_polls WHERE meeting_id=$1', [req.params.id]); if (n.n >= 100) return fail(res, 409, 'Too many polls in this meeting');
-    let pscope = myScope(req); const want = req.body.roomId;          // the host's poll belongs to the room they are in, or to the room they name (rooms must be open)
+    let pscope = myScope(req); const want = isHost(req) ? req.body.roomId : undefined;          // the host's poll belongs to the room they are in, or to the room they name (rooms must be open)
     if (want === 'main') pscope = null; else if (want !== undefined && want !== null) { if (!roomsOpen(req.params.id)) return fail(res, 409, 'Breakout rooms are not open'); if (!UUID.test(String(want)) || !(await roomsOf(req.params.id)).has(String(want))) return fail(res, 404, 'Room not found'); pscope = String(want); }
     const id = randomUUID(), launch = req.body.launch === true;
     await db.query('INSERT INTO meeting_polls(id,meeting_id,created_by,question,kind,options,scale,anonymous,live_results,quiz,correct,explanation,duration_sec,status,opened_at,closes_at,breakout_room) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)',
@@ -226,20 +230,20 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
     res.status(201).json(await pollView((await db.query('SELECT * FROM meeting_polls WHERE id=$1', [id])).rows[0], req));
   }, 'Could not create the poll'));
 
-  app.post(paths('/polls/:pid/open'), auth, participant, live, hostOnly, guard(async (req, res) => {
+  app.post(paths('/polls/:pid/open'), auth, participant, live, pollMgr, guard(async (req, res) => {
     const p = await getPoll(req); if (!p) return fail(res, 404, 'No such poll'); if (p.status !== 'draft') return fail(res, 409, 'Only a draft can be launched');
     await db.query("UPDATE meeting_polls SET status='open', opened_at=now(), closes_at=CASE WHEN duration_sec IS NULL THEN NULL ELSE now()+duration_sec*interval '1 second' END WHERE id=$1", [p.id]);
     audit(req.params.id, req.user.participantId, 'poll.launched', { poll: p.id }); changed(req.params.id, p.breakout_room || null); res.json({ ok: true });
   }, 'Could not launch'));
-  app.post(paths('/polls/:pid/close'), auth, participant, live, hostOnly, guard(async (req, res) => {
+  app.post(paths('/polls/:pid/close'), auth, participant, live, pollMgr, guard(async (req, res) => {
     const p = await getPoll(req); if (!p) return fail(res, 404, 'No such poll'); if (p.status !== 'open') return fail(res, 409, 'The poll is not open');
     await db.query("UPDATE meeting_polls SET status='closed', closed_at=now() WHERE id=$1", [p.id]); audit(req.params.id, req.user.participantId, 'poll.closed', { poll: p.id }); changed(req.params.id, p.breakout_room || null); res.json({ ok: true });
   }, 'Could not close'));
-  app.post(paths('/polls/:pid/publish'), auth, participant, live, hostOnly, guard(async (req, res) => {
+  app.post(paths('/polls/:pid/publish'), auth, participant, live, pollMgr, guard(async (req, res) => {
     const p = await getPoll(req); if (!p) return fail(res, 404, 'No such poll'); const on = req.body?.published !== false;
     await db.query('UPDATE meeting_polls SET published=$2 WHERE id=$1', [p.id, on]); audit(req.params.id, req.user.participantId, on ? 'poll.published' : 'poll.unpublished', { poll: p.id }); changed(req.params.id, p.breakout_room || null); res.json({ ok: true });
   }, 'Could not publish'));
-  app.delete(paths('/polls/:pid'), auth, participant, live, hostOnly, guard(async (req, res) => {
+  app.delete(paths('/polls/:pid'), auth, participant, live, pollMgr, guard(async (req, res) => {
     const p = await getPoll(req); if (!p) return fail(res, 404, 'No such poll'); if (p.status !== 'draft') return fail(res, 409, 'Only a draft can be deleted');
     await db.query('DELETE FROM meeting_polls WHERE id=$1', [p.id]); changed(req.params.id, p.breakout_room || null); res.json({ ok: true });
   }, 'Could not delete'));
