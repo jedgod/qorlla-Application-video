@@ -797,7 +797,63 @@
   <script src="assets/single-tab.js"></script>
   <link rel="stylesheet" href="assets/breadcrumbs.css">
   <script src="assets/breadcrumbs.js"></script>
-</head>
+<style id="history-compact-layout">
+/* Compact master/detail history, scoped away from the AI drawer. */
+.hist-panel .hist-toprow { gap: 8px; margin-bottom: 10px; }
+.hist-panel .hist-pager:not(.hidden) { display:grid; grid-template-columns: 1fr auto 1fr; align-items:center; gap:12px; }
+.hist-panel .hist-prev { justify-self:start; }
+.hist-panel .hist-next { justify-self:end; }
+.hist-panel .hist-pageno { white-space:nowrap; text-align:center; }
+.hist-panel .hist-body { min-width:0; overflow-wrap:anywhere; }
+.hist-panel .hist-sec { border-bottom:1px solid #edf0f6; padding-bottom:8px; }
+.hist-panel .hist-body textarea { min-height:46px; resize:vertical; }
+.hist-panel .hist-actions { gap:8px; }
+.hist-panel .hist-actions .btn { min-width:0; white-space:normal; text-align:center; }
+.hist-panel .hist-sub { white-space:normal; }
+@container hist (min-width:760px) {
+  .hist-panel .hist-list.hist-split { grid-template-columns:minmax(280px,39%) minmax(0,1fr); grid-template-rows:repeat(var(--history-page-size,5),minmax(64px,1fr)) 48px; height:var(--history-list-height,600px); min-height:440px; gap:0; align-items:stretch; }
+  .hist-panel .hist-list.hist-split > .hist-row { display:contents; }
+  .hist-panel .hist-list.hist-split .hist-rowhead { grid-column:1; grid-row:var(--history-row); margin:0 12px 7px 0; padding:8px 10px; min-width:0; }
+  .hist-panel .hist-list.hist-split .hist-body { grid-column:2; grid-row:1 / -1; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:0 0 8px 14px; border-left:1px solid var(--line); }
+  .hist-panel .hist-list.hist-split > .hist-pager { grid-column:1; grid-row:-2 / -1; margin:0 12px 0 0; padding:6px 0; align-self:stretch; border-top:1px solid var(--line); }
+  .hist-panel .hist-list.hist-split .hist-facts { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .hist-panel .hist-fcard .hist-kv { grid-template-columns:minmax(0,46%) minmax(0,1fr); font-size:12px; }
+  .hist-panel .hist-fcard .hist-k { font-size:12px; letter-spacing:0; }
+  .hist-panel .hist-list.hist-split .hist-actions { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); position:sticky; bottom:-8px; background:#fff; padding:10px 0 4px; border-top:1px solid var(--line); margin-top:auto; }
+  .hist-panel .hist-list.hist-split .hist-actions .btn { height:auto; min-height:36px; padding:7px 5px; font-size:12px; }
+}
+@container hist (max-width:759px) {
+  .hist-panel .hist-list.hist-split { display:flex; height:auto; min-height:0; }
+  .hist-panel .hist-list.hist-split .hist-row { display:block; }
+  .hist-panel .hist-list.hist-split .hist-rowhead { margin:0; }
+  .hist-panel .hist-list.hist-split .hist-body { border:1px solid var(--line); padding:10px; margin-top:6px; }
+  .hist-panel .hist-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .hist-panel .hist-facts { grid-template-columns:1fr; }
+}
+
+</style>
+<style id="home-compact-layout">
+/* Compact workspace greeting and five primary actions. */
+body[data-page=workspace] .home-heading { gap:12px; padding-bottom:12px; align-items:center; }
+body[data-page=workspace] .home-heading h1.greeting { font-size:clamp(21px,2vw,27px); line-height:1.2; letter-spacing:-.6px; margin:0; }
+body[data-page=workspace] .home-heading .product-eyebrow { display:none; }
+body[data-page=workspace] .home-heading .home-subtitle { font-size:12px; line-height:1.4; margin:5px 0 0; }
+body[data-page=workspace] .home-clock .time { font-size:25px; line-height:1.1; }
+body[data-page=workspace] .home-clock .date { font-size:11px; margin-top:4px; }
+body[data-page=workspace] .home-heading + .actions { grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin:14px 0 18px; }
+body[data-page=workspace] .home-heading + .actions .action-btn { flex-direction:row; justify-content:center; min-height:56px; padding:9px 10px; gap:9px; border-radius:10px; box-sizing:border-box; }
+body[data-page=workspace] .home-heading + .actions .action-icon { width:32px; height:32px; flex-shrink:0; border-radius:9px; }
+body[data-page=workspace] .home-heading + .actions .action-icon svg.i { width:19px; height:19px; }
+body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:12px; }
+@media(max-width:600px) {
+ body[data-page=workspace] .home-heading { flex-direction:row; align-items:flex-start; }
+ body[data-page=workspace] .home-clock { display:block; text-align:right; }
+ body[data-page=workspace] .home-clock .time { font-size:20px; }
+ body[data-page=workspace] .home-heading + .actions { grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+ body[data-page=workspace] .home-heading + .actions .action-btn { flex-direction:column; gap:5px; padding:8px 4px; min-height:70px; }
+ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:11px; }
+}
+</style></head>
 <body data-page="workspace">
 <a class="skip-link" href="#view"><span data-i18n="Skip to content">Skip to content</span></a>
 <div class="app">
@@ -2580,7 +2636,7 @@
     var f = { q: '', status: '', from: '', to: '' }, offset = 0, total = 0, timer = 0, seq = 0, STORE = 'zw_hist_open';
     var open = opts.collapsible ? store(STORE) !== '0' : true;
     var count = h('span', { class: 'hist-count', 'aria-label': I18n.t('Meetings in history') , text: '\u2026' });
-    var split = true, PAGE = 5, wide = window.matchMedia('(min-width: 900px)');
+    var split = true, PAGE = Math.max(5, Math.min(16, Math.floor((window.innerHeight - 300) / 71))), wide = window.matchMedia('(min-width: 900px)');
     var list = h('div', { class: 'hist-list' + (split ? ' hist-split' : ''), 'aria-live': 'polite' }), more = h('button', { class: 'btn small hidden', type: 'button', text: I18n.t('Show more') }),
       prev = h('button', { class: 'btn small hist-prev', type: 'button' }, [icon(IC.chevL), document.createTextNode(I18n.t('Prev'))]), next = h('button', { class: 'btn small primary hist-next', type: 'button' }, [document.createTextNode(I18n.t('Next')), icon(IC.chevR)]),
       ptitle = h('h3', { class: 'hist-ptitle' }), pageLbl = h('span', { class: 'hist-pageno muted' }),
@@ -2602,14 +2658,17 @@
     if (toggle) toggle.addEventListener('click', function () { open = !open; body.classList.toggle('hidden', !open); toggle.setAttribute('aria-expanded', String(open)); store(STORE, open ? '1' : '0'); if (open && body.clientWidth >= 760 && !list.querySelector('.hist-row.open')) { var f1 = list.querySelector('.hist-rowhead'); if (f1) f1.click(); } });
     var collapseOthers = function (except) { if (body.clientWidth >= 760 || window.matchMedia('(max-width: 700px)').matches) Array.prototype.forEach.call(list.children, function (c) { if (c !== except && c._collapse) c._collapse(); }); };   // phones: one card open at a time
     function fetchPage() {
+      prev.disabled = true; next.disabled = true; list.setAttribute('aria-busy', 'true');
       var mine = ++seq, qs = Object.keys(f).filter(function (k) { return f[k]; }).map(function (k) { return k + '=' + encodeURIComponent(f[k]); }).concat(['limit=' + PAGE, 'offset=' + offset]).join('&');
       return api2('/history/meetings?' + qs).then(function (d) {
-        if (mine !== seq) return; total = d.total; if (!f.status && !f.q && !f.from && !f.to) { count.textContent = String(d.total); ptitle.textContent = I18n.t('Past Meetings') + ' (' + d.total + ')'; }
-        d.meetings.forEach(function (b) { list.appendChild(histRow(b, reload, collapseOthers)); }); offset += d.meetings.length;
+        if (mine !== seq) return; list.setAttribute('aria-busy', 'false'); total = d.total; if (!f.status && !f.q && !f.from && !f.to) { count.textContent = String(d.total); ptitle.textContent = I18n.t('Past Meetings') + ' (' + d.total + ')'; }
+        list.style.setProperty('--history-page-size', String(PAGE));
+        list.style.setProperty('--history-list-height', Math.max(440, window.innerHeight - list.getBoundingClientRect().top - 28) + 'px');
+        d.meetings.forEach(function (b, index) { var row = histRow(b, reload, collapseOthers); row.style.setProperty('--history-row', String(index + 1)); list.appendChild(row); }); offset += d.meetings.length;
         if (split) {
           list.appendChild(pager);
           var pages = Math.max(1, Math.ceil(total / PAGE)), pg = Math.floor((offset - d.meetings.length) / PAGE) + 1;
-          pageLbl.textContent = I18n.t('Page {a} of {b}', { a: pg, b: pages }); prev.disabled = pg <= 1; next.disabled = pg >= pages; pager.classList.toggle('hidden', total <= PAGE);
+          pageLbl.textContent = I18n.t('Page {a} of {b}', { a: pg, b: pages }); prev.disabled = pg <= 1; next.disabled = pg >= pages; pager.classList.remove('hidden'); prev.setAttribute('aria-label', I18n.t('Previous page')); next.setAttribute('aria-label', I18n.t('Next page')); 
           status.textContent = ''; more.classList.add('hidden');
           if (body.clientWidth >= 760 && !list.querySelector('.hist-row.open')) { var first = list.querySelector('.hist-rowhead'); if (first) first.click(); }          // the right-hand pane is never empty on a wide screen
         } else {
@@ -2617,7 +2676,7 @@
         more.classList.toggle('hidden', offset >= total);
         }
         if (!total) list.appendChild(emptyState(f.status || f.q || f.from || f.to ? I18n.t('No meetings match these filters.') : I18n.t('No finished meetings yet. A meeting appears here once it has ended.')));
-      }).catch(function (e) { if (mine !== seq) return; list.textContent = ''; list.appendChild(h('div', { class: 'hist-err' }, [h('span', { text: e.message }), h('button', { class: 'btn small', type: 'button', text: I18n.t('Try again'), onclick: reset })])); });
+      }).catch(function (e) { if (mine !== seq) return; list.setAttribute('aria-busy', 'false'); list.textContent = ''; list.appendChild(h('div', { class: 'hist-err' }, [h('span', { text: e.message }), h('button', { class: 'btn small', type: 'button', text: I18n.t('Try again'), onclick: reset })])); });
     }
     function reset() { offset = 0; list.textContent = ''; list.appendChild(h('p', { class: 'muted hist-loading', text: I18n.t('Loading…') })); return fetchPage().then(function () { var l = list.querySelector('.hist-loading'); if (l) l.remove(); }); }
     function reload(quiet) { return quiet ? Promise.resolve() : reset(); }
