@@ -15,6 +15,13 @@ shape was implemented directly on Meet's `auth` + `member`. A meeting row is one
 
 Every change is written to `more_events` first (cursor: `GET /more/events?after=<id>`) and then pushed on the `more` socket event; a client that missed a push catches up from the log.
 
+## Meeting intelligence (v4.2 package, Portal route)
+The v4.2 package (`Qorla-chat-page-ext/qorlla-meet-intelligence-v42`) needs capture/STT, a quota authority and a private-gateway adapter that Meet does not have, and the Workplace Portal already runs a
+consent-gated AI Meeting Intelligence (AI provider, quota, reports, PDF/DOCX export). So the cards use what is real instead of a second AI stack:
+* **AI Summary / Key Takeaways:** show live consent counts from Meet (`GET /consent-status`, `GET /ai-consent`); the host can ask everyone (`POST /ai-consent/request`); once someone agreed the button opens the Workplace page
+  (`<mainOrigin>/app/ai`) where the report is generated from the messages of people who agreed. Guests see their own choice. Answers are refreshed every 8 s while the tab is on screen.
+* **Live Transcript, Ask QorllaMate:** stay disabled (no speech-to-text service, no question endpoint on the gateway).
+
 ## Not built (buttons stay visible but disabled; the API answers 503 `This tool is not available yet`)
 Whiteboard (operation log + merge), Breakout rooms (media routing), Shared files (quarantine, malware scan, encrypted object storage), Live transcript (STT pipeline + consent),
 AI Summary / Key Takeaways / Ask QorllaMate (the consent-gated private AI gateway), Background & effects (video effects pipeline). See the package README for each gate.

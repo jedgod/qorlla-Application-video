@@ -283,7 +283,9 @@ export function initCollab(h) {
     if (!on && M.tick) { clearInterval(M.tick); M.tick = 0; }
   }
   function setTimer(t) { M.timer = t; M.offset = Date.parse(t.serverNow) - Date.now(); M.done = false; clearInterval(M.tick); M.tick = 0; if (t.running) M.tick = setInterval(paintTimer, 1000); paintTimer(); }
-  async function renderQa() {
+  let qaBusy = false, qaAgain = false;
+  async function renderQa() { if (qaBusy) { qaAgain = true; return; } qaBusy = true; try { await renderQaOnce(); } finally { qaBusy = false; if (qaAgain) { qaAgain = false; renderQa(); } } }
+  async function renderQaOnce() {
     if (!M.qaList) return; if (M.qaList.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;          // never wipe an answer someone is typing
     let list; try { list = (await more('/questions')).questions; } catch (e) { M.qaList.textContent = e.message; return; }
     const host = state.role === 'host'; M.qaList.textContent = '';
@@ -335,7 +337,28 @@ export function initCollab(h) {
     if (M.pref.layout) { const b = document.querySelector('[data-layout="' + M.pref.layout + '"]'); if (b && !b.classList.contains('selected')) b.click(); }
     if (M.pref.focusMode) setFocus(true);
   }
-  async function loadMore() { try { const st = await more('/state'); M.features = st.features; M.pref = st.preferences; setTimer(st.timer); buildMore(); applyPrefs(); } catch { /* the tools stay disabled */ } }
+
+  // ---- Meeting intelligence: real consent status from Meet, hand-off to the Workplace AI (which holds the AI provider, quota and report storage)
+  const I = { st: null, mine: {}, requested: false, portal: '', boxes: [] };
+  function intelPaint(box, label) {
+    box.textContent = ''; const host = state.role === 'host'; const sum = (I.st && I.st.ai && I.st.ai.summary) || {}; const agree = sum.agree || 0, decline = sum.decline || 0;
+    box.append(el('small', 'mg-stat', I.st ? agree + ' agreed' + (decline ? ' \u00B7 ' + decline + ' declined' : '') : 'Status unavailable'));
+    if (host) {
+      let b;
+      if (!I.requested) { b = el('button', 'mg-act', 'Ask everyone', { type: 'button', title: 'Ask everyone present whether Qorlla AI may use their messages' }); b.onclick = async () => { b.disabled = true; try { await call('/ai-consent/request', 'POST', {}); await loadIntel(); } catch (e) { notify(e.message); b.disabled = false; } }; }
+      else if (agree > 0 && I.portal) { b = el('button', 'mg-act', label, { type: 'button', title: 'Opens the Workplace AI Meeting Intelligence page, where the report is generated from the messages of people who agreed' }); b.onclick = () => window.open(I.portal + '/app/ai', '_blank', 'noopener'); }
+      else b = el('button', 'mg-act', agree > 0 ? 'Not available' : 'Waiting for consent', { type: 'button', disabled: '', 'aria-disabled': 'true', title: agree > 0 ? 'The Workplace address is not configured' : 'Nobody has agreed yet' });
+      box.append(b);
+    } else box.append(el('small', 'mg-stat', 'You: ' + ({ agree: 'agreed', decline: 'declined', withdraw: 'withdrawn' }[I.mine.summary] || (I.requested ? 'not answered yet' : 'not asked yet'))));
+  }
+  async function loadIntel() {
+    try {
+      const [cs, ac] = await Promise.all([call('/consent-status'), call('/ai-consent')]); I.st = cs; I.requested = !!ac.requested; I.mine = ac.mine || {};
+      if (!I.portal) { try { const c = await (await fetch(BASE + 'api/config')).json(); I.portal = /^https?:\/\/[^/]+$/.test(c.mainOrigin || '') ? c.mainOrigin : ''; } catch { /* no hand-off link */ } }
+    } catch { I.st = null; }
+    for (const [box, label] of I.boxes) if (box.isConnected) intelPaint(box, label);
+  }
+  async function loadMore() { try { const st = await more('/state'); const changed = JSON.stringify(M.features) !== JSON.stringify(st.features); M.features = st.features; M.pref = st.preferences; setTimer(st.timer); if (changed) buildMore(); else if (M.qaBox && !M.qaBox.hidden) renderQa(); applyPrefs(); } catch { /* the tools stay disabled */ } }
   function onMore(e) { if (!e) return; if (e.kind === 'timer') setTimer(e.payload); else if (String(e.kind).startsWith('question.') && M.qaBox && !M.qaBox.hidden) renderQa(); }
   function buildMore() {
     const t = $('tab-more'); t.textContent = ''; t.classList.add('more-v41-compact');
@@ -388,19 +411,20 @@ export function initCollab(h) {
         const off = (label, icon) => { const b = el('button', 'mg-act', '', { type: 'button', disabled: '', title: NA, 'aria-disabled': 'true' }); b.append(svg(icon), document.createTextNode(label)); return b; };
         const qaBtn = el('button', 'mg-act', '', { type: 'button' }); qaBtn.append(svg('open'), document.createTextNode('Open'));
         if (!isOn('qa')) { qaBtn.disabled = true; qaBtn.title = NA; qaBtn.setAttribute('aria-disabled', 'true'); }
-        else qaBtn.onclick = () => { const bx = M.qaBox; bx.hidden = !bx.hidden; qaBtn.lastChild.textContent = bx.hidden ? 'Open' : 'Close'; qaBtn.setAttribute('aria-expanded', String(!bx.hidden)); if (!bx.hidden) renderQa(); };
+        else qaBtn.onclick = () => { const bx = M.qaBox; bx.hidden = !bx.hidden; qaBtn.lastChild.textContent = bx.hidden ? 'Open' : 'Close'; qaBtn.setAttribute('aria-expanded', String(!bx.hidden)); clearInterval(M.qaPoll); M.qaPoll = 0; if (!bx.hidden) { renderQa(); M.qaPoll = setInterval(() => { if (M.qaBox && !M.qaBox.hidden && !document.hidden) renderQa(); }, 6000); } };       // the push is the fast path; the refresh catches anything missed
         body.append(row('pen', 'Whiteboard', 'Collaborative board for visual brainstorming.', off('Open', 'open')), row('people', 'Breakout rooms', 'Split participants into smaller discussion groups.', off('Create', 'userplus')),
           row('folder', 'Shared files', 'Share and access meeting files (host controlled).', off('Open', 'open')), row('qa', 'Q&A', 'Collect, review and answer participant questions.', qaBtn), qaPanel());
       },
       intel(body) {
-        const grid = el('div', 'mg-grid4');
+        const grid = el('div', 'mg-grid4'); I.boxes = [];
         const card = (k, title, desc, ctl) => { const c = el('div', 'mg-card'); const h = el('div', 'mg-card-h'); h.append(svg(k), el('strong', '', title)); c.append(h, el('small', '', desc), ctl); grid.append(c); };
-        const btn = (label) => el('button', 'mg-act', label, { type: 'button', disabled: '', title: NA, 'aria-disabled': 'true' });
-        card('doc', 'AI Summary', 'Generate key notes, decisions and action items', btn('Generate'));
+        const live = (label) => { const box = el('div', 'mg-intel-ctl'); I.boxes.push([box, label]); intelPaint(box, label); return box; };
+        const btn = (label, why) => el('button', 'mg-act', label, { type: 'button', disabled: '', title: why, 'aria-disabled': 'true' });
+        card('doc', 'AI Summary', 'Generate key notes, decisions and action items', live('Generate'));
         card('cc', 'Live Transcript', 'Real-time captions and transcript', swtch('Live transcript', false, true));
-        card('list', 'Key Takeaways', 'Auto-extract topics and action items', swtch('Key takeaways', false, true));
-        card('bot', 'Ask QorllaMate', 'Get answers from the meeting content', btn('Ask AI'));
-        body.append(grid, el('p', 'mg-note', 'These stay disabled until their meeting services, consent and verified access are in place.'));
+        card('list', 'Key Takeaways', 'Auto-extract topics and action items', live('View takeaways'));
+        card('bot', 'Ask QorllaMate', 'Get answers from the meeting content', btn('Ask AI', 'Needs the private AI gateway question service, which is not connected yet'));
+        body.append(grid, el('p', 'mg-note', 'Summaries and takeaways use only the chat messages of people who agreed, and are produced in the Workplace AI. Live captions need a speech-to-text service that is not connected yet.'));
       },
       manage(body) {
         const grid = el('div', 'mg-grid5'); const detail = el('div', 'mg-detail'); detail.hidden = true;
@@ -471,8 +495,8 @@ export function initCollab(h) {
   }
   buildNotes(); buildPolls(); buildMore();
   return {
-    attach(s) { s.on('notes-updated', remoteNotes); s.on('notes-editors', (m) => { N.editors = m.editors; const can = state.role === 'host' || m.editors.includes(state.participantId); if (can !== N.canEdit && !N.ended) { N.canEdit = can; renderAll(); announce(can ? 'You can now edit the notes' : 'Your edit access to the notes was removed'); } }); s.on('polls-changed', polls$); s.on('more', onMore); s.on('connect', () => { if (M.features) loadMore(); }); },
-    load() { buildMore(); loadNotes(); loadPolls(); loadMore(); },
+    attach(s) { s.on('notes-updated', remoteNotes); s.on('notes-editors', (m) => { N.editors = m.editors; const can = state.role === 'host' || m.editors.includes(state.participantId); if (can !== N.canEdit && !N.ended) { N.canEdit = can; renderAll(); announce(can ? 'You can now edit the notes' : 'Your edit access to the notes was removed'); } }); s.on('polls-changed', polls$); s.on('more', onMore); s.on('ai-consent-request', loadIntel); s.on('ai-consent-closed', loadIntel); s.on('connect', () => { if (M.features) loadMore(); }); },
+    load() { buildMore(); loadNotes(); loadPolls(); loadMore(); loadIntel(); document.querySelector('[data-tab=more]')?.addEventListener('click', loadIntel); clearInterval(I.poll); I.poll = setInterval(() => { const t = $('tab-more'); if (!document.hidden && t && !t.classList.contains('hidden')) loadIntel(); }, 8000); },       // answers are not pushed: refresh while the tab is on screen
     refreshMore() { buildMore(); },
   };
 }

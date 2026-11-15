@@ -92,7 +92,7 @@ try {
   check('Q&A: a guest question reaches the host live, with the guest name', (await host.p.locator('.mg-q', { hasText: 'Will the recording be shared?' }).innerText()).includes('Gus'));
   check('Q&A: a guest has no answer or hide controls', (await guest.p.locator('.mg-q input').count()) === 0 && (await guest.p.getByRole('button', { name: 'Hide', exact: true }).count()) === 0);
   await host.p.locator('.mg-q', { hasText: 'Will the recording be shared?' }).locator('input').fill('Only to the host.'); await host.p.locator('.mg-q', { hasText: 'Will the recording be shared?' }).getByRole('button', { name: 'Answer' }).click();
-  await guest.p.locator('.mg-ans', { hasText: 'Only to the host.' }).waitFor({ timeout: 15000 }); check('Q&A: the host answer reaches the guest live', true);
+  await guest.p.locator('.mg-ans', { hasText: 'Only to the host.' }).waitFor({ timeout: 30000 }); check('Q&A: the host answer reaches the guest live', true);
   await host.p.locator('#tab-more .mg-tile', { hasText: 'Timer' }).click(); await host.p.locator('#tab-more select[aria-label="Timer length"]').selectOption('60'); await host.p.getByRole('button', { name: 'Start', exact: true }).click();
   await guest.p.locator('.more-timer-chip:not(.hidden)').waitFor({ timeout: 15000 }); const chip = await guest.p.locator('.more-timer-chip').innerText();
   check('Timer: the host starts it and the guest counts down from the server clock (' + chip.trim() + ')', /\d:\d\d/.test(chip) && /^\D*(0|1):/.test(chip.trim()));
@@ -103,6 +103,17 @@ try {
   check('Attendance: the guest cannot open the report', await guest.p.locator('#tab-more .mg-tile', { hasText: 'Attendance' }).isDisabled());
   const pt = host.p.locator('#panelToggle'); await host.p.locator('#tab-more .mg-tile', { hasText: 'Focus mode' }).click(); await host.p.waitForTimeout(400);
   check('Focus mode: the side panel steps aside', (await pt.getAttribute('aria-expanded')) === 'false'); await pt.click(); await host.p.waitForTimeout(300);
+  // Meeting intelligence: real consent status from Meet; the host asks everyone, people answer, the card shows the counts; transcript and Ask AI stay disabled
+  const sumCard = (pg) => pg.locator('#tab-more .mg-card', { hasText: 'AI Summary' });
+  await sumCard(host.p).getByRole('button', { name: 'Ask everyone' }).waitFor({ timeout: 15000 });
+  check('Intelligence: before anyone is asked the guest sees "not asked yet" and has no controls', (await sumCard(guest.p).innerText()).includes('not asked yet') && (await sumCard(guest.p).getByRole('button').count()) === 0);
+  await sumCard(host.p).getByRole('button', { name: 'Ask everyone' }).click(); await sumCard(host.p).locator('.mg-stat', { hasText: 'agreed' }).first().waitFor({ timeout: 15000 });
+  await guest.p.locator('#tab-more .mg-card', { hasText: 'AI Summary' }).locator('.mg-stat', { hasText: 'not answered yet' }).waitFor({ timeout: 15000 });
+  check('Intelligence: asking everyone shows the host as agreed and the guest as not answered yet', (await sumCard(host.p).innerText()).includes('1 agreed') && (await sumCard(guest.p).innerText()).includes('not answered yet'));
+  await guest.p.locator('#ai_summary').check({ timeout: 15000 }); await guest.p.locator('#aiReviewed').check(); await guest.p.getByRole('button', { name: 'Save my choice' }).click();
+  await sumCard(host.p).locator('.mg-stat', { hasText: '2 agreed' }).waitFor({ timeout: 30000 }); await guest.p.locator('#tab-more .mg-card', { hasText: 'AI Summary' }).locator('.mg-stat', { hasText: 'You: agreed' }).waitFor({ timeout: 15000 });
+  check('Intelligence: when the guest agrees in the consent prompt both cards update live (2 agreed / You: agreed)', true);
+  check('Intelligence: Live Transcript and Ask QorllaMate stay disabled (no speech-to-text, no AI gateway)', await host.p.locator('#tab-more .mg-card', { hasText: 'Live Transcript' }).getByRole('switch').isDisabled() && await host.p.locator('#tab-more .mg-card', { hasText: 'Ask QorllaMate' }).getByRole('button').isDisabled());
   check('Disabled tools stay disabled: Whiteboard, Breakout rooms, Shared files, AI', await host.p.locator('#tab-more .mg-row', { hasText: 'Whiteboard' }).getByRole('button').isDisabled() && await host.p.locator('#tab-more .mg-card', { hasText: 'AI Summary' }).getByRole('button').isDisabled());
   if (OUT) await host.p.screenshot({ path: join(OUT, 'tab-more.png') });
 

@@ -333,3 +333,4 @@ html.portal-only #landing .landing-card>:not(.brand):not(#portalOnlyNote){displa
 .mg-timer-big{font-size:26px;font-weight:600;letter-spacing:1px;text-align:center;margin:4px 0;font-variant-numeric:tabular-nums;color:#f1f5fb}
 .mg-att{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-top:1px solid #1f2736;font-size:11px}.mg-att small{color:#9aa6ba;font-size:10px}
 .more-timer-chip{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;background:#143a73;color:#fff;font-size:12px;font-variant-numeric:tabular-nums;margin-right:8px}.more-timer-chip.hidden{display:none}
+.mg-intel-ctl{display:flex;flex-direction:column;align-items:center;gap:4px}.mg-stat{font-size:9.5px;color:#9aa6ba}
