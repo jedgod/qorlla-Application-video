@@ -70,7 +70,12 @@ export function tally(poll, ballots) {
 }
 const csvCell = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 
-export function registerCollab({ app, io, db, auth, fail, room, getName, audit, getRoster, toolOn = async () => true }) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Breakout rooms (v4.30): Notes and Polls belong to the room their author was in (null = the main room). `scopeOf` says where a person is; the emitters deliver only to that scope
+// (polls also to the hosts, who oversee every room). Without these hooks everything stays in the main room, as before.
+export function registerCollab({ app, io, db, auth, fail, room, getName, audit, getRoster, toolOn = async () => true, scopeOf = () => null, roomsOf = async () => new Map(), roomsOpen = () => false,
+  emitToScope = (mid, scope, ev, payload) => io.to(room(mid)).emit(ev, payload), emitScopeAndHosts = (mid, scope, ev, payload) => io.to(room(mid)).emit(ev, payload) }) {
   const paths = (p) => ['/api/meetings/:id' + p, '/api/v1/meetings/:id' + p];
   // Any participant of the meeting, even after it ended (post-meeting review); `edit` routes use `live` as well.
   const participant = async (req, res, next) => {
@@ -82,10 +87,17 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
   };
   const live = (req, res, next) => (req.ended ? fail(res, 403, 'The meeting has ended') : next());
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
+  const myScope = (req) => scopeOf(req.params.id, req.user.participantId);
+  const mainOnly = (what) => (req, res, next) => (myScope(req) === null ? next() : fail(res, 409, what + ' is only kept for the main-room notes'));
   const guard = (fn, msg) => async (req, res) => { try { await fn(req, res); } catch (e) { console.error('[collab]', msg, e.message); if (!res.headersSent) fail(res, 500, msg); } };
 
   // ------------------------------------------------------------------ notes
-  async function loadNotes(meetingId) {
+  async function loadNotes(meetingId, scope = null) {
+    if (scope) {                                                  // the notes of one breakout room: created on first use, empty
+      let { rows: [rn] } = await db.query('SELECT * FROM more_room_notes WHERE meeting_id=$1 AND room_id=$2', [meetingId, scope]);
+      if (!rn) { await db.query('INSERT INTO more_room_notes(meeting_id,room_id,doc,version) VALUES($1,$2,$3,1) ON CONFLICT DO NOTHING', [meetingId, scope, JSON.stringify(EMPTY_DOC())]); ({ rows: [rn] } = await db.query('SELECT * FROM more_room_notes WHERE meeting_id=$1 AND room_id=$2', [meetingId, scope])); }
+      return rn;
+    }
     let { rows: [n] } = await db.query('SELECT * FROM meeting_notes WHERE meeting_id=$1', [meetingId]);
     if (!n) {                                                     // first use: carry over anything typed in the old single text box
       const { rows: [m] } = await db.query('SELECT notes FROM meetings WHERE id=$1', [meetingId]); const doc = EMPTY_DOC(); doc.notes = strip(m?.notes, 20000);
@@ -96,35 +108,44 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
   }
   const editorIds = async (meetingId) => (await db.query('SELECT participant_id FROM notes_editors WHERE meeting_id=$1', [meetingId])).rows.map((r) => r.participant_id);
   const canEdit = async (req) => req.user.role === 'host' || (await db.query('SELECT 1 FROM notes_editors WHERE meeting_id=$1 AND participant_id=$2', [req.params.id, req.user.participantId])).rowCount > 0;
-  const notesView = async (req, n) => ({ doc: n.doc, version: n.version, updatedBy: n.updated_by_name || null, updatedAt: n.updated_at, canEdit: !req.ended && (await canEdit(req)), isHost: req.user.role === 'host', ended: !!req.ended, editors: await editorIds(req.params.id) });
+  // `scope` is the room whose notes are shown; `own` is where the caller is. In a room everybody in it may edit; a host reading ANOTHER room (?room=) cannot.
+  const notesView = async (req, n, scope = null, own = null) => ({ doc: n.doc, version: n.version, updatedBy: n.updated_by_name || null, updatedAt: n.updated_at, canEdit: !req.ended && (scope ? scope === own : await canEdit(req)), isHost: req.user.role === 'host', ended: !!req.ended, editors: scope ? [] : await editorIds(req.params.id),
+    room: scope ? { id: scope, name: (await roomsOf(req.params.id)).get(scope) || '' } : null });
   const lastRevision = async (c, meetingId) => (await c.query('SELECT version,saved_by,created_at,reason FROM meeting_notes_revisions WHERE meeting_id=$1 ORDER BY version DESC LIMIT 1', [meetingId])).rows[0];
 
-  app.get(paths('/notes'), auth, participant, guard(async (req, res) => { res.set('Cache-Control', 'no-store').json(await notesView(req, await loadNotes(req.params.id))); }, 'Notes unavailable'));
+  app.get(paths('/notes'), auth, participant, guard(async (req, res) => {
+    const own = myScope(req); let scope = own; const q = req.query?.room;
+    if (q !== undefined && req.user.role === 'host') {                 // the host may read the notes of any room (never write them from outside)
+      if (q === 'main') scope = null; else if (UUID.test(String(q)) && (await roomsOf(req.params.id)).has(String(q))) scope = String(q); else return fail(res, 404, 'Room not found');
+    }
+    res.set('Cache-Control', 'no-store').json(await notesView(req, await loadNotes(req.params.id, scope), scope, own));
+  }, 'Notes unavailable'));
 
   // Save: only the sections the client says it changed are applied, onto the CURRENT document, so two editors in different sections never overwrite each other.
   app.patch(paths('/notes'), auth, participant, live, guard(async (req, res) => {
-    if (!(await canEdit(req))) return fail(res, 403, 'You do not have edit access to the notes');
+    const scope = myScope(req);
+    if (!scope && !(await canEdit(req))) return fail(res, 403, 'You do not have edit access to the notes');
     const b = req.body || {}; const want = (Array.isArray(b.sections) ? b.sections : []).filter((s) => SECTIONS.includes(s)); if (!want.length) return fail(res, 400, 'Nothing to save');
     if (JSON.stringify(b.doc || {}).length > 70000) return fail(res, 413, 'Notes are too large');
     const incoming = normalizeDoc(b.doc), name = getName(req.params.id, req.user.participantId);
     const c = await db.connect();
     try {
-      await c.query('BEGIN'); await loadNotes(req.params.id);
-      const { rows: [cur] } = await c.query('SELECT * FROM meeting_notes WHERE meeting_id=$1 FOR UPDATE', [req.params.id]);
+      await c.query('BEGIN'); await loadNotes(req.params.id, scope);
+      const { rows: [cur] } = await c.query(scope ? 'SELECT * FROM more_room_notes WHERE meeting_id=$1 AND room_id=$2 FOR UPDATE' : 'SELECT * FROM meeting_notes WHERE meeting_id=$1 FOR UPDATE', scope ? [req.params.id, scope] : [req.params.id]);
       const next = { ...cur.doc }; for (const s of want) next[s] = incoming[s];
       if (JSON.stringify(next) === JSON.stringify(cur.doc)) { await c.query('COMMIT'); return res.json({ version: cur.version, doc: cur.doc, changed: false }); }
       const version = cur.version + 1;
-      await c.query('UPDATE meeting_notes SET doc=$2,version=$3,updated_by=$4,updated_by_name=$5,updated_at=now() WHERE meeting_id=$1', [req.params.id, JSON.stringify(next), version, req.user.participantId, name]);
-      const last = await lastRevision(c, req.params.id);                                   // autosave coalesces: a new snapshot at most every 30 s per author
-      if (!last || last.saved_by !== req.user.participantId || Date.now() - new Date(last.created_at).getTime() > 30000 || want.includes('template'))
+      await c.query(scope ? 'UPDATE more_room_notes SET doc=$2,version=$3,updated_by=$4,updated_by_name=$5,updated_at=now() WHERE meeting_id=$1 AND room_id=$6' : 'UPDATE meeting_notes SET doc=$2,version=$3,updated_by=$4,updated_by_name=$5,updated_at=now() WHERE meeting_id=$1', scope ? [req.params.id, JSON.stringify(next), version, req.user.participantId, name, scope] : [req.params.id, JSON.stringify(next), version, req.user.participantId, name]);
+      const last = scope ? null : await lastRevision(c, req.params.id);                                   // autosave coalesces: a new snapshot at most every 30 s per author
+      if (!scope && (!last || last.saved_by !== req.user.participantId || Date.now() - new Date(last.created_at).getTime() > 30000 || want.includes('template')))
         await c.query('INSERT INTO meeting_notes_revisions(meeting_id,version,doc,saved_by,saved_by_name,reason) VALUES($1,$2,$3,$4,$5,$6)', [req.params.id, version, JSON.stringify(next), req.user.participantId, name, want.includes('template') ? 'template' : 'edit']);
       await c.query('COMMIT');
-      io.to(room(req.params.id)).emit('notes-updated', { version, doc: next, by: name, byId: req.user.participantId, sections: want });
+      emitToScope(req.params.id, scope, 'notes-updated', { version, doc: next, by: name, byId: req.user.participantId, sections: want });
       res.json({ version, doc: next, changed: true });
     } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
   }, 'Could not save the notes'));
 
-  app.post(paths('/notes/snapshot'), auth, participant, live, guard(async (req, res) => {
+  app.post(paths('/notes/snapshot'), auth, participant, live, mainOnly('Version history'), guard(async (req, res) => {
     if (!(await canEdit(req))) return fail(res, 403, 'You do not have edit access to the notes');
     const n = await loadNotes(req.params.id), name = getName(req.params.id, req.user.participantId);
     await db.query('INSERT INTO meeting_notes_revisions(meeting_id,version,doc,saved_by,saved_by_name,reason) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (meeting_id,version) DO NOTHING', [req.params.id, n.version, JSON.stringify(n.doc), req.user.participantId, name, 'manual']);
@@ -132,14 +153,16 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
   }, 'Could not save a version'));
 
   app.get(paths('/notes/revisions'), auth, participant, guard(async (req, res) => {
+    if (myScope(req) !== null) return res.set('Cache-Control', 'no-store').json({ revisions: [] });
     const { rows } = await db.query('SELECT version,saved_by_name AS "savedBy",reason,created_at AS "at" FROM meeting_notes_revisions WHERE meeting_id=$1 ORDER BY version DESC LIMIT 100', [req.params.id]);
     res.set('Cache-Control', 'no-store').json({ revisions: rows });
   }, 'History unavailable'));
   app.get(paths('/notes/revisions/:v'), auth, participant, guard(async (req, res) => {
+    if (myScope(req) !== null) return fail(res, 404, 'No such version');
     const { rows: [r] } = await db.query('SELECT version,doc,saved_by_name AS "savedBy",reason,created_at AS "at" FROM meeting_notes_revisions WHERE meeting_id=$1 AND version=$2', [req.params.id, parseInt(req.params.v, 10) || 0]);
     r ? res.json(r) : fail(res, 404, 'No such version');
   }, 'History unavailable'));
-  app.post(paths('/notes/restore'), auth, participant, live, hostOnly, guard(async (req, res) => {
+  app.post(paths('/notes/restore'), auth, participant, live, hostOnly, mainOnly('Restoring a version'), guard(async (req, res) => {
     const { rows: [r] } = await db.query('SELECT doc FROM meeting_notes_revisions WHERE meeting_id=$1 AND version=$2', [req.params.id, parseInt(req.body?.version, 10) || 0]); if (!r) return fail(res, 404, 'No such version');
     const name = getName(req.params.id, req.user.participantId), doc = normalizeDoc(r.doc), c = await db.connect();
     try {
@@ -147,80 +170,84 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
       const { rows: [cur] } = await c.query('SELECT version FROM meeting_notes WHERE meeting_id=$1 FOR UPDATE', [req.params.id]); const version = cur.version + 1;
       await c.query('UPDATE meeting_notes SET doc=$2,version=$3,updated_by=$4,updated_by_name=$5,updated_at=now() WHERE meeting_id=$1', [req.params.id, JSON.stringify(doc), version, req.user.participantId, name]);
       await c.query('INSERT INTO meeting_notes_revisions(meeting_id,version,doc,saved_by,saved_by_name,reason) VALUES($1,$2,$3,$4,$5,$6)', [req.params.id, version, JSON.stringify(doc), req.user.participantId, name, 'restore']);
-      await c.query('COMMIT'); io.to(room(req.params.id)).emit('notes-updated', { version, doc, by: name, byId: req.user.participantId, sections: SECTIONS, restored: true });
+      await c.query('COMMIT'); emitToScope(req.params.id, null, 'notes-updated', { version, doc, by: name, byId: req.user.participantId, sections: SECTIONS, restored: true });
       audit(req.params.id, req.user.participantId, 'notes.restored', { from: req.body.version }); res.json({ version, doc });
     } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
   }, 'Could not restore'));
 
-  app.post(paths('/notes/editors'), auth, participant, live, hostOnly, guard(async (req, res) => {
+  app.post(paths('/notes/editors'), auth, participant, live, hostOnly, mainOnly('Edit access'), guard(async (req, res) => {
     const pid = String(req.body?.participantId || ''), allow = req.body?.allow === true;
     const { rows } = await db.query('SELECT 1 FROM participants WHERE id=$1 AND meeting_id=$2', [pid, req.params.id]); if (!rows.length) return fail(res, 404, 'No such participant');
     if (allow) await db.query('INSERT INTO notes_editors(meeting_id,participant_id,granted_by) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [req.params.id, pid, req.user.participantId]);
     else await db.query('DELETE FROM notes_editors WHERE meeting_id=$1 AND participant_id=$2', [req.params.id, pid]);
     audit(req.params.id, req.user.participantId, allow ? 'notes.edit_granted' : 'notes.edit_revoked', { participant: pid });
-    const editors = await editorIds(req.params.id); io.to(room(req.params.id)).emit('notes-editors', { editors }); res.json({ editors });
+    const editors = await editorIds(req.params.id); emitToScope(req.params.id, null, 'notes-editors', { editors }); res.json({ editors });
   }, 'Could not change access'));
 
   // ------------------------------------------------------------------ polls
   const isHost = (req) => req.user.role === 'host';
   const seeResults = (p, host) => host || (p.status === 'closed' && p.published) || (p.status === 'open' && p.live_results);
   async function expire(meetingId) {                              // lazy close of timed polls
-    const { rows } = await db.query("UPDATE meeting_polls SET status='closed', closed_at=now() WHERE status='open' AND closes_at IS NOT NULL AND closes_at<=now() " + (meetingId ? 'AND meeting_id=$1 ' : '') + 'RETURNING meeting_id', meetingId ? [meetingId] : []);
-    for (const m of new Set(rows.map((r) => r.meeting_id))) io.to(room(m)).emit('polls-changed');
+    const { rows } = await db.query("UPDATE meeting_polls SET status='closed', closed_at=now() WHERE status='open' AND closes_at IS NOT NULL AND closes_at<=now() " + (meetingId ? 'AND meeting_id=$1 ' : '') + 'RETURNING meeting_id, breakout_room', meetingId ? [meetingId] : []);
+    const seen = new Set(); for (const r of rows) { const k = r.meeting_id + '|' + (r.breakout_room || ''); if (!seen.has(k)) { seen.add(k); changed(r.meeting_id, r.breakout_room || null); } }
   }
   setInterval(() => expire().catch(() => {}), 5000).unref();
   const ballotsOf = async (pollId) => (await db.query('SELECT choices FROM poll_ballots WHERE poll_id=$1', [pollId])).rows.map((r) => r.choices);
   async function pollView(p, req) {
+    const rooms = p.breakout_room ? await roomsOf(p.meeting_id) : null;
     const host = isHost(req), voters = (await db.query('SELECT count(*)::int AS n FROM poll_voters WHERE poll_id=$1', [p.id])).rows[0].n;
     const mine = (await db.query('SELECT 1 FROM poll_voters WHERE poll_id=$1 AND participant_id=$2', [p.id, req.user.participantId])).rowCount > 0;
-    const v = { id: p.id, question: p.question, kind: p.kind, options: p.options, scale: p.scale, anonymous: p.anonymous, liveResults: p.live_results, quiz: p.quiz, status: p.status, published: p.published, durationSec: p.duration_sec, closesAt: p.closes_at, responses: voters, hasVoted: mine, createdAt: p.created_at };
+    const v = { id: p.id, question: p.question, kind: p.kind, options: p.options, scale: p.scale, anonymous: p.anonymous, liveResults: p.live_results, quiz: p.quiz, status: p.status, published: p.published, durationSec: p.duration_sec, closesAt: p.closes_at, responses: voters, hasVoted: mine, createdAt: p.created_at, roomId: p.breakout_room || null, roomName: p.breakout_room ? (rooms.get(p.breakout_room) || 'Closed room') : '' };
     if (seeResults(p, host)) v.results = tally(p, await ballotsOf(p.id));
     if (p.quiz && (host || (p.status === 'closed' && p.published))) { v.correct = p.correct; v.explanation = p.explanation; }
     return v;
   }
-  const getPoll = async (req) => (await db.query('SELECT * FROM meeting_polls WHERE id=$1 AND meeting_id=$2', [req.params.pid, req.params.id])).rows[0];
-  const changed = (meetingId) => io.to(room(meetingId)).emit('polls-changed');
+  // a person outside the poll's room does not even learn that it exists (the host oversees all rooms)
+  const getPoll = async (req) => { const p = (await db.query('SELECT * FROM meeting_polls WHERE id=$1 AND meeting_id=$2', [req.params.pid, req.params.id])).rows[0]; return p && !isHost(req) && (p.breakout_room || null) !== myScope(req) ? undefined : p; };
+  const changed = (meetingId, scope = null) => emitScopeAndHosts(meetingId, scope, 'polls-changed', {});
 
   app.get(paths('/polls'), auth, participant, guard(async (req, res) => {
     if (!isHost(req) && !(await toolOn(req.params.id, req.user.participantId, req.user.role, 'polls'))) return res.set('Cache-Control', 'no-store').json({ polls: [], disabled: true });          // guests see nothing of polls until the host switches them on
     await expire(req.params.id);
-    const { rows } = await db.query('SELECT * FROM meeting_polls WHERE meeting_id=$1 ' + (isHost(req) ? '' : "AND status<>'draft' ") + 'ORDER BY created_at DESC LIMIT 60', [req.params.id]);
+    const { rows } = await db.query('SELECT * FROM meeting_polls WHERE meeting_id=$1 ' + (isHost(req) ? '' : "AND status<>'draft' AND breakout_room IS NOT DISTINCT FROM $2 ") + 'ORDER BY created_at DESC LIMIT 60', isHost(req) ? [req.params.id] : [req.params.id, myScope(req)]);
     res.set('Cache-Control', 'no-store').json({ polls: await Promise.all(rows.map((p) => pollView(p, req))) });
   }, 'Polls unavailable'));
 
   app.post(paths('/polls'), auth, participant, live, hostOnly, guard(async (req, res) => {
     const c = cleanPoll(req.body); if (c.error) return fail(res, 400, c.error);
     const { rows: [n] } = await db.query('SELECT count(*)::int AS n FROM meeting_polls WHERE meeting_id=$1', [req.params.id]); if (n.n >= 100) return fail(res, 409, 'Too many polls in this meeting');
+    let pscope = myScope(req); const want = req.body.roomId;          // the host's poll belongs to the room they are in, or to the room they name (rooms must be open)
+    if (want === 'main') pscope = null; else if (want !== undefined && want !== null) { if (!roomsOpen(req.params.id)) return fail(res, 409, 'Breakout rooms are not open'); if (!UUID.test(String(want)) || !(await roomsOf(req.params.id)).has(String(want))) return fail(res, 404, 'Room not found'); pscope = String(want); }
     const id = randomUUID(), launch = req.body.launch === true;
-    await db.query('INSERT INTO meeting_polls(id,meeting_id,created_by,question,kind,options,scale,anonymous,live_results,quiz,correct,explanation,duration_sec,status,opened_at,closes_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',
-      [id, req.params.id, req.user.participantId, c.question, c.kind, JSON.stringify(c.options), c.scale, c.anonymous, c.liveResults, c.quiz, c.correct && JSON.stringify(c.correct), c.explanation, c.durationSec, launch ? 'open' : 'draft', null, null]);
+    await db.query('INSERT INTO meeting_polls(id,meeting_id,created_by,question,kind,options,scale,anonymous,live_results,quiz,correct,explanation,duration_sec,status,opened_at,closes_at,breakout_room) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)',
+      [id, req.params.id, req.user.participantId, c.question, c.kind, JSON.stringify(c.options), c.scale, c.anonymous, c.liveResults, c.quiz, c.correct && JSON.stringify(c.correct), c.explanation, c.durationSec, launch ? 'open' : 'draft', null, null, pscope]);
     if (launch) await db.query("UPDATE meeting_polls SET opened_at=now(), closes_at=CASE WHEN duration_sec IS NULL THEN NULL ELSE now()+duration_sec*interval '1 second' END WHERE id=$1", [id]);   // times come from the database clock
-    audit(req.params.id, req.user.participantId, launch ? 'poll.launched' : 'poll.drafted', { poll: id }); changed(req.params.id);
+    audit(req.params.id, req.user.participantId, launch ? 'poll.launched' : 'poll.drafted', { poll: id, room: pscope }); changed(req.params.id, pscope);
     res.status(201).json(await pollView((await db.query('SELECT * FROM meeting_polls WHERE id=$1', [id])).rows[0], req));
   }, 'Could not create the poll'));
 
   app.post(paths('/polls/:pid/open'), auth, participant, live, hostOnly, guard(async (req, res) => {
     const p = await getPoll(req); if (!p) return fail(res, 404, 'No such poll'); if (p.status !== 'draft') return fail(res, 409, 'Only a draft can be launched');
     await db.query("UPDATE meeting_polls SET status='open', opened_at=now(), closes_at=CASE WHEN duration_sec IS NULL THEN NULL ELSE now()+duration_sec*interval '1 second' END WHERE id=$1", [p.id]);
-    audit(req.params.id, req.user.participantId, 'poll.launched', { poll: p.id }); changed(req.params.id); res.json({ ok: true });
+    audit(req.params.id, req.user.participantId, 'poll.launched', { poll: p.id }); changed(req.params.id, p.breakout_room || null); res.json({ ok: true });
   }, 'Could not launch'));
   app.post(paths('/polls/:pid/close'), auth, participant, live, hostOnly, guard(async (req, res) => {
     const p = await getPoll(req); if (!p) return fail(res, 404, 'No such poll'); if (p.status !== 'open') return fail(res, 409, 'The poll is not open');
-    await db.query("UPDATE meeting_polls SET status='closed', closed_at=now() WHERE id=$1", [p.id]); audit(req.params.id, req.user.participantId, 'poll.closed', { poll: p.id }); changed(req.params.id); res.json({ ok: true });
+    await db.query("UPDATE meeting_polls SET status='closed', closed_at=now() WHERE id=$1", [p.id]); audit(req.params.id, req.user.participantId, 'poll.closed', { poll: p.id }); changed(req.params.id, p.breakout_room || null); res.json({ ok: true });
   }, 'Could not close'));
   app.post(paths('/polls/:pid/publish'), auth, participant, live, hostOnly, guard(async (req, res) => {
     const p = await getPoll(req); if (!p) return fail(res, 404, 'No such poll'); const on = req.body?.published !== false;
-    await db.query('UPDATE meeting_polls SET published=$2 WHERE id=$1', [p.id, on]); audit(req.params.id, req.user.participantId, on ? 'poll.published' : 'poll.unpublished', { poll: p.id }); changed(req.params.id); res.json({ ok: true });
+    await db.query('UPDATE meeting_polls SET published=$2 WHERE id=$1', [p.id, on]); audit(req.params.id, req.user.participantId, on ? 'poll.published' : 'poll.unpublished', { poll: p.id }); changed(req.params.id, p.breakout_room || null); res.json({ ok: true });
   }, 'Could not publish'));
   app.delete(paths('/polls/:pid'), auth, participant, live, hostOnly, guard(async (req, res) => {
     const p = await getPoll(req); if (!p) return fail(res, 404, 'No such poll'); if (p.status !== 'draft') return fail(res, 409, 'Only a draft can be deleted');
-    await db.query('DELETE FROM meeting_polls WHERE id=$1', [p.id]); changed(req.params.id); res.json({ ok: true });
+    await db.query('DELETE FROM meeting_polls WHERE id=$1', [p.id]); changed(req.params.id, p.breakout_room || null); res.json({ ok: true });
   }, 'Could not delete'));
 
   app.post(paths('/polls/:pid/votes'), auth, participant, live, guard(async (req, res) => {
     if (!isHost(req) && !(await toolOn(req.params.id, req.user.participantId, req.user.role, 'polls'))) return fail(res, 403, 'Polls are not switched on by the host');
     await expire(req.params.id);
-    const p = await getPoll(req); if (!p || p.status === 'draft') return fail(res, 404, 'No such poll'); if (p.status !== 'open') return fail(res, 409, 'This poll is closed');
+    const p = await getPoll(req); if (!p || p.status === 'draft') return fail(res, 404, 'No such poll'); if ((p.breakout_room || null) !== myScope(req)) return fail(res, 403, 'This poll belongs to another room'); if (p.status !== 'open') return fail(res, 409, 'This poll is closed');
     const b = cleanBallot(p, req.body?.choices); if (b.error) return fail(res, 400, b.error);
     const c = await db.connect();
     try {
@@ -230,7 +257,7 @@ export function registerCollab({ app, io, db, auth, fail, room, getName, audit, 
       await c.query('INSERT INTO poll_ballots(id,poll_id,participant_id,choices) VALUES($1,$2,$3,$4)', [randomUUID(), p.id, p.anonymous ? null : req.user.participantId, JSON.stringify(b.choices)]);
       await c.query('COMMIT');
     } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
-    audit(req.params.id, p.anonymous ? null : req.user.participantId, 'poll.voted', { poll: p.id }); changed(req.params.id);
+    audit(req.params.id, p.anonymous ? null : req.user.participantId, 'poll.voted', { poll: p.id }); changed(req.params.id, p.breakout_room || null);
     const out = { ok: true }; if (p.quiz) { const cs = new Set(p.correct); out.correct = b.choices.length === cs.size && b.choices.every((i) => cs.has(i)); }   // told to the voter once; never stored against an anonymous ballot
     res.status(201).json(out);
   }, 'Could not record your vote'));

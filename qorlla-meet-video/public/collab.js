@@ -16,7 +16,7 @@ export function initCollab(h) {
   const code = () => ($('roomId')?.textContent || 'meeting').replace(/\W+/g, '');
 
   // =================================================================================================================================== NOTES
-  const N = { doc: { template: '', agenda: [], notes: '', decisions: [], tasks: [] }, version: 0, canEdit: false, isHost: false, ended: false, editors: [], dirty: new Set(), pending: new Set(), saving: false, again: false, timer: 0, retry: 0, offline: false, loaded: false };
+  const N = { doc: { template: '', agenda: [], notes: '', decisions: [], tasks: [] }, version: 0, canEdit: false, isHost: false, ended: false, editors: [], room: null, dirty: new Set(), pending: new Set(), saving: false, again: false, timer: 0, retry: 0, offline: false, loaded: false };
   const TEMPLATES = {
     blank: { label: 'Blank', agenda: [], notes: '' },
     agenda: { label: 'Agenda', agenda: ['Welcome and introductions', 'Main topics', 'Questions', 'Next steps'], notes: '' },
@@ -56,8 +56,8 @@ export function initCollab(h) {
   function touch(...names) { for (const n of names) N.dirty.add(n); scheduleSave(); }
   function setStatus(text, cls) { const s = $('notesStatus'); if (!s) return; s.textContent = text; s.dataset.state = cls || ''; }
   function renderAll() {
-    const role = $('notesRole'); if (!role) return; role.textContent = N.ended ? 'Meeting ended · read-only' : N.isHost ? 'Host editor' : N.canEdit ? 'You can edit' : 'Read-only';
-    $('notesTemplate').disabled = ro(); $('notesSnap').disabled = ro(); $('notesShare').classList.toggle('hidden', !N.isHost || N.ended);
+    const role = $('notesRole'); if (!role) return; role.textContent = N.room ? 'Room notes · ' + N.room.name + (N.canEdit ? '' : ' · read-only') : N.ended ? 'Meeting ended · read-only' : N.isHost ? 'Host editor' : N.canEdit ? 'You can edit' : 'Read-only';
+    $('notesTemplate').disabled = ro(); $('notesSnap').disabled = ro() || !!N.room; $('notesHistory').disabled = !!N.room; $('notesSnap').title = $('notesHistory').title = N.room ? 'Version history is only kept for the main-room notes' : ''; $('notesShare').classList.toggle('hidden', !N.isHost || N.ended || !!N.room);
     for (const id of Object.keys(SECMAP)) renderSection(id);
     if (!N.dirty.size && !N.saving && N.loaded) setStatus(N.canEdit ? 'Saved' : '', 'saved');
   }
@@ -108,7 +108,7 @@ export function initCollab(h) {
   }
   async function loadNotes() {
     if (N.dirty.size) await flush();
-    try { const r = await call('/notes'); Object.assign(N, { version: r.version, canEdit: r.canEdit, isHost: r.isHost, ended: r.ended, editors: r.editors, loaded: true }); N.doc = r.doc; if (!$('nAgenda')) buildNotes(); else renderAll(); }
+    try { const r = await call('/notes'); Object.assign(N, { version: r.version, canEdit: r.canEdit, isHost: r.isHost, ended: r.ended, editors: r.editors, room: r.room || null, loaded: true }); N.doc = r.doc; if (!$('nAgenda')) buildNotes(); else renderAll(); }
     catch (e) { if (!$('nAgenda')) buildNotes(); setStatus('Notes unavailable: ' + e.message, 'offline'); }
   }
   function remoteNotes(m) {
@@ -201,10 +201,12 @@ export function initCollab(h) {
     const ds = sect('Time limit', 'pd'); const dur = el('select', 'plc-select', '', { id: 'pd' }); for (const [v, l] of [['0', 'No limit'], ['60', '1 minute'], ['120', '2 minutes'], ['300', '5 minutes'], ['600', '10 minutes']]) dur.append(new Option(l, v)); ds.append(dur);
     const err = el('p', 'rc-err', '', { role: 'alert' }); const br = el('div', 'plc-foot');
     const draft = el('button', 'plc-btn', '', { type: 'button' }), go = el('button', 'plc-btn plc-go', '', { type: 'submit' });
+    let roomPick = null;          // while rooms are open the host chooses where the poll goes (default: the room they are in)
+    if (state.role === 'host' && BK.info.active && BK.st?.rooms?.length) { const rs = sect('Send this poll to', 'pRoom'); roomPick = el('select', '', '', { id: 'pRoom' }); roomPick.append(new Option(BK.info.roomId ? 'The room I am in (' + BK.info.roomName + ')' : 'The main room (default)', '')); if (BK.info.roomId) roomPick.append(new Option('The main room', 'main')); for (const r of BK.st.rooms) if (r.id !== BK.info.roomId) roomPick.append(new Option(r.name, r.id)); rs.append(roomPick); }
     draft.append(el('span', 'plc-ic', '💾'), document.createTextNode('Save draft')); go.append(el('span', 'plc-ic', '▶'), document.createTextNode('Launch poll')); br.append(draft, go); f.append(err, br);
     const sync = () => { const k = kindVal; os.hidden = !['single', 'multiple', 'ranking'].includes(k); ss.hidden = k !== 'rating'; quiz.parentElement.hidden = !['single', 'multiple', 'yesno'].includes(k); if (quiz.parentElement.hidden) quiz.checked = false; es.hidden = !quiz.checked; renum(); }; quiz.onchange = sync; sync();
     const correct = () => (kindVal === 'yesno' ? [] : rows.filter((o) => o.inp.value.trim()).map((o, i) => (o.ok.checked ? i : -1)).filter((i) => i >= 0));
-    const body = (launch) => ({ question: q.value, kind: kindVal, options: rows.map((o) => o.inp.value), scale: Number(scale.value), anonymous: anon.checked, liveResults: live.checked, quiz: quiz.checked, correct: correct(), explanation: expl.value, durationSec: Number(dur.value) || 0, launch });
+    const body = (launch) => ({ question: q.value, kind: kindVal, options: rows.map((o) => o.inp.value), scale: Number(scale.value), anonymous: anon.checked, liveResults: live.checked, quiz: quiz.checked, correct: correct(), explanation: expl.value, durationSec: Number(dur.value) || 0, launch, ...(roomPick && roomPick.value ? { roomId: roomPick.value } : {}) });
     const send = async (launch) => { err.textContent = ''; try { await call('/polls', 'POST', body(launch)); P.form = false; P.view = launch ? 'active' : 'drafts'; announce(launch ? 'Poll launched' : 'Draft saved'); await loadPolls(); } catch (e) { err.textContent = e.message; } };
     f.onsubmit = (e) => { e.preventDefault(); send(true); }; draft.onclick = () => { if (f.reportValidity()) send(false); };
     return f;
@@ -233,7 +235,7 @@ export function initCollab(h) {
   }
   function pollCard(p) {
     const c = el('article', 'pl-card'); c.setAttribute('aria-label', p.question); const h = el('div', 'pl-h'); h.append(el('strong', '', p.question), el('span', 'chip', p.status === 'open' ? 'Open' : p.status === 'draft' ? 'Draft' : 'Closed')); c.append(h);
-    const meta = [KIND[p.kind]]; if (p.anonymous) meta.push('anonymous'); if (p.quiz) meta.push('quiz'); c.append(el('p', 'muted', meta.join(' · ')));
+    const meta = [KIND[p.kind]]; if (p.anonymous) meta.push('anonymous'); if (p.quiz) meta.push('quiz'); if (p.roomId) meta.push(state.role === 'host' ? 'Room: ' + p.roomName : 'This room only'); else if (state.role === 'host' && BK.info.active) meta.push('Main room'); c.append(el('p', 'muted', meta.join(' · ')));
     if (p.status === 'open') { c.append(el('p', 'muted pl-count', p.responses + ' of ' + Math.max(1, state.roster.size) + ' responded' + (p.closesAt ? ' · closes in ' : ''), { 'data-closes': p.closesAt || '' })); }
     if (p.status === 'open' && !p.hasVoted) c.append(voteForm(p));
     else if (p.status === 'open' && p.hasVoted) { c.append(el('p', '', P.answered.has(p.id) ? (P.answered.get(p.id) ? '✔ Vote recorded — correct!' : '✘ Vote recorded — not the correct answer.') : '✔ Your vote is recorded.')); }
@@ -436,33 +438,60 @@ export function initCollab(h) {
   }
 
   // ---- breakout rooms (v4.29): the host splits people into rooms; the server moves them (new roster, new peer connections) and keeps chat, signaling and events inside the room
-  const BK = { info: { active: false, roomId: null, roomName: null, deadline: null }, st: null, box: null, chip: null, tick: 0, warned: false, open: false };
+  const BK = { info: { active: false, roomId: null, roomName: null, deadline: null }, st: null, box: null, chip: null, acts: null, helpId: null, ready: 0, tick: 0, warned: false, open: false };
   const inMain = () => !BK.info.roomId;
   const bk = (path, method, body) => call('/breakouts' + path, method, body);
   const leftSec = () => (BK.info.deadline ? (Date.parse(BK.info.deadline) - Date.now()) / 1000 : 0);
   function bkPaintChip() {
     const top = document.querySelector('.stage-top'); if (!BK.chip && top) { BK.chip = el('span', 'bk-chip hidden', '', { role: 'timer', 'aria-label': 'Breakout rooms' }); top.prepend(BK.chip); }
     const on = BK.info.active && (BK.info.roomId || state.role === 'host'), left = leftSec();
-    if (BK.chip) { BK.chip.classList.toggle('hidden', !on); BK.chip.textContent = on ? (BK.info.roomId ? BK.info.roomName : 'Rooms open') + ' \u00B7 ' + fmt(left) : ''; }
+    const asking = state.role === 'host' && BK.st?.help?.length ? ' \u00B7 ' + BK.st.help.length + ' asking for help' : '';
+    if (BK.chip) { BK.chip.classList.toggle('hidden', !on); BK.chip.textContent = on ? (BK.info.roomId ? BK.info.roomName : 'Rooms open') + ' \u00B7 ' + fmt(left) + asking : ''; }
+    if (!BK.acts && BK.chip && state.role !== 'host') { BK.acts = bkGuestActs(); BK.chip.after(BK.acts); }
+    if (BK.acts) BK.acts.classList.toggle('hidden', !(BK.info.active && BK.info.roomId));
+    document.querySelectorAll('[data-bk-help]').forEach((b) => { b.textContent = BK.helpId ? 'Cancel help request' : 'Ask for help'; b.setAttribute('aria-pressed', String(!!BK.helpId)); });
     document.querySelectorAll('[data-bk-left]').forEach((n) => { n.textContent = BK.info.active ? fmt(left) : ''; });
     if (BK.info.active && left > 0 && left <= 60 && !BK.warned) { BK.warned = true; announce('One minute left in the breakout rooms'); notify('One minute left in the breakout rooms'); }
     if (!BK.info.active && BK.tick) { clearInterval(BK.tick); BK.tick = 0; }
   }
+  // V1.1: a person in a room can go back to the main room by themselves, and ask the host to come
+  function bkGuestActs() {
+    const wrap = el('span', 'bk-acts'); const help = el('button', 'bk-act', 'Ask for help', { type: 'button', 'data-bk-help': '', 'aria-pressed': 'false', title: 'Tell the host this room needs them' });
+    const back = el('button', 'bk-act', 'Back to main room', { type: 'button', title: 'Leave this room and rejoin everyone in the main room' });
+    help.onclick = async () => { help.disabled = true; try { if (BK.helpId) { await bk('/help', 'DELETE'); BK.helpId = null; notify('Help request cancelled'); } else { BK.helpId = (await bk('/help', 'POST', {})).id; notify('The host has been asked to come to your room'); announce('The host has been asked to come to your room'); } } catch (e) { notify(e.message); } help.disabled = false; bkPaintChip(); };
+    back.onclick = async () => { if (!(await askConfirm('Go back to the main room?', 'You leave ' + (BK.info.roomName || 'this room') + ' and rejoin everyone in the main room. The host can still move you again.', 'Go back'))) return; back.disabled = true; try { await bk('/return', 'POST', {}); } catch (e) { notify(e.message); } back.disabled = false; };
+    wrap.append(help, back); return wrap;
+  }
+  // tells the server when this page has its new peer connections up (or gave up waiting), so the host's list stops saying 'connecting'
+  function bkReady() {
+    clearTimeout(BK.ready); const t0 = Date.now();
+    const check = () => { const need = [...state.roster].filter((id) => id !== state.participantId); if (need.every((id) => state.peers?.get(id)?.connectionState === 'connected') || Date.now() - t0 > 15000) { state.socket?.emit('breakout-ready'); return; } BK.ready = setTimeout(check, 400); };
+    BK.ready = setTimeout(check, 600);
+  }
+  async function bkViewNotes(r) {
+    try { const v = await call('/notes?room=' + r.id); rcModal('Notes \u00B7 ' + r.name, (box) => { box.append(el('pre', 'nt-preview', docToMarkdown(v.doc), { tabindex: '0', 'aria-label': 'Notes of ' + r.name })); const row = el('div', 'rc-row'), c = el('button', 'rc-primary', 'Close'); c.onclick = () => rcClose(); row.append(c); box.append(row); }); } catch (e) { notify(e.message); }
+  }
   function breakoutScope(info) {
     const wasRoom = BK.info.roomId; BK.info = info; BK.warned = false; clearInterval(BK.tick); BK.tick = 0; if (info.active && info.deadline) BK.tick = setInterval(bkPaintChip, 1000); bkPaintChip();
     if (info.roomId) { if (WB.shown) wbHide(); WB.objs.clear(); WB.last = 0; WB.board = null; if (M.qaBox) M.qaBox.hidden = true; M.qaOpen = false; }          // the main-room tools close for people inside a room
-    if (wasRoom !== info.roomId) buildMore();
+    if (wasRoom !== info.roomId) {
+      buildMore(); BK.helpId = null;
+      if (N.dirty.size) { N.dirty.clear(); clearTimeout(N.timer); notify('Notes you had just typed could not be saved because you changed rooms.'); }          // the server already moved you: they would land in the new room
+      N.loaded = false; loadNotes(); loadPolls(); bkReady();
+    }
     if (BK.open) bkLoad();
   }
   async function bkLoad() {
-    try { BK.st = await bk(''); const me = BK.st.me; if (me.active !== BK.info.active || me.deadline !== BK.info.deadline || me.roomId !== BK.info.roomId) breakoutScope(me); } catch (e) { BK.st = null; if (BK.open) notify(e.message); }
-    bkRender();
+    try { BK.st = await bk(''); const me = BK.st.me; BK.helpId = me.help || null; if (me.active !== BK.info.active || me.deadline !== BK.info.deadline || me.roomId !== BK.info.roomId) breakoutScope(me); } catch (e) { BK.st = null; if (BK.open) notify(e.message); }
+    bkRender(); bkPaintChip();
   }
   function breakoutsChanged() { bkLoad(); }
   function bkRender() {
-    const box = BK.box; if (!box) return; box.textContent = ''; const st = BK.st, host = state.role === 'host'; if (!st) { box.append(el('p', 'mg-note', 'Breakout rooms are unavailable right now.')); return; }
+    const box = BK.box; if (!box) return;
+    const keep = [...box.querySelectorAll('input[aria-label="Room name"], select[aria-label="Minutes"], select[aria-label="Number of rooms"]')].map((x) => [x.getAttribute('aria-label'), x.value, x === document.activeElement]);          // a refresh must not wipe what the host is typing
+    box.textContent = ''; const st = BK.st, host = state.role === 'host'; if (!st) { box.append(el('p', 'mg-note', 'Breakout rooms are unavailable right now.')); return; }
     const running = st.session.active;
-    if (!host) { box.append(el('p', 'mg-note', st.me.roomId ? 'You are in ' + st.me.roomName + '. The host can bring everyone back at any time.' : running ? 'Breakout rooms are open. You were not assigned to a room.' : 'No breakout rooms are open. The host sets them up.')); return; }
+    if (!host) { box.append(el('p', 'mg-note', st.me.roomId ? 'You are in ' + st.me.roomName + '. The host can bring everyone back at any time.' : running ? 'Breakout rooms are open. You were not assigned to a room.' : 'No breakout rooms are open. The host sets them up.')); if (st.me.roomId) box.append(bkGuestActs()); return; }
     const run = (fn) => async () => { try { await fn(); } catch (e) { notify(e.message); } await bkLoad(); };
     if (running) {
       const head = el('div', 'bk-head'); head.append(el('strong', '', 'Rooms are open'), el('span', 'bk-left', '', { 'data-bk-left': '' })); const rec = el('button', 'mg-act', 'Bring everyone back', { type: 'button' });
@@ -473,18 +502,27 @@ export function initCollab(h) {
       const add = el('form', 'mg-trow'); const nm = el('input', '', '', { type: 'text', maxlength: '60', placeholder: 'Add a room (name)', 'aria-label': 'Room name', required: '' }); const ab = el('button', 'mg-act', 'Add', { type: 'submit' });
       add.onsubmit = (e) => { e.preventDefault(); run(() => bk('/rooms', 'POST', { name: nm.value }))(); }; add.append(nm, ab); box.append(add);
     }
+    if (st.help?.length) {
+      const hq = el('div', 'bk-room bk-help'); hq.append(el('div', 'bk-room-h', '', {}).appendChild(el('strong', '', 'Asking for help (' + st.help.length + ')')).parentElement);
+      for (const h of st.help) { const li = el('div', 'bk-p'); li.append(el('span', 'bk-on', '\u25CF', { 'aria-hidden': 'true' }), el('span', '', h.name + ' \u00B7 ' + (h.roomName || 'a room')));
+        const v = el('button', 'mg-act', st.hostRoom === h.roomId ? 'Here' : 'Visit', { type: 'button' }); v.disabled = st.hostRoom === h.roomId; v.onclick = run(() => bk('/visit', 'POST', { roomId: h.roomId }));
+        const d = el('button', 'mg-act', 'Resolve', { type: 'button' }); d.onclick = run(() => bk('/help/' + h.id + '/resolve', 'POST', {})); li.append(v, d); hq.append(li); }
+      box.append(hq);
+    }
     const options = st.rooms.map((r) => [r.id, r.name]);
     const mover = (p, cur) => { const sel = el('select', 'bk-sel', '', { 'aria-label': 'Room for ' + p.name }); sel.append(new Option('Main room', '')); for (const [id, name] of options) sel.append(new Option(name, id)); sel.value = cur || ''; sel.onchange = run(() => bk('/assign', 'POST', { participantId: p.id, roomId: sel.value || null })); return sel; };
     for (const r of st.rooms) {
       const sec = el('div', 'bk-room'); const h = el('div', 'bk-room-h'); h.append(el('strong', '', r.name), el('small', '', r.members.length + (r.members.length === 1 ? ' person' : ' people')));
+      { const nb = el('button', 'mg-act', 'Notes', { type: 'button', title: 'Read the notes of this room' }); nb.onclick = () => bkViewNotes(r); h.append(nb); }
       if (running) { const v = el('button', 'mg-act', st.hostRoom === r.id ? 'Leave room' : 'Visit', { type: 'button', title: 'Walk into this room to listen and help' }); v.onclick = run(() => bk('/visit', 'POST', { roomId: st.hostRoom === r.id ? null : r.id })); h.append(v); }
       else if (!r.members.length) { const d = el('button', 'mg-act', 'Delete', { type: 'button' }); d.onclick = run(() => bk('/rooms/' + r.id, 'DELETE')); h.append(d); }
-      sec.append(h); for (const p of r.members) { const li = el('div', 'bk-p'); li.append(el('span', p.online ? 'bk-on' : 'bk-off', '\u25CF', { 'aria-hidden': 'true' }), el('span', '', p.name + (p.online ? '' : ' (not here)')), mover(p, r.id)); sec.append(li); } box.append(sec);
+      sec.append(h); for (const p of r.members) { const li = el('div', 'bk-p'); li.append(el('span', p.online ? 'bk-on' : 'bk-off', '\u25CF', { 'aria-hidden': 'true' }), el('span', '', p.name + (p.online ? (p.connecting ? ' (connecting\u2026)' : '') : ' (not here)')), mover(p, r.id)); sec.append(li); } box.append(sec);
     }
-    const un = el('div', 'bk-room'); un.append(el('div', 'bk-room-h', '', {}).appendChild(el('strong', '', 'Main room')).parentElement); for (const p of st.unassigned) { const li = el('div', 'bk-p'); li.append(el('span', p.online ? 'bk-on' : 'bk-off', '\u25CF', { 'aria-hidden': 'true' }), el('span', '', p.name + (p.online ? '' : ' (not here)')), mover(p, null)); un.append(li); }
+    const un = el('div', 'bk-room'); un.append(el('div', 'bk-room-h', '', {}).appendChild(el('strong', '', 'Main room')).parentElement); for (const p of st.unassigned) { const li = el('div', 'bk-p'); li.append(el('span', p.online ? 'bk-on' : 'bk-off', '\u25CF', { 'aria-hidden': 'true' }), el('span', '', p.name + (p.online ? (p.connecting ? ' (connecting\u2026)' : '') : ' (not here)')), mover(p, null)); un.append(li); }
     if (!st.unassigned.length) un.append(el('p', 'mg-note', 'Everyone has a room.')); box.append(un);
     if (!running) { const row = el('div', 'mg-trow'); const mins = el('select', '', '', { 'aria-label': 'Minutes' }); for (const mn of [5, 10, 15, 20, 30, 45, 60]) mins.append(new Option(mn + ' minutes', String(mn))); mins.value = '15';
       const go = el('button', 'mg-act', 'Open rooms', { type: 'button' }); go.onclick = run(() => bk('/start', 'POST', { minutes: Number(mins.value) })); row.append(mins, go); box.append(row); }
+    for (const [label, value, focused] of keep) { const x = box.querySelector('[aria-label="' + label + '"]'); if (x && value) { x.value = value; if (focused) x.focus(); } }
     bkPaintChip();
   }
   function bkPanel() { const box = el('div', 'mg-qa bk-box'); box.hidden = true; BK.box = box; return box; }
@@ -633,7 +671,7 @@ export function initCollab(h) {
   }
   buildNotes(); buildPolls(); buildMore();
   return {
-    attach(s) { s.on('notes-updated', remoteNotes); s.on('notes-editors', (m) => { N.editors = m.editors; const can = state.role === 'host' || m.editors.includes(state.participantId); if (can !== N.canEdit && !N.ended) { N.canEdit = can; renderAll(); announce(can ? 'You can now edit the notes' : 'Your edit access to the notes was removed'); } }); s.on('polls-changed', polls$); s.on('more', onMore); s.on('ai-consent-request', loadIntel); s.on('ai-consent-closed', loadIntel); s.on('connect', () => { if (M.features) loadMore(); }); },
+    attach(s) { s.on('notes-updated', remoteNotes); s.on('notes-editors', (m) => { N.editors = m.editors; const can = state.role === 'host' || m.editors.includes(state.participantId); if (can !== N.canEdit && !N.ended) { N.canEdit = can; renderAll(); announce(can ? 'You can now edit the notes' : 'Your edit access to the notes was removed'); } }); s.on('polls-changed', polls$); s.on('breakout-help', (h) => { notify(h.name + ' in ' + (h.roomName || 'a room') + ' is asking for help'); announce(h.name + ' in ' + (h.roomName || 'a room') + ' is asking for help'); breakoutsChanged(); }); s.on('breakout-help-resolved', () => { BK.helpId = null; bkPaintChip(); notify('The host saw your request'); }); s.on('more', onMore); s.on('ai-consent-request', loadIntel); s.on('ai-consent-closed', loadIntel); s.on('connect', () => { if (M.features) loadMore(); }); },
     breakoutScope, breakoutsChanged,
     load() { buildMore(); loadNotes(); loadPolls(); loadMore(); loadIntel(); document.querySelector('[data-tab=more]')?.addEventListener('click', loadIntel); clearInterval(I.poll); I.poll = setInterval(() => { const t = $('tab-more'); if (!document.hidden && t && !t.classList.contains('hidden')) loadIntel(); }, 8000); },       // answers are not pushed: refresh while the tab is on screen
     refreshMore() { buildMore(); },

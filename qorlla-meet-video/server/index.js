@@ -361,7 +361,7 @@ app.get('/api/meetings/:id',auth,member,async(req,res)=>{
  // a meeting that was scheduled elsewhere shows the ID people were given (its registered alias), not Meet's internal code
  const {rows:[al]}=await db.query('SELECT alias_code FROM meeting_code_aliases WHERE meeting_id=$1 ORDER BY alias_code LIMIT 1',[req.params.id]).catch(()=>({rows:[]}));
  const tools=await hostControls.effective(req.params.id,req.user.participantId,req.user.role);
- res.json({...m,...(al?{meeting_code:al.alias_code}:{}),messages:messages.reverse(),polls:tools.polls?polls:[],tools,online:activeList(req.params.id)});
+ res.json({...m,...(al?{meeting_code:al.alias_code}:{}),messages:messages.reverse(),polls:tools.polls&&!breakouts.isActive(req.params.id)?polls:[],tools,online:activeList(req.params.id)});
 });
 // ---- admission control (v4.0.2b) -------------------------------------------------------------------------------------------------------------
 // A person who is waiting (or was denied) can ONLY ask where they stand; every other route and the socket refuse them until the host admits them.
@@ -425,7 +425,7 @@ const hostControls = registerHostControls({ app, io, db, auth, member, fail, roo
 const breakouts = registerBreakouts({ app, io, db, auth, member, fail, active, room });       // breakout rooms (v4.29): scoped rosters, signaling and events; blocks recording while rooms are open
 const chat = registerChat({ app, io, db, auth, member, room, fail, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), scopeOf: breakouts.scopeOf });       // meeting chat upgrade (v4.25+)
 const more = registerMore({ app, io, db, auth, member, room, fail, rateLimit, scopeOf: breakouts.scopeOf, emitMain: (meetingId, type, payload) => breakouts.emitToScope(meetingId, null, type, payload) });       // More tab (v4.27): Q&A, timer, preferences, attendance
-const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
+const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, scopeOf: breakouts.scopeOf, roomsOf: async (meetingId) => (await breakouts.ensure(meetingId)).rooms, roomsOpen: breakouts.isActive, emitToScope: breakouts.emitToScope, emitScopeAndHosts: breakouts.emitScopeAndHosts, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 registerHandoff({ app, db, sign, fail, bridgeAuth, audit });          // single-use hand-off codes (Workplace -> Meet page), see server/handoff.mjs
@@ -498,6 +498,7 @@ io.on('connection',socket=>{
    await chat.deliver(id,msg); if(typeof ack==='function')ack({ok:true,id:msg.id});
   } catch(e){ackError(ack,e?.status&&e.status<500?e.message:'Message failed');}
  });
+ socket.on('breakout-ready',()=>breakouts.ready(id,pid));          // this page rebuilt its peer connections for a new room
  socket.on('hand',raised=>{breakouts.emitScope(id,pid,'hand',{participantId:pid,raised:!!raised});});
  hostControls.attach(socket,{id,pid,role:u.role});
  socket.on('media-state',async state=>{
@@ -509,16 +510,19 @@ io.on('connection',socket=>{
  const reactAt=[];socket.on('reaction',emoji=>{if(!['👍','👏','❤️','🎉','😂','🙌','🤔','👎','✋','✅'].includes(emoji))return;const now=Date.now();while(reactAt.length&&now-reactAt[0]>10000)reactAt.shift();if(reactAt.length>=8)return;reactAt.push(now);breakouts.emitScope(id,pid,'reaction',{name:u.name,emoji},{self:true});});       // at most 8 a person every 10 s
  socket.on('notes',async(text,ack)=>{
   if(u.role!=='host')return ackError(ack,'Host only');
+  if(breakouts.isActive(id))return ackError(ack,'Use the Notes tab while breakout rooms are open');          // legacy meeting-wide event: it would reach every room
   text=clean(text,12000);
   try{await db.query('UPDATE meetings SET notes=$1 WHERE id=$2',[text,id]);socket.to(room(id)).emit('notes',text);if(typeof ack==='function')ack({ok:true});}catch{ackError(ack,'Save failed');}
  });
  socket.on('poll-create',async(data,ack)=>{
   if(u.role!=='host')return ackError(ack,'Host only');
+  if(breakouts.isActive(id))return ackError(ack,'Use the Polls tab while breakout rooms are open');
   const question=clean(data?.question,300),options=Array.isArray(data?.options)?data.options.map(s=>clean(s,100)).filter(Boolean).slice(0,8):[];
   if(!question||options.length<2)return ackError(ack,'Question and two options required');
   try{const poll={id:randomUUID(),question,options};await db.query('INSERT INTO polls(id,meeting_id,question,options) VALUES($1,$2,$3,$4)',[poll.id,id,question,JSON.stringify(options)]);io.to(room(id)).emit('poll-created',poll);ack?.({ok:true});}catch{ackError(ack,'Poll failed');}
  });
  socket.on('poll-vote',async({pollId,choice}={},ack)=>{
+  if(breakouts.isActive(id))return ackError(ack,'Use the Polls tab while breakout rooms are open');
   if(!Number.isInteger(choice)||choice<0||choice>7)return ackError(ack,'Invalid choice');
   try{const {rows:[poll]}=await db.query('SELECT options FROM polls WHERE id=$1 AND meeting_id=$2',[pollId,id]);if(!poll||choice>=poll.options.length)return ackError(ack,'Invalid poll');
    await db.query('INSERT INTO poll_votes(poll_id,participant_id,choice) VALUES($1,$2,$3) ON CONFLICT(poll_id,participant_id) DO UPDATE SET choice=EXCLUDED.choice',[pollId,pid,choice]);
