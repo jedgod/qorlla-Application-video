@@ -266,14 +266,17 @@
   .hist-sec h4 { margin: 12px 0 6px; } .hist-body textarea, .hist-body input[type=text] { width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; box-sizing: border-box; } .hist-item { display: flex; gap: 8px; align-items: center; margin: 4px 0; } .hist-item input[type=text] { width: 140px; }
   .hist-sub, .hist-pager { display: none; } .hist-pager:not(.hidden) { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 10px 0 4px; } .hist-pager .btn[disabled] { opacity: .45; cursor: default; }
   @container hist (min-width: 760px) {
-    .hist-list.hist-split { display: grid; grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); column-gap: 16px; align-items: start; }
+    .hist-list.hist-split { display: grid; grid-template-columns: minmax(330px, 390px) minmax(0, 1fr); grid-template-rows: repeat(5, auto) 1fr auto; column-gap: 0; align-items: start; min-height: 560px; }
     .hist-list.hist-split > .muted, .hist-list.hist-split > .hist-err, .hist-list.hist-split > .empty { grid-column: 1 / -1; }
     .hist-list.hist-split .hist-row { display: contents; border: 0; background: none; }
-    .hist-list.hist-split .hist-rowhead { grid-column: 1; margin-bottom: 8px; border: 1px solid var(--line); background: #fff; padding: 8px 12px; border-radius: 12px; align-items: center; }
+    .hist-list.hist-split .hist-rowhead { grid-column: 1; margin: 0 16px 8px 0; border: 1px solid var(--line); background: #fff; padding: 8px 12px; border-radius: 12px; align-items: center; }
     .hist-list.hist-split .hist-row.open > .hist-rowhead { border-color: #1d4ed8; box-shadow: 0 0 0 1px #1d4ed8 inset; }
     .hist-list.hist-split .hist-title { font-size: 14px; } .hist-list.hist-split .hist-main { gap: 2px; } .hist-list.hist-split .hist-topic, .hist-list.hist-split .hist-id, .hist-list.hist-split .hist-meta, .hist-list.hist-split .hist-date { display: none; } .hist-list.hist-split .hist-sub { display: block; color: #52658b; font-size: 12px; }
     .hist-list.hist-split .hist-side { flex-direction: row; align-items: center; gap: 8px; } .hist-list.hist-split .hist-chip { font-size: 12px; padding: 1px 10px; } .hist-list.hist-split .hist-chev svg { display: none; } .hist-list.hist-split .hist-chev { display: none; } .hist-list.hist-split .hist-dots { display: inline-grid; color: #94a3b8; } .hist-list.hist-split .hist-dots svg { width: 18px; height: 18px; }
-    .hist-list.hist-split .hist-body { grid-column: 2; grid-row: 1 / span 12; border: 1px solid var(--line); border-radius: 14px; background: #fff; padding: 0 16px 12px; position: sticky; top: 8px; }
+    .hist-list.hist-split .hist-body { grid-column: 2; grid-row: 1 / -1; align-self: stretch; display: flex; flex-direction: column; border: 0; border-left: 1px solid var(--line); border-radius: 0; background: none; margin: 0; padding: 0 0 12px 16px; }
+    .hist-list.hist-split .hist-body.hidden { display: none; }
+    .hist-list.hist-split > .hist-pager { grid-column: 1; grid-row: 7; align-self: end; margin: 8px 16px 0 0; }
+    .hist-list.hist-split .hist-actions { margin-top: auto; padding-top: 14px; }
     .hist-list.hist-split .hist-facts { grid-template-columns: 1fr 1fr; gap: 6px 12px; } .hist-list.hist-split .hist-kv { font-size: 13px; } .hist-list.hist-split .hist-sec h4 { margin: 10px 0 4px; font-size: 14px; }
     .hist-list.hist-split .hist-filterchip { padding: 3px 12px; }
   }
@@ -288,6 +291,9 @@
   .hist-split .hist-body { border: 1px solid var(--line); border-radius: 12px; background: #fff; margin-top: 6px; padding: 0 12px 12px; }
   .hist-split ~ .hist-status, .hist-filter input[type=date] { display: none; } .hist-filter { margin: 0 0 8px; } .hist-filter input { height: 30px; } .hist-filterchip { padding: 3px 12px; }
   .hist-split .acc-title { flex: 1 1 170px; } .hist-split .acc-fields { flex: 2 1 280px; }
+  .hist-toprow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; } .hist-toprow .hist-chips { margin: 0; flex: 1 1 auto; } .hist-toprow input[type=search] { flex: 0 1 170px; min-width: 120px; height: 30px; border: 1px solid var(--line); border-radius: 999px; padding: 0 12px; font: inherit; font-size: 12px; background: #fff; }
+  .hist-list > .hist-pager:not(.hidden) { justify-content: space-between; padding: 0 6px; margin: 10px 0 0; }
+  .hist-sec > .row { display: flex; gap: 8px; align-items: center; } .hist-sec > .row input[type=text] { flex: 1; width: auto; min-width: 0; } .hist-sec > .row .btn { color: #1d4ed8; border-color: #1d4ed8; background: #fff; }
   .hist-list > .hist-row { display: block; align-items: initial; }                              /* the AI drawer also has a .hist-row (a flex line); a History card is a block */
   .hist-tile, .hist-dhead, .hist-ptitle, .hist-dots { display: none; } .hist-sub { white-space: nowrap; } .hist-split .hist-chip { text-transform: none; letter-spacing: 0; font-size: 12px; } .hist-dstat { font-size: 12px; font-weight: 500; padding: 2px 12px; border-radius: 999px; background: #e0f2fe; color: #075985; white-space: nowrap; } .hist-dstat.s-completed { background: #d9f5e5; color: #0f7a3d; } .hist-dstat.s-missed { background: #eef2f7; color: #334155; } .hist-dstat.s-cancelled { background: #fee2e2; color: #991b1b; }
   .hist-fcard { background: #f1f5f9; border-radius: 10px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
@@ -2589,7 +2595,7 @@
     var from = h('input', { type: 'date', 'aria-label': I18n.t('From date') }), to = h('input', { type: 'date', 'aria-label': I18n.t('To date') });
     from.addEventListener('change', function () { f.from = from.value; reset(); }); to.addEventListener('change', function () { f.to = to.value; reset(); });
     var bodyId = 'histBody' + (opts.collapsible ? 'Home' : 'Page');
-    var body = h('div', { class: 'hist-panelbody' + (open ? '' : ' hidden'), id: bodyId }, [(split && !opts.collapsible) ? ptitle : null, chips, h('div', { class: 'hist-filter', role: 'search' }, [search, from, to]), list, pager, status, more]);
+    var body = h('div', { class: 'hist-panelbody' + (open ? '' : ' hidden'), id: bodyId }, [(split && !opts.collapsible) ? ptitle : null, h('div', { class: 'hist-toprow' }, [chips, search]), list, status, more]);
     var toggle = opts.collapsible ? h('button', { class: 'hist-toggle', type: 'button', 'aria-expanded': String(open), 'aria-controls': bodyId }, [
       h('span', { class: 'hist-ico', 'aria-hidden': 'true' }, [icon(IC.history)]), h('span', { class: 'hist-tt' }, [h('strong', { text: I18n.t('History Meetings') }), h('span', { class: 'muted', text: I18n.t('Past meetings and activity reports') })]), count,
       h('span', { class: 'hist-chev big', 'aria-hidden': 'true' }, [icon(IC.chevR)])]) : null;
@@ -2601,6 +2607,7 @@
         if (mine !== seq) return; total = d.total; if (!f.status && !f.q && !f.from && !f.to) { count.textContent = String(d.total); ptitle.textContent = I18n.t('Past Meetings') + ' (' + d.total + ')'; }
         d.meetings.forEach(function (b) { list.appendChild(histRow(b, reload, collapseOthers)); }); offset += d.meetings.length;
         if (split) {
+          list.appendChild(pager);
           var pages = Math.max(1, Math.ceil(total / PAGE)), pg = Math.floor((offset - d.meetings.length) / PAGE) + 1;
           pageLbl.textContent = I18n.t('Page {a} of {b}', { a: pg, b: pages }); prev.disabled = pg <= 1; next.disabled = pg >= pages; pager.classList.toggle('hidden', total <= PAGE);
           status.textContent = ''; more.classList.add('hidden');
