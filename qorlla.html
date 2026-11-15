@@ -2563,7 +2563,7 @@
     var f = { q: '', status: '', from: '', to: '' }, offset = 0, total = 0, timer = 0, seq = 0, STORE = 'zw_hist_open';
     var open = opts.collapsible ? store(STORE) !== '0' : true;
     var count = h('span', { class: 'hist-count', 'aria-label': I18n.t('Meetings in history') , text: '\u2026' });
-    var split = !opts.collapsible, PAGE = split ? 5 : 10, wide = window.matchMedia('(min-width: 900px)');
+    var split = true, PAGE = 5, wide = window.matchMedia('(min-width: 900px)');
     var list = h('div', { class: 'hist-list' + (split ? ' hist-split' : ''), 'aria-live': 'polite' }), more = h('button', { class: 'btn small hidden', type: 'button', text: I18n.t('Show more') }),
       prev = h('button', { class: 'btn small hist-prev', type: 'button' }, [icon(IC.chevL), document.createTextNode(I18n.t('Prev'))]), next = h('button', { class: 'btn small primary hist-next', type: 'button' }, [document.createTextNode(I18n.t('Next')), icon(IC.chevR)]),
       ptitle = h('h3', { class: 'hist-ptitle' }), pageLbl = h('span', { class: 'hist-pageno muted' }),
@@ -2583,7 +2583,7 @@
       h('span', { class: 'hist-ico', 'aria-hidden': 'true' }, [icon(IC.history)]), h('span', { class: 'hist-tt' }, [h('strong', { text: I18n.t('History Meetings') }), h('span', { class: 'muted', text: I18n.t('Past meetings and activity reports') })]), count,
       h('span', { class: 'hist-chev big', 'aria-hidden': 'true' }, [icon(IC.chevR)])]) : null;
     if (toggle) toggle.addEventListener('click', function () { open = !open; body.classList.toggle('hidden', !open); toggle.setAttribute('aria-expanded', String(open)); store(STORE, open ? '1' : '0'); });
-    var collapseOthers = function (except) { if (!opts.collapsible || window.matchMedia('(max-width: 700px)').matches) Array.prototype.forEach.call(list.children, function (c) { if (c !== except && c._collapse) c._collapse(); }); };   // phones: one card open at a time
+    var collapseOthers = function (except) { if (split || window.matchMedia('(max-width: 700px)').matches) Array.prototype.forEach.call(list.children, function (c) { if (c !== except && c._collapse) c._collapse(); }); };   // phones: one card open at a time
     function fetchPage() {
       var mine = ++seq, qs = Object.keys(f).filter(function (k) { return f[k]; }).map(function (k) { return k + '=' + encodeURIComponent(f[k]); }).concat(['limit=' + PAGE, 'offset=' + offset]).join('&');
       return api2('/history/meetings?' + qs).then(function (d) {

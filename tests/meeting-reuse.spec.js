@@ -20,7 +20,7 @@ async function signedIn(context, base, name = 'Reuse Host') {
 const PW = 'Planning-Pass-77';
 const missed = async (context, base, extra = {}) => { const r = await context.request.post(base + '/api/meetings/create', { data: { topic: 'Quarterly planning', startTime: new Date(Date.now() - 3 * 3600e3).toISOString(), durationMinutes: 0.02, passcode: PW, ...extra } }); expect(r.status()).toBe(201); return (await r.json()).meeting; };
 const group = (id) => id;                                                                                       // allocated IDs are already stored grouped (3-4-4)
-const openRow = async (page, text) => { const row = page.locator('.hist-row', { hasText: text }).first(); await expect(row).toBeVisible({ timeout: 30000 }); await row.locator('.hist-rowhead').click(); const card = row.locator('.acc-card'); await expect(card).toBeVisible(); return { row, card }; };
+const openRow = async (page, text) => { const row = page.locator('.hist-row', { hasText: text }).first(); await expect(row).toBeVisible({ timeout: 30000 }); const head = row.locator('.hist-rowhead'); if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click(); const card = row.locator('.acc-card'); await expect(card).toBeVisible(); return { row, card }; };
 const clip = (page) => page.evaluate(() => navigator.clipboard.readText());
 
 test('host: the card shows the Meeting ID and the password (fetched on open, never in lists, summaries or exports); both copy buttons work; the switch persists; Start again consumes exactly one', async ({ browser }) => {
