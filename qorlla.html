@@ -266,16 +266,35 @@
   .hist-sec h4 { margin: 12px 0 6px; } .hist-body textarea, .hist-body input[type=text] { width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; box-sizing: border-box; } .hist-item { display: flex; gap: 8px; align-items: center; margin: 4px 0; } .hist-item input[type=text] { width: 140px; }
   .hist-sub, .hist-pager { display: none; } .hist-pager:not(.hidden) { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 10px 0 4px; } .hist-pager .btn[disabled] { opacity: .45; cursor: default; }
   @media (min-width: 900px) {
-    .hist-split { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); column-gap: 16px; align-items: start; }
+    .hist-split { display: grid; grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); column-gap: 16px; align-items: start; }
     .hist-split > .muted, .hist-split > .hist-err, .hist-split > .empty { grid-column: 1 / -1; }
     .hist-split .hist-row { display: contents; border: 0; background: none; }
     .hist-split .hist-rowhead { grid-column: 1; margin-bottom: 8px; border: 1px solid var(--line); background: #fff; padding: 8px 12px; border-radius: 12px; align-items: center; }
     .hist-split .hist-row.open > .hist-rowhead { border-color: #1d4ed8; box-shadow: 0 0 0 1px #1d4ed8 inset; }
     .hist-split .hist-title { font-size: 14px; } .hist-split .hist-main { gap: 2px; } .hist-split .hist-topic, .hist-split .hist-id, .hist-split .hist-meta, .hist-split .hist-date { display: none; } .hist-split .hist-sub { display: block; color: #52658b; font-size: 12px; }
-    .hist-split .hist-side { flex-direction: row; align-items: center; gap: 8px; } .hist-split .hist-chip { font-size: 12px; padding: 1px 10px; } .hist-split .hist-chev svg { display: none; } .hist-split .hist-chev::after { content: 'EE'; font-size: 18px; color: #64748b; }
+    .hist-split .hist-side { flex-direction: row; align-items: center; gap: 8px; } .hist-split .hist-chip { font-size: 12px; padding: 1px 10px; } .hist-split .hist-chev svg { display: none; } .hist-split .hist-chev { display: none; } .hist-split .hist-dots { display: inline-grid; color: #94a3b8; } .hist-split .hist-dots svg { width: 18px; height: 18px; }
     .hist-split .hist-body { grid-column: 2; grid-row: 1 / span 12; border: 1px solid var(--line); border-radius: 14px; background: #fff; padding: 0 16px 12px; position: sticky; top: 8px; }
     .hist-split .hist-facts { grid-template-columns: 1fr 1fr; gap: 6px 12px; } .hist-split .hist-kv { font-size: 13px; } .hist-split .hist-sec h4 { margin: 10px 0 4px; font-size: 14px; }
     .hist-split .hist-filterchip { padding: 3px 12px; }
+  }
+  .hist-list > .hist-row { display: block; align-items: initial; }                              /* the AI drawer also has a .hist-row (a flex line); a History card is a block */
+  .hist-tile, .hist-dhead, .hist-ptitle, .hist-dots { display: none; } .hist-sub { white-space: nowrap; } .hist-split .hist-chip { text-transform: none; letter-spacing: 0; font-size: 12px; } .hist-dstat { font-size: 12px; font-weight: 500; padding: 2px 12px; border-radius: 999px; background: #e0f2fe; color: #075985; white-space: nowrap; } .hist-dstat.s-completed { background: #d9f5e5; color: #0f7a3d; } .hist-dstat.s-missed { background: #eef2f7; color: #334155; } .hist-dstat.s-cancelled { background: #fee2e2; color: #991b1b; }
+  .hist-fcard { background: #f1f5f9; border-radius: 10px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .hist-facts { grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 10px; } .hist-fcard { min-width: 0; } .hist-v { min-width: 0; overflow-wrap: anywhere; } .hist-fcard .hist-kv { display: grid; grid-template-columns: minmax(0, 140px) minmax(0, 1fr); align-items: center; gap: 8px; font-size: 13px; }
+  .hist-fcard .hist-k { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; letter-spacing: 0; text-transform: none; color: #334155; font-weight: 600; } .hist-fcard .hist-k svg { width: 15px; height: 15px; flex: none; }
+  .hist-v.s-cancelled { color: #dc2626; font-weight: 600; } .hist-v.s-completed { color: #0f7a3d; font-weight: 600; } .hist-v.s-missed { color: #475569; font-weight: 600; }
+  .hist-sec h4 { display: flex; align-items: center; gap: 8px; } .hist-h4i { width: 18px; height: 18px; color: #1d4ed8; flex: none; }
+  .hist-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; } .hist-actions .btn svg { width: 16px; height: 16px; flex: none; } .hist-actions .btn.primary { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+  .hist-actions a.btn:not(.primary) { color: #1d4ed8; border-color: #1d4ed8; background: #fff; }
+  .hist-pager .btn { display: inline-flex; align-items: center; gap: 6px; min-width: 76px; justify-content: center; } .hist-pager .btn svg { width: 14px; height: 14px; } .hist-prev { background: #eef2f7; border-color: #e2e8f0; color: #475569; } .hist-next.primary { background: #1d4ed8; color: #fff; border-color: #1d4ed8; } .hist-pageno { color: #0f172a; font-weight: 600; font-size: 13px; }
+  @media (min-width: 900px) {
+    .hist-ptitle { display: block; margin: 0 0 8px; font-size: 20px; } .hist-split .hist-tile { display: grid; }
+    .hist-tile { flex: none; width: 34px; height: 34px; border-radius: 9px; background: #e8f0ff; color: #1d4ed8; place-items: center; } .hist-tile svg { width: 18px; height: 18px; } .hist-tile.big { width: 40px; height: 40px; display: grid; }
+    .hist-split .hist-rowhead { gap: 10px; justify-content: flex-start; } .hist-split .hist-main { flex: 1; min-width: 0; } .hist-split .hist-side { margin-left: auto; } .hist-split .hist-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hist-split .hist-dhead { display: flex; align-items: center; gap: 12px; padding: 10px 0 8px; } .hist-dtitle { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; } .hist-dtitle strong { font-size: 18px; }
+    .hist-dmeta { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 12px; color: #475569; } .hist-dmeta span { display: inline-flex; align-items: center; gap: 5px; } .hist-dmeta svg { width: 13px; height: 13px; }
+    .hist-split .hist-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; } .hist-split .hist-actions .btn { height: 36px; }
+    .hist-split .hist-body { padding-top: 0; }
   }
   .hist-id { font-size: 12px; color: var(--muted, #5b6472); font-variant-numeric: tabular-nums; }
   .acc-card { background: #eef4ff; border: 1px solid #c9dbff; border-radius: 12px; padding: 10px 14px; margin: 10px 0; } .acc-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; } .acc-title { display: flex; gap: 10px; align-items: center; flex: 1 1 220px; min-width: 0; }
@@ -2356,6 +2375,11 @@
   // =====================================================================
   // History: meetings that have ended, from the same meeting records (title, topic, who came, how long, what was decided)
   // =====================================================================
+  var HI = {
+    person: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>', play: '<path d="M8 5.5v13l10-6.5Z"/>',
+    note: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 11h6M9 15h6"/>', check: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+    download: '<path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/>', doc: '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/>'
+  };
   var HIST_STATUS = { completed: 'Completed', partial: 'Partial', missed: 'Missed', cancelled: 'Cancelled' };
   var histExpanded = {};                                                                      // meetingId -> true: expanded cards survive moving around the page
   function fmtDur(s) { if (s == null) return '\u2014'; var hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60); return hh ? hh + 'h ' + mm + 'm' : mm ? mm + 'm' : (s % 60) + 's'; }
@@ -2458,11 +2482,12 @@
         b.topic ? h('span', { class: 'hist-topic', text: I18n.t('Topic') + ': ' + b.topic }) : null,
         h('span', { class: 'hist-id', text: I18n.t('Meeting ID') + ': ' + b.meetingId + ((b.runIndex > 0 || String(b.runKey || '').indexOf('~r') > 0) ? ' \u00B7 ' + I18n.t('Run') + ' ' + ((b.runIndex || 0) + 1) : '') }),
         h('span', { class: 'hist-date', text: shortDay(b.actualStartAt || b.scheduledStartAt) }),
-        h('span', { class: 'hist-sub', text: shortDay(b.actualStartAt || b.scheduledStartAt) + ' • ' + b.uniqueAttendeeCount + ' ' + I18n.t(b.uniqueAttendeeCount === 1 ? 'attendee' : 'attendees') }),
+        h('span', { class: 'hist-sub', text: shortDay(b.actualStartAt || b.scheduledStartAt) + ' • ' + clock(b.actualStartAt || b.scheduledStartAt) + ' • ' + b.uniqueAttendeeCount + ' ' + I18n.t(b.uniqueAttendeeCount === 1 ? 'attendee' : 'attendees') }),
         h('span', { class: 'hist-meta' }, [h('span', {}, [icon(IC.clock), fmtDur(b.durationSeconds)]), h('span', {}, [icon(IC.users), b.uniqueAttendeeCount + ' ' + I18n.t(b.uniqueAttendeeCount === 1 ? 'attendee' : 'attendees')])])
       ]),
-      h('span', { class: 'hist-side' }, [h('span', { class: 'hist-chip s-' + b.status, text: I18n.t(HIST_STATUS[b.status] || b.status) }), h('span', { class: 'hist-chev', 'aria-hidden': 'true' }, [icon(IC.chevR)])])
+      h('span', { class: 'hist-side' }, [h('span', { class: 'hist-chip s-' + b.status, text: I18n.t(HIST_STATUS[b.status] || b.status) }), h('span', { class: 'hist-chev', 'aria-hidden': 'true' }, [icon(IC.chevR)]), h('span', { class: 'hist-dots', 'aria-hidden': 'true' }, [icon(IC.dots)])])
     ]);
+    head.insertBefore(h('span', { class: 'hist-tile', 'aria-hidden': 'true' }, [icon(IC.video)]), head.firstChild);
     var card = h('article', { class: 'hist-row', 'data-id': id }, [head, body]);
     function setOpen(open) {
       body.classList.toggle('hidden', !open); head.setAttribute('aria-expanded', String(open)); card.classList.toggle('open', open); histExpanded[id] = open;
@@ -2473,13 +2498,20 @@
     function load() { body.textContent = I18n.t('Loading\u2026'); api2('/history/meetings/' + encodeURIComponent(runId)).then(function (d) { det = d; paint(d); }).catch(function (e) { body.textContent = ''; body.appendChild(h('div', { class: 'hist-err' }, [h('span', { text: e.message }), h('button', { class: 'btn small', type: 'button', text: I18n.t('Try again'), onclick: load })])); }); }
     function paint(d) {
       body.textContent = '';
-      var sec = function (t, kids) { return h('section', { class: 'hist-sec' }, [h('h4', { text: t })].concat(kids)); };
-      var kv = function (k, val) { return h('div', { class: 'hist-kv' }, [h('span', { class: 'hist-k', text: k }), h('span', { text: val })]); };
+      var sec = function (t, kids, ic) { return h('section', { class: 'hist-sec' }, [h('h4', {}, [ic ? icon(ic, 'hist-h4i') : null, document.createTextNode(t)])].concat(kids)); };
+      var kv = function (k, val, ic, cls) { return h('div', { class: 'hist-kv' }, [h('span', { class: 'hist-k' }, [icon(ic), document.createTextNode(k)]), h('span', { class: 'hist-v' + (cls ? ' ' + cls : ''), text: val })]); };
+      var when = d.actualStartAt || d.scheduledStartAt;
+      body.appendChild(h('div', { class: 'hist-dhead' }, [
+        h('span', { class: 'hist-tile big', 'aria-hidden': 'true' }, [icon(IC.video)]),
+        h('div', { class: 'hist-dtitle' }, [h('strong', { text: d.title }), h('span', { class: 'hist-dmeta' }, [
+          h('span', {}, [icon(IC.cal), shortDay(when) + ', ' + clock(when)]), h('span', {}, [icon(IC.clock), I18n.t('Duration') + ': ' + fmtDur(d.durationSeconds)]),
+          h('span', {}, [icon(IC.users), I18n.t('Attendees') + ': ' + d.uniqueAttendeeCount])])]),
+        h('span', { class: 'hist-dstat s-' + d.status, text: I18n.t(HIST_STATUS[d.status] || d.status) })]));
       body.appendChild(h('div', { class: 'hist-facts' }, [
-        kv(I18n.t('Host'), d.hostName || '\u2014'), kv(I18n.t('Status'), I18n.t(HIST_STATUS[d.status] || d.status)), d.category ? kv(I18n.t('Category'), d.category) : null,
-        kv(I18n.t('Scheduled'), d.scheduledStartAt ? shortDay(d.scheduledStartAt) + ', ' + clock(d.scheduledStartAt) : '\u2014'),
-        kv(I18n.t('Actual'), d.actualStartAt ? clock(d.actualStartAt) + (d.actualEndAt ? ' \u2013 ' + clock(d.actualEndAt) : '') : I18n.t('Did not start')),
-        kv(I18n.t('Duration'), fmtDur(d.durationSeconds)), kv(I18n.t('Peak attendance'), String(d.peakConcurrentCount)), kv(I18n.t('Unique attendees'), String(d.uniqueAttendeeCount))]));
+        h('div', { class: 'hist-fcard' }, [kv(I18n.t('Host'), d.hostName || '\u2014', HI.person), kv(I18n.t('Scheduled'), d.scheduledStartAt ? shortDay(d.scheduledStartAt) + ', ' + clock(d.scheduledStartAt) : '\u2014', IC.cal),
+          kv(I18n.t('Status'), I18n.t(HIST_STATUS[d.status] || d.status), IC.history, 's-' + d.status), d.category ? kv(I18n.t('Category'), d.category, IC.lines) : null]),
+        h('div', { class: 'hist-fcard' }, [kv(I18n.t('Actual'), d.actualStartAt ? clock(d.actualStartAt) + (d.actualEndAt ? ' \u2013 ' + clock(d.actualEndAt) : '') : I18n.t('Did not start'), HI.play),
+          kv(I18n.t('Peak attendance'), String(d.peakConcurrentCount), IC.users), kv(I18n.t('Unique attendees'), String(d.uniqueAttendeeCount), HI.person)])]));
       body.appendChild(accessCard({ meetingId: d.meetingId, isHost: !!d.isHost, title: d.title,
         afterStart: function (res) { reload(); openStart({ meetingId: res.meetingId, title: d.title }); } }));          // reload() = a real refresh (reload(true) is the quiet no-op used after Save)
       if (d.description) body.appendChild(sec(I18n.t('Description'), [h('p', { text: d.description })]));
@@ -2496,29 +2528,29 @@
         if (!items.length) itemsBox.appendChild(h('p', { class: 'muted', text: I18n.t('No follow-up items.') }));
       }
       drawItems();
-      body.appendChild(sec(I18n.t('Meeting outcome'), [outcome]));
+      body.appendChild(sec(I18n.t('Meeting outcome'), [outcome], HI.note));
       var newItem = h('input', { type: 'text', maxlength: '300', placeholder: I18n.t('Add an action item'), 'aria-label': I18n.t('Add an action item') });
       var addItem = function () { var t = newItem.value.trim(); if (!t) return; items.push({ text: t, owner: '', due: '', done: false }); newItem.value = ''; drawItems(); };
       newItem.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addItem(); } });
-      body.appendChild(sec(I18n.t('Decisions and action items'), [itemsBox].concat(d.isHost ? [h('div', { class: 'row' }, [newItem, h('button', { class: 'btn small', type: 'button', text: I18n.t('Add'), onclick: addItem })])] : [])));
+      body.appendChild(sec(I18n.t('Decisions and action items'), [itemsBox].concat(d.isHost ? [h('div', { class: 'row' }, [newItem, h('button', { class: 'btn small', type: 'button', text: I18n.t('Add'), onclick: addItem })])] : []), HI.check));
       if (d.isHost) {
         var tbl = h('table', { class: 'hist-table' }, [h('thead', {}, [h('tr', {}, ['Attendee', 'First joined', 'Last left', 'Time', 'Joins'].map(function (t) { return h('th', { text: I18n.t(t) }); }))]),
           h('tbody', {}, (d.attendees || []).map(function (a) { return h('tr', {}, [a.name, clock(a.firstJoin), clock(a.lastLeft), fmtDur(a.seconds), String(a.sessions)].map(function (t) { return h('td', { text: t }); })); }))]);
-        body.appendChild(sec(I18n.t('Attendance report') + ' (' + (d.attendanceSource || '') + ')', [(d.attendees || []).length ? tbl : h('p', { class: 'muted', text: I18n.t('No attendance was recorded.') })]));
+        body.appendChild(sec(I18n.t('Attendance report') + ' (' + (d.attendanceSource || '') + ')', [(d.attendees || []).length ? tbl : h('p', { class: 'muted', text: I18n.t('No attendance was recorded.') })], IC.users));
       }
       body.appendChild(h('p', { class: 'muted hist-note', text: I18n.t('Notes, poll results and recordings are available inside the meeting itself. They are not linked into History yet.') }));
       var acts = [];
       if (d.isHost) {
-        acts.push(h('button', { class: 'btn small primary', type: 'button', text: I18n.t('Save outcome'), onclick: function () {
+        acts.push(h('button', { class: 'btn small primary', type: 'button', onclick: function () {
           api2('/history/meetings/' + encodeURIComponent(runId), { method: 'PATCH', body: { outcome: outcome.value, actionItems: items } }).then(function (nd) { det = nd; toast(I18n.t('Saved'), 'ok'); reload(true); }).catch(fail);
-        } }));
-        acts.push(h('a', { class: 'btn small', href: BASE + '/api/history/meetings/' + encodeURIComponent(runId) + '/report', download: '', text: I18n.t('Export report') }));
-        acts.push(h('button', { class: 'btn small', type: 'button', text: I18n.t('Reschedule'), title: I18n.t('Creates a NEW meeting with a new ID; this record stays as it was'), onclick: function () {
+        } }, [icon(IC.save), document.createTextNode(I18n.t('Save outcome'))]));
+        acts.push(h('a', { class: 'btn small', href: BASE + '/api/history/meetings/' + encodeURIComponent(runId) + '/report', download: '' }, [icon(HI.download), document.createTextNode(I18n.t('Export report'))]));
+        acts.push(h('button', { class: 'btn small', type: 'button', title: I18n.t('Creates a NEW meeting with a new ID; this record stays as it was'), onclick: function () {
           var m = newSchedModel(); m.title = d.title; m.topic = d.topic || ''; m.category = d.category || ''; m.description = d.description || ''; m.agenda = (d.agenda || []).join('\n'); m.rescheduledFrom = d.meetingId; m.showAgenda = !!(d.agenda && d.agenda.length);
           openSchedFull(m, null, null);
-        } }));
+        } }, [icon(IC.cal), document.createTextNode(I18n.t('Reschedule'))]));
       }
-      acts.push(h('button', { class: 'btn small', type: 'button', text: I18n.t('Copy summary'), onclick: function () { var t = summaryText(b, det || d); if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { toast(I18n.t('Summary copied'), 'ok'); }, function () { toast(t); }); else toast(t); } }));
+      acts.push(h('button', { class: 'btn small', type: 'button', onclick: function () { var t = summaryText(b, det || d); if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { toast(I18n.t('Summary copied'), 'ok'); }, function () { toast(t); }); else toast(t); } }, [icon(HI.doc), document.createTextNode(I18n.t('Copy summary'))]));
       body.appendChild(h('div', { class: 'row hist-actions' }, acts));
     }
     if (histExpanded[id]) setOpen(true);
@@ -2533,7 +2565,8 @@
     var count = h('span', { class: 'hist-count', 'aria-label': I18n.t('Meetings in history') , text: '\u2026' });
     var split = !opts.collapsible, PAGE = split ? 5 : 10, wide = window.matchMedia('(min-width: 900px)');
     var list = h('div', { class: 'hist-list' + (split ? ' hist-split' : ''), 'aria-live': 'polite' }), more = h('button', { class: 'btn small hidden', type: 'button', text: I18n.t('Show more') }),
-      prev = h('button', { class: 'btn small', type: 'button', text: I18n.t('Prev') }), next = h('button', { class: 'btn small', type: 'button', text: I18n.t('Next') }), pageLbl = h('span', { class: 'hist-pageno muted' }),
+      prev = h('button', { class: 'btn small hist-prev', type: 'button' }, [icon(IC.chevL), document.createTextNode(I18n.t('Prev'))]), next = h('button', { class: 'btn small primary hist-next', type: 'button' }, [document.createTextNode(I18n.t('Next')), icon(IC.chevR)]),
+      ptitle = h('h3', { class: 'hist-ptitle' }), pageLbl = h('span', { class: 'hist-pageno muted' }),
       pager = h('div', { class: 'hist-pager' + (split ? '' : ' hidden'), role: 'navigation', 'aria-label': I18n.t('Pages') }, [prev, pageLbl, next]), status = h('p', { class: 'muted hist-status' });
     var chips = h('div', { class: 'hist-chips', role: 'group', 'aria-label': I18n.t('Filter by status') });
     [['', 'All'], ['completed', 'Completed'], ['cancelled', 'Cancelled'], ['missed', 'No Show']].forEach(function (c) {
@@ -2545,7 +2578,7 @@
     var from = h('input', { type: 'date', 'aria-label': I18n.t('From date') }), to = h('input', { type: 'date', 'aria-label': I18n.t('To date') });
     from.addEventListener('change', function () { f.from = from.value; reset(); }); to.addEventListener('change', function () { f.to = to.value; reset(); });
     var bodyId = 'histBody' + (opts.collapsible ? 'Home' : 'Page');
-    var body = h('div', { class: 'hist-panelbody' + (open ? '' : ' hidden'), id: bodyId }, [chips, h('div', { class: 'hist-filter', role: 'search' }, [search, from, to]), list, pager, status, more]);
+    var body = h('div', { class: 'hist-panelbody' + (open ? '' : ' hidden'), id: bodyId }, [split ? ptitle : null, chips, h('div', { class: 'hist-filter', role: 'search' }, [search, from, to]), list, pager, status, more]);
     var toggle = opts.collapsible ? h('button', { class: 'hist-toggle', type: 'button', 'aria-expanded': String(open), 'aria-controls': bodyId }, [
       h('span', { class: 'hist-ico', 'aria-hidden': 'true' }, [icon(IC.history)]), h('span', { class: 'hist-tt' }, [h('strong', { text: I18n.t('History Meetings') }), h('span', { class: 'muted', text: I18n.t('Past meetings and activity reports') })]), count,
       h('span', { class: 'hist-chev big', 'aria-hidden': 'true' }, [icon(IC.chevR)])]) : null;
@@ -2554,7 +2587,7 @@
     function fetchPage() {
       var mine = ++seq, qs = Object.keys(f).filter(function (k) { return f[k]; }).map(function (k) { return k + '=' + encodeURIComponent(f[k]); }).concat(['limit=' + PAGE, 'offset=' + offset]).join('&');
       return api2('/history/meetings?' + qs).then(function (d) {
-        if (mine !== seq) return; total = d.total; if (!f.status && !f.q && !f.from && !f.to) count.textContent = String(d.total);
+        if (mine !== seq) return; total = d.total; if (!f.status && !f.q && !f.from && !f.to) { count.textContent = String(d.total); ptitle.textContent = I18n.t('Past Meetings') + ' (' + d.total + ')'; }
         d.meetings.forEach(function (b) { list.appendChild(histRow(b, reload, collapseOthers)); }); offset += d.meetings.length;
         if (split) {
           var pages = Math.max(1, Math.ceil(total / PAGE)), pg = Math.floor((offset - d.meetings.length) / PAGE) + 1;
