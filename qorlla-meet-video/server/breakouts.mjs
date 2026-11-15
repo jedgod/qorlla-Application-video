@@ -1,0 +1,159 @@
+// Meet breakout rooms (v4.29): real WebRTC room switching on Meet's own signaling.
+//
+// How it works: every participant has a SCOPE: the main room (null) or one breakout room. Meet already builds one RTCPeerConnection per person listed in the `roster` event, so scoping is
+// done where those lists and messages are made: the server only lists, announces and relays WebRTC signals between people in the same scope. Moving someone sends them a new roster
+// (the page closes every old peer connection and tile and negotiates the new ones: the same path as joining a meeting), tells the old scope they left and the new scope they arrived.
+// Chat (Everyone), hands, reactions, media state, Q&A, whiteboard and the meeting timer are delivered per scope too, and a person inside a room is refused the main-room tools (409).
+//
+// Authority: Meet's token (`auth`) + the admitted-participant check (`member`); only the host runs rooms (Meet has two roles; the package's "cohost" does not exist here). The host stays
+// in the main room unless they choose to visit a room. Assignments and the session (state, deadline, revision) live in PostgreSQL; the in-memory scope map is rebuilt from it on demand.
+// A background tick ends sessions whose deadline passed (one atomic UPDATE, so a second instance cannot double-fire). Single-instance for the in-memory scope map: a multi-instance
+// deployment needs the scope map shared (Redis or the Socket.IO adapter); see docs/MEET_BREAKOUTS.md.
+//
+// Not covered here (documented, not hidden): Notes and Polls are meeting-wide host tools and are not room-scoped; the portal's AI export reads all Everyone-chat of consenting people.
+import { randomInt } from 'node:crypto';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const LIMITS = Object.freeze({ maxRooms: 20, minMinutes: 1, maxMinutes: 240, nameMax: 60 });
+const bad = (status, error) => Object.assign(new Error(error), { status });
+
+export function registerBreakouts({ app, io, db, auth, member, fail, active, room, tickMs = 5000 }) {
+  const meetings = new Map();          // meetingId -> { active, deadline, map: Map(pid -> roomId), rooms: Map(roomId -> name) }
+  const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
+  const paths = (p) => ['/api/meetings/:id/breakouts' + p, '/api/v1/meetings/:id/breakouts' + p];
+  const run = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { if (e.status) return fail(res, e.status, e.message); console.error('[breakouts]', e.message); fail(res, 500, 'Something went wrong'); } };
+
+  async function ensure(mid) {
+    if (meetings.has(mid)) return meetings.get(mid);
+    const [s, rooms, asg] = await Promise.all([
+      db.query('SELECT state, deadline FROM more_breakout_sessions WHERE meeting_id=$1', [mid]),
+      db.query('SELECT id, name FROM more_breakout_rooms WHERE meeting_id=$1 ORDER BY created_at, id', [mid]),
+      db.query('SELECT participant_id, room_id FROM more_breakout_assignments WHERE meeting_id=$1 AND room_id IS NOT NULL', [mid]),
+    ]);
+    const on = s.rows[0]?.state === 'active';
+    const m = { active: on, deadline: on ? s.rows[0].deadline : null, rooms: new Map(rooms.rows.map((r) => [r.id, r.name])), map: new Map(on ? asg.rows.map((a) => [a.participant_id, a.room_id]) : []) };
+    if (meetings.has(mid)) return meetings.get(mid); meetings.set(mid, m); return m;
+  }
+  const scopeOf = (mid, pid) => meetings.get(mid)?.map.get(pid) ?? null;
+  const sameScope = (mid, a, b) => scopeOf(mid, a) === scopeOf(mid, b);
+  const sockets = (mid) => active.get(mid) || new Map();
+  const userOf = (sid) => io.sockets?.sockets?.get(sid)?.data?.user;
+  /** deliver to the people in `fromPid`'s scope (not to them unless self) */
+  function emitScope(mid, fromPid, event, payload, { self = false } = {}) {
+    const sc = scopeOf(mid, fromPid);
+    for (const [p, sid] of sockets(mid)) if ((self || p !== fromPid) && scopeOf(mid, p) === sc) io.to(sid).emit(event, payload);
+  }
+  /** deliver to everybody currently in one scope (null = main) */
+  function emitToScope(mid, scope, event, payload) { for (const [p, sid] of sockets(mid)) if (scopeOf(mid, p) === scope) io.to(sid).emit(event, payload); }
+  const scopedList = (mid, pid) => [...sockets(mid).keys()].filter((p) => sameScope(mid, p, pid));
+  function scopeInfo(mid, pid) { const m = meetings.get(mid); const rid = scopeOf(mid, pid); return { active: !!m?.active, roomId: rid, roomName: rid ? m.rooms.get(rid) || '' : null, deadline: m?.active && m.deadline ? new Date(m.deadline).toISOString() : null }; }
+  function namesOf(mid, pids) { const out = {}; for (const p of pids) { const u = userOf(sockets(mid).get(p)); if (u?.name) out[p] = u.name; } return out; }
+
+  /** move one person: the old scope sees them leave, the new scope sees them arrive, they get a new roster and their page rebuilds its peer connections */
+  function move(mid, pid, to) {
+    const m = meetings.get(mid); const from = scopeOf(mid, pid); if (from === to) return;
+    if (to) m.map.set(pid, to); else m.map.delete(pid);
+    const sid = sockets(mid).get(pid), u = sid ? userOf(sid) : null;
+    for (const [p, s] of sockets(mid)) { if (p === pid) continue; const sc = scopeOf(mid, p);
+      if (sc === from) io.to(s).emit('participant-offline', { participantId: pid });
+      if (sc === to && u) io.to(s).emit('participant-online', { participantId: pid, name: u.name, role: u.role }); }
+    if (sid) { const mates = scopedList(mid, pid); io.to(sid).emit('breakout-scope', scopeInfo(mid, pid)); io.to(sid).emit('names', namesOf(mid, mates)); io.to(sid).emit('roster', mates); }
+  }
+  function applyScopes(mid, next) {                                    // next: Map(pid -> roomId) for the people who should be in a room; everyone else is main
+    const m = meetings.get(mid); const all = new Set([...m.map.keys(), ...next.keys()]);
+    for (const pid of all) move(mid, pid, next.get(pid) ?? null);
+  }
+  const broadcast = (mid) => { for (const [, sid] of sockets(mid)) io.to(sid).emit('breakouts-changed', {}); };
+  const logEvent = (mid, actor, kind, payload) => db.query('INSERT INTO more_events(meeting_id, actor_id, kind, payload) VALUES ($1,$2,$3,$4)', [mid, actor, kind, JSON.stringify(payload)]).catch((e) => console.error('[breakouts] audit failed', e.message));
+
+  async function state(mid, req) {
+    const m = await ensure(mid); const host = req.user.role === 'host', me = scopeInfo(mid, req.user.participantId);
+    const out = { me, session: { active: m.active, deadline: me.deadline }, limits: LIMITS };
+    if (!host) return out;
+    const [rooms, ppl, asg] = await Promise.all([
+      db.query('SELECT id, name FROM more_breakout_rooms WHERE meeting_id=$1 ORDER BY created_at, id', [mid]),
+      db.query("SELECT id, display_name, role FROM participants WHERE meeting_id=$1 AND admission='admitted' ORDER BY display_name", [mid]),
+      db.query('SELECT participant_id, room_id FROM more_breakout_assignments WHERE meeting_id=$1 AND room_id IS NOT NULL', [mid]),
+    ]);
+    const of = new Map(asg.rows.map((a) => [a.participant_id, a.room_id])); const online = sockets(mid);
+    const person = (p) => ({ id: p.id, name: p.display_name, role: p.role, online: online.has(p.id) });
+    const members = (rid) => ppl.rows.filter((p) => p.role !== 'host' && of.get(p.id) === rid).map(person);
+    out.rooms = rooms.rows.map((r) => ({ id: r.id, name: r.name, members: members(r.id) }));
+    out.unassigned = ppl.rows.filter((p) => p.role !== 'host' && !of.get(p.id)).map(person); out.hostRoom = of.get(req.user.participantId) || null;
+    return out;
+  }
+
+  app.get(paths(''), auth, member, run(async (req, res) => res.set('Cache-Control', 'no-store').json(await state(req.params.id, req))));
+  app.post(paths('/rooms'), auth, member, hostOnly, run(async (req, res) => {
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''; if (!name || name.length > LIMITS.nameMax) throw bad(400, 'Give the room a name (up to 60 characters)');
+    const mid = req.params.id; const m = await ensure(mid); if (m.rooms.size >= LIMITS.maxRooms) throw bad(409, 'At most ' + LIMITS.maxRooms + ' rooms');
+    const { rows } = await db.query('INSERT INTO more_breakout_rooms(meeting_id, name) VALUES ($1,$2) RETURNING id', [mid, name]); m.rooms.set(rows[0].id, name);
+    await logEvent(mid, req.user.participantId, 'breakout.room.created', { id: rows[0].id, name }); broadcast(mid); res.status(201).json({ id: rows[0].id, name });
+  }));
+  app.delete(paths('/rooms/:rid'), auth, member, hostOnly, run(async (req, res) => {
+    const mid = req.params.id, m = await ensure(mid); if (m.active) throw bad(409, 'Bring everyone back before deleting rooms'); if (!UUID.test(req.params.rid)) throw bad(400, 'Invalid room');
+    const r = await db.query('DELETE FROM more_breakout_rooms WHERE id=$1 AND meeting_id=$2', [req.params.rid, mid]); if (!r.rowCount) throw bad(404, 'Room not found'); m.rooms.delete(req.params.rid);
+    await logEvent(mid, req.user.participantId, 'breakout.room.deleted', { id: req.params.rid }); broadcast(mid); res.json({ ok: true });
+  }));
+  async function assignOne(mid, m, pid, rid) {
+    if (!UUID.test(pid)) throw bad(400, 'Invalid participant'); if (rid !== null && (!UUID.test(String(rid)) || !m.rooms.has(rid))) throw bad(404, 'Room not found');
+    const p = await db.query("SELECT role FROM participants WHERE id=$1 AND meeting_id=$2 AND admission='admitted'", [pid, mid]); if (!p.rows[0]) throw bad(404, 'Participant not found');
+    if (p.rows[0].role === 'host') throw bad(400, 'The host moves with Visit a room');
+    await db.query(`INSERT INTO more_breakout_assignments(meeting_id, participant_id, room_id) VALUES ($1,$2,$3) ON CONFLICT (meeting_id, participant_id) DO UPDATE SET room_id=EXCLUDED.room_id, updated_at=now()`, [mid, pid, rid]);
+    if (m.active) move(mid, pid, rid);
+  }
+  app.post(paths('/assign'), auth, member, hostOnly, run(async (req, res) => {
+    const mid = req.params.id, m = await ensure(mid); const rid = req.body?.roomId ?? null;
+    await assignOne(mid, m, String(req.body?.participantId || ''), rid); await logEvent(mid, req.user.participantId, 'breakout.assigned', { participantId: req.body.participantId, roomId: rid }); broadcast(mid); res.json({ ok: true });
+  }));
+  app.post(paths('/autosplit'), auth, member, hostOnly, run(async (req, res) => {
+    const n = req.body?.rooms; if (!Number.isInteger(n) || n < 2 || n > LIMITS.maxRooms) throw bad(400, 'Choose 2 to ' + LIMITS.maxRooms + ' rooms');
+    const mid = req.params.id, m = await ensure(mid); if (m.active) throw bad(409, 'Bring everyone back before splitting again');
+    while (m.rooms.size < n) { const name = 'Room ' + (m.rooms.size + 1); const { rows } = await db.query('INSERT INTO more_breakout_rooms(meeting_id, name) VALUES ($1,$2) RETURNING id', [mid, name]); m.rooms.set(rows[0].id, name); }
+    const ids = [...m.rooms.keys()].slice(0, n);
+    const { rows: ppl } = await db.query("SELECT id FROM participants WHERE meeting_id=$1 AND admission='admitted' AND role<>'host'", [mid]);
+    const here = ppl.map((p) => p.id).filter((p) => sockets(mid).has(p)); for (let i = here.length - 1; i > 0; i--) { const j = randomInt(i + 1); [here[i], here[j]] = [here[j], here[i]]; }
+    for (const [i, pid] of here.entries()) await assignOne(mid, m, pid, ids[i % ids.length]);
+    await logEvent(mid, req.user.participantId, 'breakout.autosplit', { rooms: n, people: here.length }); broadcast(mid); res.json({ rooms: n, assigned: here.length });
+  }));
+  app.post(paths('/start'), auth, member, hostOnly, run(async (req, res) => {
+    const minutes = req.body?.minutes; if (!Number.isInteger(minutes) || minutes < LIMITS.minMinutes || minutes > LIMITS.maxMinutes) throw bad(400, 'Choose 1 to 240 minutes');
+    const mid = req.params.id, m = await ensure(mid); if (m.active) throw bad(409, 'Breakout rooms are already open');
+    const rec = await db.query("SELECT 1 FROM recording_sessions WHERE meeting_id=$1 AND status IN ('awaiting','blocked','ready','recording','paused') LIMIT 1", [mid]).catch(() => ({ rowCount: 0 }));
+    if (rec.rowCount) throw bad(409, 'Stop the recording first: it would only capture the main room.');
+    const { rows: asg } = await db.query("SELECT a.participant_id, a.room_id FROM more_breakout_assignments a JOIN participants p ON p.id=a.participant_id WHERE a.meeting_id=$1 AND a.room_id IS NOT NULL AND p.admission='admitted' AND p.role<>'host'", [mid]);
+    if (!m.rooms.size || !asg.length) throw bad(409, 'Create rooms and put at least one person in a room first');
+    const up = await db.query(`INSERT INTO more_breakout_sessions(meeting_id, state, deadline, started_by, revision) VALUES ($1,'active', now() + make_interval(mins => $2), $3, 1)
+      ON CONFLICT (meeting_id) DO UPDATE SET state='active', deadline=EXCLUDED.deadline, started_by=EXCLUDED.started_by, revision=more_breakout_sessions.revision+1, updated_at=now() RETURNING deadline`, [mid, minutes, req.user.participantId]);
+    m.active = true; m.deadline = up.rows[0].deadline; applyScopes(mid, new Map(asg.map((a) => [a.participant_id, a.room_id])));
+    await logEvent(mid, req.user.participantId, 'breakout.started', { minutes, people: asg.length }); broadcast(mid); res.json({ deadline: new Date(m.deadline).toISOString() });
+  }));
+  async function end(mid, actor, reason) {
+    const m = await ensure(mid); await db.query("UPDATE more_breakout_sessions SET state='idle', deadline=NULL, revision=revision+1, updated_at=now() WHERE meeting_id=$1", [mid]);
+    await db.query('UPDATE more_breakout_assignments SET room_id=NULL, updated_at=now() WHERE meeting_id=$1 AND room_id IS NOT NULL', [mid]);
+    m.active = false; m.deadline = null; applyScopes(mid, new Map());
+    for (const [, sid] of sockets(mid)) io.to(sid).emit('breakout-ended', { reason }); await logEvent(mid, actor, 'breakout.ended', { reason }); broadcast(mid);
+  }
+  app.post(paths('/recall'), auth, member, hostOnly, run(async (req, res) => { const m = await ensure(req.params.id); if (!m.active) throw bad(409, 'Breakout rooms are not open'); await end(req.params.id, req.user.participantId, 'recalled'); res.json({ ok: true }); }));
+  app.post(paths('/visit'), auth, member, hostOnly, run(async (req, res) => {                         // the host walks into a room (or back to the main room) to listen and help
+    const mid = req.params.id, m = await ensure(mid); if (!m.active) throw bad(409, 'Breakout rooms are not open'); const rid = req.body?.roomId ?? null;
+    if (rid !== null && (!UUID.test(String(rid)) || !m.rooms.has(rid))) throw bad(404, 'Room not found');
+    await db.query(`INSERT INTO more_breakout_assignments(meeting_id, participant_id, room_id) VALUES ($1,$2,$3) ON CONFLICT (meeting_id, participant_id) DO UPDATE SET room_id=EXCLUDED.room_id, updated_at=now()`, [mid, req.user.participantId, rid]);       // remembered, so a reconnect returns the host to the room
+    move(mid, req.user.participantId, rid); broadcast(mid); res.json({ roomId: rid });
+  }));
+
+  // sessions whose time is up end by themselves: ONE atomic UPDATE decides which instance ends which session
+  async function tick() {
+    const { rows } = await db.query("UPDATE more_breakout_sessions SET state='idle', deadline=NULL, revision=revision+1, updated_at=now() WHERE state='active' AND deadline <= now() RETURNING meeting_id, started_by");
+    for (const r of rows) { try { const m = await ensure(r.meeting_id); await db.query('UPDATE more_breakout_assignments SET room_id=NULL, updated_at=now() WHERE meeting_id=$1 AND room_id IS NOT NULL', [r.meeting_id]); m.active = false; m.deadline = null; applyScopes(r.meeting_id, new Map());
+      for (const [, sid] of sockets(r.meeting_id)) io.to(sid).emit('breakout-ended', { reason: 'time' }); await logEvent(r.meeting_id, r.started_by || r.meeting_id, 'breakout.ended', { reason: 'time' }); broadcast(r.meeting_id); } catch (e) { console.error('[breakouts] expiry failed', e.message); } }
+    return rows.length;
+  }
+  const timer = setInterval(() => { tick().catch((e) => console.error('[breakouts] tick failed', e.message)); }, tickMs); timer.unref?.();
+
+  // recording is a local capture of the host's page: with rooms open it would only hold one room, so it cannot start then
+  const blockRecordingStart = async (req, res, next) => { try { const m = await ensure(req.params.id); if (m.active) return fail(res, 409, 'Recording is unavailable while breakout rooms are open (it would only capture one room). Bring everyone back first.'); next(); } catch { fail(res, 500, 'Database unavailable'); } };
+  app.use(['/api/meetings/:id/recording/start', '/api/v1/meetings/:id/recording/start'], blockRecordingStart);
+
+  return { ensure, scopeOf, sameScope, emitScope, emitToScope, scopedList, scopeInfo, namesOf, tick, stop: () => clearInterval(timer), isActive: (mid) => !!meetings.get(mid)?.active };
+}

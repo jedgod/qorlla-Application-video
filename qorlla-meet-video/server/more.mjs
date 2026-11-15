@@ -13,7 +13,7 @@ import express from 'express';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const FEATURES = Object.freeze({ reactions: true, qa: true, timer: true, preferences: true, attendance: true, lock: true,
-  whiteboard: true, breakouts: false, files: false, transcript: false, ai: false, background: false });
+  whiteboard: true, breakouts: true, files: false, transcript: false, ai: false, background: false });
 export const LAYOUTS = Object.freeze(['gallery', 'speaker', 'stage']);
 export const TIMER_SECONDS = Object.freeze({ min: 10, max: 3 * 3600 });
 // ---- whiteboard operations: every field is bounded; the page can only send these shapes. Coordinates live in a 1000 x 625 board space.
@@ -43,7 +43,7 @@ export function validateOp(op) {
 }
 const bad = (status, error) => Object.assign(new Error(error), { status });
 
-export function registerMore({ app, io, db, auth, member, room, fail, rateLimit }) {
+export function registerMore({ app, io, db, auth, member, room, fail, rateLimit, scopeOf = () => null, emitMain = null }) {
   const r = express.Router({ mergeParams: true });
   const host = (req) => req.user.role === 'host';
   const limiter = rateLimit ? rateLimit({ windowMs: 60_000, limit: 40, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => (req.user?.participantId || 'anon') }) : (req, res, next) => next();
@@ -52,12 +52,14 @@ export function registerMore({ app, io, db, auth, member, room, fail, rateLimit 
   // Every change is written to the durable event log first, then pushed to the room; a client that missed a push catches up from /events?after=<id>.
   async function emit(meetingId, actorId, kind, payload) {
     const { rows } = await db.query('INSERT INTO more_events (meeting_id, actor_id, kind, payload) VALUES ($1,$2,$3,$4) RETURNING id', [meetingId, actorId, kind, JSON.stringify(payload)]);
-    try { io.to(room(meetingId)).emit('more', { id: Number(rows[0].id), kind, payload }); } catch (e) { console.error('[more] publish failed', e.message); }
+    try { const msg = { id: Number(rows[0].id), kind, payload }; if (emitMain) emitMain(meetingId, 'more', msg); else io.to(room(meetingId)).emit('more', msg); } catch (e) { console.error('[more] publish failed', e.message); }
     return Number(rows[0].id);
   }
   const timerOf = (row) => (row ? { label: row.label, running: !!row.running && !!row.ends_at && new Date(row.ends_at) > new Date(), endsAt: row.ends_at ? new Date(row.ends_at).toISOString() : null, serverNow: new Date().toISOString() } : { label: '', running: false, endsAt: null, serverNow: new Date().toISOString() });
 
   r.use(auth, member, limiter);
+  // inside a breakout room the main-room tools are closed (their pushes go to the main room only)
+  r.use((req, res, next) => (/^\/(questions|whiteboard|timer)/.test(req.path) && scopeOf(req.params.id, req.user.participantId) ? fail(res, 409, 'This tool is only available in the main room') : next()));
 
   r.get('/state', run(async (req, res) => {
     const id = req.params.id;
@@ -143,7 +145,7 @@ export function registerMore({ app, io, db, auth, member, room, fail, rateLimit 
 
   // ------------------------------------------------------------------ whiteboard (one shared board per occurrence; an append-only operation log)
   const boardLimiter = rateLimit ? rateLimit({ windowMs: 60_000, limit: 240, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => (req.user?.participantId || 'anon') }) : (req, res, next) => next();
-  const push = (meetingId, kind, payload) => { try { io.to(room(meetingId)).emit('more', { id: 0, kind, payload }); } catch (e) { console.error('[more] publish failed', e.message); } };
+  const push = (meetingId, kind, payload) => { try { const msg = { id: 0, kind, payload }; if (emitMain) emitMain(meetingId, 'more', msg); else io.to(room(meetingId)).emit('more', msg); } catch (e) { console.error('[more] publish failed', e.message); } };
   const boardOf = async (meetingId) => (await db.query('SELECT id, state, allow_draw FROM more_boards WHERE meeting_id=$1', [meetingId])).rows[0] || null;
   const boardView = (b) => (b ? { state: b.state, allowDraw: b.allow_draw } : null);
   r.get('/whiteboard', run(async (req, res) => {
@@ -183,7 +185,7 @@ export function registerMore({ app, io, db, auth, member, room, fail, rateLimit 
   }));
 
   // Everything the design lists but Meet cannot back yet answers 503 (never a fake success).
-  for (const key of ['breakouts', 'files', 'transcript', 'ai', 'background']) r.all(`/${key}`, (req, res) => fail(res, 503, 'This tool is not available yet'));
+  for (const key of ['files', 'transcript', 'ai', 'background']) r.all(`/${key}`, (req, res) => fail(res, 503, 'This tool is not available yet'));
 
   app.use(['/api/meetings/:id/more', '/api/v1/meetings/:id/more'], r);
   return { emit, FEATURES };

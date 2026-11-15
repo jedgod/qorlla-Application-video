@@ -22,7 +22,8 @@ From `Qorla-chat-page-ext/qorlla-meet-collaboration-v43`, again on Meet's own au
   the same board. Save PNG is client-side. Not built: live partial strokes (a stroke appears when its author lifts the pen), snapshots, export of the operation log.
 * **Q&A:** anonymous option (others see "Anonymous"; the host and the asker still see the name, and the checkbox says so).
 * **Reactions:** five more emojis behind the ... button; the server accepts the ten and allows at most 8 per person every 10 s.
-* **Breakout rooms, Shared files:** still disabled. Breakouts need atomic media routing between rooms; files need private storage, quarantine and a malware scanner (none exists; chat attachments are also off for that reason).
+* **Breakout rooms:** real WebRTC room switching, see `MEET_BREAKOUTS.md`.
+* **Shared files:** still disabled: it needs private storage, quarantine and a malware scanner (none exists; chat attachments are also off for that reason).
 
 ## Meeting intelligence (v4.2 package, Portal route)
 The v4.2 package (`Qorla-chat-page-ext/qorlla-meet-intelligence-v42`) needs capture/STT, a quota authority and a private-gateway adapter that Meet does not have, and the Workplace Portal already runs a
@@ -32,7 +33,7 @@ consent-gated AI Meeting Intelligence (AI provider, quota, reports, PDF/DOCX exp
 * **Live Transcript, Ask QorllaMate:** stay disabled (no speech-to-text service, no question endpoint on the gateway).
 
 ## Not built (buttons stay visible but disabled; the API answers 503 `This tool is not available yet`)
-Breakout rooms (media routing), Shared files (quarantine, malware scan, encrypted object storage), Live transcript (STT pipeline + consent),
+Shared files (quarantine, malware scan, encrypted object storage), Live transcript (STT pipeline + consent),
 AI Summary / Key Takeaways / Ask QorllaMate (the consent-gated private AI gateway), Background & effects (video effects pipeline). See the package README for each gate.
 
 ## Operations

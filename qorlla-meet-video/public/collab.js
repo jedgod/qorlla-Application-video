@@ -434,6 +434,60 @@ export function initCollab(h) {
     if (e.kind === 'whiteboard.state') { if (WB.shown) wbSync(); else if (state.role !== 'host' && e.payload && e.payload.state === 'open') notify('The host opened the whiteboard. Open it from More, Collaboration.'); }
     else if (e.kind === 'whiteboard.op' && WB.shown) wbSync();
   }
+
+  // ---- breakout rooms (v4.29): the host splits people into rooms; the server moves them (new roster, new peer connections) and keeps chat, signaling and events inside the room
+  const BK = { info: { active: false, roomId: null, roomName: null, deadline: null }, st: null, box: null, chip: null, tick: 0, warned: false, open: false };
+  const inMain = () => !BK.info.roomId;
+  const bk = (path, method, body) => call('/breakouts' + path, method, body);
+  const leftSec = () => (BK.info.deadline ? (Date.parse(BK.info.deadline) - Date.now()) / 1000 : 0);
+  function bkPaintChip() {
+    const top = document.querySelector('.stage-top'); if (!BK.chip && top) { BK.chip = el('span', 'bk-chip hidden', '', { role: 'timer', 'aria-label': 'Breakout rooms' }); top.prepend(BK.chip); }
+    const on = BK.info.active && (BK.info.roomId || state.role === 'host'), left = leftSec();
+    if (BK.chip) { BK.chip.classList.toggle('hidden', !on); BK.chip.textContent = on ? (BK.info.roomId ? BK.info.roomName : 'Rooms open') + ' \u00B7 ' + fmt(left) : ''; }
+    document.querySelectorAll('[data-bk-left]').forEach((n) => { n.textContent = BK.info.active ? fmt(left) : ''; });
+    if (BK.info.active && left > 0 && left <= 60 && !BK.warned) { BK.warned = true; announce('One minute left in the breakout rooms'); notify('One minute left in the breakout rooms'); }
+    if (!BK.info.active && BK.tick) { clearInterval(BK.tick); BK.tick = 0; }
+  }
+  function breakoutScope(info) {
+    const wasRoom = BK.info.roomId; BK.info = info; BK.warned = false; clearInterval(BK.tick); BK.tick = 0; if (info.active && info.deadline) BK.tick = setInterval(bkPaintChip, 1000); bkPaintChip();
+    if (info.roomId) { if (WB.shown) wbHide(); WB.objs.clear(); WB.last = 0; WB.board = null; if (M.qaBox) M.qaBox.hidden = true; M.qaOpen = false; }          // the main-room tools close for people inside a room
+    if (wasRoom !== info.roomId) buildMore();
+    if (BK.open) bkLoad();
+  }
+  async function bkLoad() {
+    try { BK.st = await bk(''); const me = BK.st.me; if (me.active !== BK.info.active || me.deadline !== BK.info.deadline || me.roomId !== BK.info.roomId) breakoutScope(me); } catch (e) { BK.st = null; if (BK.open) notify(e.message); }
+    bkRender();
+  }
+  function breakoutsChanged() { bkLoad(); }
+  function bkRender() {
+    const box = BK.box; if (!box) return; box.textContent = ''; const st = BK.st, host = state.role === 'host'; if (!st) { box.append(el('p', 'mg-note', 'Breakout rooms are unavailable right now.')); return; }
+    const running = st.session.active;
+    if (!host) { box.append(el('p', 'mg-note', st.me.roomId ? 'You are in ' + st.me.roomName + '. The host can bring everyone back at any time.' : running ? 'Breakout rooms are open. You were not assigned to a room.' : 'No breakout rooms are open. The host sets them up.')); return; }
+    const run = (fn) => async () => { try { await fn(); } catch (e) { notify(e.message); } await bkLoad(); };
+    if (running) {
+      const head = el('div', 'bk-head'); head.append(el('strong', '', 'Rooms are open'), el('span', 'bk-left', '', { 'data-bk-left': '' })); const rec = el('button', 'mg-act', 'Bring everyone back', { type: 'button' });
+      rec.onclick = run(async () => { if (await askConfirm('Bring everyone back?', 'Everyone returns to the main room now.', 'Bring back', true)) await bk('/recall', 'POST', {}); }); head.append(rec); box.append(head);
+    } else {
+      const row = el('div', 'mg-trow'); const n = el('select', '', '', { 'aria-label': 'Number of rooms' }); for (let i = 2; i <= 10; i++) n.append(new Option(i + ' rooms', String(i)));
+      const split = el('button', 'mg-act', 'Split people', { type: 'button', title: 'Create the rooms and spread everyone who is here evenly' }); split.onclick = run(() => bk('/autosplit', 'POST', { rooms: Number(n.value) })); row.append(n, split); box.append(row);
+      const add = el('form', 'mg-trow'); const nm = el('input', '', '', { type: 'text', maxlength: '60', placeholder: 'Add a room (name)', 'aria-label': 'Room name', required: '' }); const ab = el('button', 'mg-act', 'Add', { type: 'submit' });
+      add.onsubmit = (e) => { e.preventDefault(); run(() => bk('/rooms', 'POST', { name: nm.value }))(); }; add.append(nm, ab); box.append(add);
+    }
+    const options = st.rooms.map((r) => [r.id, r.name]);
+    const mover = (p, cur) => { const sel = el('select', 'bk-sel', '', { 'aria-label': 'Room for ' + p.name }); sel.append(new Option('Main room', '')); for (const [id, name] of options) sel.append(new Option(name, id)); sel.value = cur || ''; sel.onchange = run(() => bk('/assign', 'POST', { participantId: p.id, roomId: sel.value || null })); return sel; };
+    for (const r of st.rooms) {
+      const sec = el('div', 'bk-room'); const h = el('div', 'bk-room-h'); h.append(el('strong', '', r.name), el('small', '', r.members.length + (r.members.length === 1 ? ' person' : ' people')));
+      if (running) { const v = el('button', 'mg-act', st.hostRoom === r.id ? 'Leave room' : 'Visit', { type: 'button', title: 'Walk into this room to listen and help' }); v.onclick = run(() => bk('/visit', 'POST', { roomId: st.hostRoom === r.id ? null : r.id })); h.append(v); }
+      else if (!r.members.length) { const d = el('button', 'mg-act', 'Delete', { type: 'button' }); d.onclick = run(() => bk('/rooms/' + r.id, 'DELETE')); h.append(d); }
+      sec.append(h); for (const p of r.members) { const li = el('div', 'bk-p'); li.append(el('span', p.online ? 'bk-on' : 'bk-off', '\u25CF', { 'aria-hidden': 'true' }), el('span', '', p.name + (p.online ? '' : ' (not here)')), mover(p, r.id)); sec.append(li); } box.append(sec);
+    }
+    const un = el('div', 'bk-room'); un.append(el('div', 'bk-room-h', '', {}).appendChild(el('strong', '', 'Main room')).parentElement); for (const p of st.unassigned) { const li = el('div', 'bk-p'); li.append(el('span', p.online ? 'bk-on' : 'bk-off', '\u25CF', { 'aria-hidden': 'true' }), el('span', '', p.name + (p.online ? '' : ' (not here)')), mover(p, null)); un.append(li); }
+    if (!st.unassigned.length) un.append(el('p', 'mg-note', 'Everyone has a room.')); box.append(un);
+    if (!running) { const row = el('div', 'mg-trow'); const mins = el('select', '', '', { 'aria-label': 'Minutes' }); for (const mn of [5, 10, 15, 20, 30, 45, 60]) mins.append(new Option(mn + ' minutes', String(mn))); mins.value = '15';
+      const go = el('button', 'mg-act', 'Open rooms', { type: 'button' }); go.onclick = run(() => bk('/start', 'POST', { minutes: Number(mins.value) })); row.append(mins, go); box.append(row); }
+    bkPaintChip();
+  }
+  function bkPanel() { const box = el('div', 'mg-qa bk-box'); box.hidden = true; BK.box = box; return box; }
   function buildMore() {
     const t = $('tab-more'); t.textContent = ''; t.classList.add('more-v41-compact');
     const host = state.role === 'host';
@@ -485,14 +539,18 @@ export function initCollab(h) {
         const moreB = el('button', '', '\u22EF', { type: 'button', 'aria-label': 'More reactions', 'aria-expanded': 'false' }); moreB.onclick = () => { extra.hidden = !extra.hidden; moreB.setAttribute('aria-expanded', String(!extra.hidden)); }; emoji.append(moreB);
         body.append(row('smile', 'Reactions', 'Send quick reactions to the meeting.', emoji), extra);
         const off = (label, icon) => { const b = el('button', 'mg-act', '', { type: 'button', disabled: '', title: NA, 'aria-disabled': 'true' }); b.append(svg(icon), document.createTextNode(label)); return b; };
+        const bkBtn = el('button', 'mg-act', '', { type: 'button' }); bkBtn.append(svg('userplus'), document.createTextNode(host ? 'Create' : 'Status'));
+        if (!isOn('breakouts')) { bkBtn.disabled = true; bkBtn.title = NA; bkBtn.setAttribute('aria-disabled', 'true'); }
+        else bkBtn.onclick = () => { const bx = BK.box; bx.hidden = !bx.hidden; BK.open = !bx.hidden; bkBtn.setAttribute('aria-expanded', String(!bx.hidden)); if (!bx.hidden) bkLoad(); };
         const qaBtn = el('button', 'mg-act', '', { type: 'button' }); qaBtn.append(svg('open'), document.createTextNode('Open'));
-        if (!isOn('qa')) { qaBtn.disabled = true; qaBtn.title = NA; qaBtn.setAttribute('aria-disabled', 'true'); }
+        if (!isOn('qa') || !inMain()) { qaBtn.disabled = true; qaBtn.title = inMain() ? NA : 'Only in the main room'; qaBtn.setAttribute('aria-disabled', 'true'); }
         else qaBtn.onclick = () => { const bx = M.qaBox; bx.hidden = !bx.hidden; qaBtn.lastChild.textContent = bx.hidden ? 'Open' : 'Close'; qaBtn.setAttribute('aria-expanded', String(!bx.hidden)); M.qaOpen = !bx.hidden; clearInterval(M.qaPoll); M.qaPoll = 0; if (!bx.hidden) { renderQa(); M.qaPoll = setInterval(() => { if (M.qaBox && !M.qaBox.hidden && !document.hidden) renderQa(); }, 6000); } };       // the push is the fast path; the refresh catches anything missed
         const wbBtn = el('button', 'mg-act wb-open', '', { type: 'button' }); wbBtn.append(svg('open'), document.createTextNode('Open'));
-        if (!isOn('whiteboard')) { wbBtn.disabled = true; wbBtn.title = NA; wbBtn.setAttribute('aria-disabled', 'true'); }
+        if (!isOn('whiteboard') || !inMain()) { wbBtn.disabled = true; wbBtn.title = inMain() ? NA : 'Only in the main room'; wbBtn.setAttribute('aria-disabled', 'true'); }
         else wbBtn.onclick = async () => { wbBtn.disabled = true; try { if (host) await more('/whiteboard', 'POST', { action: 'open' }); await wbOpen(); } catch (e) { notify(e.message); } wbBtn.disabled = false; };
-        body.append(row('pen', 'Whiteboard', 'Collaborative board for visual brainstorming.', wbBtn), row('people', 'Breakout rooms', 'Split participants into smaller discussion groups.', off('Create', 'userplus')),
+        body.append(row('pen', 'Whiteboard', 'Collaborative board for visual brainstorming.', wbBtn), row('people', 'Breakout rooms', 'Split participants into smaller discussion groups.', bkBtn), bkPanel(),
           row('folder', 'Shared files', 'Share and access meeting files (host controlled).', off('Open', 'open')), row('qa', 'Q&A', 'Collect, review and answer participant questions.', qaBtn), qaPanel());
+        if (BK.open && isOn('breakouts')) { BK.box.hidden = false; bkBtn.setAttribute('aria-expanded', 'true'); bkRender(); bkLoad(); }
         if (M.qaOpen && isOn('qa')) { M.qaBox.hidden = false; qaBtn.lastChild.textContent = 'Close'; qaBtn.setAttribute('aria-expanded', 'true'); renderQa(); clearInterval(M.qaPoll); M.qaPoll = setInterval(() => { if (M.qaBox && !M.qaBox.hidden && !document.hidden) renderQa(); }, 6000); }       // the tab was rebuilt (a setting changed): keep the panel open
       },
       intel(body) {
@@ -537,7 +595,7 @@ export function initCollab(h) {
         const grid = el('div', 'mg-grid6');
         const detail = el('div', 'mg-detail'); detail.hidden = true;
         const layoutNext = () => { const order = ['gallery', 'speaker', 'stage']; const cur = order.findIndex((k) => document.querySelector('[data-layout="' + k + '"].selected')); const nk = order[(cur + 1) % 3]; document.querySelector('[data-layout="' + nk + '"]')?.click(); if (isOn('preferences')) savePref({ layout: nk }); };
-        const timerTile = tile('timer', 'Timer', () => { if (detail.dataset.k === 'timer') { detail.dataset.k = ''; detail.hidden = true; return; } detail.dataset.k = 'timer'; detail.textContent = ''; detail.append(timerPanel()); detail.hidden = false; }, isOn('timer') ? {} : { off: true });
+        const timerTile = tile('timer', 'Timer', () => { if (detail.dataset.k === 'timer') { detail.dataset.k = ''; detail.hidden = true; return; } detail.dataset.k = 'timer'; detail.textContent = ''; detail.append(timerPanel()); detail.hidden = false; }, isOn('timer') && inMain() ? {} : { off: true, title: inMain() ? NA : 'Only in the main room' });
         const focusOn = document.body.classList.contains('more-focus');
         const focusTile = tile('target', 'Focus mode', () => { const on = !document.body.classList.contains('more-focus'); setFocus(on); focusTile.setAttribute('aria-pressed', String(on)); if (isOn('preferences')) savePref({ focusMode: on }); }, isOn('preferences') ? {} : { off: true });
         focusTile.setAttribute('aria-pressed', String(focusOn));
@@ -576,6 +634,7 @@ export function initCollab(h) {
   buildNotes(); buildPolls(); buildMore();
   return {
     attach(s) { s.on('notes-updated', remoteNotes); s.on('notes-editors', (m) => { N.editors = m.editors; const can = state.role === 'host' || m.editors.includes(state.participantId); if (can !== N.canEdit && !N.ended) { N.canEdit = can; renderAll(); announce(can ? 'You can now edit the notes' : 'Your edit access to the notes was removed'); } }); s.on('polls-changed', polls$); s.on('more', onMore); s.on('ai-consent-request', loadIntel); s.on('ai-consent-closed', loadIntel); s.on('connect', () => { if (M.features) loadMore(); }); },
+    breakoutScope, breakoutsChanged,
     load() { buildMore(); loadNotes(); loadPolls(); loadMore(); loadIntel(); document.querySelector('[data-tab=more]')?.addEventListener('click', loadIntel); clearInterval(I.poll); I.poll = setInterval(() => { const t = $('tab-more'); if (!document.hidden && t && !t.classList.contains('hidden')) loadIntel(); }, 8000); },       // answers are not pushed: refresh while the tab is on screen
     refreshMore() { buildMore(); },
   };

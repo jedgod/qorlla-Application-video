@@ -48,8 +48,8 @@ const P = (m, s = '') => `/api/meetings/${m.mid}/more${s}`;
 
 test('state: real features are on, unbuilt ones say so (never a fake success)', async () => {
   const m = await meeting(); const s = await call('GET', P(m, '/state'), m.ann);
-  assert.equal(s.status, 200); assert.equal(s.body.features.qa, true); assert.equal(s.body.features.timer, true); assert.equal(s.body.features.whiteboard, true); assert.equal(s.body.features.breakouts, false); assert.equal(s.body.features.files, false); assert.equal(s.body.features.ai, false); assert.equal(s.body.timer.running, false);
-  for (const k of ['breakouts', 'files', 'transcript', 'ai', 'background']) assert.equal((await call('GET', P(m, '/' + k), m.host)).status, 503);
+  assert.equal(s.status, 200); assert.equal(s.body.features.qa, true); assert.equal(s.body.features.timer, true); assert.equal(s.body.features.whiteboard, true); assert.equal(s.body.features.breakouts, true); assert.equal(s.body.features.files, false); assert.equal(s.body.features.ai, false); assert.equal(s.body.timer.running, false);
+  for (const k of ['files', 'transcript', 'ai', 'background']) assert.equal((await call('GET', P(m, '/' + k), m.host)).status, 503);
 });
 
 test('access: no token, wrong meeting and a participant who is still waiting are all refused', async () => {

@@ -33,7 +33,7 @@ class HttpError extends Error { constructor(status, message) { super(message); t
 const cleanText = (s, max) => (typeof s === 'string' ? s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F‪-‮⁦-⁩]/g, '').trim().slice(0, max) : '');
 const cleanName = (s) => cleanText(String(s || 'file').split(/[\\/]/).pop(), 120).replace(/[^\w.\- ()À-ɏ]/g, '_') || 'file';
 
-export function registerChat({ app, io, db, auth, member, room, fail, socketOf = () => null, giphyKey = process.env.GIPHY_API_KEY || '', attachmentsEnabled = process.env.CHAT_ATTACHMENTS_ENABLED === 'true',
+export function registerChat({ app, io, db, auth, member, room, fail, socketOf = () => null, scopeOf = () => null, giphyKey = process.env.GIPHY_API_KEY || '', attachmentsEnabled = process.env.CHAT_ATTACHMENTS_ENABLED === 'true',
   attachmentsDir = process.env.CHAT_ATTACHMENTS_DIR || resolve('data', 'chat-attachments'), fetchImpl = globalThis.fetch, giphyBase = process.env.GIPHY_API_BASE || 'https://api.giphy.com' }) {
   const features = Object.freeze({ gif: !!giphyKey, attachments: !!attachmentsEnabled });
   if (attachmentsEnabled) mkdirSync(attachmentsDir, { recursive: true });
@@ -71,10 +71,10 @@ export function registerChat({ app, io, db, auth, member, room, fail, socketOf =
   /** deliver an event to exactly the people who may see the conversation AND are admitted right now. Delivery is per socket (never a room broadcast), so a person whose
    *  admission was withdrawn stops receiving chat at once, even if their socket has not been closed yet. */
   const EVERYONE = Object.freeze({ id: null, members: null });
-  async function emitTo(meetingId, conv, type, payload) {
+  async function emitTo(meetingId, conv, type, payload, scope = undefined) {
     const ids = conv.id === null ? null : conv.members.map((m) => m.id);
     const { rows } = await db.query("SELECT id FROM participants WHERE meeting_id=$1 AND admission='admitted'" + (ids ? ' AND id = ANY($2::uuid[])' : ''), ids ? [meetingId, ids] : [meetingId]);
-    for (const r of rows) { const sid = socketOf(meetingId, r.id); if (sid) io.to(sid).emit(type, payload); }
+    for (const r of rows) { if (scope !== undefined && (scopeOf(meetingId, r.id) ?? null) !== scope) continue; const sid = socketOf(meetingId, r.id); if (sid) io.to(sid).emit(type, payload); }
   }
 
   const SELECT = `SELECT m.id, m.participant_id, p.display_name AS name, m.body, m.body_rich, m.kind, m.reply_to, m.edited_at, m.created_at, m.attachment_id, m.conversation_id, m.deleted_at,
@@ -99,9 +99,9 @@ export function registerChat({ app, io, db, auth, member, room, fail, socketOf =
   /** a message the person is allowed to see (their conversation or Everyone), or 404 */
   async function visibleMessage(meetingId, mid, pid) {
     ensureUuid(mid, 'message');
-    const { rows: [m] } = await db.query(`SELECT m.id, m.participant_id, m.kind, m.conversation_id, m.deleted_at FROM messages m WHERE m.id = $1 AND m.meeting_id = $2
+    const { rows: [m] } = await db.query(`SELECT m.id, m.participant_id, m.kind, m.conversation_id, m.deleted_at, m.breakout_room FROM messages m WHERE m.id = $1 AND m.meeting_id = $2
       AND (m.conversation_id IS NULL OR EXISTS (SELECT 1 FROM chat_members cm WHERE cm.conversation_id = m.conversation_id AND cm.participant_id = $3))`, [mid, meetingId, pid]);
-    if (!m) throw new HttpError(404, 'Message not found'); return m;
+    if (!m || (m.conversation_id === null && (m.breakout_room ?? null) !== (scopeOf(meetingId, pid) ?? null))) throw new HttpError(404, 'Message not found'); return m;
   }
   const convOfMessage = (meetingId, m, pid) => conversationOf(meetingId, m.conversation_id, pid);
 
@@ -135,15 +135,16 @@ export function registerChat({ app, io, db, auth, member, room, fail, socketOf =
       if (!rowCount) throw new HttpError(404, 'The message you are replying to is gone');
     }
     const mid = randomUUID();
-    const ins = await db.query('INSERT INTO messages(id, meeting_id, participant_id, body, body_rich, kind, reply_to, attachment_id, conversation_id, idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING RETURNING id',
-      [mid, meetingId, participantId, plain, canon, kind, replyTo, kind === 'file' ? attachmentId : null, conv.id, idempotencyKey]);
+    const ins = await db.query('INSERT INTO messages(id, meeting_id, participant_id, body, body_rich, kind, reply_to, attachment_id, conversation_id, idempotency_key, breakout_room) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING RETURNING id',
+      [mid, meetingId, participantId, plain, canon, kind, replyTo, kind === 'file' ? attachmentId : null, conv.id, idempotencyKey, conv.id === null ? (scopeOf(meetingId, participantId) ?? null) : null]);
     if (!ins.rowCount) { const { rows } = await db.query('SELECT id FROM messages WHERE participant_id=$1 AND idempotency_key=$2', [participantId, idempotencyKey]); return { ...(await one(meetingId, rows[0].id, participantId)), duplicate: true }; }
     return one(meetingId, mid, participantId);
   }
   /** send a stored message to the people who may see it (never to anybody else) */
   async function deliver(meetingId, msg) {
     if (msg.duplicate) return;
-    await emitTo(meetingId, await conversationOf(meetingId, msg.conversationId, msg.participantId), 'chat', { ...msg, bookmarked: false });
+    const dconv = await conversationOf(meetingId, msg.conversationId, msg.participantId);
+    await emitTo(meetingId, dconv, 'chat', { ...msg, bookmarked: false }, dconv.id === null ? (scopeOf(meetingId, msg.participantId) ?? null) : undefined);
   }
 
   // ---------- policy
@@ -196,7 +197,7 @@ export function registerChat({ app, io, db, auth, member, room, fail, socketOf =
     const conv = await conversationOf(req.params.id, req.query.conversation, req.user.participantId);
     const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100)), params = [req.params.id, req.user.participantId];
     let where = 'm.meeting_id = $1', extra = '';
-    if (conv.id === null) where += ' AND m.conversation_id IS NULL'; else { params.push(conv.id); where += ` AND m.conversation_id = $${params.length}`; }
+    if (conv.id === null) { params.push(scopeOf(req.params.id, req.user.participantId) ?? null); where += ` AND m.conversation_id IS NULL AND m.breakout_room IS NOT DISTINCT FROM $${params.length}::uuid`; } else { params.push(conv.id); where += ` AND m.conversation_id = $${params.length}`; }
     if (req.query.before) { const d = new Date(String(req.query.before)); if (Number.isNaN(d.getTime())) throw new HttpError(400, 'Invalid time'); params.push(d.toISOString()); where += ` AND m.created_at < $${params.length}`; }
     if (typeof req.query.q === 'string' && req.query.q.trim()) { params.push('%' + req.query.q.trim().slice(0, 100).replace(/[\\%_]/g, '\\$&') + '%'); where += ` AND m.deleted_at IS NULL AND m.body ILIKE $${params.length}`; }
     if (req.query.pinned === '1') extra = ' AND EXISTS (SELECT 1 FROM chat_pins cp WHERE cp.message_id = m.id)';
@@ -221,7 +222,7 @@ export function registerChat({ app, io, db, auth, member, room, fail, socketOf =
     plain = plain.slice(0, 4000); if (!plain) throw new HttpError(400, 'Empty message');
     await db.query('UPDATE messages SET body=$1, body_rich=$2, edited_at=now() WHERE id=$3', [plain, canon, req.params.mid]);
     const msg = await one(req.params.id, req.params.mid, req.user.participantId);
-    await emitTo(req.params.id, await convOfMessage(req.params.id, m, req.user.participantId), 'chat-edit', { id: msg.id, conversationId: msg.conversationId, body: msg.body, rich: msg.rich, editedAt: msg.editedAt }); res.json(msg);
+    await emitTo(req.params.id, await convOfMessage(req.params.id, m, req.user.participantId), 'chat-edit', { id: msg.id, conversationId: msg.conversationId, body: msg.body, rich: msg.rich, editedAt: msg.editedAt }, m.conversation_id === null ? (m.breakout_room ?? null) : undefined); res.json(msg);
   }));
 
   // delete = the author, or the host. The text is removed from the database (not just hidden); everybody who could see the message sees "Message deleted".
@@ -231,7 +232,7 @@ export function registerChat({ app, io, db, auth, member, room, fail, socketOf =
     if (!m.deleted_at) {
       await db.query("UPDATE messages SET body='', body_rich=NULL, deleted_at=now() WHERE id=$1", [m.id]);
       await db.query('DELETE FROM chat_pins WHERE message_id=$1', [m.id]); await db.query('DELETE FROM chat_bookmarks WHERE message_id=$1', [m.id]);
-      await emitTo(req.params.id, await convOfMessage(req.params.id, m, req.user.participantId), 'chat-delete', { id: m.id, conversationId: m.conversation_id || null });
+      await emitTo(req.params.id, await convOfMessage(req.params.id, m, req.user.participantId), 'chat-delete', { id: m.id, conversationId: m.conversation_id || null }, m.conversation_id === null ? (m.breakout_room ?? null) : undefined);
     }
     res.json({ ok: true, deleted: true });
   }));
@@ -246,11 +247,11 @@ export function registerChat({ app, io, db, auth, member, room, fail, socketOf =
   app.put(PATHS('/:mid/pin'), auth, member, hostOnly, handle(async (req, res) => {
     const m = await live(req); if (m.conversation_id) throw new HttpError(400, 'Only messages in Everyone can be pinned');
     await db.query('INSERT INTO chat_pins(message_id, meeting_id, pinned_by) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [req.params.mid, req.params.id, req.user.participantId]);
-    await emitTo(req.params.id, EVERYONE, 'chat-pin', { id: req.params.mid, pinned: true }); res.json({ ok: true, pinned: true });
+    await emitTo(req.params.id, EVERYONE, 'chat-pin', { id: req.params.mid, pinned: true }, m.breakout_room ?? null); res.json({ ok: true, pinned: true });
   }));
   app.delete(PATHS('/:mid/pin'), auth, member, hostOnly, handle(async (req, res) => {
-    await visibleMessage(req.params.id, req.params.mid, req.user.participantId); await db.query('DELETE FROM chat_pins WHERE message_id=$1 AND meeting_id=$2', [req.params.mid, req.params.id]);
-    await emitTo(req.params.id, EVERYONE, 'chat-pin', { id: req.params.mid, pinned: false }); res.json({ ok: true, pinned: false });
+    const pm = await visibleMessage(req.params.id, req.params.mid, req.user.participantId); await db.query('DELETE FROM chat_pins WHERE message_id=$1 AND meeting_id=$2', [req.params.mid, req.params.id]);
+    await emitTo(req.params.id, EVERYONE, 'chat-pin', { id: req.params.mid, pinned: false }, pm.breakout_room ?? null); res.json({ ok: true, pinned: false });
   }));
 
   app.post(PATHS('/:mid/tasks'), auth, member, handle(async (req, res) => {
@@ -266,12 +267,12 @@ export function registerChat({ app, io, db, auth, member, room, fail, socketOf =
     const { rows: [t] } = await db.query('INSERT INTO chat_tasks(id, meeting_id, message_id, title, assignee_id, due_date, created_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id, title, due_date, created_at',
       [randomUUID(), req.params.id, req.params.mid, title, assignee, due, req.user.participantId]);
     const task = { id: t.id, messageId: req.params.mid, conversationId: conv.id, title: t.title, assigneeId: assignee, dueDate: due, createdBy: req.user.participantId, createdAt: t.created_at };
-    await emitTo(req.params.id, conv, 'chat-task', task); res.status(201).json(task);
+    await emitTo(req.params.id, conv, 'chat-task', task, conv.id === null ? (scopeOf(req.params.id, req.user.participantId) ?? null) : undefined); res.status(201).json(task);
   }));
   app.get(PATHS('/tasks/list'), auth, member, handle(async (req, res) => {
     const { rows } = await db.query(`SELECT t.id, t.message_id, x.conversation_id, t.title, t.assignee_id, to_char(t.due_date,'YYYY-MM-DD') AS due_date, t.created_by, t.created_at
       FROM chat_tasks t JOIN messages x ON x.id = t.message_id WHERE t.meeting_id=$1 AND x.deleted_at IS NULL
-        AND (x.conversation_id IS NULL OR EXISTS (SELECT 1 FROM chat_members cm WHERE cm.conversation_id = x.conversation_id AND cm.participant_id = $2)) ORDER BY t.created_at DESC LIMIT 200`, [req.params.id, req.user.participantId]);
+        AND ((x.conversation_id IS NULL AND x.breakout_room IS NOT DISTINCT FROM $3::uuid) OR EXISTS (SELECT 1 FROM chat_members cm WHERE cm.conversation_id = x.conversation_id AND cm.participant_id = $2)) ORDER BY t.created_at DESC LIMIT 200`, [req.params.id, req.user.participantId, scopeOf(req.params.id, req.user.participantId) ?? null]);
     res.json({ tasks: rows.map((t) => ({ id: t.id, messageId: t.message_id, conversationId: t.conversation_id || null, title: t.title, assigneeId: t.assignee_id, dueDate: t.due_date, createdBy: t.created_by, createdAt: t.created_at })) });
   }));
 
@@ -291,7 +292,7 @@ export function registerChat({ app, io, db, auth, member, room, fail, socketOf =
     const conv = await conversationOf(req.params.id, req.query.conversation, req.user.participantId);
     const { rows: [mt] } = await db.query('SELECT title FROM meetings WHERE id=$1', [req.params.id]);
     const { rows } = await db.query(`SELECT p.display_name AS name, m.body, m.kind, m.created_at FROM messages m JOIN participants p ON p.id = m.participant_id
-      WHERE m.meeting_id = $1 AND m.conversation_id IS NOT DISTINCT FROM $2 AND m.deleted_at IS NULL ORDER BY m.created_at, m.id LIMIT 5000`, [req.params.id, conv.id]);
+      WHERE m.meeting_id = $1 AND m.conversation_id IS NOT DISTINCT FROM $2 AND m.deleted_at IS NULL AND ($2::uuid IS NOT NULL OR m.breakout_room IS NOT DISTINCT FROM $3::uuid) ORDER BY m.created_at, m.id LIMIT 5000`, [req.params.id, conv.id, scopeOf(req.params.id, req.user.participantId) ?? null]);
     const title = conv.id === null ? 'Everyone' : 'Private chat with ' + conv.members.filter((x) => x.id !== req.user.participantId).map((x) => x.name).join(', ');
     const text = `${cleanText(mt?.title || 'Meeting', 120)} - ${title}\nSaved ${new Date().toISOString()}\n\n` + rows.map((r) => `[${new Date(r.created_at).toISOString().replace('T', ' ').slice(0, 19)}] ${r.name}: ${r.kind === 'gif' ? '[GIF]' : r.kind === 'file' ? '[file] ' + r.body : r.body.replace(/\r?\n/g, '\n    ')}`).join('\n') + '\n';
     res.set({ 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store', 'Content-Disposition': 'attachment; filename="qorlla-chat-' + new Date().toISOString().slice(0, 10) + '.txt"' });

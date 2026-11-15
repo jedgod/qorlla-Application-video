@@ -33,7 +33,8 @@ DO $$ BEGIN
   IF to_regclass('public.notes_editors') IS NOT NULL THEN GRANT DELETE ON notes_editors TO qorlla_meet_app; END IF;
   IF to_regclass('public.meeting_polls') IS NOT NULL THEN GRANT DELETE ON meeting_polls TO qorlla_meet_app; END IF;
   IF to_regclass('public.phone_attempts') IS NOT NULL THEN GRANT DELETE ON phone_attempts TO qorlla_meet_app; END IF;
-  IF to_regclass('public.more_question_votes') IS NOT NULL THEN GRANT DELETE ON more_question_votes TO qorlla_meet_app; END IF;                 -- removing your own Q&A vote (More tab, v4.27)
+  IF to_regclass('public.more_question_votes') IS NOT NULL THEN GRANT DELETE ON more_question_votes TO qorlla_meet_app; END IF;
+  IF to_regclass('public.more_breakout_rooms') IS NOT NULL THEN GRANT DELETE ON more_breakout_rooms TO qorlla_meet_app; END IF;               -- the host deleting an empty breakout room (v4.29)                 -- removing your own Q&A vote (More tab, v4.27)
 END $$;
 -- Numbers & Plans authority (v4.16). The audit trail is append-only (also for PUBLIC and for inherited/default privileges: only direct, explicit grants are given here, and the trigger refuses UPDATE/DELETE/TRUNCATE for every role).
 -- The application may NOT delete numbers, operations or outbox rows, and may not truncate anything; identity columns are protected by trigger. Marking outbox rows delivered is UPDATE, which it keeps.

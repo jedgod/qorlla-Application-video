@@ -132,7 +132,7 @@ try {
   await sumCard(host.p).locator('.mg-stat', { hasText: '2 agreed' }).waitFor({ timeout: 30000 }); await guest.p.locator('#tab-more .mg-card', { hasText: 'AI Summary' }).locator('.mg-stat', { hasText: 'You: agreed' }).waitFor({ timeout: 15000 });
   check('Intelligence: when the guest agrees in the consent prompt both cards update live (2 agreed / You: agreed)', true);
   check('Intelligence: Live Transcript and Ask QorllaMate stay disabled (no speech-to-text, no AI gateway)', await host.p.locator('#tab-more .mg-card', { hasText: 'Live Transcript' }).getByRole('switch').isDisabled() && await host.p.locator('#tab-more .mg-card', { hasText: 'Ask QorllaMate' }).getByRole('button').isDisabled());
-  check('Disabled tools stay disabled: Breakout rooms, Shared files, AI', await host.p.locator('#tab-more .mg-row', { hasText: 'Breakout rooms' }).getByRole('button').isDisabled() && await host.p.locator('#tab-more .mg-row', { hasText: 'Shared files' }).getByRole('button').isDisabled() && await host.p.locator('#tab-more .mg-card', { hasText: 'AI Summary' }).getByRole('button').isDisabled());
+  check('Disabled tools stay disabled: Shared files, AI', await host.p.locator('#tab-more .mg-row', { hasText: 'Shared files' }).getByRole('button').isDisabled() && await host.p.locator('#tab-more .mg-card', { hasText: 'AI Summary' }).getByRole('button').isDisabled());
   if (OUT) await host.p.screenshot({ path: join(OUT, 'tab-more.png') });
 
   // back to Chat: nothing was lost, and live delivery still works after the tour

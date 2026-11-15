@@ -25,6 +25,7 @@ import { registerRecordingStorage } from './recording-store.mjs';
 import { registerAiConsent } from './ai-consent.mjs';
 import { registerChat } from './chat.mjs';
 import { registerMore } from './more.mjs';
+import { registerBreakouts } from './breakouts.mjs';
 import { registerHandoff } from './handoff.mjs';
 import { registerHostControls } from './host-controls.mjs';
 import { registerRecording } from './recording.mjs';
@@ -421,8 +422,9 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
 });
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
 const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
-const chat = registerChat({ app, io, db, auth, member, room, fail, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid) });       // meeting chat upgrade (v4.25+)
-const more = registerMore({ app, io, db, auth, member, room, fail, rateLimit });       // More tab (v4.27): Q&A, timer, preferences, attendance
+const breakouts = registerBreakouts({ app, io, db, auth, member, fail, active, room });       // breakout rooms (v4.29): scoped rosters, signaling and events; blocks recording while rooms are open
+const chat = registerChat({ app, io, db, auth, member, room, fail, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), scopeOf: breakouts.scopeOf });       // meeting chat upgrade (v4.25+)
+const more = registerMore({ app, io, db, auth, member, room, fail, rateLimit, scopeOf: breakouts.scopeOf, emitMain: (meetingId, type, payload) => breakouts.emitToScope(meetingId, null, type, payload) });       // More tab (v4.27): Q&A, timer, preferences, attendance
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
@@ -441,6 +443,7 @@ io.use(async(socket,next)=>{
   const user=verify(socket.handshake.auth?.token);
   const {rows}=await db.query("SELECT m.ended_at,m.id AS mid,m.org_id,m.host_account_id,m.guest_enabled,p.id,p.admission,p.role,p.account_id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2 AND p.admission='admitted'",[user.meetingId,user.participantId]);
   if(!rows.length||rows[0].ended_at) throw Error('Meeting unavailable');
+  await breakouts.ensure(user.meetingId);          // the breakout scope of this meeting is known before the first event goes out
   if(shieldCfg.enforce){          // fail closed: no shield, no session. The shield's answer (not the token) decides what this person may do.
    if(!shield) throw Error('Security unavailable');
    const r=rows[0]; await shield.register({id:r.mid,org_id:r.org_id,host_account_id:r.host_account_id,guest_enabled:r.guest_enabled});
@@ -474,17 +477,19 @@ io.on('connection',socket=>{
   db.query("UPDATE participants SET admission='admitted',wait_reason=NULL WHERE meeting_id=$1 AND admission='waiting' AND wait_reason='host_absent'",[id]).then(r=>{if(r.rowCount)io.to(room(id)).emit('waiting-changed',{});}).catch(()=>{});
   db.query('UPDATE meetings SET locked=true WHERE id=$1 AND lock_on_host_join AND NOT locked RETURNING id',[id]).then(r=>{if(r.rowCount)io.to(room(id)).emit('meeting-locked',{locked:true});}).catch(()=>{});
  }
- socket.emit('roster',activeList(id));
- socket.emit('names',Object.fromEntries(activeList(id).map(p=>[p,names.get(id)?.get(p)||'']).filter(([,n])=>n)));   // who is who, for people already in the meeting
+ const rosterFor=()=>[...breakouts.scopedList(id,pid),...(breakouts.scopeOf(id,pid)===null?(phoneOnline.get(id)||[]):[])];       // only the people in MY scope (the main room or my breakout room)
+ socket.emit('breakout-scope',breakouts.scopeInfo(id,pid));
+ socket.emit('roster',rosterFor());
+ socket.emit('names',Object.fromEntries(rosterFor().map(p=>[p,names.get(id)?.get(p)||'']).filter(([,n])=>n)));   // who is who, for people already in the meeting
  if(!names.has(id)) names.set(id,new Map()); names.get(id).set(pid,u.name);
  recording.publicState(id).then(s=>socket.emit('recording-state',s)).catch(()=>{});
  recording.reevaluate(id,'joined',pid,u.role).catch(e=>console.error('[recording] join check failed:',e.message));
  aiConsent.onJoin(socket,id,pid);   // a late joiner who has not answered the AI request is asked now; it never touches the recording state   // a late joiner pauses a running recording until they answer
- socket.to(room(id)).emit('participant-online',{participantId:pid,name:u.name,role:u.role});
+ breakouts.emitScope(id,pid,'participant-online',{participantId:pid,name:u.name,role:u.role});
  const isOnline=(target)=>roster.get(target);
  socket.on('signal',({to,data}={},ack)=>{
   if(typeof to!=='string'||!data||!['offer','answer','candidate'].includes(data.type)) return ackError(ack,'Invalid signal');
-  const target=isOnline(to); if(!target) return ackError(ack,'Participant offline');
+  const target=isOnline(to); if(!target||!breakouts.sameScope(id,pid,to)) return ackError(ack,'Participant offline');          // never across rooms
   io.to(target).emit('signal',{from:pid,data}); if(typeof ack==='function')ack({ok:true});
  });
  socket.on('chat',async(payload,ack)=>{
@@ -493,15 +498,15 @@ io.on('connection',socket=>{
    await chat.deliver(id,msg); if(typeof ack==='function')ack({ok:true,id:msg.id});
   } catch(e){ackError(ack,e?.status&&e.status<500?e.message:'Message failed');}
  });
- socket.on('hand',raised=>{socket.to(room(id)).emit('hand',{participantId:pid,raised:!!raised});});
+ socket.on('hand',raised=>{breakouts.emitScope(id,pid,'hand',{participantId:pid,raised:!!raised});});
  hostControls.attach(socket,{id,pid,role:u.role});
  socket.on('media-state',async state=>{
   // a guest announces a screen share only if the host allows it (for everyone, or for this person): otherwise it is not announced and the sender is told
   let sharing=!!state?.sharing;
   if(sharing&&u.role!=='host'&&!(await hostControls.mayUse(id,pid,u.role,'share').catch(()=>false))){sharing=false;socket.emit('share-denied',{});}
-  socket.to(room(id)).emit('media-state',{participantId:pid,mic:!!state?.mic,cam:!!state?.cam,sharing});
+  breakouts.emitScope(id,pid,'media-state',{participantId:pid,mic:!!state?.mic,cam:!!state?.cam,sharing});
  });
- const reactAt=[];socket.on('reaction',emoji=>{if(!['👍','👏','❤️','🎉','😂','🙌','🤔','👎','✋','✅'].includes(emoji))return;const now=Date.now();while(reactAt.length&&now-reactAt[0]>10000)reactAt.shift();if(reactAt.length>=8)return;reactAt.push(now);io.to(room(id)).emit('reaction',{name:u.name,emoji});});       // at most 8 a person every 10 s
+ const reactAt=[];socket.on('reaction',emoji=>{if(!['👍','👏','❤️','🎉','😂','🙌','🤔','👎','✋','✅'].includes(emoji))return;const now=Date.now();while(reactAt.length&&now-reactAt[0]>10000)reactAt.shift();if(reactAt.length>=8)return;reactAt.push(now);breakouts.emitScope(id,pid,'reaction',{name:u.name,emoji},{self:true});});       // at most 8 a person every 10 s
  socket.on('notes',async(text,ack)=>{
   if(u.role!=='host')return ackError(ack,'Host only');
   text=clean(text,12000);
@@ -520,7 +525,7 @@ io.on('connection',socket=>{
    const {rows}=await db.query('SELECT choice,count(*)::int AS count FROM poll_votes WHERE poll_id=$1 GROUP BY choice',[pollId]);io.to(room(id)).emit('poll-results',{pollId,counts:rows});ack?.({ok:true});
   }catch{ackError(ack,'Vote failed');}
  });
- socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
+ socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}breakouts.emitScope(id,pid,'participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE disconnected_at IS NULL').catch(()=>{});   // a restart ends every connection: close what the last run left open
 server.listen(PORT,()=>console.log(`Qorlla Meet listening on http://localhost:${PORT}`));
