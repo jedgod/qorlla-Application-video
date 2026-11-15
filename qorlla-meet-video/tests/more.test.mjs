@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { registerMore } from '../server/more.mjs';
+import { registerMore, validateOp, BOARD } from '../server/more.mjs';
 
 // Meet More tab (v4.27) against a REAL PostgreSQL (TEST_PG_URL; a scratch database is created and dropped). auth/member are the same stand-ins the chat tests use:
 // the identity comes from a header instead of a signed token, but the admitted-participant SQL is the real one.
@@ -48,8 +48,8 @@ const P = (m, s = '') => `/api/meetings/${m.mid}/more${s}`;
 
 test('state: real features are on, unbuilt ones say so (never a fake success)', async () => {
   const m = await meeting(); const s = await call('GET', P(m, '/state'), m.ann);
-  assert.equal(s.status, 200); assert.equal(s.body.features.qa, true); assert.equal(s.body.features.timer, true); assert.equal(s.body.features.whiteboard, false); assert.equal(s.body.features.ai, false); assert.equal(s.body.timer.running, false);
-  for (const k of ['whiteboard', 'breakouts', 'files', 'transcript', 'ai', 'background']) assert.equal((await call('GET', P(m, '/' + k), m.host)).status, 503);
+  assert.equal(s.status, 200); assert.equal(s.body.features.qa, true); assert.equal(s.body.features.timer, true); assert.equal(s.body.features.whiteboard, true); assert.equal(s.body.features.breakouts, false); assert.equal(s.body.features.files, false); assert.equal(s.body.features.ai, false); assert.equal(s.body.timer.running, false);
+  for (const k of ['breakouts', 'files', 'transcript', 'ai', 'background']) assert.equal((await call('GET', P(m, '/' + k), m.host)).status, 503);
 });
 
 test('access: no token, wrong meeting and a participant who is still waiting are all refused', async () => {
@@ -119,4 +119,50 @@ test('attendance: host only, from the connection sessions Meet records', async (
   assert.equal((await call('GET', P(m, '/attendance'), m.ann)).status, 403);
   const a = (await call('GET', P(m, '/attendance'), m.host)).body.attendance; const ann = a.find((x) => x.name === 'Ann'), host = a.find((x) => x.name === 'Host');
   assert.equal(ann.online, false); assert.ok(ann.seconds >= 14 * 60 && ann.seconds <= 16 * 60); assert.equal(host.online, true); assert.equal(a.some((x) => x.name === 'Wes'), false);       // the waiting guest was never admitted
+});
+
+test('whiteboard: validation is strict (bounds, colours, ids, shapes)', () => {
+  const good = { t: 'stroke', id: 'o1234567890abcdef', c: '#112233', w: 4, p: [[1, 2], [3, 4]] };
+  assert.deepEqual(validateOp(good), good);
+  for (const bad of [null, [], {}, { ...good, t: 'script' }, { ...good, id: 'x' }, { ...good, id: '<img onerror=1>' }, { ...good, c: 'red' }, { ...good, c: '#12345' }, { ...good, w: 0 }, { ...good, w: 99 }, { ...good, p: [] },
+    { ...good, p: [[1, 2, 3]] }, { ...good, p: [[BOARD.w + 1, 0]] }, { ...good, p: [[NaN, 0]] }, { ...good, p: Array.from({ length: BOARD.maxPoints + 1 }, () => [1, 1]) },
+    { t: 'shape', id: 'o1234567890abcdef', k: 'star', c: '#000000', w: 2, x1: 0, y1: 0, x2: 1, y2: 1 }, { t: 'text', id: 'o1234567890abcdef', s: '   ', c: '#000000', x: 1, y: 1, z: 20 },
+    { t: 'text', id: 'o1234567890abcdef', s: 'x'.repeat(201), c: '#000000', x: 1, y: 1, z: 20 }, { t: 'text', id: 'o1234567890abcdef', s: 'ok', c: '#000000', x: 1, y: 1, z: 5 }, { t: 'erase', id: 'o1234567890abcdef' }]) assert.equal(validateOp(bad), null, JSON.stringify(bad).slice(0, 60));
+  assert.deepEqual(validateOp({ t: 'clear', junk: 1 }), { t: 'clear' }); assert.deepEqual(validateOp({ t: 'erase', id: 'o1234567890abcdef', target: 'o0000000000000001' }), { t: 'erase', id: 'o1234567890abcdef', target: 'o0000000000000001' });
+  assert.equal(validateOp({ t: 'text', id: 'o1234567890abcdef', s: '  hello ', c: '#000000', x: 5, y: 5, z: 24 }).s, 'hello');
+});
+
+test('whiteboard: host opens and controls it; guests draw only while allowed; replay from a cursor; clear is host only; another meeting is separate', async () => {
+  const m = await meeting(), other = await meeting(); events.length = 0;
+  const stroke = (id) => ({ t: 'stroke', id, c: '#dc2626', w: 4, p: [[10, 10], [50, 50]] });
+  assert.equal((await call('GET', P(m, '/whiteboard'), m.ann)).body.board, null);
+  assert.equal((await call('POST', P(m, '/whiteboard'), m.ann, { action: 'open' })).status, 403);
+  assert.equal((await call('POST', P(m, '/whiteboard/ops'), m.host, { op: stroke('oaaaaaaaaaaaa001') })).status, 409);
+  assert.equal((await call('POST', P(m, '/whiteboard'), m.host, { action: 'open' })).body.board.state, 'open'); assert.ok(events.some((e) => e.payload.kind === 'whiteboard.state'));
+  assert.equal((await call('POST', P(m, '/whiteboard'), m.host, { action: 'bogus' })).status, 400);
+  assert.equal((await call('POST', P(m, '/whiteboard/ops'), m.ann, { op: stroke('oaaaaaaaaaaaa002') })).status, 201);
+  assert.equal((await call('POST', P(m, '/whiteboard/ops'), m.ann, { op: { ...stroke('oaaaaaaaaaaaa003'), c: 'javascript:1' } })).status, 400);
+  assert.equal((await call('POST', P(m, '/whiteboard/ops'), m.waiting, { op: stroke('oaaaaaaaaaaaa004') })).status, 403);
+  assert.equal((await call('POST', P(m, '/whiteboard/ops'), m.ann, { op: { t: 'clear' } })).status, 403);
+  assert.equal((await call('POST', P(m, '/whiteboard'), m.host, { action: 'draw', allow: false })).body.board.allowDraw, false);
+  assert.equal((await call('POST', P(m, '/whiteboard/ops'), m.bo, { op: stroke('oaaaaaaaaaaaa005') })).status, 403);
+  assert.equal((await call('POST', P(m, '/whiteboard/ops'), m.host, { op: stroke('oaaaaaaaaaaaa006') })).status, 201);
+  const all = (await call('GET', P(m, '/whiteboard'), m.bo)).body; assert.equal(all.ops.length, 2); assert.equal(all.ops[0].by, 'Ann'); assert.equal(all.ops[0].mine, false); assert.equal(all.board.allowDraw, false);
+  const tail = (await call('GET', P(m, '/whiteboard?after=' + all.ops[0].seq), m.bo)).body; assert.equal(tail.ops.length, 1); assert.equal(tail.ops[0].op.id, 'oaaaaaaaaaaaa006');
+  assert.equal((await call('GET', P(m, '/whiteboard?after=-1'), m.bo)).status, 400);
+  assert.equal((await call('POST', P(m, '/whiteboard/ops'), m.host, { op: { t: 'erase', id: 'oaaaaaaaaaaaa007', target: 'oaaaaaaaaaaaa002' } })).status, 201);
+  assert.equal((await call('POST', P(m, '/whiteboard/ops'), m.host, { op: { t: 'clear' } })).status, 201);
+  assert.ok(events.some((e) => e.payload.kind === 'whiteboard.op'));
+  assert.equal((await call('POST', P(m, '/whiteboard'), m.host, { action: 'close' })).body.board.state, 'closed'); assert.equal((await call('POST', P(m, '/whiteboard/ops'), m.host, { op: stroke('oaaaaaaaaaaaa008') })).status, 409);
+  assert.equal((await call('GET', P(other, '/whiteboard'), other.host)).body.board, null);
+});
+
+test('Q&A: anonymous questions hide the name from guests but not from the host or the asker', async () => {
+  const m = await meeting();
+  const q = await call('POST', P(m, '/questions'), m.ann, { question: 'Who decides?', anonymous: true }); assert.equal(q.status, 201);
+  await call('POST', P(m, '/questions'), m.ann, { question: 'Named question' });
+  const seen = async (u) => (await call('GET', P(m, '/questions'), u)).body.questions.find((x) => x.question === 'Who decides?');
+  assert.equal((await seen(m.bo)).author, 'Anonymous'); assert.equal((await seen(m.bo)).anonymous, true);
+  assert.match((await seen(m.host)).author, /Ann/); assert.match((await seen(m.ann)).author, /Ann/);
+  assert.equal((await call('GET', P(m, '/questions'), m.bo)).body.questions.find((x) => x.question === 'Named question').author, 'Ann');
 });

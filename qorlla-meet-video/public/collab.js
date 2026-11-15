@@ -308,8 +308,9 @@ export function initCollab(h) {
   function qaPanel() {
     const box = el('div', 'mg-qa'); box.hidden = true; M.qaBox = box; M.qaList = el('div', 'mg-qlist');
     const form = el('form', 'mg-qform'); const inp = el('input', '', '', { type: 'text', maxlength: '2000', placeholder: 'Ask a question\u2026', 'aria-label': 'Your question', required: '' }); const go = el('button', 'mg-act', 'Ask', { type: 'submit' });
-    form.onsubmit = async (e) => { e.preventDefault(); go.disabled = true; try { await more('/questions', 'POST', { question: inp.value }); inp.value = ''; await renderQa(); } catch (err) { notify(err.message); } go.disabled = false; };
-    form.append(inp, go); box.append(form, M.qaList); return box;
+    const anon = el('input', '', '', { type: 'checkbox', id: 'qaAnon' }); const anonL = el('label', 'mg-anon', '', { title: 'Others will not see your name. The host still can.' }); anonL.append(anon, document.createTextNode(' Anonymous'));
+    form.onsubmit = async (e) => { e.preventDefault(); go.disabled = true; try { await more('/questions', 'POST', { question: inp.value, anonymous: anon.checked }); inp.value = ''; await renderQa(); } catch (err) { notify(err.message); } go.disabled = false; };
+    form.append(inp, go); box.append(form, anonL, M.qaList); return box;
   }
   function timerPanel() {
     const d = el('div', 'mg-info'); d.append(el('strong', '', 'Meeting timer'), el('div', 'mg-timer-big', '0:00', { 'data-more-timer': '' }));
@@ -359,7 +360,80 @@ export function initCollab(h) {
     for (const [box, label] of I.boxes) if (box.isConnected) intelPaint(box, label);
   }
   async function loadMore() { try { const st = await more('/state'); const changed = JSON.stringify(M.features) !== JSON.stringify(st.features); M.features = st.features; M.pref = st.preferences; setTimer(st.timer); if (changed) buildMore(); else if (M.qaBox && !M.qaBox.hidden) renderQa(); applyPrefs(); } catch { /* the tools stay disabled */ } }
-  function onMore(e) { if (!e) return; if (e.kind === 'timer') setTimer(e.payload); else if (String(e.kind).startsWith('question.') && M.qaBox && !M.qaBox.hidden) renderQa(); }
+  function onMore(e) { if (!e) return; if (String(e.kind).startsWith('whiteboard.')) wbOnEvent(e); else if (e.kind === 'timer') setTimer(e.payload); else if (String(e.kind).startsWith('question.') && M.qaBox && !M.qaBox.hidden) renderQa(); }
+
+  // ---- whiteboard (v4.28): one shared board per meeting; every drawing is an operation the server validates and logs, so people who join later or reconnect replay the same board
+  const WB = { shown: false, ov: null, cv: null, ctx: null, objs: new Map(), last: 0, board: null, tool: 'pen', color: '#111827', width: 4, busy: false, again: false, draft: null, ui: {} };
+  const opId = () => 'o' + Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+  const WB_W = 1000, WB_H = 625;
+  function wbApply(o) {
+    const op = o.op; if (op.t === 'clear') WB.objs.clear(); else if (op.t === 'erase') WB.objs.delete(op.target); else WB.objs.set(op.id, { ...op, mine: o.mine, by: o.by });
+  }
+  async function wbSync() {
+    if (WB.busy) { WB.again = true; return; } WB.busy = true;
+    try {
+      for (let i = 0; i < 30; i++) { const d = await more('/whiteboard?after=' + WB.last); WB.board = d.board; for (const o of d.ops) wbApply(o); WB.last = d.last; if (d.ops.length < 1000) break; }
+    } catch (e) { notify(e.message); }
+    finally { WB.busy = false; wbPaintUi(); wbDraw(); if (WB.again) { WB.again = false; wbSync(); } }
+  }
+  function wbLines(ctx, text, maxW) { const out = []; let line = ''; for (const w of text.split(/\s+/)) { const t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > maxW && line) { out.push(line); line = w; } else line = t; } if (line) out.push(line); return out; }
+  function wbDrawObj(ctx, o) {
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (o.t === 'stroke') { ctx.strokeStyle = o.c; ctx.lineWidth = o.w; ctx.beginPath(); ctx.moveTo(o.p[0][0], o.p[0][1]); if (o.p.length === 1) ctx.lineTo(o.p[0][0] + .01, o.p[0][1]); for (const pt of o.p.slice(1)) ctx.lineTo(pt[0], pt[1]); ctx.stroke(); const xs = o.p.map((q) => q[0]), ys = o.p.map((q) => q[1]); o.b = [Math.min(...xs) - o.w - 6, Math.min(...ys) - o.w - 6, Math.max(...xs) + o.w + 6, Math.max(...ys) + o.w + 6]; }
+    else if (o.t === 'shape') { ctx.strokeStyle = o.c; ctx.lineWidth = o.w; const x = Math.min(o.x1, o.x2), y = Math.min(o.y1, o.y2), w = Math.abs(o.x2 - o.x1), h = Math.abs(o.y2 - o.y1); ctx.beginPath(); if (o.k === 'rect') ctx.rect(x, y, w, h); else if (o.k === 'ellipse') ctx.ellipse(x + w / 2, y + h / 2, Math.max(w / 2, .5), Math.max(h / 2, .5), 0, 0, Math.PI * 2); else { ctx.moveTo(o.x1, o.y1); ctx.lineTo(o.x2, o.y2); } ctx.stroke(); o.b = [x - o.w - 6, y - o.w - 6, x + w + o.w + 6, y + h + o.w + 6]; }
+    else if (o.t === 'text' || o.t === 'sticky') {
+      ctx.font = o.z + 'px system-ui, sans-serif'; ctx.textBaseline = 'top'; const lines = wbLines(ctx, o.s, o.t === 'sticky' ? 200 : 360), lh = o.z * 1.25, w = Math.max(...lines.map((l) => ctx.measureText(l).width));
+      if (o.t === 'sticky') { ctx.fillStyle = '#fde68a'; ctx.fillRect(o.x, o.y, 220, lines.length * lh + 16); ctx.fillStyle = '#1f2937'; lines.forEach((l, i) => ctx.fillText(l, o.x + 10, o.y + 8 + i * lh)); o.b = [o.x, o.y, o.x + 220, o.y + lines.length * lh + 16]; }
+      else { ctx.fillStyle = o.c; lines.forEach((l, i) => ctx.fillText(l, o.x, o.y + i * lh)); o.b = [o.x - 4, o.y - 4, o.x + w + 4, o.y + lines.length * lh + 4]; }
+    }
+  }
+  function wbDraw() { const c = WB.ctx; if (!c) return; c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = '#ffffff'; c.fillRect(0, 0, WB_W, WB_H); for (const o of WB.objs.values()) wbDrawObj(c, o); if (WB.draft) wbDrawObj(c, WB.draft); }
+  const wbCan = () => WB.board && WB.board.state === 'open' && (state.role === 'host' || WB.board.allowDraw);
+  function wbPaintUi() {
+    const u = WB.ui; if (!u.status) return; const b = WB.board, can = wbCan();
+    u.status.textContent = !b ? 'No whiteboard yet.' : b.state === 'closed' ? 'The host closed the whiteboard. You can still look at it.' : !b.allowDraw && state.role !== 'host' ? 'The host has switched drawing off. You are watching.' : '';
+    u.tools.forEach((t) => { t.disabled = !can; }); u.undo.disabled = !can; u.clear.hidden = state.role !== 'host'; u.clear.disabled = !(b && b.state === 'open'); u.hostBar.hidden = state.role !== 'host';
+    if (b) { u.allow.checked = !!b.allowDraw; u.closeBtn.textContent = b.state === 'open' ? 'Close board' : 'Reopen board'; }
+  }
+  async function wbSend(op) { try { await more('/whiteboard/ops', 'POST', { op }); } catch (e) { notify(e.message); } }
+  function wbPoint(e) { const r = WB.cv.getBoundingClientRect(); return [Math.max(0, Math.min(WB_W, (e.clientX - r.left) * WB_W / r.width)), Math.max(0, Math.min(WB_H, (e.clientY - r.top) * WB_H / r.height))]; }
+  function wbBuild() {
+    const ov = el('div', 'wb-ov', '', { role: 'dialog', 'aria-label': 'Whiteboard', 'aria-modal': 'false' }); const u = WB.ui = { tools: [] };
+    const bar = el('div', 'wb-bar'); const mk = (label, fn, cls, extra) => { const b = el('button', cls || 'wb-btn', label, { type: 'button', ...(extra || {}) }); b.onclick = fn; return b; };
+    const group = el('div', 'wb-group', '', { role: 'group', 'aria-label': 'Tools' });
+    for (const [k, l] of [['pen', 'Pen'], ['line', 'Line'], ['rect', 'Box'], ['ellipse', 'Oval'], ['text', 'Text'], ['sticky', 'Note'], ['erase', 'Eraser']]) { const b = mk(l, () => { WB.tool = k; u.tools.forEach((t) => t.setAttribute('aria-pressed', String(t.dataset.tool === k))); if (k === 'text' || k === 'sticky') u.text.focus(); }, 'wb-btn', { 'data-tool': k, 'aria-pressed': String(k === WB.tool) }); u.tools.push(b); group.append(b); }
+    const colors = el('div', 'wb-group', '', { role: 'group', 'aria-label': 'Colour' }); for (const [c, n] of [['#111827', 'Black'], ['#dc2626', 'Red'], ['#2563eb', 'Blue'], ['#16a34a', 'Green'], ['#ea580c', 'Orange'], ['#9333ea', 'Purple']]) { const b = mk('', () => { WB.color = c; colors.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); }, 'wb-sw', { 'aria-label': n, 'aria-pressed': String(c === WB.color) }); b.style.background = c; colors.append(b); }
+    const sizes = el('div', 'wb-group', '', { role: 'group', 'aria-label': 'Line width' }); for (const [w, n] of [[2, 'Thin'], [4, 'Medium'], [10, 'Thick']]) { const b = mk(n, () => { WB.width = w; sizes.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); }, 'wb-btn', { 'aria-pressed': String(w === WB.width) }); sizes.append(b); }
+    u.undo = mk('Undo mine', () => { const mine = [...WB.objs.values()].filter((o) => o.mine); const last = mine[mine.length - 1]; if (last) wbSend({ t: 'erase', id: opId(), target: last.id }); }); u.clear = mk('Clear all', async () => { if (await askConfirm('Clear the whiteboard?', 'Everyone loses the drawing.', 'Clear', true)) wbSend({ t: 'clear' }); });
+    const png = mk('Save PNG', () => { const a = el('a'); a.href = WB.cv.toDataURL('image/png'); a.download = 'whiteboard.png'; document.body.append(a); a.click(); a.remove(); }); const close = mk('Close', () => wbHide(), 'wb-btn wb-x', { 'aria-label': 'Close whiteboard' });
+    bar.append(group, colors, sizes, u.undo, u.clear, png, close);
+    u.text = el('input', 'wb-text', '', { type: 'text', maxlength: '200', placeholder: 'Type text for the Text or Note tool, then click the board', 'aria-label': 'Text to place' });
+    u.hostBar = el('div', 'wb-host'); const allow = el('input', '', '', { type: 'checkbox', id: 'wbAllow' }); u.allow = allow; allow.onchange = async () => { try { await more('/whiteboard', 'POST', { action: 'draw', allow: allow.checked }); } catch (e) { notify(e.message); allow.checked = !allow.checked; } };
+    const al = el('label', 'wb-allow'); al.append(allow, document.createTextNode(' Participants can draw')); u.closeBtn = mk('Close board', async () => { try { await more('/whiteboard', 'POST', { action: WB.board && WB.board.state === 'open' ? 'close' : 'open' }); } catch (e) { notify(e.message); } }); u.hostBar.append(al, u.closeBtn);
+    u.status = el('p', 'wb-status', '', { role: 'status' });
+    const cv = el('canvas', 'wb-cv', '', { width: String(WB_W), height: String(WB_H), role: 'img', 'aria-label': 'Shared whiteboard. Drawing needs a pointer; changes from everyone appear live.' }); WB.cv = cv; WB.ctx = cv.getContext('2d');
+    cv.addEventListener('pointerdown', (e) => {
+      if (!wbCan()) return; const pt = wbPoint(e);
+      if (WB.tool === 'erase') { const objs = [...WB.objs.values()].reverse(); const hit = objs.find((o) => o.b && pt[0] >= o.b[0] && pt[0] <= o.b[2] && pt[1] >= o.b[1] && pt[1] <= o.b[3]); if (hit) wbSend({ t: 'erase', id: opId(), target: hit.id }); return; }
+      if (WB.tool === 'text' || WB.tool === 'sticky') { const text = u.text.value.trim(); if (!text) { notify('Type the text first, then click where it goes.'); u.text.focus(); return; } wbSend({ t: WB.tool, id: opId(), s: text, c: WB.color, x: pt[0], y: pt[1], z: 24 }); u.text.value = ''; return; }
+      cv.setPointerCapture(e.pointerId); WB.draft = WB.tool === 'pen' ? { t: 'stroke', c: WB.color, w: WB.width, p: [pt] } : { t: 'shape', k: WB.tool, c: WB.color, w: WB.width, x1: pt[0], y1: pt[1], x2: pt[0], y2: pt[1] };
+    });
+    cv.addEventListener('pointermove', (e) => { const d = WB.draft; if (!d) return; const pt = wbPoint(e); if (d.t === 'stroke') { const l = d.p[d.p.length - 1]; if (Math.hypot(pt[0] - l[0], pt[1] - l[1]) >= 2 && d.p.length < 400) d.p.push(pt); } else { d.x2 = pt[0]; d.y2 = pt[1]; } wbDraw(); });
+    const finish = () => { const d = WB.draft; WB.draft = null; wbDraw(); if (!d) return; if (d.t === 'shape' && Math.hypot(d.x2 - d.x1, d.y2 - d.y1) < 4) return; wbSend({ ...d, id: opId() }); };
+    cv.addEventListener('pointerup', finish); cv.addEventListener('pointercancel', () => { WB.draft = null; wbDraw(); });
+    ov.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); wbHide(); } });
+    ov.append(bar, u.text, u.hostBar, u.status, cv); document.body.append(ov); WB.ov = ov;
+  }
+  function wbHide() { if (WB.ov) WB.ov.hidden = true; WB.shown = false; document.querySelector('#tab-more .wb-open')?.focus(); }
+  async function wbOpen() {
+    if (!WB.ov) wbBuild(); await wbSync();
+    if (!WB.board) { notify('The host has not opened a whiteboard yet.'); return; }
+    WB.ov.hidden = false; WB.shown = true; wbPaintUi(); wbDraw(); WB.ui.tools.find((t) => t.dataset.tool === WB.tool)?.focus();
+  }
+  function wbOnEvent(e) {
+    if (e.kind === 'whiteboard.state') { if (WB.shown) wbSync(); else if (state.role !== 'host' && e.payload && e.payload.state === 'open') notify('The host opened the whiteboard. Open it from More, Collaboration.'); }
+    else if (e.kind === 'whiteboard.op' && WB.shown) wbSync();
+  }
   function buildMore() {
     const t = $('tab-more'); t.textContent = ''; t.classList.add('more-v41-compact');
     const host = state.role === 'host';
@@ -407,13 +481,19 @@ export function initCollab(h) {
       collab(body) {
         const row = (k, title, desc, action) => { const r = el('div', 'mg-row'); const tt = el('div', 'mg-row-t'); tt.append(el('strong', '', title), el('small', '', desc)); r.append(el('span', 'mg-ic', ''), tt); r.firstChild.append(svg(k)); if (action) r.append(action); return r; };
         const emoji = el('div', 'mg-emoji'); for (const e of ['👍', '👏', '❤️', '🎉', '😂']) { const b = el('button', '', e, { type: 'button', 'aria-label': 'React with ' + e }); b.onclick = () => state.socket?.emit('reaction', e); emoji.append(b); }
-        body.append(row('smile', 'Reactions', 'Send quick reactions to the meeting.', emoji));
+        const extra = el('div', 'mg-emoji'); extra.hidden = true; for (const e of ['🙌', '🤔', '👎', '✋', '✅']) { const b = el('button', '', e, { type: 'button', 'aria-label': 'React with ' + e }); b.onclick = () => state.socket?.emit('reaction', e); extra.append(b); }
+        const moreB = el('button', '', '\u22EF', { type: 'button', 'aria-label': 'More reactions', 'aria-expanded': 'false' }); moreB.onclick = () => { extra.hidden = !extra.hidden; moreB.setAttribute('aria-expanded', String(!extra.hidden)); }; emoji.append(moreB);
+        body.append(row('smile', 'Reactions', 'Send quick reactions to the meeting.', emoji), extra);
         const off = (label, icon) => { const b = el('button', 'mg-act', '', { type: 'button', disabled: '', title: NA, 'aria-disabled': 'true' }); b.append(svg(icon), document.createTextNode(label)); return b; };
         const qaBtn = el('button', 'mg-act', '', { type: 'button' }); qaBtn.append(svg('open'), document.createTextNode('Open'));
         if (!isOn('qa')) { qaBtn.disabled = true; qaBtn.title = NA; qaBtn.setAttribute('aria-disabled', 'true'); }
-        else qaBtn.onclick = () => { const bx = M.qaBox; bx.hidden = !bx.hidden; qaBtn.lastChild.textContent = bx.hidden ? 'Open' : 'Close'; qaBtn.setAttribute('aria-expanded', String(!bx.hidden)); clearInterval(M.qaPoll); M.qaPoll = 0; if (!bx.hidden) { renderQa(); M.qaPoll = setInterval(() => { if (M.qaBox && !M.qaBox.hidden && !document.hidden) renderQa(); }, 6000); } };       // the push is the fast path; the refresh catches anything missed
-        body.append(row('pen', 'Whiteboard', 'Collaborative board for visual brainstorming.', off('Open', 'open')), row('people', 'Breakout rooms', 'Split participants into smaller discussion groups.', off('Create', 'userplus')),
+        else qaBtn.onclick = () => { const bx = M.qaBox; bx.hidden = !bx.hidden; qaBtn.lastChild.textContent = bx.hidden ? 'Open' : 'Close'; qaBtn.setAttribute('aria-expanded', String(!bx.hidden)); M.qaOpen = !bx.hidden; clearInterval(M.qaPoll); M.qaPoll = 0; if (!bx.hidden) { renderQa(); M.qaPoll = setInterval(() => { if (M.qaBox && !M.qaBox.hidden && !document.hidden) renderQa(); }, 6000); } };       // the push is the fast path; the refresh catches anything missed
+        const wbBtn = el('button', 'mg-act wb-open', '', { type: 'button' }); wbBtn.append(svg('open'), document.createTextNode('Open'));
+        if (!isOn('whiteboard')) { wbBtn.disabled = true; wbBtn.title = NA; wbBtn.setAttribute('aria-disabled', 'true'); }
+        else wbBtn.onclick = async () => { wbBtn.disabled = true; try { if (host) await more('/whiteboard', 'POST', { action: 'open' }); await wbOpen(); } catch (e) { notify(e.message); } wbBtn.disabled = false; };
+        body.append(row('pen', 'Whiteboard', 'Collaborative board for visual brainstorming.', wbBtn), row('people', 'Breakout rooms', 'Split participants into smaller discussion groups.', off('Create', 'userplus')),
           row('folder', 'Shared files', 'Share and access meeting files (host controlled).', off('Open', 'open')), row('qa', 'Q&A', 'Collect, review and answer participant questions.', qaBtn), qaPanel());
+        if (M.qaOpen && isOn('qa')) { M.qaBox.hidden = false; qaBtn.lastChild.textContent = 'Close'; qaBtn.setAttribute('aria-expanded', 'true'); renderQa(); clearInterval(M.qaPoll); M.qaPoll = setInterval(() => { if (M.qaBox && !M.qaBox.hidden && !document.hidden) renderQa(); }, 6000); }       // the tab was rebuilt (a setting changed): keep the panel open
       },
       intel(body) {
         const grid = el('div', 'mg-grid4'); I.boxes = [];

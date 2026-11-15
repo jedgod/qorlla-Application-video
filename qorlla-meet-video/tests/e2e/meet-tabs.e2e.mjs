@@ -93,6 +93,24 @@ try {
   check('Q&A: a guest has no answer or hide controls', (await guest.p.locator('.mg-q input').count()) === 0 && (await guest.p.getByRole('button', { name: 'Hide', exact: true }).count()) === 0);
   await host.p.locator('.mg-q', { hasText: 'Will the recording be shared?' }).locator('input').fill('Only to the host.'); await host.p.locator('.mg-q', { hasText: 'Will the recording be shared?' }).getByRole('button', { name: 'Answer' }).click();
   await guest.p.locator('.mg-ans', { hasText: 'Only to the host.' }).waitFor({ timeout: 30000 }); check('Q&A: the host answer reaches the guest live', true);
+  // Collaboration: anonymous Q&A, more reactions, and the shared whiteboard (host draws, the guest sees it live; the host can switch guest drawing off)
+  await guest.p.locator('.mg-qform input').fill('Is this anonymous?'); await guest.p.locator('#qaAnon').check(); await guest.p.locator('.mg-qform').getByRole('button', { name: 'Ask' }).click();
+  await host.p.locator('.mg-q', { hasText: 'Is this anonymous?' }).waitFor({ timeout: 30000 });
+  check('Q&A: an anonymous question shows the host who asked, marked as anonymous to others', (await host.p.locator('.mg-q', { hasText: 'Is this anonymous?' }).innerText()).includes('anonymous to others'));
+  await host.p.locator('#tab-more').getByRole('button', { name: 'More reactions' }).click(); check('Reactions: the ... button reveals five more reactions', await host.p.locator('#tab-more').getByRole('button', { name: 'React with ✅' }).isVisible());
+  await host.p.locator('#tab-more .mg-row', { hasText: 'Whiteboard' }).getByRole('button', { name: 'Open' }).click(); await host.p.locator('.wb-ov:not([hidden]) .wb-cv').waitFor({ timeout: 15000 });
+  await guest.p.locator('#tab-more .mg-row', { hasText: 'Whiteboard' }).getByRole('button', { name: 'Open' }).click(); await guest.p.locator('.wb-ov:not([hidden]) .wb-cv').waitFor({ timeout: 15000 });
+  const inkAt = (pg) => pg.evaluate(() => { const c = document.querySelector('.wb-cv'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] < 200 && d[i + 1] < 200) n++; return n; });
+  const hb = await host.p.locator('.wb-cv').boundingBox(); await host.p.mouse.move(hb.x + hb.width * .2, hb.y + hb.height * .3); await host.p.mouse.down(); await host.p.mouse.move(hb.x + hb.width * .5, hb.y + hb.height * .6, { steps: 8 }); await host.p.mouse.up();
+  await host.p.waitForFunction(() => { const c = document.querySelector('.wb-cv'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; for (let i = 0; i < d.length; i += 4) if (d[i] < 200 && d[i + 1] < 200) return true; return false; }, null, { timeout: 15000 });
+  await guest.p.waitForFunction(() => { const c = document.querySelector('.wb-cv'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; for (let i = 0; i < d.length; i += 4) if (d[i] < 200 && d[i + 1] < 200) return true; return false; }, null, { timeout: 30000 });
+  check('Whiteboard: the host stroke appears on the guest board', (await inkAt(guest.p)) > 50 && (await inkAt(host.p)) > 50);
+  check('Whiteboard: the guest cannot clear the board, the host can', (await guest.p.locator('.wb-ov .wb-btn', { hasText: 'Clear all' }).isHidden()) && (await host.p.locator('.wb-ov .wb-btn', { hasText: 'Clear all' }).isVisible()));
+  await host.p.locator('#wbAllow').uncheck(); await guest.p.waitForFunction(() => [...document.querySelectorAll('.wb-ov .wb-btn[data-tool]')].every((b) => b.disabled), null, { timeout: 30000 });
+  check('Whiteboard: when the host switches drawing off the guest tools are disabled', (await guest.p.locator('.wb-status').innerText()).includes('switched drawing off'));
+  await host.p.locator('.wb-ov .wb-btn', { hasText: 'Clear all' }).click(); await host.p.locator('.rc-danger').click(); await guest.p.waitForFunction(() => { const c = document.querySelector('.wb-cv'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; for (let i = 0; i < d.length; i += 4) if (d[i] < 200 && d[i + 1] < 200) return false; return true; }, null, { timeout: 30000 });
+  check('Whiteboard: clearing wipes it for the guest too', true);
+  await host.p.locator('.wb-ov').getByRole('button', { name: 'Close whiteboard' }).click(); await guest.p.locator('.wb-ov').getByRole('button', { name: 'Close whiteboard' }).click();
   await host.p.locator('#tab-more .mg-tile', { hasText: 'Timer' }).click(); await host.p.locator('#tab-more select[aria-label="Timer length"]').selectOption('60'); await host.p.getByRole('button', { name: 'Start', exact: true }).click();
   await guest.p.locator('.more-timer-chip:not(.hidden)').waitFor({ timeout: 15000 }); const chip = await guest.p.locator('.more-timer-chip').innerText();
   check('Timer: the host starts it and the guest counts down from the server clock (' + chip.trim() + ')', /\d:\d\d/.test(chip) && /^\D*(0|1):/.test(chip.trim()));
@@ -114,7 +132,7 @@ try {
   await sumCard(host.p).locator('.mg-stat', { hasText: '2 agreed' }).waitFor({ timeout: 30000 }); await guest.p.locator('#tab-more .mg-card', { hasText: 'AI Summary' }).locator('.mg-stat', { hasText: 'You: agreed' }).waitFor({ timeout: 15000 });
   check('Intelligence: when the guest agrees in the consent prompt both cards update live (2 agreed / You: agreed)', true);
   check('Intelligence: Live Transcript and Ask QorllaMate stay disabled (no speech-to-text, no AI gateway)', await host.p.locator('#tab-more .mg-card', { hasText: 'Live Transcript' }).getByRole('switch').isDisabled() && await host.p.locator('#tab-more .mg-card', { hasText: 'Ask QorllaMate' }).getByRole('button').isDisabled());
-  check('Disabled tools stay disabled: Whiteboard, Breakout rooms, Shared files, AI', await host.p.locator('#tab-more .mg-row', { hasText: 'Whiteboard' }).getByRole('button').isDisabled() && await host.p.locator('#tab-more .mg-card', { hasText: 'AI Summary' }).getByRole('button').isDisabled());
+  check('Disabled tools stay disabled: Breakout rooms, Shared files, AI', await host.p.locator('#tab-more .mg-row', { hasText: 'Breakout rooms' }).getByRole('button').isDisabled() && await host.p.locator('#tab-more .mg-row', { hasText: 'Shared files' }).getByRole('button').isDisabled() && await host.p.locator('#tab-more .mg-card', { hasText: 'AI Summary' }).getByRole('button').isDisabled());
   if (OUT) await host.p.screenshot({ path: join(OUT, 'tab-more.png') });
 
   // back to Chat: nothing was lost, and live delivery still works after the tour

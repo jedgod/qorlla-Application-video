@@ -501,7 +501,7 @@ io.on('connection',socket=>{
   if(sharing&&u.role!=='host'&&!(await hostControls.mayUse(id,pid,u.role,'share').catch(()=>false))){sharing=false;socket.emit('share-denied',{});}
   socket.to(room(id)).emit('media-state',{participantId:pid,mic:!!state?.mic,cam:!!state?.cam,sharing});
  });
- socket.on('reaction',emoji=>{if(['👍','👏','❤️','🎉','😂'].includes(emoji))io.to(room(id)).emit('reaction',{name:u.name,emoji});});
+ const reactAt=[];socket.on('reaction',emoji=>{if(!['👍','👏','❤️','🎉','😂','🙌','🤔','👎','✋','✅'].includes(emoji))return;const now=Date.now();while(reactAt.length&&now-reactAt[0]>10000)reactAt.shift();if(reactAt.length>=8)return;reactAt.push(now);io.to(room(id)).emit('reaction',{name:u.name,emoji});});       // at most 8 a person every 10 s
  socket.on('notes',async(text,ack)=>{
   if(u.role!=='host')return ackError(ack,'Host only');
   text=clean(text,12000);

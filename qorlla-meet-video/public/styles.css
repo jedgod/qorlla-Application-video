@@ -334,3 +334,11 @@ html.portal-only #landing .landing-card>:not(.brand):not(#portalOnlyNote){displa
 .mg-att{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-top:1px solid #1f2736;font-size:11px}.mg-att small{color:#9aa6ba;font-size:10px}
 .more-timer-chip{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;background:#143a73;color:#fff;font-size:12px;font-variant-numeric:tabular-nums;margin-right:8px}.more-timer-chip.hidden{display:none}
 .mg-intel-ctl{display:flex;flex-direction:column;align-items:center;gap:4px}.mg-stat{font-size:9.5px;color:#9aa6ba}
+/* Whiteboard overlay + anonymous Q&A + more reactions */
+.wb-ov{position:fixed;inset:4vh 4vw;margin:auto;max-width:1040px;max-height:92vh;z-index:40;display:flex;flex-direction:column;gap:6px;padding:8px;background:#10141c;border:1px solid #2a3243;border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.6);overflow:auto}.wb-ov[hidden]{display:none}
+.wb-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.wb-group{display:flex;gap:3px;align-items:center}
+.wb-btn{height:28px;padding:0 10px;border-radius:7px;border:1px solid #2a3243;background:#161e2c;color:#e4eaf5;font:inherit;font-size:12px;cursor:pointer}.wb-btn[aria-pressed=true]{background:#143a73;border-color:#2f5fb8;color:#fff}.wb-btn:disabled{opacity:.45;cursor:not-allowed}.wb-x{margin-left:auto}
+.wb-sw{width:22px;height:22px;padding:0;border-radius:50%;border:2px solid #2a3243;cursor:pointer}.wb-sw[aria-pressed=true]{border-color:#fff}
+.wb-text{height:28px;background:#0e1118;border:1px solid #2a3243;border-radius:7px;color:#edf2fa;font:inherit;font-size:12px;padding:0 8px}.wb-host{display:flex;gap:10px;align-items:center;font-size:12px}.wb-allow{display:flex;gap:6px;align-items:center;margin:0;padding:0}.wb-status{margin:0;font-size:11px;color:#9aa6ba;min-height:14px}
+.wb-cv{width:100%;height:auto;aspect-ratio:8/5;background:#fff;border-radius:8px;touch-action:none;cursor:crosshair}
+.mg-anon{display:flex;align-items:center;gap:5px;margin:4px 0 0;padding:0;font-size:10.5px;color:#9aa6ba}

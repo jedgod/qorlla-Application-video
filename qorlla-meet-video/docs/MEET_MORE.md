@@ -15,6 +15,15 @@ shape was implemented directly on Meet's `auth` + `member`. A meeting row is one
 
 Every change is written to `more_events` first (cursor: `GET /more/events?after=<id>`) and then pushed on the `more` socket event; a client that missed a push catches up from the log.
 
+## Collaboration (v4.3 package, v4.28 migration)
+From `Qorla-chat-page-ext/qorlla-meet-collaboration-v43`, again on Meet's own auth/DB/sockets rather than the package's adapter + WebSocket server:
+* **Whiteboard (real):** one shared board per meeting occurrence. The host opens, closes, reopens, clears it and decides whether participants may draw. Every drawing is an operation (pen, line, box, oval, text, note, erase, undo-mine) that the
+  server validates (bounded coordinates, `#rrggbb` colours, ids, 400 points per stroke, 200 characters of text, 5000 operations per board) and appends to `more_board_ops`; clients replay from a cursor, so people who join late or reconnect see
+  the same board. Save PNG is client-side. Not built: live partial strokes (a stroke appears when its author lifts the pen), snapshots, export of the operation log.
+* **Q&A:** anonymous option (others see "Anonymous"; the host and the asker still see the name, and the checkbox says so).
+* **Reactions:** five more emojis behind the ... button; the server accepts the ten and allows at most 8 per person every 10 s.
+* **Breakout rooms, Shared files:** still disabled. Breakouts need atomic media routing between rooms; files need private storage, quarantine and a malware scanner (none exists; chat attachments are also off for that reason).
+
 ## Meeting intelligence (v4.2 package, Portal route)
 The v4.2 package (`Qorla-chat-page-ext/qorlla-meet-intelligence-v42`) needs capture/STT, a quota authority and a private-gateway adapter that Meet does not have, and the Workplace Portal already runs a
 consent-gated AI Meeting Intelligence (AI provider, quota, reports, PDF/DOCX export). So the cards use what is real instead of a second AI stack:
@@ -23,7 +32,7 @@ consent-gated AI Meeting Intelligence (AI provider, quota, reports, PDF/DOCX exp
 * **Live Transcript, Ask QorllaMate:** stay disabled (no speech-to-text service, no question endpoint on the gateway).
 
 ## Not built (buttons stay visible but disabled; the API answers 503 `This tool is not available yet`)
-Whiteboard (operation log + merge), Breakout rooms (media routing), Shared files (quarantine, malware scan, encrypted object storage), Live transcript (STT pipeline + consent),
+Breakout rooms (media routing), Shared files (quarantine, malware scan, encrypted object storage), Live transcript (STT pipeline + consent),
 AI Summary / Key Takeaways / Ask QorllaMate (the consent-gated private AI gateway), Background & effects (video effects pipeline). See the package README for each gate.
 
 ## Operations
