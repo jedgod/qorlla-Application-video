@@ -15,13 +15,14 @@
 // (help_triage, room_announcement, room_notes, room_polls) are room-only powers that vanish the moment the person leaves the room. The Mission Board, exercises and room whiteboard are in server/classroom.mjs.
 // Not covered here (documented, not hidden): the portal's AI export reads all Everyone-chat of consenting people.
 import { randomInt } from 'node:crypto';
+import { DISTRIBUTED, audienceMatches } from './room-events.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const LIMITS = Object.freeze({ maxRooms: 20, minMinutes: 1, maxMinutes: 240, nameMax: 60 });
 export const CAPS = Object.freeze(['help_triage', 'room_announcement', 'room_notes', 'room_polls']);
 const bad = (status, error) => Object.assign(new Error(error), { status });
 
-export function registerBreakouts({ app, io, db, auth, member, fail, active, room, tickMs = 5000 }) {
+export function registerBreakouts({ app, io, db, auth, member, fail, active, room, tickMs = 5000, events = null }) {
   const meetings = new Map();          // meetingId -> { active, deadline, map: Map(pid -> roomId), rooms: Map(roomId -> name) }
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
   const paths = (p) => ['/api/meetings/:id/breakouts' + p, '/api/v1/meetings/:id/breakouts' + p];
@@ -55,11 +56,24 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
     for (const [p, sid] of sockets(mid)) if ((self || p !== fromPid) && scopeOf(mid, p) === sc) io.to(sid).emit(event, payload);
   }
   /** deliver to everybody currently in one scope (null = main) */
-  function emitToScope(mid, scope, event, payload) { for (const [p, sid] of sockets(mid)) if (scopeOf(mid, p) === scope) io.to(sid).emit(event, payload); }
+  /** which sockets of THIS instance does an audience reach (decided from this instance's own, current view of the rooms) */
+  const ctxOf = (mid) => ({ scopeOf: (p) => scopeOf(mid, p), isHost: (p) => userOf(sockets(mid).get(p))?.role === 'host', hasCap: (p, cap) => mayLead(mid, p, cap) });
+  function deliverLocal(mid, aud, event, payload, eventId = null) {
+    const ctx = ctxOf(mid);
+    for (const [p, sid] of sockets(mid)) if (audienceMatches(aud, p, ctx)) { io.to(sid).emit(event, payload); if (eventId && event !== 'room-board') io.to(sid).emit('room-cursor', { id: eventId }); }
+  }
+  /** a room event: delivered to this instance's sockets now, and (for the types that are safe and useful across instances) written to the shared event log so every other instance delivers it too */
+  function fanout(mid, aud, event, payload) {
+    if (events && DISTRIBUTED.has(event)) events.publish(mid, aud, event, payload).catch((e) => { console.error('[breakouts] event not stored:', e.message); deliverLocal(mid, aud, event, payload); });
+    else deliverLocal(mid, aud, event, payload);
+  }
+  /** tell the other instances that the rooms of this meeting changed (session, room list, leads): they reload that part from PostgreSQL */
+  const publishState = (mid, kind = 'rooms') => { if (events) events.publish(mid, { scope: 'none' }, 'state-sync', { kind }).catch((e) => console.error('[breakouts] state-sync not stored:', e.message)); };
+  function emitToScope(mid, scope, event, payload) { fanout(mid, { scope }, event, payload); }
   const hostSocks = (mid) => [...sockets(mid)].filter(([, sid]) => userOf(sid)?.role === 'host').map(([, sid]) => sid);
-  const emitHosts = (mid, event, payload) => { for (const sid of hostSocks(mid)) io.to(sid).emit(event, payload); };
+  const emitHosts = (mid, event, payload) => fanout(mid, { scope: 'none', hosts: true }, event, payload);
   /** everybody in one scope, plus every host wherever they are (a host oversees all rooms) */
-  function emitScopeAndHosts(mid, scope, event, payload) { for (const [p, sid] of sockets(mid)) if (scopeOf(mid, p) === scope || userOf(sid)?.role === 'host') io.to(sid).emit(event, payload); }
+  function emitScopeAndHosts(mid, scope, event, payload) { fanout(mid, { scope, hosts: true }, event, payload); }
   /** the gate every relayed WebRTC signal passes: same scope, and not made before the sender's last move. Returns the RECIPIENT's epoch to stamp on it. */
   function signalGate(mid, from, to, data) {
     if (!sameScope(mid, from, to)) return { error: 'Participant offline' };          // never across rooms
@@ -71,11 +85,11 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
   function namesOf(mid, pids) { const out = {}; for (const p of pids) { const u = userOf(sockets(mid).get(p)); if (u?.name) out[p] = u.name; } return out; }
 
   /** move one person: the old scope sees them leave, the new scope sees them arrive, they get a new roster and their page rebuilds its peer connections */
-  function move(mid, pid, to) {
-    const m = meetings.get(mid); const from = scopeOf(mid, pid); if (from === to) return;
+  function move(mid, pid, to, remote = null) {
+    const m = meetings.get(mid); const from = scopeOf(mid, pid); if (from === to && !(remote && remote.epoch !== m.epochs.get(pid))) { if (remote) m.epochs.set(pid, remote.epoch); return; }
     if (to) m.map.set(pid, to); else m.map.delete(pid);
-    const epoch = (m.epochs.get(pid) || 0) + 1; m.epochs.set(pid, epoch); m.media.set(pid, 'switching'); m.leads.delete(pid);          // a new epoch: every signal made before this move is stale. Leads lose their powers with the room.
-    m.q = m.q.then(() => recordMove(mid, pid, from, to, epoch)).catch((e) => console.error('[breakouts] move log failed', e.message));
+    const epoch = remote ? remote.epoch : (m.epochs.get(pid) || 0) + 1; m.epochs.set(pid, epoch); m.media.set(pid, 'switching'); m.leads.delete(pid);          // a new epoch: every signal made before this move is stale. Leads lose their powers with the room.
+    if (!remote) { m.q = m.q.then(() => recordMove(mid, pid, from, to, epoch)).catch((e) => console.error('[breakouts] move log failed', e.message)); if (events) events.publish(mid, { scope: 'none' }, 'scope-sync', { pid, to, epoch }).catch((e) => console.error('[breakouts] scope-sync not stored:', e.message)); }
     const sid = sockets(mid).get(pid), u = sid ? userOf(sid) : null; if (sid) m.pending.set(pid, Date.now());          // 'connecting' until their page says its new peer connections are up (breakout-ready)
     for (const [p, s] of sockets(mid)) { if (p === pid) continue; const sc = scopeOf(mid, p);
       if (sc === from) io.to(s).emit('participant-offline', { participantId: pid });
@@ -92,7 +106,7 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
     const m = meetings.get(mid); const all = new Set([...m.map.keys(), ...next.keys()]);
     for (const pid of all) move(mid, pid, next.get(pid) ?? null);
   }
-  const broadcast = (mid) => { for (const [, sid] of sockets(mid)) io.to(sid).emit('breakouts-changed', {}); };
+  const broadcast = (mid) => fanout(mid, { scope: '*' }, 'breakouts-changed', {});
   const logEvent = (mid, actor, kind, payload) => db.query('INSERT INTO more_events(meeting_id, actor_id, kind, payload) VALUES ($1,$2,$3,$4)', [mid, actor, kind, JSON.stringify(payload)]).catch((e) => console.error('[breakouts] audit failed', e.message));
 
   async function state(mid, req) {
@@ -123,12 +137,12 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''; if (!name || name.length > LIMITS.nameMax) throw bad(400, 'Give the room a name (up to 60 characters)');
     const mid = req.params.id; const m = await ensure(mid); if (m.rooms.size >= LIMITS.maxRooms) throw bad(409, 'At most ' + LIMITS.maxRooms + ' rooms');
     const { rows } = await db.query('INSERT INTO more_breakout_rooms(meeting_id, name) VALUES ($1,$2) RETURNING id', [mid, name]); m.rooms.set(rows[0].id, name);
-    await logEvent(mid, req.user.participantId, 'breakout.room.created', { id: rows[0].id, name }); broadcast(mid); res.status(201).json({ id: rows[0].id, name });
+    await logEvent(mid, req.user.participantId, 'breakout.room.created', { id: rows[0].id, name }); publishState(mid, 'rooms'); broadcast(mid); res.status(201).json({ id: rows[0].id, name });
   }));
   app.delete(paths('/rooms/:rid'), auth, member, hostOnly, run(async (req, res) => {
     const mid = req.params.id, m = await ensure(mid); if (m.active) throw bad(409, 'Bring everyone back before deleting rooms'); if (!UUID.test(req.params.rid)) throw bad(400, 'Invalid room');
     const r = await db.query('DELETE FROM more_breakout_rooms WHERE id=$1 AND meeting_id=$2', [req.params.rid, mid]); if (!r.rowCount) throw bad(404, 'Room not found'); m.rooms.delete(req.params.rid);
-    await logEvent(mid, req.user.participantId, 'breakout.room.deleted', { id: req.params.rid }); broadcast(mid); res.json({ ok: true });
+    await logEvent(mid, req.user.participantId, 'breakout.room.deleted', { id: req.params.rid }); publishState(mid, 'rooms'); broadcast(mid); res.json({ ok: true });
   }));
   const closeHelp = (mid, pid, why = 'cancelled') => (pid
     ? db.query("UPDATE more_breakout_help SET status=$3, resolved_at=now() WHERE meeting_id=$1 AND requester_id=$2 AND status='open'", [mid, pid, why])
@@ -163,14 +177,14 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
     if (!m.rooms.size || !asg.length) throw bad(409, 'Create rooms and put at least one person in a room first');
     const up = await db.query(`INSERT INTO more_breakout_sessions(meeting_id, state, deadline, started_by, revision) VALUES ($1,'active', now() + make_interval(mins => $2), $3, 1)
       ON CONFLICT (meeting_id) DO UPDATE SET state='active', deadline=EXCLUDED.deadline, started_by=EXCLUDED.started_by, revision=more_breakout_sessions.revision+1, updated_at=now() RETURNING deadline`, [mid, minutes, req.user.participantId]);
-    m.active = true; m.deadline = up.rows[0].deadline; applyScopes(mid, new Map(asg.map((a) => [a.participant_id, a.room_id])));
+    m.active = true; m.deadline = up.rows[0].deadline; publishState(mid, 'session'); applyScopes(mid, new Map(asg.map((a) => [a.participant_id, a.room_id])));
     await logEvent(mid, req.user.participantId, 'breakout.started', { minutes, people: asg.length }); broadcast(mid); res.json({ deadline: new Date(m.deadline).toISOString() });
   }));
   async function end(mid, actor, reason) {
     const m = await ensure(mid); await db.query("UPDATE more_breakout_sessions SET state='idle', deadline=NULL, revision=revision+1, updated_at=now() WHERE meeting_id=$1", [mid]); await closeHelp(mid);
     await db.query('UPDATE more_breakout_assignments SET room_id=NULL, updated_at=now() WHERE meeting_id=$1 AND room_id IS NOT NULL', [mid]);
-    m.active = false; m.deadline = null; applyScopes(mid, new Map()); m.leads.clear(); await db.query('DELETE FROM more_breakout_leads WHERE meeting_id=$1', [mid]);
-    for (const [, sid] of sockets(mid)) io.to(sid).emit('breakout-ended', { reason }); await logEvent(mid, actor, 'breakout.ended', { reason }); broadcast(mid);
+    m.active = false; m.deadline = null; publishState(mid, 'session'); applyScopes(mid, new Map()); m.leads.clear(); await db.query('DELETE FROM more_breakout_leads WHERE meeting_id=$1', [mid]);
+    fanout(mid, { scope: '*' }, 'breakout-ended', { reason }); await logEvent(mid, actor, 'breakout.ended', { reason }); broadcast(mid);
   }
   app.post(paths('/recall'), auth, member, hostOnly, run(async (req, res) => { const m = await ensure(req.params.id); if (!m.active) throw bad(409, 'Breakout rooms are not open'); await end(req.params.id, req.user.participantId, 'recalled'); res.json({ ok: true }); }));
   app.post(paths('/visit'), auth, member, hostOnly, run(async (req, res) => {                         // the host walks into a room (or back to the main room) to listen and help
@@ -197,7 +211,7 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
     if ((await db.query("SELECT 1 FROM more_breakout_help WHERE meeting_id=$1 AND requester_id=$2 AND created_at > now() - interval '30 seconds'", [mid, pid])).rowCount) throw bad(429, 'Please wait a moment before asking again');
     let id; try { id = (await db.query('INSERT INTO more_breakout_help(meeting_id, room_id, requester_id) VALUES ($1,$2,$3) RETURNING id', [mid, rid, pid])).rows[0].id; } catch (e) { if (e.code === '23505') throw bad(409, 'You already asked for help. The host has been told.'); throw e; }
     const info = { id, roomId: rid, roomName: m.rooms.get(rid) || '', name: req.user.name || 'A participant' };
-    emitHosts(mid, 'breakout-help', info); emitHosts(mid, 'breakouts-changed', {}); for (const sid of leadSocks(mid, rid, 'help_triage')) { io.to(sid).emit('breakout-help', info); io.to(sid).emit('breakouts-changed', {}); } await logEvent(mid, pid, 'breakout.help.requested', { id, roomId: rid }); res.status(201).json({ id });
+    emitHosts(mid, 'breakout-help', info); emitHosts(mid, 'breakouts-changed', {}); fanout(mid, { scope: rid, cap: 'help_triage' }, 'breakout-help', info); fanout(mid, { scope: rid, cap: 'help_triage' }, 'breakouts-changed', {}); await logEvent(mid, pid, 'breakout.help.requested', { id, roomId: rid }); res.status(201).json({ id });
   }));
   app.delete(paths('/help'), auth, member, run(async (req, res) => {
     const mid = req.params.id; const r = await db.query("UPDATE more_breakout_help SET status='cancelled', resolved_at=now() WHERE meeting_id=$1 AND requester_id=$2 AND status='open' RETURNING id", [mid, req.user.participantId]);
@@ -208,7 +222,7 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
     const own = req.user.role === 'host' ? null : scopeOf(mid, req.user.participantId);          // a lead resolves requests of their own room only
     if (req.user.role !== 'host' && !(own && mayLead(mid, req.user.participantId, 'help_triage'))) throw bad(403, 'Only the host or a room lead can do this');
     const r = await db.query("UPDATE more_breakout_help SET status='resolved', resolved_at=now() WHERE id=$1 AND meeting_id=$2 AND status='open' AND ($3::uuid IS NULL OR room_id=$3) RETURNING requester_id", [req.params.hid, mid, own]); if (!r.rowCount) throw bad(404, 'Help request not found');
-    const sid = sockets(mid).get(r.rows[0].requester_id); if (sid) io.to(sid).emit('breakout-help-resolved', { id: req.params.hid });
+    fanout(mid, { only: r.rows[0].requester_id }, 'breakout-help-resolved', { id: req.params.hid });
     emitHosts(mid, 'breakouts-changed', {}); await logEvent(mid, req.user.participantId, 'breakout.help.resolved', { id: req.params.hid }); res.json({ ok: true });
   }));
   /** a page says its peer connections for the new scope are up (or gave up waiting): the host's list stops showing 'connecting' */
@@ -232,7 +246,7 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
     catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
     if (set.length) m.leads.set(pid, { room: rid, caps: new Set(set) }); else m.leads.delete(pid);
     await logEvent(mid, req.user.participantId, 'breakout.lead.updated', { participantId: pid, roomId: rid, capabilities: set });
-    const sid = sockets(mid).get(pid); if (sid) io.to(sid).emit('breakouts-changed', {}); emitHosts(mid, 'breakouts-changed', {}); res.json({ participantId: pid, roomId: rid, capabilities: set });
+    publishState(mid, 'leads'); fanout(mid, { only: pid }, 'breakouts-changed', {}); emitHosts(mid, 'breakouts-changed', {}); res.json({ participantId: pid, roomId: rid, capabilities: set });
   }));
   /** a short message to one room (or, from the host, to all rooms). A lead needs room_announcement and reaches only their own room. */
   app.post(paths('/announce'), auth, member, run(async (req, res) => {
@@ -242,15 +256,15 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
     if (req.user.role !== 'host') { rid = scopeOf(mid, pid); if (!rid || !mayLead(mid, pid, 'room_announcement')) throw bad(403, 'Only the host or a room lead can do this'); }
     else if (rid !== null && (!UUID.test(String(rid)) || !m.rooms.has(rid))) throw bad(404, 'Room not found');
     const msg = { text, from: req.user.name || 'Host', roomId: rid, at: new Date().toISOString() };
-    for (const [p, sid] of sockets(mid)) { const sc = scopeOf(mid, p); if (rid ? sc === rid : sc !== null) io.to(sid).emit('breakout-announcement', msg); }
+    fanout(mid, rid ? { scope: rid } : { scope: '*rooms' }, 'breakout-announcement', msg);
     await logEvent(mid, pid, 'breakout.announced', { roomId: rid, length: text.length }); res.json({ ok: true });
   }));
 
   // sessions whose time is up end by themselves: ONE atomic UPDATE decides which instance ends which session
   async function tick() {
     const { rows } = await db.query("UPDATE more_breakout_sessions SET state='idle', deadline=NULL, revision=revision+1, updated_at=now() WHERE state='active' AND deadline <= now() RETURNING meeting_id, started_by");
-    for (const r of rows) { try { const m = await ensure(r.meeting_id); await db.query('UPDATE more_breakout_assignments SET room_id=NULL, updated_at=now() WHERE meeting_id=$1 AND room_id IS NOT NULL', [r.meeting_id]); await closeHelp(r.meeting_id); m.active = false; m.deadline = null; applyScopes(r.meeting_id, new Map()); m.leads.clear(); await db.query('DELETE FROM more_breakout_leads WHERE meeting_id=$1', [r.meeting_id]);
-      for (const [, sid] of sockets(r.meeting_id)) io.to(sid).emit('breakout-ended', { reason: 'time' }); await logEvent(r.meeting_id, r.started_by || r.meeting_id, 'breakout.ended', { reason: 'time' }); broadcast(r.meeting_id); } catch (e) { console.error('[breakouts] expiry failed', e.message); } }
+    for (const r of rows) { try { const m = await ensure(r.meeting_id); await db.query('UPDATE more_breakout_assignments SET room_id=NULL, updated_at=now() WHERE meeting_id=$1 AND room_id IS NOT NULL', [r.meeting_id]); await closeHelp(r.meeting_id); m.active = false; m.deadline = null; publishState(r.meeting_id, 'session'); applyScopes(r.meeting_id, new Map()); m.leads.clear(); await db.query('DELETE FROM more_breakout_leads WHERE meeting_id=$1', [r.meeting_id]);
+      fanout(r.meeting_id, { scope: '*' }, 'breakout-ended', { reason: 'time' }); await logEvent(r.meeting_id, r.started_by || r.meeting_id, 'breakout.ended', { reason: 'time' }); broadcast(r.meeting_id); } catch (e) { console.error('[breakouts] expiry failed', e.message); } }
     return rows.length;
   }
   const timer = setInterval(() => { tick().catch((e) => console.error('[breakouts] tick failed', e.message)); }, tickMs); timer.unref?.();
@@ -259,5 +273,15 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
   const blockRecordingStart = async (req, res, next) => { try { const m = await ensure(req.params.id); if (m.active) return fail(res, 409, 'Recording is unavailable while breakout rooms are open (it would only capture one room). Bring everyone back first.'); next(); } catch { fail(res, 500, 'Database unavailable'); } };
   app.use(['/api/meetings/:id/recording/start', '/api/v1/meetings/:id/recording/start'], blockRecordingStart);
 
-  return { ensure, scopeOf, epochOf, signalGate, mayLead, capsOf, assign: async (mid, pid, rid) => { await assignOne(mid, await ensure(mid), pid, rid); }, broadcast, settle: (mid) => meetings.get(mid)?.q, logEvent, hostSocks, sameScope, emitScope, emitToScope, emitScopeAndHosts, ready, scopedList, scopeInfo, namesOf, tick, stop: () => clearInterval(timer), isActive: (mid) => !!meetings.get(mid)?.active };
+  /** another instance changed something: apply it to this instance's view and tell the sockets that are here */
+  async function applyRemote(mid, type, payload) {
+    const m = meetings.get(mid); if (!m) return;          // nobody of this meeting is connected here: ensure() will read the current state from PostgreSQL when someone is
+    if (type === 'scope-sync') { move(mid, payload.pid, payload.to ?? null, { epoch: Number(payload.epoch) }); return; }
+    if (type === 'state-sync') {
+      const [s, rooms, ld] = await Promise.all([db.query('SELECT state, deadline FROM more_breakout_sessions WHERE meeting_id=$1', [mid]), db.query('SELECT id, name FROM more_breakout_rooms WHERE meeting_id=$1 ORDER BY created_at, id', [mid]), db.query('SELECT participant_id, room_id, capability FROM more_breakout_leads WHERE meeting_id=$1', [mid])]);
+      m.active = s.rows[0]?.state === 'active'; m.deadline = m.active ? s.rows[0].deadline : null; m.rooms = new Map(rooms.rows.map((r) => [r.id, r.name]));
+      m.leads = new Map(); if (m.active) for (const l of ld.rows) { const e = m.leads.get(l.participant_id) || { room: l.room_id, caps: new Set() }; e.caps.add(l.capability); m.leads.set(l.participant_id, e); }
+    }
+  }
+  return { ensure, deliverLocal, applyRemote, ctxOf, scopeOf, epochOf, signalGate, mayLead, capsOf, assign: async (mid, pid, rid) => { await assignOne(mid, await ensure(mid), pid, rid); }, broadcast, settle: (mid) => meetings.get(mid)?.q, logEvent, hostSocks, sameScope, emitScope, emitToScope, emitScopeAndHosts, ready, scopedList, scopeInfo, namesOf, tick, stop: () => clearInterval(timer), isActive: (mid) => !!meetings.get(mid)?.active };
 }

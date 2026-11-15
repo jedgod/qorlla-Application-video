@@ -4,25 +4,25 @@ import { segmentsFromMeetChat } from './parse.mjs';
 
 export function createMeetClient({ baseUrl, readSecret, fetchImpl = fetch, timeoutMs = 10_000 }) {
   const available = !!(baseUrl && readSecret && readSecret.length >= 32);
-  async function getJson(path, meetingUuid) {
+  async function getJson(path, meetingUuid, room = null) {
     if (!available) { const e = new Error('Meet integration is not configured'); e.code = 'no_meet_integration'; e.retryable = false; throw e; }
     let r;
-    try { r = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/api/integrations/meetings/${encodeURIComponent(meetingUuid)}/${path}`, { headers: { 'x-qorlla-readonly-secret': readSecret }, signal: AbortSignal.timeout(timeoutMs) }); }
+    try { r = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/api/integrations/meetings/${encodeURIComponent(meetingUuid)}/${path}${room ? '?room=' + encodeURIComponent(room) : ''}`, { headers: { 'x-qorlla-readonly-secret': readSecret }, signal: AbortSignal.timeout(timeoutMs) }); }
     catch { const e = new Error('Meet is unreachable'); e.code = 'meet_unreachable'; e.retryable = true; throw e; }
     if (r.status === 404) { const e = new Error('Meeting not found in Meet'); e.code = 'meeting_not_found'; e.retryable = false; throw e; }
     if (!r.ok) { const e = new Error('Meet refused the request (' + r.status + ')'); e.code = 'meet_error'; e.retryable = r.status >= 500; throw e; }
     return r.json();
   }
   /** The chat as Meet has it, with each message's author id. Consent is applied by the caller BEFORE anything is stored. */
-  async function fetchChatRaw(meetingUuid) { const j = await getJson('chat', meetingUuid); return { title: j.title, messages: Array.isArray(j.messages) ? j.messages : [] }; }
+  async function fetchChatRaw(meetingUuid, room = null) { const j = await getJson('chat', meetingUuid, room); return { title: j.title, roomName: j.roomName ?? null, messages: Array.isArray(j.messages) ? j.messages : [] }; }
   async function fetchChat(meetingUuid) {
     const j = await fetchChatRaw(meetingUuid);
     try { return { title: j.title, ...segmentsFromMeetChat(j.messages) }; }
     catch (e) { e.retryable = false; throw e; }
   }
   /** Who agreed to what for Qorlla AI in this meeting (Meet's own append-only records). Unreachable or malformed means NO consent: callers must fail closed. */
-  async function fetchConsent(meetingUuid) {
-    const j = await getJson('ai-consent', meetingUuid);
+  async function fetchConsent(meetingUuid, room = null) {
+    const j = await getJson('ai-consent', meetingUuid, room);
     if (!j || typeof j.requested !== 'boolean' || !Array.isArray(j.participants) || j.revision === undefined) { const e = new Error('Meet returned an unreadable consent answer'); e.code = 'meet_error'; e.retryable = true; throw e; }
     // Every number must be present and a non-negative integer: a missing or garbled objectionSeq must never read as "no objection" (that would fail OPEN).
     const bad = () => { const e = new Error('Meet returned an unreadable consent answer'); e.code = 'meet_error'; e.retryable = true; return e; };

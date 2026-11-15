@@ -49,6 +49,17 @@ export function importAllowed(consent) {
   return { allowed: true, revision: Number(consent.revision || 0), rows: people.map(rowOf) };
 }
 
+/**
+ * A breakout ROOM report: Meet answered for ONE room (the people in it now plus everyone who wrote in it). The room's chat is used only when that is a unanimous yes: the host's request is open,
+ * there is at least one person, every one of them agreed to both purposes, and nobody declined or withdrew. Anything less (a silent or late member included) refuses the whole job: a room is a small
+ * group, and one person's "no" is not outvoted by the others.
+ */
+export function roomAllowed(consent, roomId) {
+  if (!consent?.requested) return { allowed: false, reason: 'participant_consent_required' };
+  if (consent.roomId !== undefined && consent.roomId !== null && String(consent.roomId) !== String(roomId)) return { allowed: false, reason: 'participant_consent_required' };    // an answer about another room is no answer
+  return importAllowed(consent);
+}
+
 const objected = (p, agreedT, agreedS) => [['transcription', agreedT], ['summary', agreedS]].some(([k, agreed]) => objectionOf(p, k) > agreed || (isObjection(p, k) && seqOf(p, k) > agreed));
 
 /**
@@ -63,7 +74,7 @@ export function checkFresh({ basis, consent }) {
     const t = Number(b.t), s = Number(b.s); if (!(t > 0) || !(s > 0)) return { ok: false, reason: 'unverifiable' };
     const p = byId.get(b.id); if (!p || objected(p, t, s)) return { ok: false, reason: 'participant_withdrew' };
   }
-  if (basis.source === 'transcript_import') for (const p of consent.participants) if (!known.has(p.participantId) && objected(p, 0, 0)) return { ok: false, reason: 'participant_withdrew' };
+  if (basis.source !== 'meet_chat') for (const p of consent.participants) if (!known.has(p.participantId) && objected(p, 0, 0)) return { ok: false, reason: 'participant_withdrew' };
   return { ok: true };
 }
 
@@ -74,4 +85,4 @@ export function stillConsented({ consent, rows, source = 'meet_chat' }) {
 }
 
 /** What is stored with a published result, so every later read can be checked against it. */
-export const basisFor = ({ source, rows, revision }) => ({ v: 2, source: source === 'transcript_import' ? 'transcript_import' : 'meet_chat', revision: Number(revision || 0), participants: (rows || []).map((r) => ({ id: r.participant_id, t: Number(r.transcription_seq), s: Number(r.summary_seq) })) });
+export const basisFor = ({ source, rows, revision, room = null }) => ({ v: 2, source: ['transcript_import', 'meet_room_chat'].includes(source) ? source : 'meet_chat', ...(source === 'meet_room_chat' && room ? { room: String(room) } : {}), revision: Number(revision || 0), participants: (rows || []).map((r) => ({ id: r.participant_id, t: Number(r.transcription_seq), s: Number(r.summary_seq) })) });

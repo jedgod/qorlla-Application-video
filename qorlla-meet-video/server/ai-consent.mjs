@@ -71,16 +71,21 @@ export function registerAiConsent({ app, io, db, auth, fail, audit, room, getNam
   app.get('/api/integrations/meetings/:id/ai-consent', readAuth, guard(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return fail(res, 400, 'Invalid meeting id');
+    const roomQ = req.query.room === undefined ? null : String(req.query.room).toLowerCase(); if (roomQ !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(roomQ)) return fail(res, 400, 'Invalid room id');
     // ONE snapshot: the revision, the roster and every decision describe the same instant (separate statements could mix two moments and hide a withdrawal)
     const c = await db.connect(); let m, ps, dec, revision;
     try {
       await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
       m = await c.query('SELECT id, ai_requested_at FROM meetings WHERE id=$1', [req.params.id]);
-      if (m.rowCount) { ps = (await c.query("SELECT id, display_name, role FROM participants WHERE meeting_id=$1 AND admission='admitted'", [req.params.id])).rows; dec = await latest(req.params.id, c); revision = await revisionOf(req.params.id, c); }
+      if (m.rowCount && roomQ !== null && !(await c.query('SELECT 1 FROM more_breakout_rooms WHERE id=$1 AND meeting_id=$2', [roomQ, req.params.id])).rowCount) { await c.query('COMMIT'); return fail(res, 404, 'Room unavailable'); }
+      // for a ROOM: the people in it now (or assigned to it) plus everyone who has written in it. A room report needs every one of them to have agreed.
+      if (m.rowCount) { ps = (await c.query(roomQ === null ? "SELECT id, display_name, role FROM participants WHERE meeting_id=$1 AND admission='admitted'"
+        : `SELECT id, display_name, role FROM participants WHERE meeting_id=$1 AND admission='admitted' AND (id IN (SELECT participant_id FROM more_breakout_assignments WHERE meeting_id=$1 AND room_id=$2)
+             OR id IN (SELECT participant_id FROM messages WHERE meeting_id=$1 AND breakout_room=$2 AND conversation_id IS NULL AND deleted_at IS NULL))`, roomQ === null ? [req.params.id] : [req.params.id, roomQ])).rows; dec = await latest(req.params.id, c); revision = await revisionOf(req.params.id, c); }
       await c.query('COMMIT');
     } catch (e) { try { await c.query('ROLLBACK'); } catch { /* gone */ } throw e; } finally { c.release(); }
     if (!m.rowCount) return fail(res, 404, 'Meeting unavailable');
-    res.json({ meetingId: m.rows[0].id, requested: !!m.rows[0].ai_requested_at, requestedAt: m.rows[0].ai_requested_at, noticeVersion: AI_NOTICE.version, revision,
+    res.json({ meetingId: m.rows[0].id, ...(roomQ !== null ? { roomId: roomQ } : {}), requested: !!m.rows[0].ai_requested_at, requestedAt: m.rows[0].ai_requested_at, noticeVersion: AI_NOTICE.version, revision,
       // identity here is the Meet SESSION (participantId); the display name is only what the person typed and is never a basis for anything
       participants: ps.map((p) => ({ participantId: p.id, name: p.display_name, role: p.role, decisions: Object.fromEntries(AI_PURPOSES.map((pp) => { const d = dec.find((x) => x.participant_id === p.id && x.purpose === pp); return [pp, d ? { decision: d.decision, at: d.created_at, seq: d.seq, objectionSeq: d.objection_seq } : { decision: 'pending', at: null, seq: '0', objectionSeq: '0' }]; })) })) });
   }, 'Unavailable'));

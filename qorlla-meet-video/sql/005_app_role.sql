@@ -34,6 +34,7 @@ DO $$ BEGIN
   IF to_regclass('public.meeting_polls') IS NOT NULL THEN GRANT DELETE ON meeting_polls TO qorlla_meet_app; END IF;
   IF to_regclass('public.phone_attempts') IS NOT NULL THEN GRANT DELETE ON phone_attempts TO qorlla_meet_app; END IF;
   IF to_regclass('public.more_question_votes') IS NOT NULL THEN GRANT DELETE ON more_question_votes TO qorlla_meet_app; END IF;
+  IF to_regclass('public.more_room_events') IS NOT NULL THEN GRANT DELETE ON more_room_events, more_room_inbox, more_room_outbox TO qorlla_meet_app; END IF;               -- the retention sweep of the shared room event log (v4.32)
   IF to_regclass('public.more_breakout_leads') IS NOT NULL THEN GRANT DELETE ON more_breakout_leads TO qorlla_meet_app; END IF;               -- a lead loses the powers when they leave the room (v4.31)
   IF to_regclass('public.more_breakout_rooms') IS NOT NULL THEN GRANT DELETE ON more_breakout_rooms TO qorlla_meet_app; END IF;               -- the host deleting an empty breakout room (v4.29)                 -- removing your own Q&A vote (More tab, v4.27)
 END $$;

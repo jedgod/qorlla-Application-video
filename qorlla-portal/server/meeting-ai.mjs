@@ -10,7 +10,7 @@ import { PlanLimitError, quotaFor, withWorkspaceLock } from './entitlements.mjs'
 import { parseTranscript } from './ai/parse.mjs';
 import { exportModel, toPdf, toDocx } from './ai/export.mjs';
 import { UUID_RE } from './auth.mjs';
-import { importAllowed, checkFresh } from './ai/meet-consent.mjs';
+import { importAllowed, roomAllowed, checkFresh } from './ai/meet-consent.mjs';
 import { withdrawReport } from './ai/withdraw.mjs';
 
 export const NOTICE = {
@@ -44,7 +44,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
 
   app.get('/api/v1/meeting-ai/notice', member, (req, res) => res.json(NOTICE));
   app.get('/api/v1/meeting-ai/status', member, (req, res) => res.json({ ai_provider_configured: llm.available, meet_integration_configured: meet.available, processes_recordings: false,
-    sources: ['meet_chat', 'transcript_import'], note: 'Recordings are never processed in this release; only the meeting chat or a transcript you import.' }));
+    sources: ['meet_chat', 'transcript_import', 'meet_room_chat'], note: 'Recordings are never processed in this release; only the meeting chat or a transcript you import.' }));
 
   app.get('/api/v1/meeting-ai/meetings', member, h(async (req, res) => {
     const rows = (await pool.query(
@@ -120,14 +120,20 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
   };
 
   // ---------------------------------------------------------------- jobs
-  const jobView = (j) => ({ id: j.id, meet_meeting_id: j.meet_meeting_id, source: j.source, status: j.status, stage: j.stage, attempts: j.attempts, error_code: j.error_code, error_message: j.error_message, report_id: j.report_id, created_at: j.created_at, finished_at: j.finished_at, requested_by: j.requested_by });
+  const jobView = (j) => ({ id: j.id, meet_meeting_id: j.meet_meeting_id, source: j.source, status: j.status, stage: j.stage, attempts: j.attempts, error_code: j.error_code, error_message: j.error_message, report_id: j.report_id, created_at: j.created_at, finished_at: j.finished_at, requested_by: j.requested_by, room_id: j.room_id || null, room_name: j.room_name || null });
   app.post('/api/v1/meeting-ai/jobs', member, (flags ? flags.require('ai') : (req, res, next) => next()), (flags ? flags.require('meet_ai') : (req, res, next) => next()), lim('job'), h(async (req, res) => {
     const p = z.object({
-      meet_meeting_id: uuid, source: z.enum(['meet_chat', 'transcript_import']), idempotency_key: z.string().min(8).max(100),
+      meet_meeting_id: uuid, source: z.enum(['meet_chat', 'transcript_import', 'meet_room_chat']), idempotency_key: z.string().min(8).max(100), room_id: uuid.optional(),
       transcript: z.object({ format: z.enum(['txt', 'vtt', 'srt']), text: z.string().min(1).max(500_000) }).optional()
     }).parse(req.body);
     if ((p.source === 'transcript_import') !== !!p.transcript) return res.status(400).json({ error: 'transcript is required for imports and not allowed for meet_chat' });
+    if ((p.source === 'meet_room_chat') !== !!p.room_id) return res.status(400).json({ error: 'room_id is required for room reports and not allowed for anything else' });
     const m = await meetingFor(pool, req, p.meet_meeting_id); if (!m) return res.status(404).json({ error: 'Meeting not found' });
+    if (p.source === 'meet_room_chat') {          // refused BEFORE a job (and any quota unit) exists when Meet says the room is unknown or somebody in it has not agreed
+      let consent; try { consent = await meet.fetchConsent(m.meet_uuid, p.room_id.toLowerCase()); } catch (e) { if (e.code === 'meeting_not_found') return res.status(404).json({ error: 'Room not found', code: 'room_not_found' }); return res.status(503).json({ error: 'Participant consent could not be verified, so nothing was stored or processed. Try again shortly.', code: 'participant_consent_unverifiable' }); }
+      const ok = roomAllowed(consent, p.room_id.toLowerCase());
+      if (!ok.allowed) { await cAudit(pool, req, m.meet_uuid, 'job_blocked', null, { reason: ok.reason, source: 'meet_room_chat' }); return res.status(403).json({ error: ok.reason === 'participant_declined' ? 'Someone in this room declined or withdrew Qorlla AI consent.' : 'Everyone in the room must agree to Qorlla AI before a room report can be made.', code: ok.reason }); }
+    }
     let parsed = null;
     if (p.transcript) { try { parsed = parseTranscript(p.transcript.format, p.transcript.text); } catch (e) { return res.status(400).json({ error: e.message, code: e.code || 'bad_transcript' }); } }
     let importRevision = null, importRows = [];
@@ -138,14 +144,18 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     }
     const out = await withWorkspaceLock(pool, req.workspace, async (c) => {
       const dup = (await c.query('SELECT * FROM portal.meeting_ai_jobs WHERE workspace_id=$1 AND idempotency_key=$2', [req.workspace, p.idempotency_key])).rows[0];
-      if (dup) { if (dup.meet_meeting_id !== m.meet_uuid || dup.source !== p.source || (dup.requested_by !== req.actor && !isManager(req.role))) throw httpErr(409, 'Idempotency key was used for a different request', 'idempotency_conflict'); return { job: dup, duplicate: true }; }
+      if (dup) { if (dup.meet_meeting_id !== m.meet_uuid || dup.source !== p.source || (dup.room_id || null) !== (p.room_id ? p.room_id.toLowerCase() : null) || (dup.requested_by !== req.actor && !isManager(req.role))) throw httpErr(409, 'Idempotency key was used for a different request', 'idempotency_conflict'); return { job: dup, duplicate: true }; }
+      if (p.source === 'meet_room_chat') {          // a second submission for the same room while one is live returns the first: no second job, no second quota unit
+        const live = (await c.query(`SELECT * FROM portal.meeting_ai_jobs WHERE workspace_id=$1 AND meet_meeting_id=$2 AND room_id=$3 AND source='meet_room_chat' AND status IN ('queued','running')`, [req.workspace, m.meet_uuid, p.room_id.toLowerCase()])).rows[0];
+        if (live) return { job: live, duplicate: true };
+      }
       const have = await activeConsents(c, req.workspace, m.meet_uuid); const missing = CONSENT_SCOPES.filter((s) => !have.some((x) => x.scope === s));
       if (missing.length) throw httpErr(403, 'The meeting host has not given consent for AI processing', 'consent_required', { missing });
       const q = await quotaFor(c, req.workspace, 'ai.meeting_reports_per_month');
       const used = Number((await c.query(`SELECT count(*) FROM portal.meeting_ai_jobs WHERE workspace_id=$1 AND status IN ('queued','running','completed') AND created_at >= date_trunc('month', now())`, [req.workspace])).rows[0].count);
       if (!q.granted || (q.quota !== null && used >= q.quota)) { if (overage) await overage.allowBeyondQuota(c, req.workspace, 'meeting_report', q, { used }); else throw new PlanLimitError('ai.meeting_reports_per_month', q.quota, q.plan, { used }); }
-      const job = (await c.query(`INSERT INTO portal.meeting_ai_jobs(workspace_id,meet_meeting_id,requested_by,source,stage,idempotency_key,consent_revision) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-        [req.workspace, m.meet_uuid, req.actor, p.source, parsed ? 'summarize' : 'fetch', p.idempotency_key, importRevision])).rows[0];
+      const job = (await c.query(`INSERT INTO portal.meeting_ai_jobs(workspace_id,meet_meeting_id,requested_by,source,stage,idempotency_key,consent_revision,room_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        [req.workspace, m.meet_uuid, req.actor, p.source, parsed ? 'summarize' : 'fetch', p.idempotency_key, importRevision, p.room_id ? p.room_id.toLowerCase() : null])).rows[0];
       if (parsed) {
         const t = (await c.query(`INSERT INTO portal.meeting_transcripts(workspace_id,meet_meeting_id,job_id,source,speaker_labels,segments,full_text,content_sha256,created_by) VALUES($1,$2,$3,'transcript_import',$4,$5,$6,$7,$8) RETURNING id`,
           [req.workspace, m.meet_uuid, job.id, parsed.speakerLabels, JSON.stringify(parsed.segments), parsed.fullText, sha256(parsed.fullText), req.actor])).rows[0];
@@ -194,7 +204,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
   async function freshness(r, memo) {
     if (r.status !== 'final') return { ok: true };
     let consent;
-    try { const k = r.meet_meeting_id; const p = memo?.get(k) || meet.fetchConsent(k); memo?.set(k, p); consent = await p; }
+    try { const k = r.meet_meeting_id, room = r.consent_basis?.room || null, mk = room ? k + '|' + room : k; const p = memo?.get(mk) || meet.fetchConsent(k, room); memo?.set(mk, p); consent = await p; }          // a room report is checked against ITS ROOM's people, not the whole meeting
     catch (e) { log?.warn?.('consent could not be verified for a report read', { report: r.id, code: e.code }); return { ok: false, code: 'unverifiable' }; }
     const f = checkFresh({ basis: r.consent_basis, consent });
     if (f.ok) return { ok: true };
@@ -223,7 +233,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     const mine = (await db.query('SELECT 1 FROM portal.meeting_action_items WHERE report_id=$1 AND owner_id=$2', [r.id, req.actor])).rowCount;
     return mine ? { report: r, level: 'assignee' } : null;
   }
-  const listVisibleSql = `SELECT r.id, r.title, left(r.summary, 280) AS excerpt, r.status, r.visibility, r.created_at, r.meet_meeting_id, r.created_by, r.host_user_id, r.consent_basis AS _basis,
+  const listVisibleSql = `SELECT r.id, r.title, left(r.summary, 280) AS excerpt, r.status, r.visibility, r.room_id, r.room_name, r.created_at, r.meet_meeting_id, r.created_by, r.host_user_id, r.consent_basis AS _basis,
       (SELECT count(*) FROM portal.meeting_action_items a WHERE a.report_id=r.id AND a.status='open')::int AS open_items
     FROM portal.meeting_reports r WHERE r.workspace_id=$1 AND r.deleted_at IS NULL AND (
       ($2::boolean AND true) OR r.created_by=$3 OR r.host_user_id=$3
@@ -251,7 +261,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
   app.get('/api/v1/meeting-ai/reports/:id', member, h(async (req, res) => {
     const a = await reportAccess(pool, req, req.params.id); if (!a) return res.status(404).json({ error: 'Report not found' });
     const r = a.report; const manage = a.level === 'manage' || a.level === 'meta';
-    const body = { id: r.id, title: r.title, status: r.status, visibility: r.visibility, created_at: r.created_at, meet_meeting_id: r.meet_meeting_id, generated_by: r.generated_by, level: a.level,
+    const body = { id: r.id, title: r.title, status: r.status, visibility: r.visibility, room_id: r.room_id || null, room_name: r.room_name || null, created_at: r.created_at, meet_meeting_id: r.meet_meeting_id, generated_by: r.generated_by, level: a.level,
       permissions: { manage, transcript: manage && r.status === 'final', export: a.level === 'manage' || a.level === 'view' } };
     if (a.level !== 'meta' && a.level !== 'assignee') Object.assign(body, { summary: r.summary, decisions: r.decisions, topics: r.topics });
     if (a.level === 'assignee') body.summary_hidden = true;
@@ -265,6 +275,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
     const a = await reportAccess(pool, req, req.params.id); if (!a || a.level === 'assignee') return res.status(404).json({ error: 'Report not found' });
     if (a.level !== 'manage') return res.status(403).json({ error: 'Only the report owner, the host or an admin can edit this report' });
     const p = z.object({ title: z.string().trim().min(1).max(200).optional(), visibility: z.enum(['restricted', 'workspace']).optional() }).parse(req.body);
+    if (a.report.room_id && p.visibility === 'workspace') return res.status(409).json({ error: 'A room report stays restricted: it cannot be shown to the whole workspace.', code: 'room_report_restricted' });
     const r = await pool.query('UPDATE portal.meeting_reports SET title=COALESCE($3,title), visibility=COALESCE($4,visibility), updated_at=now() WHERE id=$1 AND workspace_id=$2 RETURNING id,title,visibility', [a.report.id, req.workspace, p.title ?? null, p.visibility ?? null]);
     await audit(pool, req.workspace, req.actor, 'meeting_ai.report_updated', a.report.id);
     res.json(r.rows[0]);
@@ -341,6 +352,7 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
       await audit(pool, req.workspace, req.actor, 'meeting_ai.report_shared', a.report.id);
       return res.status(r.rowCount ? 201 : 200).json({ id: r.rows[0]?.id || null, kind: 'member', already: !r.rowCount });
     }
+    if (a.report.room_id) return res.status(409).json({ error: 'A room report cannot be shared by public link. Share it with named workspace members instead.', code: 'room_report_restricted' });
     const token = crypto.randomBytes(32).toString('base64url');
     const r = await pool.query(`INSERT INTO portal.report_shares(report_id,workspace_id,kind,recipient_label,token_hash,include_transcript,expires_at,created_by) VALUES($1,$2,'link',$3,$4,$5,now()+($6::int * interval '1 day'),$7) RETURNING id,expires_at`,
       [a.report.id, req.workspace, p.label || null, sha256(token), p.include_transcript, p.expires_in_days, req.actor]);

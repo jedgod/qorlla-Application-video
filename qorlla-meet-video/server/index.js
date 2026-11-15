@@ -27,6 +27,8 @@ import { registerChat } from './chat.mjs';
 import { registerMore } from './more.mjs';
 import { registerBreakouts } from './breakouts.mjs';
 import { registerClassroom } from './classroom.mjs';
+import { registerChatExport } from './chat-export.mjs';
+import { createRoomEvents, PgNotifyBus, RedisStreamsBus, audienceMatches } from './room-events.mjs';
 import { registerHandoff } from './handoff.mjs';
 import { registerHostControls } from './host-controls.mjs';
 import { registerRecording } from './recording.mjs';
@@ -194,16 +196,7 @@ const readAuth=(req,res,next)=>{
  if(expected.length<32||provided.length!==expected.length||!timingSafeEqual(Buffer.from(provided),Buffer.from(expected)))return fail(res,401,'Read authentication required');
  next();
 };
-app.get('/api/integrations/meetings/:id/chat',readAuth,async(req,res)=>{
- res.set('Cache-Control','no-store');
- if(!isUuid(req.params.id))return fail(res,400,'Invalid meeting id');
- try{
-  const m=await db.query('SELECT id,title,created_at,ended_at FROM meetings WHERE id=$1',[req.params.id]);
-  if(!m.rowCount)return fail(res,404,'Meeting unavailable');
-  const {rows}=await db.query('SELECT p.id AS pid, p.display_name AS name, p.role, c.body, c.created_at FROM messages c JOIN participants p ON p.id=c.participant_id WHERE c.meeting_id=$1 AND c.conversation_id IS NULL AND c.deleted_at IS NULL ORDER BY c.created_at,c.id LIMIT 5000',[req.params.id]);
-  res.json({meetingId:m.rows[0].id,title:m.rows[0].title,startedAt:m.rows[0].created_at,endedAt:m.rows[0].ended_at,messages:rows.map(r=>({participantId:r.pid,speaker:r.name,speakerRole:r.role,text:r.body,at:r.created_at}))});
- }catch(e){console.error('chat export failed');fail(res,503,'Unavailable');}
-});
+registerChatExport({app,db,readAuth,fail});          // read-only chat export for the portal; room-aware since v4.32 (server/chat-export.mjs)
 // v3.9: host credential recovery with stable request ID + acknowledgment (replaces v3.8 blind rotation).
 // Bridge-only; the caller must authorize the schedule. Responses are never cached or logged.
 const recovery=process.env.RECOVERY_ESCROW_KEY?recoveryService(db,Buffer.from(process.env.RECOVERY_ESCROW_KEY,'base64'),{hashSecret:s=>bcrypt.hash(s,HOST_SECRET_COST),verifySecret:(s,h)=>bcrypt.compare(s,h)}):null;
@@ -423,7 +416,11 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
 });
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
 const hostControls = registerHostControls({ app, io, db, auth, member, fail, room, audit, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid) });          // host-switched tools (share, polls, breakout, whiteboard), per-person share grants, host mute
-const breakouts = registerBreakouts({ app, io, db, auth, member, fail, active, room });       // breakout rooms (v4.29): scoped rosters, signaling and events; blocks recording while rooms are open
+// Shared room events (v4.32): ROOM_EVENTS=off (default: this instance only) | pg (PostgreSQL LISTEN/NOTIFY) | redis (Redis Streams, needs `npm i redis` and REDIS_URL). PostgreSQL is always the source of truth.
+const roomEventsMode = (process.env.ROOM_EVENTS || 'off').toLowerCase();
+const roomEvents = roomEventsMode === 'off' ? null : createRoomEvents({ db, deliver: (...a) => breakouts.deliverLocal(...a), onInternal: (...a) => breakouts.applyRemote(...a),
+  bus: roomEventsMode === 'redis' ? new RedisStreamsBus({ url: process.env.REDIS_URL }) : new PgNotifyBus({ pool: db }) });
+const breakouts = registerBreakouts({ app, io, db, auth, member, fail, active, room, events: roomEvents });       // breakout rooms (v4.29): scoped rosters, signaling and events; blocks recording while rooms are open
 const classroom = registerClassroom({ app, io, db, auth, member, fail, breakouts });       // Room Mission Board, timed exercises, room whiteboard, group reports, classroom dashboard (v4.31)
 const chat = registerChat({ app, io, db, auth, member, room, fail, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), scopeOf: breakouts.scopeOf });       // meeting chat upgrade (v4.25+)
 const more = registerMore({ app, io, db, auth, member, room, fail, rateLimit, scopeOf: breakouts.scopeOf, emitMain: (meetingId, type, payload) => breakouts.emitToScope(meetingId, null, type, payload) });       // More tab (v4.27): Q&A, timer, preferences, attendance
@@ -481,6 +478,11 @@ io.on('connection',socket=>{
  }
  const rosterFor=()=>[...breakouts.scopedList(id,pid),...(breakouts.scopeOf(id,pid)===null?(phoneOnline.get(id)||[]):[])];       // only the people in MY scope (the main room or my breakout room)
  socket.emit('breakout-scope',breakouts.scopeInfo(id,pid));
+ if(roomEvents)roomEvents.latestId(id).then(n=>socket.emit('room-cursor',{id:n})).catch(()=>{});          // where this page is in the room-event log
+ socket.on('room-replay',async({after}={},ack)=>{          // a reconnecting page asks for the room notifications it missed; it gets only what it may see NOW
+  if(!roomEvents)return typeof ack==='function'&&ack({ok:true,events:0});
+  try{const ctx=breakouts.ctxOf(id);const evs=await roomEvents.replay(id,after,aud=>audienceMatches(aud,pid,ctx));for(const e of evs){socket.emit(e.type,e.payload);socket.emit('room-cursor',{id:e.id});}if(typeof ack==='function')ack({ok:true,events:evs.length});}catch(e){if(typeof ack==='function')ack({ok:false});}
+ });
  socket.emit('roster',rosterFor());
  socket.emit('names',Object.fromEntries(rosterFor().map(p=>[p,names.get(id)?.get(p)||'']).filter(([,n])=>n)));   // who is who, for people already in the meeting
  if(!names.has(id)) names.set(id,new Map()); names.get(id).set(pid,u.name);
@@ -534,4 +536,4 @@ io.on('connection',socket=>{
  socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}breakouts.emitScope(id,pid,'participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE disconnected_at IS NULL').catch(()=>{});   // a restart ends every connection: close what the last run left open
-server.listen(PORT,()=>console.log(`Qorlla Meet listening on http://localhost:${PORT}`));
+server.listen(PORT,()=>{console.log(`Qorlla Meet listening on http://localhost:${PORT}`);if(roomEvents){roomEvents.start().catch(e=>console.error('[room-events] not started:',e.message));setInterval(()=>roomEvents.purge(24).catch(()=>{}),3600_000).unref();console.log(`Shared room events: ${roomEventsMode} (instance ${roomEvents.instanceId})`);}});
