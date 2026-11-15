@@ -309,3 +309,15 @@ html.portal-only #landing .landing-card>:not(.brand):not(#portalOnlyNote){displa
 #tab-more .mg-link{align-self:flex-start;background:transparent;border:0;color:#7db3ff;font:inherit;font-size:11.5px;padding:3px 2px;cursor:pointer;text-decoration:underline}
 #tab-more{container:more/inline-size}
 @container more (min-width:520px){.mg-grid4{grid-template-columns:repeat(4,1fr)}.mg-grid5{grid-template-columns:repeat(5,1fr)}.mg-grid6{grid-template-columns:repeat(6,1fr)}.mg-sec3{grid-template-columns:1fr 1fr 1fr}}
+/* More tab: compact pass */
+#tab-more.more-v41-compact{padding:6px!important}#tab-more .mg{margin:0 0 6px;border-radius:10px}
+#tab-more .mg-h{padding:6px 10px;gap:8px}.mg-h-t strong{font-size:12.5px}.mg-h-t small{font-size:10px;line-height:1.2}.mg-h-ic{width:18px!important;height:18px!important}#tab-more .mg-chev{width:12px;height:12px}
+#tab-more .mg-b{padding:6px;gap:4px}
+.mg-row{gap:8px;padding:4px 6px;border-radius:8px}.mg-ic{width:26px;height:26px;border-radius:7px}.mg-ic .mi{width:15px;height:15px}.mg-row-t strong{font-size:11.5px}.mg-row-t small{font-size:10px;line-height:1.25}
+.mg-emoji{gap:3px}.mg-emoji button{width:24px;height:22px;font-size:12px;border-radius:6px}
+#tab-more .mg-act{height:22px;padding:0 8px;font-size:10.5px;border-radius:6px;gap:4px}#tab-more .mg-act .mi{width:12px;height:12px}.mg-wide{height:26px}
+.mg-grid4,.mg-grid5,.mg-grid6,.mg-sec3{gap:4px}.mg-card{gap:4px;padding:6px 4px;border-radius:8px}.mg-card-h strong{font-size:11px}.mg-card-h .mi{width:14px;height:14px}.mg-card small{font-size:9.5px;line-height:1.25}
+#tab-more .mg-tile{min-height:44px;gap:3px;padding:4px 3px;border-radius:8px;font-size:10px}#tab-more .mg-tile .mi{width:16px;height:16px}
+.mg-opt{gap:6px;padding:5px 6px;border-radius:8px}.mg-opt .mi{width:16px;height:16px}.mg-opt-t strong{font-size:11.5px}.mg-opt-t small{font-size:9.5px}
+#tab-more .mg-sw{width:32px;height:18px}.mg-knob{top:2px;left:2px;width:14px;height:14px}#tab-more .mg-sw[aria-checked=true] .mg-knob{transform:translateX(14px)}
+.mg-note{font-size:9.5px;margin:1px 2px 0}.mg-info{padding:5px 7px;border-radius:8px}.mg-info p{font-size:10px}#tab-more .mg-link{font-size:10.5px;padding:2px}
