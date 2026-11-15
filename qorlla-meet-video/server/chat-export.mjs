@@ -4,6 +4,16 @@
 // Direct (1:1) conversations are never exported. Deleted messages are never exported.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function registerChatExport({ app, db, readAuth, fail }) {
+  // the rooms of a meeting that have something to report on (name and message count only: no text, no names)
+  app.get('/api/integrations/meetings/:id/rooms', readAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store'); if (!UUID.test(req.params.id)) return fail(res, 400, 'Invalid meeting id');
+    try {
+      if (!(await db.query('SELECT 1 FROM meetings WHERE id=$1', [req.params.id])).rowCount) return fail(res, 404, 'Meeting unavailable');
+      const { rows } = await db.query(`SELECT r.id, r.name, (SELECT count(*)::int FROM messages c WHERE c.meeting_id=r.meeting_id AND c.breakout_room=r.id AND c.conversation_id IS NULL AND c.deleted_at IS NULL) AS messages
+        FROM more_breakout_rooms r WHERE r.meeting_id=$1 ORDER BY r.created_at, r.id LIMIT 40`, [req.params.id]);
+      res.json({ meetingId: req.params.id, rooms: rows.map((r) => ({ id: r.id, name: r.name, messages: r.messages })) });
+    } catch (e) { console.error('rooms export failed'); fail(res, 503, 'Unavailable'); }
+  });
   app.get('/api/integrations/meetings/:id/chat', readAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     if (!UUID.test(req.params.id)) return fail(res, 400, 'Invalid meeting id');

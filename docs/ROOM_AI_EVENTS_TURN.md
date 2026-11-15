@@ -68,6 +68,22 @@ Events were exercised with two instances sharing one database over a memory bus,
 8. The room-export endpoints reuse the read-only secret and stay read-only.
 9. Idempotency: replaying a job key for another room is a 409 (`idempotency_conflict`).
 
+
+## Closure run (qorlla-v20-closure checklist, executed on scratch infrastructure)
+The V2.0 closure package's own server/UI were not used (they are demonstration code that this branch supersedes); its **checklist** was executed against this branch.
+
+| Gap from the package | What was done | Result |
+|---|---|---|
+| Real coturn, relay-only in a real browser | Scratch coturn 4.6.2 (own ports) + real Chromium + the real Voice Engine admin API (`test/turn-meet.real.e2e.mjs`) | **8/8**: only relay candidates gathered; a data channel carried 20 messages through the relay; the relay's CLI reported the allocation and bytes; revoking an epoch cancelled the allocation on the relay and later traffic did not arrive; the next epoch got a fresh credential |
+| Authenticated two-process Meet, live PostgreSQL and Redis | Two Meet processes on one database, three real browsers, once on PostgreSQL LISTEN/NOTIFY and once on a **real Redis** container (`tests/e2e/two-nodes.e2e.mjs`) | **21/21** (pg 9, redis 12): a room started on node A moves a guest connected to node B; a main-room guest on B is not told; announcements cross nodes and are not delivered twice; **Redis stopped mid-test: the PostgreSQL catch-up still delivered; Redis restarted: delivery resumed**; recall on A returns the guest on B; no event dead-lettered |
+| Redis outage / restart | Same run, plus unit tests with an unreachable host | Found and fixed **two real bugs**: with Redis unreachable at boot the instance never started its worker, and an unreachable Redis could stall the outbox worker forever (offline command queue). Start-up no longer waits for Redis, publishes give up after 2 s and are retried, a never-connected client is cut on stop |
+| Room-report UI | Portal "Room reports…" dialog per meeting (rooms with chat, ready / why not, Build report), room tag on jobs and reports, Portal route `GET /meeting-ai/meetings/:id/rooms`, Meet read-only `GET /integrations/meetings/:id/rooms`; Meet host room list shows "Qorlla AI: x/y agreed" per room | API and Meet UI tested (Portal 12 room tests incl. the new route; Meet unit/browsers green). The Portal dialog was **not exercised in a browser** (it needs the full Portal stack) |
+| HTTP load smoke | not run | open |
+| Safari, iOS, Android, physical networks, independent penetration test | not run | open (cannot be done from this machine) |
+| Node restart / failure injection beyond Redis | not run | open |
+
+Scratch containers used: `qroom-coturn` (UDP/TCP 34890, CLI 35890, relay 49300-49330) and `qroom-redis` (36890). They are separate from every live Qorlla container.
+
 ## Not built / open
 * No Portal or Meet **UI** for requesting or viewing room reports (API only).
 * Real **coturn** + browser relay-only run, Safari/iOS/Android, load, Redis outage drills with a real Redis, a real two-process Meet, outbox failover under load: **not done**.

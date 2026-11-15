@@ -99,5 +99,11 @@ export function registerAiConsent({ app, io, db, auth, fail, audit, room, getNam
       socket.emit('ai-consent-request', { notice: AI_NOTICE, late: true });
     } catch (e) { console.error('[ai-consent] join prompt failed:', e.message); }
   }
-  return { onJoin };
+  /** per person: did they agree to BOTH core purposes (latest answers), and is the host's request open. Used by the host's room list (a count, never an answer). */
+  async function summary(meetingId) {
+    const open = !!(await requestedAt(meetingId)); const by = new Map();
+    for (const x of await latest(meetingId)) if (CORE.includes(x.purpose)) { const e = by.get(x.participant_id) || {}; e[x.purpose] = x.decision; by.set(x.participant_id, e); }
+    return { open, agreed: (pid) => CORE.every((k) => by.get(pid)?.[k] === 'agree'), declined: (pid) => CORE.some((k) => ['decline', 'withdraw'].includes(by.get(pid)?.[k])) };
+  }
+  return { onJoin, summary };
 }

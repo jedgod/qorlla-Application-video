@@ -7,6 +7,19 @@ const pill = (s) => `<span class="pill ${esc(s)}">${esc(s)}</span>`;
 const short = (id) => String(id).slice(0, 8);
 const when = (iso) => (iso ? new Date(iso).toLocaleString() : '-');
 
+/** Private room reports: one button per breakout room that has chat. A room is ready only when EVERYONE in it agreed (Meet says so; the server re-checks when the job is made). */
+async function openRooms(meet) {
+  let dlg = document.getElementById('rooms-dlg'); if (!dlg) { dlg = document.createElement('dialog'); dlg.id = 'rooms-dlg'; document.body.appendChild(dlg); }
+  dlg.innerHTML = '<form method="dialog"><h2>Private room reports</h2><div id="rooms-body" class="muted">Loading rooms…</div><div class="row"><button class="secondary" value="close">Close</button></div></form>'; dlg.showModal();
+  const body = dlg.querySelector('#rooms-body'); let rooms;
+  try { rooms = await api(`/meeting-ai/meetings/${meet}/rooms`); } catch (e) { body.textContent = describe(e); return; }
+  if (!rooms.length) { body.textContent = 'No breakout room of this meeting has chat to report on.'; return; }
+  const why = { participant_consent_required: 'Not everyone in the room has agreed to Qorlla AI yet.', participant_declined: 'Someone in the room declined or withdrew.', unverifiable: 'Consent could not be verified right now.' };
+  body.innerHTML = `<p class="muted">A room report uses only that room's chat, and only when everyone in the room agreed. It stays restricted: it is never visible to the whole workspace and never shared by public link.</p><table><thead><tr><th>Room</th><th>Messages</th><th>Status</th><th></th></tr></thead><tbody>${rooms.map((r) => `<tr data-room="${esc(r.id)}"><td><strong>${esc(r.name)}</strong></td><td>${esc(r.messages)}</td><td>${r.ready ? pill('active') + ' <span class="muted">everyone agreed</span>' : `<span class="muted">${esc(why[r.reason] || 'Not available')}</span>`}${r.latest_job ? '<br>' + pill(r.latest_job.status) : ''}</td><td>${r.ready && !['queued', 'running'].includes(r.latest_job?.status) ? '<button data-build="1">Build report</button>' : ''}</td></tr>`).join('')}</tbody></table>`;
+  body.querySelectorAll('[data-build]').forEach((b) => b.addEventListener('click', async () => {
+    b.disabled = true; try { await api('/meeting-ai/jobs', { method: 'POST', body: JSON.stringify({ meet_meeting_id: meet, source: 'meet_room_chat', room_id: b.closest('tr').dataset.room, idempotency_key: uid() }) }); notice('Building the room report…'); dlg.close(); await renderAiDashboard.refresh?.(); } catch (e) { notice(describe(e)); b.disabled = false; }
+  }));
+}
 export async function renderAiDashboard(root) {
   root.innerHTML = '<div class="empty">Loading…</div>';
   const [status, usage, meetings, jobs, reports] = await Promise.all([api('/meeting-ai/status'), api('/meeting-ai/usage'), api('/meeting-ai/meetings'), api('/meeting-ai/jobs'), api('/meeting-ai/reports')]);
@@ -18,13 +31,13 @@ export async function renderAiDashboard(root) {
       const consented = ['transcription', 'summary'].every((s) => m.consent_scopes.includes(s));
       return `<tr data-meeting="${esc(m.meet_uuid)}"><td><strong>${esc(m.title)}</strong><br><span class="muted">ID ${esc(m.meet_code)}</span></td><td>${esc(when(m.scheduled_at))}</td>
         <td>${consented ? pill('active') : '<span class="muted">none</span>'}</td><td>${m.latest_job ? pill(m.latest_job.status) + (m.latest_job.error_code ? `<br><span class="muted">${esc(m.latest_job.error_code)}</span>` : '') : '-'}</td>
-        <td class="row">${!consented ? (m.i_am_host ? '<button data-act="consent">Give consent…</button>' : '<span class="muted">Waiting for the host to consent</span>') : `<button data-act="chat">Summarize meeting chat</button><button class="secondary" data-act="import">Import transcript…</button>${m.i_am_host ? '<button class="secondary" data-act="revoke">Revoke consent</button>' : ''}`}${m.report_id ? `<a class="button secondary" href="/app/ai/reports/${esc(m.report_id)}">Open report</a>` : ''}</td></tr>`;
+        <td class="row">${!consented ? (m.i_am_host ? '<button data-act="consent">Give consent…</button>' : '<span class="muted">Waiting for the host to consent</span>') : `<button data-act="chat">Summarize meeting chat</button><button class="secondary" data-act="import">Import transcript…</button><button class="secondary" data-act="rooms">Room reports…</button>${m.i_am_host ? '<button class="secondary" data-act="revoke">Revoke consent</button>' : ''}`}${m.report_id ? `<a class="button secondary" href="/app/ai/reports/${esc(m.report_id)}">Open report</a>` : ''}</td></tr>`;
     }).join('')}</tbody></table>` : '<div class="empty">No eligible meetings yet. Schedule a meeting from your Qorlla home page; AI is offered for meetings you host (admins see their workspace\'s).</div>') +
-    panel('Jobs', jobs.length ? `<table><thead><tr><th>Created</th><th>Source</th><th>Status</th><th></th></tr></thead><tbody>${jobs.slice(0, 15).map((j) => `<tr><td>${esc(when(j.created_at))}</td><td>${esc(j.source.replace('_', ' '))}</td><td>${pill(j.status)}${j.error_message ? `<br><span class="muted">${esc(j.error_message)}</span>` : ''}</td>
+    panel('Jobs', jobs.length ? `<table><thead><tr><th>Created</th><th>Source</th><th>Status</th><th></th></tr></thead><tbody>${jobs.slice(0, 15).map((j) => `<tr><td>${esc(when(j.created_at))}</td><td>${esc(j.source.replace(/_/g, ' '))}${j.room_name ? ' · ' + esc(j.room_name) : ''}</td><td>${pill(j.status)}${j.error_message ? `<br><span class="muted">${esc(j.error_message)}</span>` : ''}</td>
       <td class="row">${['failed', 'blocked'].includes(j.status) ? `<button class="secondary" data-job="${esc(j.id)}" data-act="retry">Retry</button>` : ''}${['queued', 'running', 'blocked', 'failed'].includes(j.status) ? `<button class="secondary" data-job="${esc(j.id)}" data-act="cancel">Cancel</button>` : ''}${j.report_id ? `<a class="link" href="/app/ai/reports/${esc(j.report_id)}">Report</a>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No jobs yet.</div>') +
-    panel('Reports', reports.length ? `<div class="cards">${reports.map((r) => `<article class="card"><h3>${esc(r.title)}</h3><p>${r.status === 'withdrawn' ? '<em>Withdrawn after consent was revoked.</em>' : r.consent_unverified ? '<em>Not shown: consent could not be verified right now. Try again shortly.</em>' : esc(r.excerpt)}</p><span class="muted">${esc(when(r.created_at))} · ${esc(r.open_items)} open item(s)</span><br><a class="link" href="/app/ai/reports/${esc(r.id)}">Open ${r.status === 'withdrawn' ? '(metadata only)' : 'report'} →</a></article>`).join('')}</div>` : '<div class="empty">No reports yet.</div>') +
+    panel('Reports', reports.length ? `<div class="cards">${reports.map((r) => `<article class="card"><h3>${esc(r.title)}${r.room_name ? ' <span class="pill">Room: ' + esc(r.room_name) + '</span>' : ''}</h3><p>${r.status === 'withdrawn' ? '<em>Withdrawn after consent was revoked.</em>' : r.consent_unverified ? '<em>Not shown: consent could not be verified right now. Try again shortly.</em>' : esc(r.excerpt)}</p><span class="muted">${esc(when(r.created_at))} · ${esc(r.open_items)} open item(s)</span><br><a class="link" href="/app/ai/reports/${esc(r.id)}">Open ${r.status === 'withdrawn' ? '(metadata only)' : 'report'} →</a></article>`).join('')}</div>` : '<div class="empty">No reports yet.</div>') +
     consentDialog() + importDialog();
-  const again = async () => { try { await renderAiDashboard(root); } catch (e) { notice(describe(e)); } };
+  const again = async () => { try { await renderAiDashboard(root); } catch (e) { notice(describe(e)); } }; renderAiDashboard.refresh = again;
   if (busy) { clearTimeout(renderAiDashboard.t); renderAiDashboard.t = setTimeout(again, 3000); }
 
   root.querySelectorAll('[data-job]').forEach((b) => b.addEventListener('click', async () => { try { await api(`/meeting-ai/jobs/${b.dataset.job}/${b.dataset.act}`, { method: 'POST', body: '{}' }); notice(b.dataset.act === 'retry' ? 'Job queued again.' : 'Job cancelled.'); await again(); } catch (e) { notice(describe(e)); } }));
@@ -32,6 +45,7 @@ export async function renderAiDashboard(root) {
     const meet = b.closest('tr').dataset.meeting; const act = b.dataset.act;
     try {
       if (act === 'consent') { $('#consent-dlg').dataset.meeting = meet; $('#consent-ok').checked = false; $('#consent-go').disabled = true; $('#consent-dlg').showModal(); }
+      if (act === 'rooms') { await openRooms(meet); return; }
       if (act === 'import') { $('#import-dlg').dataset.meeting = meet; $('#import-dlg').showModal(); }
       if (act === 'chat') { await api('/meeting-ai/jobs', { method: 'POST', body: JSON.stringify({ meet_meeting_id: meet, source: 'meet_chat', idempotency_key: uid() }) }); notice('Reading the meeting chat and building the report…'); await again(); }
       if (act === 'revoke') {

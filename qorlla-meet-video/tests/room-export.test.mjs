@@ -62,3 +62,11 @@ test('consent export: ?room= lists the people assigned to the room plus everyone
   assert.equal((await get(`/api/integrations/meetings/${mid}/ai-consent`, 'wrong')).status, 401);
   for (const p of r1.body.participants) assert.ok(p.decisions.transcription && p.decisions.summary, 'decisions are present for each purpose');
 });
+
+test('rooms export: the portal can list a meeting\'s rooms with message counts only (no text, no names); unknown meeting is 404; the secret is required', async () => {
+  const { mid, room, other } = await setup();
+  const r = await get(`/api/integrations/meetings/${mid}/rooms`); assert.equal(r.status, 200);
+  assert.deepEqual(r.body.rooms.map((x) => [x.id, x.name, x.messages]).sort(), [[room, 'Design', 2], [other, 'Build', 1]].sort());
+  assert.equal(JSON.stringify(r.body).includes('room design talk'), false, 'no message text'); assert.equal(JSON.stringify(r.body).includes('Gus'), false, 'no names');
+  assert.equal((await get(`/api/integrations/meetings/${randomUUID()}/rooms`)).status, 404); assert.equal((await get(`/api/integrations/meetings/${mid}/rooms`, 'wrong')).status, 401);
+});

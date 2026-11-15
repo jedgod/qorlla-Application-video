@@ -46,6 +46,19 @@ export function registerMeetingAi(app, { pool, cfg, auth, h, directory, log, llm
   app.get('/api/v1/meeting-ai/status', member, (req, res) => res.json({ ai_provider_configured: llm.available, meet_integration_configured: meet.available, processes_recordings: false,
     sources: ['meet_chat', 'transcript_import', 'meet_room_chat'], note: 'Recordings are never processed in this release; only the meeting chat or a transcript you import.' }));
 
+  // the rooms of one meeting and whether a private room report can be made from each RIGHT NOW (everyone in the room must have agreed). Counts and reasons only: no names, no text.
+  app.get('/api/v1/meeting-ai/meetings/:id/rooms', member, h(async (req, res) => {
+    if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Invalid meeting' });
+    const m = await meetingFor(pool, req, req.params.id); if (!m) return res.status(404).json({ error: 'Meeting not found' });
+    let rooms; try { rooms = (await meet.fetchRooms(m.meet_uuid)).filter((r) => r.messages > 0).slice(0, 20); } catch (e) { return res.status(503).json({ error: 'Meet could not be reached, so rooms cannot be listed right now.', code: 'meet_unreachable' }); }
+    const out = await Promise.all(rooms.map(async (r) => {
+      let state; try { const c = await meet.fetchConsent(m.meet_uuid, r.id), ok = roomAllowed(c, r.id), people = (c.participants || []).length;
+        state = { people, ready: ok.allowed, reason: ok.allowed ? null : ok.reason }; } catch { state = { people: null, ready: false, reason: 'unverifiable' }; }
+      const live = (await pool.query(`SELECT id, status FROM portal.meeting_ai_jobs WHERE workspace_id=$1 AND meet_meeting_id=$2 AND room_id=$3 ORDER BY created_at DESC LIMIT 1`, [req.workspace, m.meet_uuid, r.id])).rows[0] || null;
+      return { id: r.id, name: r.name, messages: r.messages, ...state, latest_job: live };
+    }));
+    res.set('Cache-Control', 'no-store').json(out);
+  }));
   app.get('/api/v1/meeting-ai/meetings', member, h(async (req, res) => {
     const rows = (await pool.query(
       `SELECT d.meet_uuid, d.meet_code, d.title, d.scheduled_at, d.owner_user_id,

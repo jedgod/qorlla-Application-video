@@ -31,5 +31,7 @@ export function createMeetClient({ baseUrl, readSecret, fetchImpl = fetch, timeo
     // display names are deliberately NOT carried over: identity is the participantId, never typed text
     return { requested: j.requested, revision: num(j.revision), participants: j.participants.filter((p) => p && typeof p.participantId === 'string').map((p) => ({ participantId: p.participantId, role: p.role, decisions: Object.fromEntries(['transcription', 'summary'].map((k) => [k, dec(p.decisions?.[k])])) })) };
   }
-  return { available, fetchChat, fetchChatRaw, fetchConsent };
+  /** the rooms of a meeting that have messages (id, name, count) */
+  async function fetchRooms(meetingUuid) { const j = await getJson('rooms', meetingUuid); return Array.isArray(j.rooms) ? j.rooms.filter((r) => r && typeof r.id === 'string').map((r) => ({ id: r.id, name: String(r.name || 'Room').slice(0, 80), messages: Number(r.messages) || 0 })) : []; }
+  return { available, fetchChat, fetchChatRaw, fetchConsent, fetchRooms };
 }

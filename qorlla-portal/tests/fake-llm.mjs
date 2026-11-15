@@ -63,7 +63,7 @@ export async function startFakeMeet({ port = 0, host = '127.0.0.1' } = {}) {
   const server = http.createServer(async (req, res) => {
     const raw = await readBody(req); const send = (code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
     if (req.url.startsWith('/__control/')) { if (req.url === '/__control/put') { const b = JSON.parse(raw); st.meetings.set(b.id, b); } else if (req.url === '/__control/set') Object.assign(st, JSON.parse(raw || '{}')); else if (req.url === '/__control/requests') return send(200, st.requests); return send(200, { ok: true }); }
-    const m = /^\/api\/integrations\/meetings\/([0-9a-f-]{36})\/(chat|ai-consent)(?:\?room=([0-9a-f-]{36}))?$/.exec(req.url || '');
+    const m = /^\/api\/integrations\/meetings\/([0-9a-f-]{36})\/(chat|ai-consent|rooms)(?:\?room=([0-9a-f-]{36}))?$/.exec(req.url || '');
     st.requests.push({ url: req.url, secret: req.headers['x-qorlla-readonly-secret'] });
     if (!m) return send(404, { error: 'unknown' });
     if (st.delayMs) await new Promise((r) => setTimeout(r, st.delayMs));
@@ -71,6 +71,7 @@ export async function startFakeMeet({ port = 0, host = '127.0.0.1' } = {}) {
     if (req.headers['x-qorlla-readonly-secret'] !== READ_SECRET) return send(401, { error: 'Read authentication required' });
     const mt = st.meetings.get(m[1]); if (!mt && m[2] === 'ai-consent') return send(200, { meetingId: m[1], requested: true, revision: String(SEQ), participants: [] });   // a meeting Meet knows nothing about yet: open request, nobody has answered
     if (!mt) return send(404, { error: 'Meeting unavailable' });
+    if (m[2] === 'rooms') return send(200, { meetingId: m[1], rooms: Object.entries(mt.rooms || {}).map(([id, r]) => ({ id, name: r.name, messages: r.messages.length })) });
     const rm = m[3] ? (mt.rooms || {})[m[3]] : null; if (m[3] && !rm) return send(404, { error: 'Room unavailable' });
     const src = rm || mt;          // a room answers with ITS OWN people and messages, like the real Meet
     if (m[2] === 'ai-consent') {          // st.onConsent(n, meeting) runs AFTER the n-th answer was sent: a test can change someone's consent at an exact moment of a job (no timing races)

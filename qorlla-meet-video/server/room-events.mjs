@@ -138,21 +138,28 @@ export class RedisStreamsBus {
   constructor({ url, stream = 'qorlla:meet:room-events', maxLen = 100000, clientFactory = null, logger = console }) { if (!url && !clientFactory) throw new Error('REDIS_URL required'); Object.assign(this, { url, stream, maxLen, clientFactory, logger }); }
   async start({ onEvent, onUp, onDown }) {
     if (!this.clientFactory) { try { this.clientFactory = (await import('redis')).createClient; } catch { throw new Error('the "redis" package is not installed (npm install redis) - the PostgreSQL bus is used instead'); } }
-    this.writer = this.clientFactory({ url: this.url, socket: { reconnectStrategy: (n) => Math.min(2000, 100 * n) } }); this.reader = this.writer.duplicate();
+    this.writer = this.clientFactory({ url: this.url, disableOfflineQueue: true, socket: { reconnectStrategy: (n) => Math.min(2000, 100 * n) } }); this.reader = this.writer.duplicate();
     for (const c of [this.writer, this.reader]) c.on('error', (e) => this.logger.error?.('[room-events] redis error', e.message));
-    await Promise.all([this.writer.connect(), this.reader.connect()]); this.stopped = false; this.up = true; onUp?.();
+    this.stopped = false; this.up = false;
+    // Redis being down at boot must NOT block this instance: connecting keeps retrying in the background, the reader loop below keeps trying, and the PostgreSQL poll delivers meanwhile.
+    const connected = Promise.all([this.writer.connect(), this.reader.connect()]).then(() => { this.up = true; onUp?.(); }).catch((e) => this.logger.error?.('[room-events] redis connect failed:', e.message));
+    await Promise.race([connected, new Promise((r) => { const t = setTimeout(r, this.connectWaitMs ?? 3000); t.unref?.(); })]);
     this.loop = (async () => {
       let last = '$';
       while (!this.stopped) {
-        try { const res = await this.reader.xRead({ key: this.stream, id: last }, { BLOCK: 2000, COUNT: 100 }); if (!this.up) { this.up = true; onUp?.(); }
+        try { if (this.reader.isReady === false) { await new Promise((r) => setTimeout(r, 500)); continue; } const res = await this.reader.xRead({ key: this.stream, id: last }, { BLOCK: 2000, COUNT: 100 }); if (!this.up) { this.up = true; onUp?.(); }
           for (const s of res || []) for (const m of s.messages) { last = m.id; const id = Number(m.message.event); if (Number.isSafeInteger(id)) onEvent(id); } }
         catch (e) { if (this.stopped) break; if (this.up) { this.up = false; onDown?.(); } this.logger.error?.('[room-events] redis read failed', e.message); await new Promise((r) => setTimeout(r, 1000)); }
       }
     })();
   }
-  async notify(id) { await this.writer.xAdd(this.stream, '*', { event: String(id) }, { TRIM: { strategy: 'MAXLEN', strategyModifier: '~', threshold: this.maxLen } }); }
+  /** never waits for an unreachable Redis (an offline queue would stall the outbox worker): fails after 2 s and the outbox retries with backoff */
+  async notify(id) { let t; try { await Promise.race([this.writer.xAdd(this.stream, '*', { event: String(id) }, { TRIM: { strategy: 'MAXLEN', strategyModifier: '~', threshold: this.maxLen } }), new Promise((_r, no) => { t = setTimeout(() => no(new Error('redis unreachable')), this.publishTimeoutMs ?? 2000); })]); } finally { clearTimeout(t); } }
   publish(id) { return this.notify(id); }
-  async stop() { this.stopped = true; await Promise.allSettled([this.reader?.quit(), this.writer?.quit()].filter(Boolean)); }
+  async stop() {          // a client that never connected cannot quit: give it a second, then cut it
+    this.stopped = true;
+    await Promise.all([this.reader, this.writer].filter(Boolean).map(async (c) => { await Promise.race([Promise.resolve().then(() => c.quit()).catch(() => {}), new Promise((r) => { const t = setTimeout(r, 1000); t.unref?.(); })]); if (c.isOpen !== false) await Promise.resolve().then(() => c.disconnect?.()).catch(() => {}); }));          // already closed: nothing to cut
+  }
 }
 
 /** In-process bus for tests: instances share one object. `down` makes publish fail (a bus outage). */

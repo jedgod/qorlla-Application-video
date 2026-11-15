@@ -150,3 +150,25 @@ describe('room reports (PostgreSQL, fake model, fake Meet)', () => {
     const job = (await host().get('/api/v1/meeting-ai/jobs/' + j.body.id)).body; assert.ok(['queued', 'failed'].includes(job.status), job.status); assert.equal(llmd.st.requests.length, 0);
   });
 });
+
+describe('room report readiness route (PostgreSQL, fake Meet)', () => {
+  let db, main, llmd, meetd, app, H, O, W, meet, room1, room2;
+  before(async () => {
+    db = await freshDatabase(); main = await startMainStandIn(); llmd = await startFakeLlm(); meetd = await startFakeMeet();
+    const env = { AI_LLM_API_KEY: 'test-llm-key', AI_LLM_API_BASE: llmd.url, AI_LLM_MODEL: 'claude-test', MEET_INTERNAL_URL: meetd.url, MEET_READ_SECRET: READ_SECRET, QORLLA_AI_RATE_PER_MINUTE: '100000' };
+    app = await startApp({ pool: db.pool, cfg: testConfig({ env }, main), jwks: main.jwks, ai: { worker: { backoffBaseSeconds: 0 } } }); H = await main.mint(); O = await main.mint();
+    W = await seedWorkspace(db.pool, H.sub, 'Rooms Co'); await seedWorkspace(db.pool, O.sub, 'Elsewhere Co');
+    meet = await seedMeeting(db.pool, H.sub, { title: 'Workshop' }); meetd.put(meet, 'Workshop', MAIN); room1 = crypto.randomUUID(); room2 = crypto.randomUUID();
+    meetd.putRoom(meet, room1, 'Design', ROOMMSG); meetd.putRoom(meet, room2, 'Empty', []);
+  });
+  after(async () => { await app.close(); await llmd.close(); await meetd.close(); await main.close(); await db.drop(); });
+  test('lists rooms with chat, says whether each is ready and why not; names and text never appear; only the meeting\'s owner side can ask', async () => {
+    const rm = meetd.st.meetings.get(meet).rooms[room1]; rm.consent = { requested: true, participants: [part('Gus', 'agree'), part('Ivy', 'pending')] };
+    let r = await app.client(H).get(`/api/v1/meeting-ai/meetings/${meet}/rooms`); assert.equal(r.status, 200); assert.equal(r.body.length, 1, 'the empty room is not offered');
+    assert.deepEqual([r.body[0].name, r.body[0].messages, r.body[0].people, r.body[0].ready, r.body[0].reason], ['Design', 2, 2, false, 'participant_consent_required']);
+    rm.consent = { requested: true, participants: [part('Gus', 'agree'), part('Ivy', 'agree')] }; r = await app.client(H).get(`/api/v1/meeting-ai/meetings/${meet}/rooms`); assert.equal(r.body[0].ready, true);
+    assert.equal(JSON.stringify(r.body).includes('ROOM-SECRET'), false); assert.equal(JSON.stringify(r.body).includes('Gus'), false);
+    assert.equal((await app.client(O).get(`/api/v1/meeting-ai/meetings/${meet}/rooms`)).status, 404, 'another workspace cannot see this meeting'); assert.equal((await app.client(H).get('/api/v1/meeting-ai/meetings/not-a-uuid/rooms')).status, 400);
+    meetd.st.down = true; assert.equal((await app.client(H).get(`/api/v1/meeting-ai/meetings/${meet}/rooms`)).status, 503); meetd.st.down = false;
+  });
+});

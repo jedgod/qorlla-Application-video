@@ -427,7 +427,7 @@ const hostControls = registerHostControls({ app, io, db, auth, member, fail, roo
 const roomEventsMode = (process.env.ROOM_EVENTS || 'off').toLowerCase();
 const roomEvents = roomEventsMode === 'off' ? null : createRoomEvents({ db, deliver: (...a) => breakouts.deliverLocal(...a), onInternal: (...a) => breakouts.applyRemote(...a),
   bus: roomEventsMode === 'redis' ? new RedisStreamsBus({ url: process.env.REDIS_URL }) : new PgNotifyBus({ pool: db }) });
-const breakouts = registerBreakouts({ app, io, db, auth, member, fail, active, room, events: roomEvents, relay: mediaRelay });       // breakout rooms (v4.29): scoped rosters, signaling and events; blocks recording while rooms are open
+const breakouts = registerBreakouts({ app, io, db, auth, member, fail, active, room, events: roomEvents, relay: mediaRelay, aiSummary: (mid) => aiConsent.summary(mid) });       // breakout rooms (v4.29): scoped rosters, signaling and events; blocks recording while rooms are open
 const classroom = registerClassroom({ app, io, db, auth, member, fail, breakouts });       // Room Mission Board, timed exercises, room whiteboard, group reports, classroom dashboard (v4.31)
 const chat = registerChat({ app, io, db, auth, member, room, fail, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), scopeOf: breakouts.scopeOf });       // meeting chat upgrade (v4.25+)
 const more = registerMore({ app, io, db, auth, member, room, fail, rateLimit, scopeOf: breakouts.scopeOf, emitMain: (meetingId, type, payload) => breakouts.emitToScope(meetingId, null, type, payload) });       // More tab (v4.27): Q&A, timer, preferences, attendance

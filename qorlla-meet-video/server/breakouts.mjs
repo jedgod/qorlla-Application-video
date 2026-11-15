@@ -23,7 +23,7 @@ export const LIMITS = Object.freeze({ maxRooms: 20, minMinutes: 1, maxMinutes: 2
 export const CAPS = Object.freeze(['help_triage', 'room_announcement', 'room_notes', 'room_polls']);
 const bad = (status, error) => Object.assign(new Error(error), { status });
 
-export function registerBreakouts({ app, io, db, auth, member, fail, active, room, tickMs = 5000, events = null, relay = null, relayObserveMs = 15000 }) {
+export function registerBreakouts({ app, io, db, auth, member, fail, active, room, tickMs = 5000, events = null, relay = null, relayObserveMs = 15000, aiSummary = null }) {
   const meetings = new Map();          // meetingId -> { active, deadline, map: Map(pid -> roomId), rooms: Map(roomId -> name) }
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
   const paths = (p) => ['/api/meetings/:id/breakouts' + p, '/api/v1/meetings/:id/breakouts' + p];
@@ -130,7 +130,8 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
     const of = new Map(asg.rows.map((a) => [a.participant_id, a.room_id])); const online = sockets(mid);
     const person = (p) => ({ id: p.id, name: p.display_name, role: p.role, online: online.has(p.id), connecting: online.has(p.id) && Date.now() - (m.pending.get(p.id) || 0) < 20000, media: m.media.get(p.id) || 'unknown', evidence: mediaEvidence({ client: m.media.get(p.id), relay: m.relayObs.get(p.id)?.epoch === epochOf(mid, p.id) ? m.relayObs.get(p.id) : null }), caps: capsOf(mid, p.id), epoch: epochOf(mid, p.id) });
     const members = (rid) => ppl.rows.filter((p) => p.role !== 'host' && of.get(p.id) === rid).map(person);
-    out.rooms = rooms.rows.map((r) => ({ id: r.id, name: r.name, members: members(r.id) }));
+    const ai = aiSummary ? await aiSummary(mid).catch(() => null) : null;          // how many people in each room agreed to Qorlla AI (the portal's room reports need everybody)
+    out.rooms = rooms.rows.map((r) => ({ id: r.id, name: r.name, members: members(r.id), ...(ai?.open ? { ai: { people: members(r.id).length, agreed: members(r.id).filter((p) => ai.agreed(p.id)).length, declined: members(r.id).filter((p) => ai.declined(p.id)).length } } : {}) }));
     out.unassigned = ppl.rows.filter((p) => p.role !== 'host' && !of.get(p.id)).map(person); out.hostRoom = of.get(req.user.participantId) || null;
     return out;
   }
