@@ -1,0 +1,20 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {assertSharePermission,ENTITLEMENTS,PolicyError,ShareService} from '../server/core.mjs';
+const actor={id:'alice',role:'host'};
+const meeting={id:'m1',participants:['alice'],activePresenter:null};
+test('host may share screen on basic',()=>assert.equal(assertSharePermission({actor,meeting,kind:'screen',entitlements:ENTITLEMENTS.basic}),true));
+test('basic cannot share docs',()=>assert.throws(()=>assertSharePermission({actor,meeting,kind:'docs',entitlements:ENTITLEMENTS.basic}),PolicyError));
+test('nonparticipant blocked',()=>assert.throws(()=>assertSharePermission({actor:{id:'bob',role:'host'},meeting,kind:'screen',entitlements:ENTITLEMENTS.pro}),PolicyError));
+test('guest requires approval',()=>assert.throws(()=>assertSharePermission({actor:{id:'alice',role:'presenter',guest:true},meeting,kind:'screen',entitlements:ENTITLEMENTS.pro}),PolicyError));
+test('only one presenter',()=>assert.throws(()=>assertSharePermission({actor,meeting:{...meeting,activePresenter:'bob'},kind:'screen',entitlements:ENTITLEMENTS.pro}),PolicyError));
+test('advanced mode requires entitlement',()=>assert.throws(()=>assertSharePermission({actor,meeting,kind:'screen',mode:'reporter',entitlements:ENTITLEMENTS.basic}),PolicyError));
+test('start is idempotent and stop requires authorization',async()=>{
+ let current={...meeting,activeShare:null};let events=[];
+ const store={transaction:async(id,fn)=>fn(current),saveActive:async(id,share)=>{current.activeShare=share;}};
+ const service=new ShareService({store,authorize:async()=>ENTITLEMENTS.pro,publish:async e=>events.push(e),audit:async()=>{}});
+ const args={meetingId:'m1',actor,kind:'screen',clientRequestId:'r1'};
+ const first=await service.start(args);assert.equal((await service.start(args)).id,first.id);
+ await assert.rejects(()=>service.stop({meetingId:'m1',actor:{id:'bob',role:'presenter'},shareId:first.id}),PolicyError);
+ assert.deepEqual(await service.stop({meetingId:'m1',actor,shareId:first.id}),{stopped:true});
+ assert.equal(events.length,2);
+});

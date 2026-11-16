@@ -17,6 +17,7 @@ import pg from 'pg';
 import { Server } from 'socket.io';
 import { recoveryService } from './recovery-service.mjs';
 import { createSignalBudget } from './signal-budget.mjs';
+import { meetingMore } from './more.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const SECRET = process.env.JWT_SECRET;
@@ -78,11 +79,14 @@ const auth = (req,res,next) => { try { req.user=verify((req.headers.authorizatio
 const member = async (req,res,next) => {
  try {
   if (req.user.meetingId !== req.params.id) return fail(res,403,'Wrong meeting');
-  const { rows } = await db.query('SELECT m.ended_at, p.id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2',[req.params.id,req.user.participantId]);
+  const { rows } = await db.query('SELECT m.ended_at, p.id,p.role FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2',[req.params.id,req.user.participantId]);
   if (!rows.length || rows[0].ended_at) return fail(res,403,'Meeting unavailable');
+  req.user.role=rows[0].role;
   next();
  } catch { fail(res,500,'Database unavailable'); }
 };
+const more=meetingMore({db,io,room,audit});
+more.register(app,auth,member);
 // Server-to-server schedule reconciliation. Never call this from browser JavaScript.
 const bridgeAuth=(req,res,next)=>{
  const expected=process.env.QORLLA_BRIDGE_SECRET||'';
@@ -234,35 +238,42 @@ app.get('/api/meetings/:id',auth,member,async(req,res)=>{
  res.json({...m,messages:messages.reverse(),polls,online:activeList(req.params.id)});
 });
 app.post('/api/meetings/:id/lock',auth,member,async(req,res)=>{
- if(req.user.role!=='host')return fail(res,403,'Host only');
+ try {
+ if(!(await more.isManager(req.params.id,req.user.participantId,req.user.role)))return fail(res,403,'Host or co-host only');
  if(typeof req.body.locked!=='boolean')return fail(res,400,'locked must be boolean');
  await db.query('UPDATE meetings SET locked=$1 WHERE id=$2',[req.body.locked,req.params.id]);
  io.to(room(req.params.id)).emit('meeting-locked',{locked:req.body.locked});
  audit(req.params.id,req.user.participantId,'meeting.lock_changed',{locked:req.body.locked});
  res.json({ok:true,locked:req.body.locked});
+ }catch{fail(res,503,'Meeting controls unavailable');}
 });
 app.get('/api/resolve/:code',async(req,res)=>{
  try {const id=await resolveMeeting(req.params.code);if(!id)return fail(res,404,'Meeting unavailable');const {rows}=await db.query('SELECT ended_at FROM meetings WHERE id=$1',[id]);if(!rows.length||rows[0].ended_at)return fail(res,404,'Meeting unavailable');res.json({meetingId:id});}
  catch {fail(res,503,'Database unavailable');}
 });
 app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
- if(req.user.role!=='host') return fail(res,403,'Host only');
+ try {
+ if(!(await more.isManager(req.params.id,req.user.participantId,req.user.role))) return fail(res,403,'Host or co-host only');
  await db.query('UPDATE meetings SET ended_at=now() WHERE id=$1',[req.params.id]);
  io.to(room(req.params.id)).emit('meeting-ended');
  audit(req.params.id,req.user.participantId,'meeting.ended'); res.json({ok:true});
+ }catch{fail(res,503,'Meeting controls unavailable');}
 });
 app.get('/api/health',async(_req,res)=>{try{await db.query('SELECT 1');res.json({ok:true});}catch{res.status(503).json({ok:false});}});
 const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:message});
 io.use(async(socket,next)=>{
  try {
   const user=verify(socket.handshake.auth?.token);
-  const {rows}=await db.query('SELECT m.ended_at,p.id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2',[user.meetingId,user.participantId]);
+  const {rows}=await db.query('SELECT m.ended_at,p.id,p.role FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2',[user.meetingId,user.participantId]);
   if(!rows.length||rows[0].ended_at) throw Error('Meeting unavailable');
+  if(!Number.isFinite(user.exp))throw Error('Expiring meeting credential required');
+  user.role=rows[0].role;
   socket.data.user=user;next();
  } catch { next(new Error('Unauthorized')); }
 });
 io.on('connection',socket=>{
  const u=socket.data.user, id=u.meetingId, pid=u.participantId;
+ const credentialTimer=setTimeout(()=>socket.disconnect(true),Math.max(0,u.exp*1000-Date.now()));credentialTimer.unref?.();
  // Negotiation has a separate burst/sustained budget; it is never exempt.
  const allowSignal=createSignalBudget();
  const BUDGET=Number(process.env.SOCKET_EVENT_BUDGET||40), BUDGET_MS=10_000; let stamps=[];
@@ -274,6 +285,18 @@ io.on('connection',socket=>{
   const now=Date.now();stamps=stamps.filter(t=>now-t<BUDGET_MS);
   if(stamps.length>=BUDGET){const ack=args.find(a=>typeof a==='function');if(ack)ack({ok:false,error:'Rate limited'});return;}
   stamps.push(now);next();
+ });
+ socket.use(async([event,...args],next)=>{
+  const ack=args.find(value=>typeof value==='function');
+  try {
+   verify(socket.handshake.auth?.token);
+   const {rows}=await db.query('SELECT m.ended_at,p.role FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2',[id,pid]);
+   if(!rows.length||rows[0].ended_at)throw Error('Meeting unavailable');
+   u.role=rows[0].role;
+   if(['signal','media-state','poll-create','poll-vote'].includes(event)&&(!args[0]||typeof args[0]!=='object'||Array.isArray(args[0])))return ackError(ack,'Invalid event');
+   if(event==='chat'&&!(await more.chatAllowed(id,pid,u.role)))return ackError(ack,'Chat is restricted by the host.');
+   next();
+  }catch{ackError(ack,'Meeting authorization unavailable');socket.disconnect(true);}
  });
  if(!active.has(id)) active.set(id,new Map());
  const roster=active.get(id);
@@ -296,14 +319,14 @@ io.on('connection',socket=>{
  });
  socket.on('hand',raised=>{socket.to(room(id)).emit('hand',{participantId:pid,raised:!!raised});});
  socket.on('media-state',state=>{socket.to(room(id)).emit('media-state',{participantId:pid,mic:!!state?.mic,cam:!!state?.cam,sharing:!!state?.sharing});});
- socket.on('reaction',emoji=>{if(['👍','👏','❤️','🎉','😂'].includes(emoji))io.to(room(id)).emit('reaction',{name:u.name,emoji});});
+ socket.on('reaction',async(emoji,ack)=>{try{const result=await more.react(id,pid,u.role,u.name,emoji);if(typeof ack==='function')ack(result);}catch(error){ackError(ack,error.status?error.message:'Reactions unavailable');}});
  socket.on('notes',async(text,ack)=>{
-  if(u.role!=='host')return ackError(ack,'Host only');
+  if(!(await more.isManager(id,pid,u.role)))return ackError(ack,'Host or co-host only');
   text=clean(text,12000);
   try{await db.query('UPDATE meetings SET notes=$1 WHERE id=$2',[text,id]);socket.to(room(id)).emit('notes',text);if(typeof ack==='function')ack({ok:true});}catch{ackError(ack,'Save failed');}
  });
  socket.on('poll-create',async(data,ack)=>{
-  if(u.role!=='host')return ackError(ack,'Host only');
+  if(!(await more.isManager(id,pid,u.role)))return ackError(ack,'Host or co-host only');
   const question=clean(data?.question,300),options=Array.isArray(data?.options)?data.options.map(s=>clean(s,100)).filter(Boolean).slice(0,8):[];
   if(!question||options.length<2)return ackError(ack,'Question and two options required');
   try{const poll={id:randomUUID(),question,options};await db.query('INSERT INTO polls(id,meeting_id,question,options) VALUES($1,$2,$3,$4)',[poll.id,id,question,JSON.stringify(options)]);io.to(room(id)).emit('poll-created',poll);ack?.({ok:true});}catch{ackError(ack,'Poll failed');}
@@ -315,6 +338,6 @@ io.on('connection',socket=>{
    const {rows}=await db.query('SELECT choice,count(*)::int AS count FROM poll_votes WHERE poll_id=$1 GROUP BY choice',[pollId]);io.to(room(id)).emit('poll-results',{pollId,counts:rows});ack?.({ok:true});
   }catch{ackError(ack,'Vote failed');}
  });
- socket.on('disconnect',()=>{if(roster.get(pid)!==socket.id)return;roster.delete(pid);socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
+ socket.on('disconnect',()=>{clearTimeout(credentialTimer);if(roster.get(pid)!==socket.id)return;roster.delete(pid);socket.to(room(id)).emit('participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 server.listen(PORT,()=>console.log(`Qorlla Meet listening on http://localhost:${PORT}`));

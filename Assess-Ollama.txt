@@ -1,0 +1,68 @@
+QORLLA OLLAMA INTEGRATION AND PERFORMANCE ASSESSMENT
+Assessment date: 2026-11-10
+Scope: Files in qorlla-ollama-integration-kit; adapter, Docs AI boundary, deployment examples, and adjacent next/next2 Portal patch variants. This is a code and test review, not a live deployment or model benchmark.
+
+EXECUTIVE SUMMARY
+The kit has a sound prototype foundation: model allowlisting, bounded in-process concurrency and queue, cancellation, request timeouts, prompt/output limits, private-network deployment examples, and explicit Portal integration hooks. The isolated automated tests pass.
+
+It is not production integrated or performance certified. No test here runs a real Ollama model, Portal, database, Docker deployment, or representative load. The most important blockers are completing the real Portal wiring, validating a single authoritative adapter/protocol, enforcing end-to-end latency and stale-document behavior, and collecting model/hardware performance evidence before choosing concurrency or capacity.
+
+FINDINGS (PRIORITIZED)
+
+P0 - Integration package is not the live Portal
+Evidence: qorlla-ollama-integration/docs/INTEGRATION_CONTRACT.md:3; README.md:3.
+The package explicitly says it is not wired into the live Portal. Authentication/tenant resolution, document ACL, durable quota reservation, audit, UI preview/acceptance, and deployment wiring are mandatory external hooks, not implementations supplied here.
+Recommendation: treat this as a release blocker. Apply the patch only to a clean, isolated Portal worktree, implement the existing Portal hooks and UI flow, then test the exact deployment tree. Keep AI disabled until that passes.
+
+P1 - Multiple adapter variants use different APIs and need one source of truth
+Evidence: qorlla-ollama-integration/src/ollama.mjs:122 uses Ollama /api/generate; qorlla-ollama-next/qorlla-portal/server/ai/ollama.mjs and qorlla-ollama-next2/qorlla-portal/server/ai/ollama.mjs use OpenAI-compatible /v1/chat/completions.
+These artifacts differ in request/response contract and configuration; tests against one do not certify another. Mixing files or deploying an unintended variant could break generation or JSON expectations.
+Recommendation: identify the actual target Portal branch and supported Ollama API, select one canonical adapter, and make the application wiring, env settings, deployment fragment, and tests agree. Run a real-model smoke test against that exact path.
+
+P1 - No end-to-end performance evidence; current generation is non-streaming
+Evidence: qorlla-ollama-integration/src/ollama.mjs:122 sets stream:false; the adjacent patch README says tests are mocked and no real Ollama/GPU/Docker test has been performed (qorlla-ollama-next/README.md:26).
+There are no measured cold/warm latency, time-to-first-token, tokens/second, throughput, saturation, memory/GPU use, or p95/p99 results. Non-streaming also means users receive no progressive output while inference runs.
+Recommendation: benchmark the selected model on target CPU/GPU and deployment hardware at representative prompt/output sizes and concurrency levels. Record cold and warm p50/p95/p99 total latency, tokens/sec, error/timeout rate, queue wait, CPU/RAM/VRAM, and model-load behavior. Define acceptance thresholds before enabling users. Consider streaming only if the Portal supports cancellation, bounded output, and safe partial-result handling.
+
+P1 - Request timeout does not bound total queue wait
+Evidence: qorlla-ollama-integration/src/ollama.mjs:39-53 and :65-66, :120-121.
+generate() waits for acquire() before request() starts its timeout. A queued request can therefore spend longer than timeoutMs waiting before its inference timeout begins. The queue is bounded, but queue wait is not deadline-bounded.
+Recommendation: start one absolute deadline when the request arrives, include admission and queue wait in it, remove expired requests, and expose queue-wait/timeout metrics. Validate the response with a test where all inference slots are occupied.
+
+P1 - Health can report success when no configured model is available
+Evidence: qorlla-ollama-integration/src/ollama.mjs:107-112.
+An HTTP-successful /api/tags response returns ok:true even when readyModels is empty. A deployment can appear healthy while every configured model request will fail or trigger model loading.
+Recommendation: distinguish Ollama process liveness from model readiness; require the selected model to be installed/ready for readiness success, and test missing-model behavior.
+
+P1 - Document version is not revalidated after inference; audit errors are discarded
+Evidence: qorlla-ollama-integration/src/docs-ai.mjs:41, :56-64.
+The service rechecks authorization after generation but does not compare the returned version with the original version. It can return a suggestion based on stale text. Success and failure audit errors are silently swallowed despite audit being a required Portal hook.
+Recommendation: compare the post-inference document version with the authorized source version and reject stale suggestions; have the UI also enforce version checks before applying. Make audit failure behavior explicit and observable (fail closed if audit is a release requirement, or use a durable outbox/alert if it is asynchronous).
+
+P2 - In-process limits and sparse observability do not establish service capacity
+Evidence: qorlla-ollama-integration/src/ollama.mjs:30-31, :106; adapter limits are local to one process.
+Defaults of two concurrent requests and eight queued requests are safety bounds, not evidence of optimal throughput or a cluster-wide limit. stats() exposes only active/queued counts; there is no queue latency, inference duration, token, saturation, or failure telemetry in this package.
+Recommendation: tune limits from the real-model benchmark. Enforce tenant/IP quotas and aggregate concurrency in the Portal or shared store across replicas. Add privacy-safe metrics and alerts for queue saturation, latency, failures, and model readiness.
+
+P2 - Gateway cancellation is not confirmed end to end
+Evidence: qorlla-ollama-next/README.md:24.
+The adapter accepts AbortSignal, but the adjacent integration notes that the existing gateway does not propagate HTTP-client cancellation to all model calls. A user disconnect may therefore leave work consuming inference capacity.
+Recommendation: wire request disconnect/timeout cancellation through the Portal gateway to the adapter and verify active Ollama requests are actually aborted, not merely ignored by the caller.
+
+P2 - Deployment needs target-specific resource and operational validation
+Evidence: qorlla-ollama-integration/deploy/docker-compose.ollama.yml and docs/INTEGRATION_CONTRACT.md:27.
+The compose file is deliberately a fragment with an internal network and no published port, but it does not set validated CPU/memory/GPU resources or a production health policy. Internal networking can prevent model pulls; weights must be provisioned out of band.
+Recommendation: pin and scan the image, define resource/GPU allocation based on measurement, configure readiness/monitoring, verify private network reachability from the Portal, and document secure model-weight provisioning and rollback.
+
+VERIFICATION PERFORMED
+- qorlla-ollama-integration: npm.cmd test - 13/13 tests passed.
+- qorlla-ollama-next Portal adapter: node --test tests/ollama.integration.test.mjs - 7/7 passed.
+- qorlla-ollama-next2 Portal adapter: node --test tests/ollama.integration.test.mjs - 7/7 passed.
+- These are isolated/mock-transport tests. They do not prove real-model output quality, Portal authorization/quota/audit wiring, production cancellation, deployment isolation, or performance.
+
+RECOMMENDED RELEASE GATES
+1. Select the canonical Portal branch and Ollama API; integrate into the existing Portal without replacing its routes or controls.
+2. Implement and test authentication, tenant/document authorization, durable quota, metadata audit, version conflict handling, and user acceptance.
+3. Add end-to-end queue deadlines, readiness semantics, cancellation propagation, and operational metrics.
+4. Run real-model functional, no-egress, restart, load, and outage tests on target hardware; publish p95/p99 and capacity evidence against agreed thresholds.
+5. Keep the feature disabled until all gates pass; retain rollback and deployment evidence.

@@ -1,0 +1,39 @@
+{
+  "target_repository": "jedgod/qorlla-Application-video",
+  "base_main_sha": "810e196349e00bd68befcf4b43ccdb3df80a3ae3",
+  "a5_branch_detected": true,
+  "calling_gates_enabled": false,
+  "validation": {
+    "syntax_checked_files": 17,
+    "node_contract_tests_passed": 19,
+    "postgres_real_tested": false,
+    "a4_media_tested": false,
+    "carrier_tested": false,
+    "repository_modified": false
+  },
+  "files": {
+    ".env.a49.example": "cd5dbe19683dfe4b868f34532c7bc8fdc7973e5879db479ea35ba9e7e19b45fa",
+    "README.md": "537ec038fe8d3caf1d547f379a2d19df0c75d3f45fc2501f15a8ad1b7830fbb4",
+    "docs/A5_RECONCILIATION.md": "09a1a52b5cdc552598b4211bb13695d46c9e4e75c6cd107f4e00f3115ac51724",
+    "docs/CERTIFICATION_MATRIX.md": "7754e06504af6d6d4402784a92e62840a1d69fe73fd8a094d5f4b0543f1d7ce3",
+    "qorlla-meet-video/server/a49-integration.mjs": "aa146f81a402e2e7a4e9dac5b9b7033780fe8420c2dba3b6965ea2fd7197b328",
+    "qorlla-meet-video/sql/009_a49_meet_commands.sql": "5b2a3eb12d2cd4bbb16c073fa9847b99188153e9c19ccf8a6c891566d83f89df",
+    "qorlla-portal/server/telephony/a49/a4-adapter.mjs": "7c953cdbbb42b252925e6bfe282089afa6e36a38b77e8719b4cb2764c9669149",
+    "qorlla-portal/server/telephony/a49/admission-sync.mjs": "41acf44a9b37c07f0b41bc8e2a267db0c5fdaecc53dbf3ea33b1817f52327db0",
+    "qorlla-portal/server/telephony/a49/call-api.mjs": "77aed406146d5fecee304398661371d7a14760f4812313a34256ffd8870da209",
+    "qorlla-portal/server/telephony/a49/carrier-http.mjs": "9e39107ec06f5c5807c8971189f4b3ef180684aa1c9ba28fa31f8fa1fca4dbc8",
+    "qorlla-portal/server/telephony/a49/carrier.mjs": "faf2ddc8dc8152b701a5ae553553913eda777754a57ad182d09192d0c7afaece",
+    "qorlla-portal/server/telephony/a49/core.mjs": "e84858189545519421c48999132e36ed9ba65a0463817fe5cd62d3250aa11a8a",
+    "qorlla-portal/server/telephony/a49/delivery-router.mjs": "6cc0ae7daa1ef9906d86963308e202c1104663a402209ed1e1f05d3c84442222",
+    "qorlla-portal/server/telephony/a49/http.mjs": "fb83054edf32da5611e484a6441d988acc802226f61503630ebc0eb2a50c1e3a",
+    "qorlla-portal/server/telephony/a49/meet-delivery.mjs": "5441152e3689c20231333d6c412a56181f92e30a1f65705a226f302d7d0d7844",
+    "qorlla-portal/server/telephony/a49/meet-queue.mjs": "1b4df0887cabbb94b9907501c0a9f96230373ef21dd0deacead1f8c24869cb92",
+    "qorlla-portal/server/telephony/a49/outbox.mjs": "394da9f4ea315360c0a4a1b1f241ef8cb84ce9dad02c4b27ae26c3ebc638640c",
+    "qorlla-portal/server/telephony/a49/runtime.mjs": "4ca751264a98f32d4dd05adbafa3b6c3e174b4a30b8d99cecd899ce3ccad7c63",
+    "qorlla-portal/server/telephony/a49/worker-main.mjs": "3267795a35b20488e4a38cbf40811816343c5f1b240838b1df40092d72db9fa3",
+    "qorlla-portal/sql/008_a49_voice.sql": "633283c6077f7081b02d3acea03ead8dbd4e514a567f04e943697e62e4c27583",
+    "qorlla-portal/tests/a49-contract.test.mjs": "eeb1c9181b8aba00de771943e5be8ad4fc1924c0f8df28c685774eddf9af7672",
+    "qorlla-portal/tests/a49-gateway-tx.test.mjs": "07314664904a3475a367a11412c034fa56a66dd1bc349e94a7114cf710b8b8c3",
+    "scripts/apply.mjs": "8641e306d0be230d43906e64dfa788d89228be51dd0ef82f73f159dd6014838a"
+  }
+}

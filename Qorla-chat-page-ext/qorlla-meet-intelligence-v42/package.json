@@ -1,0 +1,1 @@
+{"name":"qorlla-meet-intelligence-v42","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.mjs","check":"node --check src/router.mjs && node --check src/worker.mjs"},"dependencies":{"express":"^4.21.2","zod":"^3.24.2","pg":"^8.13.3"}}

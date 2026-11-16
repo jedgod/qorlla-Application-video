@@ -1,0 +1,12 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {assertFileMetadata,canReadFile,canUpload} from '../src/policy.mjs';
+const a={authenticated:true,tenantId:'t',occurrenceId:'m',participantId:'p',role:'member',roomId:'r1'};
+const f={tenant_id:'t',occurrence_id:'m',room_id:'r1',state:'clean',host_approved:true,visibility:'room'};
+test('valid metadata',()=>assert.doesNotThrow(()=>assertFileMetadata({filename:'notes.pdf',type:'application/pdf',bytes:100})));
+test('reject path traversal',()=>assert.throws(()=>assertFileMetadata({filename:'../x',type:'application/pdf',bytes:100})));
+test('reject executable',()=>assert.throws(()=>assertFileMetadata({filename:'evil.exe',type:'application/x-msdownload',bytes:100})));
+test('reject oversized',()=>assert.throws(()=>assertFileMetadata({filename:'a.pdf',type:'application/pdf',bytes:999999999})));
+test('room visibility',()=>{assert.equal(canReadFile(a,f),true);assert.equal(canReadFile({...a,roomId:'r2'},f),false)});
+test('no pending download',()=>assert.equal(canReadFile(a,{...f,state:'scanning'}),false));
+test('host approval required',()=>assert.equal(canReadFile(a,{...f,host_approved:false}),false));
+test('tenant isolation',()=>assert.equal(canReadFile({...a,tenantId:'other'},f),false));
+test('upload room isolation',()=>{assert.equal(canUpload(a,'r1'),true);assert.equal(canUpload(a,'r2'),false)});

@@ -1,0 +1,2 @@
+const{chromium}=require('@playwright/test');const fs=require('fs');(async()=>{const b=await chromium.launch();try{const p=await b.newPage();const c=await p.context().newCDPSession(p);await c.send('Runtime.enable');const s=fs.readFileSync('evidence/more-localhost-4801-grid/candidate/collab.js','utf8').replace('export function initCollab','function initCollab');console.log(JSON.stringify(await c.send('Runtime.compileScript',{expression:s,sourceURL:'collab.js',persistScript:false})));}finally{await b.close()}})();
+

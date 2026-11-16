@@ -1,0 +1,32 @@
+/* Compact master/detail history, scoped away from the AI drawer. */
+.hist-panel .hist-toprow { gap: 8px; margin-bottom: 10px; }
+.hist-panel .hist-pager:not(.hidden) { display:grid; grid-template-columns: 1fr auto 1fr; align-items:center; gap:12px; }
+.hist-panel .hist-prev { justify-self:start; }
+.hist-panel .hist-next { justify-self:end; }
+.hist-panel .hist-pageno { white-space:nowrap; text-align:center; }
+.hist-panel .hist-body { min-width:0; overflow-wrap:anywhere; }
+.hist-panel .hist-sec { border-bottom:1px solid #edf0f6; padding-bottom:8px; }
+.hist-panel .hist-body textarea { min-height:46px; resize:vertical; }
+.hist-panel .hist-actions { gap:8px; }
+.hist-panel .hist-actions .btn { min-width:0; white-space:normal; text-align:center; }
+.hist-panel .hist-sub { white-space:normal; }
+@container hist (min-width:760px) {
+  .hist-panel .hist-list.hist-split { grid-template-columns:minmax(280px,39%) minmax(0,1fr); grid-template-rows:repeat(var(--history-page-size,5),minmax(64px,1fr)) 48px; height:var(--history-list-height,600px); min-height:440px; gap:0; align-items:stretch; }
+  .hist-panel .hist-list.hist-split > .hist-row { display:contents; }
+  .hist-panel .hist-list.hist-split .hist-rowhead { grid-column:1; grid-row:var(--history-row); margin:0 12px 7px 0; padding:8px 10px; min-width:0; }
+  .hist-panel .hist-list.hist-split .hist-body { grid-column:2; grid-row:1 / -1; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:0 0 8px 14px; border-left:1px solid var(--line); }
+  .hist-panel .hist-list.hist-split > .hist-pager { grid-column:1; grid-row:-2 / -1; margin:0 12px 0 0; padding:6px 0; align-self:stretch; border-top:1px solid var(--line); }
+  .hist-panel .hist-list.hist-split .hist-facts { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .hist-panel .hist-fcard .hist-kv { grid-template-columns:minmax(0,46%) minmax(0,1fr); font-size:12px; }
+  .hist-panel .hist-fcard .hist-k { font-size:12px; letter-spacing:0; }
+  .hist-panel .hist-list.hist-split .hist-actions { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); position:sticky; bottom:-8px; background:#fff; padding:10px 0 4px; border-top:1px solid var(--line); margin-top:auto; }
+  .hist-panel .hist-list.hist-split .hist-actions .btn { height:auto; min-height:36px; padding:7px 5px; font-size:12px; }
+}
+@container hist (max-width:759px) {
+  .hist-panel .hist-list.hist-split { display:flex; height:auto; min-height:0; }
+  .hist-panel .hist-list.hist-split .hist-row { display:block; }
+  .hist-panel .hist-list.hist-split .hist-rowhead { margin:0; }
+  .hist-panel .hist-list.hist-split .hist-body { border:1px solid var(--line); padding:10px; margin-top:6px; }
+  .hist-panel .hist-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .hist-panel .hist-facts { grid-template-columns:1fr; }
+}

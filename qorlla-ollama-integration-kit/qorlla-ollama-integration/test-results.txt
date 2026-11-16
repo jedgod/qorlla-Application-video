@@ -1,0 +1,88 @@
+TAP version 13
+# Subtest: valid private inference response
+ok 1 - valid private inference response
+  ---
+  duration_ms: 29.711576
+  type: 'test'
+  ...
+# Subtest: rejects unauthorized model without contacting backend
+ok 2 - rejects unauthorized model without contacting backend
+  ---
+  duration_ms: 1.146088
+  type: 'test'
+  ...
+# Subtest: rejects unsafe endpoint and invalid configuration
+ok 3 - rejects unsafe endpoint and invalid configuration
+  ---
+  duration_ms: 0.507081
+  type: 'test'
+  ...
+# Subtest: rejects truncated or mismatched response
+ok 4 - rejects truncated or mismatched response
+  ---
+  duration_ms: 0.832432
+  type: 'test'
+  ...
+# Subtest: bounds queue and cancels a waiting request
+ok 5 - bounds queue and cancels a waiting request
+  ---
+  duration_ms: 1.288742
+  type: 'test'
+  ...
+# Subtest: response size limit enforced
+ok 6 - response size limit enforced
+  ---
+  duration_ms: 0.610114
+  type: 'test'
+  ...
+# Subtest: health reports allowlisted installed models only
+ok 7 - health reports allowlisted installed models only
+  ---
+  duration_ms: 0.750819
+  type: 'test'
+  ...
+# Subtest: requires Portal hooks
+ok 8 - requires Portal hooks
+  ---
+  duration_ms: 2.377088
+  type: 'test'
+  ...
+# Subtest: disabled by default
+ok 9 - disabled by default
+  ---
+  duration_ms: 1.264787
+  type: 'test'
+  ...
+# Subtest: authorized request returns suggestion, not saved document
+ok 10 - authorized request returns suggestion, not saved document
+  ---
+  duration_ms: 0.680638
+  type: 'test'
+  ...
+# Subtest: cross-tenant document refused before inference
+ok 11 - cross-tenant document refused before inference
+  ---
+  duration_ms: 0.284528
+  type: 'test'
+  ...
+# Subtest: revocation during inference refuses output and releases quota
+ok 12 - revocation during inference refuses output and releases quota
+  ---
+  duration_ms: 0.392763
+  type: 'test'
+  ...
+# Subtest: selected text must be checked by Portal
+ok 13 - selected text must be checked by Portal
+  ---
+  duration_ms: 0.224994
+  type: 'test'
+  ...
+1..13
+# tests 13
+# suites 0
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 117.937374

@@ -1,0 +1,12 @@
+BEGIN;
+CREATE SCHEMA IF NOT EXISTS qorlla_chat;
+CREATE TABLE IF NOT EXISTS qorlla_chat.conversations (id uuid PRIMARY KEY, workspace_id text NOT NULL, meeting_id text, kind text NOT NULL CHECK(kind IN ('board','direct','group')), title text NOT NULL, created_by text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS qorlla_chat.members (conversation_id uuid NOT NULL REFERENCES qorlla_chat.conversations(id) ON DELETE CASCADE, user_id text NOT NULL, role text NOT NULL DEFAULT 'member' CHECK(role IN ('member','moderator','owner')), PRIMARY KEY(conversation_id,user_id));
+CREATE TABLE IF NOT EXISTS qorlla_chat.messages (id uuid PRIMARY KEY, conversation_id uuid NOT NULL REFERENCES qorlla_chat.conversations(id), author_id text NOT NULL, body_html text NOT NULL, kind text NOT NULL DEFAULT 'text' CHECK(kind IN ('text','gif','file')), reply_to uuid REFERENCES qorlla_chat.messages(id), attachment_id uuid, created_at timestamptz NOT NULL DEFAULT now(), edited_at timestamptz, deleted_at timestamptz);
+CREATE INDEX IF NOT EXISTS chat_messages_page ON qorlla_chat.messages(conversation_id,created_at DESC,id DESC) WHERE deleted_at IS NULL;
+CREATE TABLE IF NOT EXISTS qorlla_chat.bookmarks(user_id text NOT NULL,message_id uuid NOT NULL REFERENCES qorlla_chat.messages(id),PRIMARY KEY(user_id,message_id));
+CREATE TABLE IF NOT EXISTS qorlla_chat.pins(conversation_id uuid NOT NULL REFERENCES qorlla_chat.conversations(id),message_id uuid NOT NULL REFERENCES qorlla_chat.messages(id),created_by text NOT NULL,PRIMARY KEY(conversation_id,message_id));
+CREATE TABLE IF NOT EXISTS qorlla_chat.tasks(id uuid PRIMARY KEY,message_id uuid NOT NULL REFERENCES qorlla_chat.messages(id),title text NOT NULL,assignee_id text,due_at timestamptz,status text NOT NULL DEFAULT 'open',created_by text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS qorlla_chat.attachments(id uuid PRIMARY KEY,conversation_id uuid NOT NULL REFERENCES qorlla_chat.conversations(id),uploaded_by text NOT NULL,object_key text UNIQUE NOT NULL,original_name text NOT NULL,mime text NOT NULL,size_bytes bigint NOT NULL,sha256 text NOT NULL,scan_status text NOT NULL CHECK(scan_status IN ('pending','clean','infected','error')),created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS qorlla_chat.audit(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,actor_id text NOT NULL,action text NOT NULL,subject_id text NOT NULL,at timestamptz NOT NULL DEFAULT now());
+COMMIT;

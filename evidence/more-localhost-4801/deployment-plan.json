@@ -1,0 +1,31 @@
+{
+  "target": "http://localhost:4801",
+  "container": "qlaunch-meet-1",
+  "destination": "/app/public",
+  "files": [
+    "collab.js",
+    "styles.css"
+  ],
+  "restartRequired": false,
+  "backendChanged": false,
+  "databaseMigrationApplied": false,
+  "qaAvailable": false,
+  "status": "prepared; not installed; requires approval under earlier no-deploy instruction",
+  "originalHashes": [
+    {
+      "file": "collab.js",
+      "sha256": "44dc6aa73b0b6dad1742d396bf912549b484db82cef84425da4756823936cc6e"
+    },
+    {
+      "file": "styles.css",
+      "sha256": "c176f307ec254d919382e99ac53f63b6e80e4311246ec1e44c6421a8585638c9"
+    }
+  ],
+  "sourceWorktree": "C:/Users/cj_wo/qv-chatql/qorlla-meet-video/public",
+  "sourceMatchesRunning": true,
+  "validation": {
+    "rendererTestsPassed": 1,
+    "notesPollsRecordingCodeUnchanged": true
+  },
+  "browserReload": "User-controlled; do not refresh an active meeting automatically"
+}

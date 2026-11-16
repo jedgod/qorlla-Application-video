@@ -1,0 +1,10 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {authorizeShare,ShareDenied} from '../server/share-policy.mjs';
+const meeting={id:'m',tenantId:'t',hostId:'h',members:[{userId:'u',admitted:true},{userId:'h',admitted:true}]};
+const actor={id:'u',tenantId:'t'};
+test('admitted approved presenter can start',()=>assert.doesNotThrow(()=>authorizeShare({actor,meeting,grant:{canPresent:true},action:'start'})));
+test('cross tenant blocked',()=>assert.throws(()=>authorizeShare({actor:{...actor,tenantId:'other'},meeting,grant:{canPresent:true},action:'start'}),ShareDenied));
+test('unapproved guest blocked',()=>assert.throws(()=>authorizeShare({actor:{...actor,isGuest:true},meeting,grant:{canPresent:true},action:'start'}),ShareDenied));
+test('concurrent presenter blocked',()=>assert.throws(()=>authorizeShare({actor,meeting:{...meeting,activePresenterId:'h'},grant:{canPresent:true},action:'start'}),ShareDenied));
+test('non-owner cannot revoke',()=>assert.throws(()=>authorizeShare({actor,meeting,action:'revoke',ownerId:'h'}),ShareDenied));
+test('host can revoke',()=>assert.doesNotThrow(()=>authorizeShare({actor:{id:'h',tenantId:'t'},meeting,action:'revoke',ownerId:'u'})));

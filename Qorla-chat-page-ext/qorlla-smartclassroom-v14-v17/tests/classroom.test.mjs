@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createClassroom,ClassroomError} from '../src/classroom.mjs';
+const setup=(actor={active:true,participantId:'p1',role:'member'})=>createClassroom({pool:{connect:async()=>({query:async()=>({rowCount:0,rows:[]}),release(){}})},verifyActor:async()=>actor});
+test('requires real Meet auth and database adapters',()=>assert.throws(()=>createClassroom({}),/required/));
+test('denies non-host assignment plan',async()=>assert.rejects(setup().planAssignments('t','occ',['a'],['r']),e=>e.status===403));
+test('balanced plan is deterministic and capacity checked',async()=>{const s=setup({active:true,participantId:'host',role:'host'});assert.deepEqual(await s.planAssignments('t','occ',['a','b','c'],['r1','r2']),[{participantId:'a',roomId:'r1'},{participantId:'b',roomId:'r2'},{participantId:'c',roomId:'r1'}]);await assert.rejects(s.planAssignments('t','occ',['a','b','c'],['r1','r2'],1),e=>e.status===409)});
+test('fails closed for unavailable private AI',async()=>await assert.rejects(setup().requestAIReport('t','occ','room',{sourceText:'hello',consentRecordId:'consent'}),e=>e.status===503));
+test('rejects invalid board operations before database access',async()=>await assert.rejects(setup().appendBoardOp('t','occ','board',{opId:'bad',kind:'stroke',points:[]}),e=>e.status===400));
+test('rejects inactive Meet participant',async()=>await assert.rejects(setup({active:false}).teacherDashboard('t','occ'),e=>e.status===403));
+test('prevents ordinary member from teacher dashboard',async()=>await assert.rejects(setup().teacherDashboard('t','occ'),e=>e.status===403));

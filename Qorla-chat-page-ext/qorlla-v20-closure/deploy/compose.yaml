@@ -1,0 +1,34 @@
+name: qorlla-v20-scratch
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: qorlla, POSTGRES_PASSWORD: ${PG_PASSWORD:?Set PG_PASSWORD}, POSTGRES_DB: meet}
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U qorlla -d meet"], interval: 5s, retries: 15}
+    volumes: ["pgdata:/var/lib/postgresql/data", "../sql/001.sql:/docker-entrypoint-initdb.d/001.sql:ro"]
+    networks: [internal]
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server","--appendonly","yes","--requirepass","${REDIS_PASSWORD:?Set REDIS_PASSWORD}"]
+    volumes: ["redisdata:/data"]
+    healthcheck: {test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"], interval: 5s, retries: 15}
+    environment: {REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}}
+    networks: [internal]
+  meet-a:
+    build: ..
+    environment: {DATABASE_URL: "postgresql://qorlla:${PG_PASSWORD}@postgres:5432/meet", REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379", PORT: "8080", LOCAL_TEST_ONLY: "true"}
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}}
+    ports: ["127.0.0.1:18081:8080"]
+    networks: [internal]
+  meet-b:
+    build: ..
+    environment: {DATABASE_URL: "postgresql://qorlla:${PG_PASSWORD}@postgres:5432/meet", REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379", PORT: "8080", LOCAL_TEST_ONLY: "true"}
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}}
+    ports: ["127.0.0.1:18082:8080"]
+    networks: [internal]
+  coturn:
+    image: coturn/coturn:4.6.3
+    command: ["-n","--lt-cred-mech","--realm=turn.qorlla.invalid","--user=test:${TURN_PASSWORD:?Set TURN_PASSWORD}","--min-port=49160","--max-port=49200","--fingerprint","--no-cli","--no-multicast-peers"]
+    ports: ["3478:3478/udp","3478:3478/tcp","49160-49200:49160-49200/udp"]
+    networks: [internal]
+networks: {internal: {}}
+volumes: {pgdata: {}, redisdata: {}}

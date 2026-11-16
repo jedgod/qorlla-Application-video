@@ -1,0 +1,76 @@
+{
+  "milestone": "Qorlla Meet More V4.1",
+  "backend": {
+    "passed": 9,
+    "failed": 0,
+    "engine": "pg-mem PostgreSQL-compatible in-memory adapter",
+    "realPostgresConcurrencyVerified": false
+  },
+  "ui": {
+    "passed": 3,
+    "failed": 0,
+    "desktop": "1440x900",
+    "phone": "390x844",
+    "media": "isolated fixture; no actual capture"
+  },
+  "productionDependencyAudit": {
+    "knownVulnerabilities": 0
+  },
+  "deploymentPerformed": false,
+  "migrationApplied": false,
+  "protectedServicesChanged": false,
+  "qvChat": {
+    "reviewedWorktreeHead": "35ae1f0266c473b9359049112b438ff228622208",
+    "merged": false
+  },
+  "sources": [
+    {
+      "file": "qorlla-meet-video/public/index.html",
+      "sha256": "94967d5c73a2ccb99617fcddd8e2ca324aead2147d9c6c3c7fedd4d85656ca52"
+    },
+    {
+      "file": "qorlla-meet-video/public/app.js",
+      "sha256": "d736d11d4110f734eeb55c9b2ddb925cbe544d454a43f10c88889f11904ad3e7"
+    },
+    {
+      "file": "qorlla-meet-video/public/more-panel.html",
+      "sha256": "c659aa2f07b9f846111afea8a39eb955cd543b6109817e3dee07de09f26ac680"
+    },
+    {
+      "file": "qorlla-meet-video/public/more-panel.css",
+      "sha256": "9891351dfdac4a827b9d7aacce978fee4e9bb05eb4e89396059f2d7fcb2898cb"
+    },
+    {
+      "file": "qorlla-meet-video/public/more-panel.js",
+      "sha256": "1423392c62ba1bf506a38ec7584e03fc0f6fe3da80e36bc2ec230942c7932b83"
+    },
+    {
+      "file": "qorlla-meet-video/server/index.js",
+      "sha256": "07276cf4d26d39d3f57c731a492ac8ca91c243b9a9260f2658eac939caabf6b8"
+    },
+    {
+      "file": "qorlla-meet-video/server/more.mjs",
+      "sha256": "343647d0b5feec256d576ec309ec5c3b4b92ff975d4d8849550e573dfdb0a0fc"
+    },
+    {
+      "file": "qorlla-meet-video/sql/v4_1_more.sql",
+      "sha256": "a2a56627e8b8b17cbba562ddb2c403961610422952f63d0ce849f99f174ea3e1"
+    },
+    {
+      "file": "qorlla-meet-video/tests/more.test.mjs",
+      "sha256": "10467c597e70272b6661b36adb8fd8ee4f173a642f19aac377d01a14a09b353e"
+    },
+    {
+      "file": "tests/meet-more-ui.spec.js",
+      "sha256": "b7524972466efd07f40a040f50bb4cf270295988d91c1e0f19da94e0a067b219"
+    },
+    {
+      "file": "qorlla-meet-video/package.json",
+      "sha256": "c756013ff1975a90aac692879a2a60f594aa79ef5c61606fd7d17c3d684b5476"
+    },
+    {
+      "file": "qorlla-meet-video/package-lock.json",
+      "sha256": "2926ad66a0100fbcccee02f16b518eadbfc3496ae2ad237d22ba1ca0b34a898b"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "qorlla-private-ollama-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fail-closed private Ollama inference adapter for integration with existing Qorlla Portal",
+  "scripts": {"test": "node --test tests/*.test.mjs"},
+  "engines": {"node": ">=20"}
+}

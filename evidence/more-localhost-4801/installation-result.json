@@ -1,0 +1,20 @@
+{
+  "status": "installed and verified",
+  "target": "http://localhost:4801",
+  "sourceWorktree": "C:/Users/cj_wo/qv-chatql/qorlla-meet-video/public",
+  "files": [
+    {
+      "file": "collab.js",
+      "sha256": "430a829ee479d1d94ee529dae009f09a74984f5ecc196348a5158038778169d9"
+    },
+    {
+      "file": "styles.css",
+      "sha256": "eb1a1a0059fa37e144ffaff93bc23781a81d417523705a8db4c792029cfa8287"
+    }
+  ],
+  "containerRestarted": false,
+  "browserRefreshed": false,
+  "backendChanged": false,
+  "databaseChanged": false,
+  "qaAvailable": false
+}

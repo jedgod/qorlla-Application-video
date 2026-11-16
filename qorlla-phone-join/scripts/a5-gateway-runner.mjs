@@ -10,16 +10,19 @@ import pg from 'pg';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+const cold = (n) => { if (process.env.A5_COLD) console.error(JSON.stringify({ cold: n, ms: Math.round(performance.now()), utc: Date.now() })); };       // A5.4 lab diagnostics: start-up phases (ms since this process started)
+cold('static_imports_done');
 const dist = path.join(import.meta.dirname, '..', 'dist', 'src');
 const imp = (f) => import(pathToFileURL(path.join(dist, f)).href);
 const [{ createSipGateway }, { MeetPhoneAuthority }, { MeshPeerAudio }, { verificationPeerSignaling }, { PostgresCallLedger }, { terminateCall, startReaper, startLeaseKeeper }, { startMediaKeepAlive }, { ha1 }] = await Promise.all(
   ['sip-gateway.js', 'meet-authority.js', 'media/mesh-peer.js', 'media/meet-signaling.js', 'ledger-pg.js', 'compose.js', 'meet-media.js', 'sip/digest.js'].map(imp));
+cold('dist_imports_done');
 const need = (k) => { const v = process.env[k]; if (!v) { console.error('missing ' + k); process.exit(2); } return v; };
 if (process.env.A5_LAB_READINESS !== '1') { console.error('refusing to start: this runner uses a lab-only readiness stub and needs A5_LAB_READINESS=1'); process.exit(2); }
 const MEET = need('MEET_URL'), HMAC = need('MEET_HMAC_SECRET'), USER = need('SIP_USER'), PASS = need('SIP_PASSWORD'), DB = need('GATEWAY_DATABASE_URL'), SCHEMA = need('GATEWAY_PG_SCHEMA');
 const [lo, hi] = (process.env.RTP_RANGE || '33000-33200').split('-').map(Number);
 const pool = new pg.Pool({ connectionString: DB, options: '-c search_path=' + SCHEMA, max: 6 }), admin = new pg.Pool({ connectionString: DB });
-await admin.query('CREATE SCHEMA IF NOT EXISTS ' + SCHEMA); const c = await admin.connect(); try { await c.query('SET search_path=' + SCHEMA); for (const f of ['001_phone_join.sql', '002_phone_join_lease.sql']) await c.query(fs.readFileSync(path.join(import.meta.dirname, '..', 'sql', f), 'utf8')); } finally { c.release(); }
+await admin.query('CREATE SCHEMA IF NOT EXISTS ' + SCHEMA); cold('db_first_roundtrip'); const c = await admin.connect(); try { await c.query('SET search_path=' + SCHEMA); for (const f of ['001_phone_join.sql', '002_phone_join_lease.sql']) await c.query(fs.readFileSync(path.join(import.meta.dirname, '..', 'sql', f), 'utf8')); } finally { c.release(); } cold('migrations_done');
 const authority = new MeetPhoneAuthority({ baseUrl: MEET, auth: { kind: 'hmac', secret: HMAC }, requestTimeoutMs: 8000, decisionWaitMs: 8000, pollMs: 300 });
 const sessions = new Map();                                                                                        // call id -> Meet session id (for terminateCall)
 const wrapped = { verifyPhoneJoin: async (m, p, o) => { const d = await authority.verifyPhoneJoin(m, p, o); if (d.meetingSessionId && o?.callId) sessions.set(o.callId, d.meetingSessionId); return d; },
@@ -46,6 +49,6 @@ const keep = process.env.A5_NO_KEEPALIVE ? { stop() {} } : startMediaKeepAlive({
 // Ownership: this gateway renews the leases of the calls it owns and stops a leg it no longer owns. Crash recovery for claims a DEAD gateway left behind (any replica may reap, per-state deadlines, challenge then grace): optional, A5_REAPER=1.
 const log = { error: (m) => console.error(String(m)) }, lease = startLeaseKeeper({ ledger, bridge: gw.bridge, intervalMs: Math.max(200, Number(process.env.A5_LEASE_MS || 15000) / 3), log });
 const reaper = process.env.A5_REAPER ? startReaper({ ledger, bridge: gw.bridge, authority: wrapped, intervalMs: 1000, log }) : null;
-const addr = await gw.start(); console.log(JSON.stringify({ ready: true, sipPort: addr.port, pid: process.pid }));
+const addr = await gw.start(); cold('ready'); console.log(JSON.stringify({ ready: true, sipPort: addr.port, pid: process.pid }));
 const quit = async () => { if (process.env.A5_LOG) console.error(JSON.stringify({ labProbe: { ...probe, maxLag: Math.round(probe.maxLag), maxDb: Math.round(probe.maxDb) } })); keep.stop(); lease.stop(); reaper?.stop(); await gw.stop().catch(() => undefined); await pool.end().catch(() => undefined); await admin.end().catch(() => undefined); process.exit(0); };
 process.on('SIGTERM', quit); process.on('SIGINT', quit); process.stdin.resume();

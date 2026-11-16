@@ -1,0 +1,17 @@
+BEGIN;
+CREATE SCHEMA IF NOT EXISTS qorlla_chat;
+CREATE TABLE IF NOT EXISTS qorlla_chat.conversations(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),tenant_id text NOT NULL,meet_id text NOT NULL,kind text NOT NULL CHECK(kind IN ('everyone','direct')),created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(tenant_id,meet_id,id));
+CREATE TABLE IF NOT EXISTS qorlla_chat.members(conversation_id uuid NOT NULL REFERENCES qorlla_chat.conversations(id),user_id text NOT NULL,PRIMARY KEY(conversation_id,user_id));
+CREATE TABLE IF NOT EXISTS qorlla_chat.meeting_policies(tenant_id text NOT NULL,meet_id text NOT NULL,policy text NOT NULL DEFAULT 'all' CHECK(policy IN ('none','hosts','group','all')),updated_by text NOT NULL,updated_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(tenant_id,meet_id));
+CREATE TABLE IF NOT EXISTS qorlla_chat.sequences(conversation_id uuid PRIMARY KEY REFERENCES qorlla_chat.conversations(id),last_seq bigint NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS qorlla_chat.messages(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),conversation_id uuid NOT NULL REFERENCES qorlla_chat.conversations(id),seq bigint NOT NULL,author_id text NOT NULL,body text NOT NULL,reply_to uuid REFERENCES qorlla_chat.messages(id),deleted_at timestamptz,edited_at timestamptz,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(conversation_id,seq));
+CREATE TABLE IF NOT EXISTS qorlla_chat.message_versions(message_id uuid NOT NULL REFERENCES qorlla_chat.messages(id),version integer NOT NULL,body text NOT NULL,edited_by text NOT NULL,edited_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(message_id,version));
+CREATE TABLE IF NOT EXISTS qorlla_chat.idempotency(conversation_id uuid NOT NULL REFERENCES qorlla_chat.conversations(id),user_id text NOT NULL,key text NOT NULL,message_id uuid NOT NULL REFERENCES qorlla_chat.messages(id),PRIMARY KEY(conversation_id,user_id,key));
+CREATE TABLE IF NOT EXISTS qorlla_chat.read_receipts(conversation_id uuid NOT NULL REFERENCES qorlla_chat.conversations(id),user_id text NOT NULL,seq bigint NOT NULL,PRIMARY KEY(conversation_id,user_id));
+CREATE TABLE IF NOT EXISTS qorlla_chat.bookmarks(message_id uuid NOT NULL REFERENCES qorlla_chat.messages(id),user_id text NOT NULL,PRIMARY KEY(message_id,user_id));
+CREATE TABLE IF NOT EXISTS qorlla_chat.pins(message_id uuid PRIMARY KEY REFERENCES qorlla_chat.messages(id),pinned_by text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS qorlla_chat.tasks(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),message_id uuid NOT NULL REFERENCES qorlla_chat.messages(id),created_by text NOT NULL,assignee_id text,description text NOT NULL,status text NOT NULL DEFAULT 'open',created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS qorlla_chat.events(conversation_id uuid NOT NULL REFERENCES qorlla_chat.conversations(id),seq bigint NOT NULL,payload jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(conversation_id,seq));
+CREATE TABLE IF NOT EXISTS qorlla_chat.audit(id bigserial PRIMARY KEY,tenant_id text NOT NULL,meet_id text NOT NULL,actor_id text NOT NULL,action text NOT NULL,object_id text,at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS messages_history ON qorlla_chat.messages(conversation_id,seq DESC);
+COMMIT;

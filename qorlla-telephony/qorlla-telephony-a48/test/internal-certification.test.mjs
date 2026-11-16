@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {InternalCertification} from '../src/internal-certification.mjs';
+import {PolicyError} from '../src/policy.mjs';
+const pool={connect:async()=>({query:async()=>({rowCount:0,rows:[]}),release(){}})};
+test('rejects missing binding inputs',async()=>assert.rejects(new InternalCertification(pool).bindGateway({}),{code:'INVALID_BINDING'}));
+test('rejects untrusted gateway principal',async()=>assert.rejects(new InternalCertification(pool).acceptEvent({event:{eventId:'event-12345',callId:'abc',gatewayId:'gateway-a',gatewaySessionId:'session-a',sequence:1,type:'RINGING'},principalId:'gateway-b'}),{code:'GATEWAY_IDENTITY_MISMATCH'}));
+test('fail closed when Shield integration absent',async()=>assert.rejects(new InternalCertification(pool).acceptEvent({event:{eventId:'event-12345',callId:'abc',gatewayId:'gateway-a',gatewaySessionId:'session-a',sequence:1,type:'RINGING'},principalId:'gateway-a'}),{code:'SHIELD_DENIED'}));
+test('rejects unsupported Meet actions',async()=>assert.rejects(new InternalCertification(pool).queueMeetCommand({action:'unmute'}),{code:'INVALID_MEET_COMMAND'}));
+test('rejects invalid replay timestamps',async()=>assert.rejects(new InternalCertification(pool).registerNonce({principalId:'gateway-a',nonce:'1234567890123456',timestampMs:0}),{code:'INVALID_NONCE'}));

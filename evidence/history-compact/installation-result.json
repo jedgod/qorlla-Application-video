@@ -1,0 +1,18 @@
+{
+  "installed": true,
+  "url": "http://localhost:4800/qorlla.html",
+  "sha256": "0b4abd1a0bf6ca9dcf9b6eda1684a07d1e31556789b7335640c2ab1da8ba901a",
+  "before": {
+    "id": "60a16f4c13eb71b9bb32364b520f5ea7f13bec8da0b74dfb565feadc1d4a2812",
+    "started": "2026-11-14T15:55:12.752683807Z",
+    "restarts": 0,
+    "running": true
+  },
+  "after": {
+    "id": "60a16f4c13eb71b9bb32364b520f5ea7f13bec8da0b74dfb565feadc1d4a2812",
+    "started": "2026-11-14T15:55:12.752683807Z",
+    "restarts": 0,
+    "running": true
+  },
+  "restarted": false
+}

@@ -1,0 +1,144 @@
+QORLLA AUD/VIDEO - DEPARTMENT AND SECURITY AUDIT
+Assessment date: 2026-11-13
+Scope: Current workspace root application, root account/workplace services, qorlla-meet-video, qorlla-phone-join, qorlla-telephony, and the supplied security-standing.txt.
+
+EXECUTIVE SUMMARY
+-----------------
+Overall disposition: NOT READY for public/production release.
+
+The account and workplace core has useful security controls, and the Meet service and phone-admission components contain multiple fail-closed controls. However, the current tree has a confirmed root UI/build mismatch, a parallel legacy meeting-signaling path with weaker admission controls, unauthenticated prototype APIs, and open phone/telephony release gates. Automated checks also found 13 root browser-test failures and one phone-gateway media-recovery test failure. Do not treat the supplied November 6 standing review as certification of this November 13 tree.
+
+This is a read-only code review plus local test runs, not a penetration test, independent audit, or live-deployment assessment. The workspace contains numerous historical and duplicated project snapshots. This review focused on the root app and the named current-looking modules; it did not line-by-line audit every archived copy, mobile client, deployment, Shield service, or live configuration. Git was unavailable in the command environment, so branch and worktree status could not be verified.
+
+DEPARTMENT ASSESSMENTS
+----------------------
+
+1. REGISTRATION AND ACCOUNT SECURITY
+
+What is working well:
+- Passwords use salted scrypt; unknown-user login attempts perform a dummy hash to reduce timing-based account discovery.
+- Session identifiers are random, HttpOnly, SameSite=Lax cookies; only SHA-256 session-token hashes are stored. Password reset and recovery invalidate sessions.
+- Email verification and reset links are random, hashed, expiring, and single-use. Forgot-password responses do not disclose whether an account exists.
+- Login, recovery, password-confirmation, and reset-email limits are persisted through the JSON store.
+- Production startup requires encryption and bridge secrets; the store uses AES-256-GCM when ENCRYPT_KEY is configured and refuses to treat unreadable encrypted data as empty.
+
+Issues and recommendations:
+- Registration is open and has no separate rate limit. Passwords have an 8-character minimum, and email verification is not required before a new account is usable. Add signup abuse controls and decide whether verified email is required for privileged or externally visible actions.
+- There is no MFA/passkey flow in the reviewed root account implementation. Require a second factor for hosts and administrators before production.
+- Session lifetime is 30 days. Add a shorter configurable lifetime and an explicit account-wide/session-specific revocation mechanism appropriate for compromised credentials.
+- The root app's reviewed mutation protection is an Origin/Sec-Fetch-Site check and SameSite cookie policy, not the session-bound CSRF token asserted in security-standing.txt. Retest the exact deployed revision and add/verify CSRF defenses across all cookie-authenticated mutations.
+- No strict Content-Security-Policy is set by the root Express app. Add a restrictive policy (prefer nonces or remove inline scripts) and verify production headers.
+
+References: auth.js:40-55, 89-114, 192-197, 222-259, 362-417; server.js:78-89; security-standing.txt:27, 54-56.
+
+2. MEETING AND VIDEO
+
+Qorlla Meet service:
+- Positive controls include a required 32-character JWT secret check, Helmet/CSP, bounded JSON bodies, API/bridge limiters, parameterized SQL, bcrypt passcodes, host-only lock/end/notes/poll controls, participant JWT verification for Socket.IO, and a call join-failure throttle.
+- The phone admission integration source requires all six explicit readiness values to be true, checks passcodes/meeting policy, requires host approval unless explicitly waived, uses an atomic durable call ledger when supplied, and demands verified media before reporting a connected call.
+
+Root app's separate/legacy Socket.IO meeting path:
+- Socket.IO connections may join a known root-app meeting without a signed meeting token, account membership, passcode, waiting room, or host approval. The join_room handler accepts a client-supplied meeting ID directly. The root meeting-validation endpoint has a limiter, but direct socket joins do not use that endpoint.
+- Any room participant can update shared notes through notes_update; the event does not require the host role. The workspace documentation describes meeting notes as host-write.
+- Chat history and document metadata are appended to in-memory meeting records without a retention cap or per-room event budget. Add limits and retention or retire this parallel path.
+- Recommendation: retire or feature-gate this legacy room implementation and route through the authenticated Meet flow. If it must remain, issue short-lived join credentials after meeting/passcode authorization, enforce lock/host policy and participant roles on every event, and cap message/history/event volume.
+
+Meet-service hardening still needed:
+- Meeting JWTs last 8 hours and are bearer credentials. The current service has no general server-side revocation for an issued participant token; add short-lived credentials and revocation/session checks for sensitive meetings.
+- Join-failure throttles are in-process Maps, so they reset on restart and do not coordinate across replicas. The meeting-wide threshold can also block legitimate callers. Move the controls to shared storage and favor per-source backoff over meeting-wide lockout.
+- Signaling events are exempt from the Socket.IO event budget. Add a separate, safe signaling rate/burst limit and monitor overload.
+
+References: server.js:312-395, 434-475, 525-535, 559-579; qorlla-meet-video/server/index.js:21-55, 78-80, 194-225, 227-250, 253-267, 311; qorlla-meet-video/README.md.
+
+3. PHONE / TELEPHONE JOIN
+
+The current phone-admission package contains meaningful safety controls: signed workload-token verification with issuer/audience/scope-style identity constraints, one-time replay IDs, request-body binding, optional mTLS binding, distributed Redis limiter and PostgreSQL call ledger adapters, timeout cancellation, host approval, media teardown, and two-judge media confirmation. The SIP gateway refuses startup unless explicitly enabled and configured with credentials, source allowlists, sane RTP port ranges, and encrypted media outside lab mode.
+Production wiring gap: the SIP gateway and admission options make the CallLedger optional, and admission skips call-ID claim/replay protection when no ledger is supplied. Documentation says production must provide a durable ledger, but gateway startup does not enforce it. Make the shared ledger mandatory outside explicit test/lab mode and fail startup if absent.
+
+Release status remains BLOCKED:
+- The integration documentation says there is no certified carrier, public number, deployed gateway, or production-ready end-to-end phone service; all six readiness gates are currently false. The root phone README still describes the package as nonfunctional, while its source now contains SIP/DTMF/RTP gateway components. Reconcile this documentation/status mismatch and establish which code is deployed.
+- The supplied security-standing.txt reports that Shield migration 019/alerts.report is still unapplied, A5.4 load/reliability testing remains unresolved, and telephone fraud controls (trunk/caller budgets, concurrency limits, billing reconciliation) are not verified. These are open items from the prior review, not newly certified facts.
+- The SIP/phone package tests did not run database-, Redis-, or heavy A5_E2E-dependent cases because their environment flags/services were absent. No carrier, physical phone, production TLS/mTLS deployment, or live Shield deployment was exercised here.
+- One local phone test failed: mesh-peer.test.js ICE restart did not restore two-way audio. Reproduce and resolve before relying on recovery behavior. The full SIP/SRTP-to-browser test passed in this run, but does not erase the failed restart case or skipped integration coverage.
+- Keep PSTN and public-number dialing disabled until carrier and number certification, TLS/SRTP, Shield lifecycle, migration, billing/fraud/emergency policies, load tests, physical-phone tests, monitoring, and operational runbooks are complete.
+
+References: qorlla-phone-join/README.md; qorlla-phone-join/docs/MEET_INTEGRATION.md; qorlla-phone-join/src/admission.ts; qorlla-phone-join/src/gateway-auth.ts; qorlla-phone-join/src/sip-gateway.ts; security-standing.txt:80-90, 111-115.
+
+4. OTHER SERVICES AND SECURITY FEATURES
+
+Workplace:
+- Reviewed workplace CRUD routes require a signed-in user and key private collections by that user's account ID. The store supports authenticated AES-GCM encryption at rest. Chat routes check membership, public/private status, and creator permissions for removal, renaming, and deletion. External mail requires a verified address and enforces a per-account daily quota.
+- The JSON-file persistence model and chat archive have limited horizontal scalability/retention. Add retention, backup/restore, atomic quota handling, monitoring, and a supported multi-instance storage design before enterprise-scale use.
+
+Prototype APIs still mounted in the root app (release blocker if exposed):
+- /api/docs upload/link/read routes have no authentication or meeting-membership check. Uploads are buffered in memory up to 25 MB, but the code only creates mock storage URLs and in-memory metadata; it is not a secure persistent file service. Disable these routes in production until real authorization, durable object storage, quotas, content validation/scanning, and access logging exist.
+- /api/appointments uses unauthenticated in-memory booking data; /api/post-meeting exposes mock conclude/summary data; /api/notifications has unauthenticated trigger and audit-log routes backed by mock users. These are prototypes, not production scheduling, recording, or notification systems. Disable or authenticate and authorize them before public exposure.
+- Root Compose/Docker configuration defaults the proxy to the TLS-disabled config unless PROXY_TLS_CONF is explicitly set. Terminate TLS at a controlled edge and ensure production cannot accidentally publish HTTP-only endpoints.
+
+Separate telephony control-plane reference:
+- qorlla-telephony explicitly labels itself a non-certified skeleton and hard-disables external/PSTN calls. Its README lists missing real identity/Shield/entitlement/MFA integration, carrier adapters, durable outbox delivery, billing/fraud controls, TLS ingress, and end-to-end certification. Keep it internal and do not treat successful unit tests as release approval.
+
+Deployment/package blocker:
+- Root index.html is absent (1index.html and 2index.html exist instead), but Dockerfile copies index.html, Compose bind-mounts it, and server.js serves it at /index.html. The root browser suite emitted ENOENT for index.html and failed 13 of 27 tests. Restore the intended file or update every build/mount/route/test reference, then run a clean Docker build and full browser suite.
+
+Security-review evidence mismatch:
+- security-standing.txt documents a 15/15 isolated security run on commit c1847ea and says the then-current tree was not tested due to an index.html deletion. The current root tree again lacks index.html; its Playwright run had 13 failures. Git could not be used to establish whether this is that same revision or what changed.
+- The standing note says CSRF tokens are HMAC-bound to sessions, but no such token check was found in the reviewed root auth.js/server.js/workplace.js routes. Current root requests rely on origin/fetch-metadata checks and SameSite=Lax. Treat the prior certification as non-transferable until the exact candidate revision and every cited control are revalidated.
+
+PRIORITIZED FINDINGS
+--------------------
+
+P1 - Root build and browser app are inconsistent.
+Evidence: index.html is missing; Dockerfile:12 and docker-compose.yml:97 require it. Playwright: 13 failed, 14 passed. This blocks a verified build/release.
+Action: restore the intended UI asset or update the Dockerfile, Compose mount, route, and tests together; rerun browser suite and Docker build.
+
+P1 - Legacy meeting entry and shared-note authorization are weaker than the Meet service.
+Evidence: root server.js:434 onward accepts direct room joins; server.js:525 onward lets any current participant update notes. The root socket path is separate from the token-authenticated qorlla-meet-video service.
+Action: retire/gate the legacy path or require authorization before joining and host-check every privileged action, including notes; add focused regression tests.
+
+P1 - Unauthenticated prototype endpoints are available in the root app.
+Evidence: docs.js:54, 105, 137; appointments.js:57, 129; post-meeting.js:77, 150; notifications.js:106, 130. The APIs use mock/in-memory data and lack account/meeting authorization.
+Action: disable them in production or add authentication, tenant/resource authorization, rate/size limits, audit logging, and real persistence as appropriate.
+
+P1 - Telephone/PSTN is not release-ready.
+Evidence: qorlla-phone-join/docs/MEET_INTEGRATION.md and security-standing.txt:80-90 describe missing carrier, certification, Shield migration/load work, fraud controls, and deployment gates; qorlla-telephony is explicitly a reference skeleton and refuses external calls.
+Action: maintain the disabled state until all readiness gates and operational/legal/security certifications are complete.
+
+P1 - Phone admission can be wired without durable call replay protection.
+Evidence: qorlla-phone-join/src/admission.ts treats ledger as optional, and qorlla-phone-join/src/sip-gateway.ts passes an optional ledger through without rejecting startup when it is absent.
+Action: require the shared durable CallLedger in production and add a startup/configuration test proving the gateway refuses to run without it.
+
+P2 - Phone media recovery test is failing.
+Evidence: qorlla-phone-join test run, mesh-peer.test.js test 156, ICE restart does not restore bidirectional audio.
+Action: reproduce in a stable environment, diagnose, fix, and rerun the full suite including real Meet/Redis/PostgreSQL and A5_E2E coverage.
+
+P2 - Root account and browser security need additional hardening and exact-revision validation.
+Evidence: open registration has no registration-specific throttle; 8-character minimum; no MFA found; 30-day sessions; root app lacks a strict CSP and a CSRF token check in reviewed routes. The cross-origin denial test passed, which is a useful control but not proof for every route/client.
+Action: rate-limit signup, adopt MFA/passkeys for hosts/admins, decide on email-verification policy, shorten/revoke sessions, complete a route-by-route CSRF review, and deploy a restrictive CSP.
+
+P2 - Meet bearer tokens and throttling remain bounded only partially.
+Evidence: qorlla-meet-video/server/index.js:54 issues 8-hour JWTs; join throttle at :200-206 is in-memory; Socket.IO excludes signal events at :265-266.
+Action: add server-side revocation/shorter grants, shared rate-limit storage, and separate signaling abuse controls; retest scaling and recovery.
+
+P2 - Dependency and deployment evidence is incomplete.
+Evidence: root package.json uses multer 1.x; the supplied standing review recommends upgrading it and says gateway/Shield/client dependency audits were not run. No dependency audit or live deployment review was performed for this assessment.
+Action: audit every shipped package and container, upgrade affected dependencies, pin/scan the release lockfiles, validate TLS/secret/database-role settings, and run independent security review before launch.
+
+TESTS RUN
+---------
+- Root: npm.cmd test -- --reporter=line -> 14 passed, 13 failed (27 total). Failures are associated with the missing /index.html and dependent UI/meeting/scheduler tests.
+- qorlla-meet-video: npm.cmd run check -> syntax checks and 3 tests passed.
+- qorlla-phone-join: npm.cmd test -> build succeeded; 151 passed, 1 failed, 66 skipped (218 total). Skips included PostgreSQL/Redis and heavy A5_E2E cases.
+- qorlla-telephony: npm.cmd test -> 54 passed, 0 failed, 6 skipped (60 total); database-dependent cases were skipped without a disposable PostgreSQL database.
+- npm.ps1 could not run under the machine's PowerShell execution policy; tests were rerun with npm.cmd without changing policy.
+
+RECOMMENDED RELEASE ORDER
+-------------------------
+1. Resolve the missing root index.html and make the root browser/build suite green.
+2. Disable or secure the public prototype APIs and retire/harden the legacy room-signaling path.
+3. Reconcile security-standing.txt with the exact current source; verify CSRF, CSP, proxy/TLS, secret, and database-role controls on the release candidate.
+4. Fix and rerun phone ICE-restart recovery; then run the skipped PostgreSQL, Redis, Meet/Shield, load, and physical-device tests.
+5. Keep telephone/PSTN disabled until carrier, media, Shield, billing, fraud/emergency, compliance, and production-readiness gates are signed off.
+6. Run a full dependency scan, deployment review, backup/restore exercise, and independent penetration test before public launch.
+
+END OF REPORT

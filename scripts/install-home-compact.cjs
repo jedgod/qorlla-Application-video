@@ -1,0 +1,9 @@
+const fs=require('fs'),cp=require('child_process'),crypto=require('crypto');
+const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
+const inspect=name=>{const d=JSON.parse(cp.execFileSync('docker',['inspect',name],{encoding:'utf8'}))[0];return{id:d.Id,started:d.State.StartedAt,restarts:d.RestartCount,running:d.State.Running};};
+(async()=>{const dir='evidence/home-compact',source='C:/Users/cj_wo/qv-chatql/qorlla.html',container='qlaunch_proxy',original=fs.readFileSync(dir+'/original.html'),candidate=fs.readFileSync(dir+'/candidate.html');
+const current=Buffer.from(await(await fetch('http://localhost:4800/qorlla.html')).arrayBuffer());if(hash(current)!==hash(original)||hash(fs.readFileSync(source))!==hash(original))throw Error('Home changed since capture');
+const mounted='C:/Users/cj_wo/qlaunch-backups/2026-11-14-chat-v21/qorlla.html'; if(hash(fs.readFileSync(mounted))!==hash(original))throw Error('Mounted Home source changed'); const before=inspect(container);if(!before.running)throw Error('Main container not running');
+try{fs.copyFileSync(dir+'/candidate.html',source);fs.writeFileSync(mounted,candidate);const live=Buffer.from(await(await fetch('http://localhost:4800/qorlla.html?verify='+Date.now())).arrayBuffer());if(hash(live)!==hash(candidate))throw Error('Installed Home hash mismatch');const after=inspect(container);if(JSON.stringify(before)!==JSON.stringify(after))throw Error('Container lifecycle changed');fs.writeFileSync(dir+'/installation-result.json',JSON.stringify({installed:true,url:'http://localhost:4800/qorlla.html',sha256:hash(live),before,after,restarted:false},null,2));console.log('Home installed and HTTP hash verified; no restart.');}
+catch(e){fs.writeFileSync(source,original);fs.writeFileSync(mounted,original);throw e;}
+})().catch(e=>{console.error(e.message);process.exit(1)});

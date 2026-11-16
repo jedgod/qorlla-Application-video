@@ -1,0 +1,31 @@
+{
+  "name": "qorlla-chat-v1-5-integration",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "server": "node server/index.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.468.0",
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "ws": "^8.18.0",
+    "sanitize-html": "^2.14.0",
+    "helmet": "^8.0.0",
+    "express-rate-limit": "^7.5.0",
+    "busboy": "^1.6.0",
+    "tailwindcss": "^3.4.17",
+    "postcss": "^8.4.49",
+    "autoprefixer": "^10.4.20",
+    "redis": "^4.7.0",
+    "dompurify": "^3.2.6"
+  },
+  "devDependencies": {}
+}

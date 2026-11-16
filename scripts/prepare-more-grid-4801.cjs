@@ -1,0 +1,12 @@
+const fs=require('node:fs');
+const crypto=require('node:crypto');
+const dir='evidence/more-localhost-4801-grid';
+fs.mkdirSync(dir+'/candidate',{recursive:true});
+let source=fs.readFileSync(dir+'/original/collab.js','utf8');
+const start=source.indexOf('  function buildMore() {'),end=source.indexOf('  async function openRecordings()');
+if(start<0||end<=start)throw Error('Unexpected live More renderer.');
+source=source.slice(0,start)+fs.readFileSync('scripts/more-grid-renderer.fragment.js','utf8')+'\n\n'+source.slice(end);
+fs.writeFileSync(dir+'/candidate/collab.js',source);
+fs.writeFileSync(dir+'/candidate/styles.css',fs.readFileSync(dir+'/original/styles.css','utf8')+'\n'+fs.readFileSync('scripts/more-grid-live.css','utf8'));
+fs.writeFileSync(dir+'/deployment-plan.json',JSON.stringify({target:'http://localhost:4801',container:'qlaunch-meet-1',sourceWorktree:'C:/Users/cj_wo/qv-chatql/qorlla-meet-video/public',files:['collab.js','styles.css'],restartRequired:false,databaseChanged:false,originalHashes:['collab.js','styles.css'].map(file=>({file,sha256:crypto.createHash('sha256').update(fs.readFileSync(dir+'/original/'+file)).digest('hex')}))},null,2)+'\n');
+console.log('Prepared 4/5/3/6 tile layouts for the installed More renderer.');

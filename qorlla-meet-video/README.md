@@ -41,3 +41,8 @@ Open http://localhost:3000 in two browser tabs. For testing on different physica
 3. S3/MinIO recordings and files with consent, retention and malware scanning.
 4. Whiteboard/CRDT, breakout rooms, AI transcription, accessibility and enterprise admin.
 5. CI, integration/e2e testing, security review, observability, production deployment.
+
+
+## More V4.1 ? compact meeting controls
+
+See [MORE_V4_1.md](MORE_V4_1.md) for the five-section sidebar, reactions, moderated Q&A, host/co-host permissions, migration requirements, availability gates and the reviewed qv-chat integration contract. This source enhancement does not migrate or deploy running services.

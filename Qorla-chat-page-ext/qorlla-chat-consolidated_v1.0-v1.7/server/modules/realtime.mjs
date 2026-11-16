@@ -1,0 +1,5 @@
+import {createClient} from 'redis';
+export async function startOutbox(pool,redisUrl){const publisher=createClient({url:redisUrl});await publisher.connect();let stopped=false;
+ async function tick(){if(stopped)return;const client=await pool.connect();try{await client.query('BEGIN');const r=await client.query('SELECT * FROM qorlla_chat.outbox WHERE published_at IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED');for(const e of r.rows){await publisher.publish(`qorlla-chat:${e.conversation_id}`,JSON.stringify({id:e.id,seq:e.seq,type:e.event_type,...e.payload}));await client.query('UPDATE qorlla_chat.outbox SET published_at=now() WHERE id=$1',[e.id])}await client.query('COMMIT')}catch(e){await client.query('ROLLBACK');console.error('Outbox publish failed',e.message)}finally{client.release()}}
+ const timer=setInterval(()=>void tick(),250);return async()=>{stopped=true;clearInterval(timer);await publisher.quit()}}
+export async function subscribeEvents(redisUrl,cid,onEvent){const sub=createClient({url:redisUrl});await sub.connect();await sub.subscribe(`qorlla-chat:${cid}`,message=>{try{onEvent(JSON.parse(message))}catch{}});return()=>sub.quit()}

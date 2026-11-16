@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "checks": [
+    "inline script syntax",
+    "viewport capacity 9 rows",
+    "next and previous page offsets",
+    "last page 5 rows and disabled Next",
+    "bottom-aligned pager",
+    "390px mobile no horizontal overflow"
+  ],
+  "fixture": "Real historySection with isolated record renderer and API fixtures"
+}

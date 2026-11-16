@@ -1,0 +1,1 @@
+{"name":"qorlla-smartrooms-v19","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.mjs","start":"node src/server.mjs","worker":"node src/worker.mjs"},"dependencies":{"express":"^4.21.2","pg":"^8.13.3","redis":"^4.7.0","helmet":"^8.0.0"},"engines":{"node":">=20"}}

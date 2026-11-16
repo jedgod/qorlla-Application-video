@@ -1,0 +1,16 @@
+BEGIN;
+ALTER TABLE qorlla_chat.conversations ADD COLUMN IF NOT EXISTS tenant_id text;
+ALTER TABLE qorlla_chat.messages ADD COLUMN IF NOT EXISTS tenant_id text;
+ALTER TABLE qorlla_chat.messages ADD COLUMN IF NOT EXISTS client_nonce uuid;
+ALTER TABLE qorlla_chat.messages ADD COLUMN IF NOT EXISTS seq bigint;
+CREATE UNIQUE INDEX IF NOT EXISTS chat_nonce_once ON qorlla_chat.messages(conversation_id,author_id,client_nonce) WHERE client_nonce IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS chat_seq_once ON qorlla_chat.messages(conversation_id,seq) WHERE seq IS NOT NULL;
+CREATE TABLE IF NOT EXISTS qorlla_chat.counters(conversation_id uuid PRIMARY KEY REFERENCES qorlla_chat.conversations(id),last_seq bigint NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS qorlla_chat.message_versions(message_id uuid NOT NULL REFERENCES qorlla_chat.messages(id),revision integer NOT NULL,body_html text NOT NULL,editor_id text NOT NULL,changed_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(message_id,revision));
+CREATE TABLE IF NOT EXISTS qorlla_chat.receipts(conversation_id uuid NOT NULL REFERENCES qorlla_chat.conversations(id),user_id text NOT NULL,last_read_seq bigint NOT NULL DEFAULT 0,updated_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(conversation_id,user_id));
+CREATE TABLE IF NOT EXISTS qorlla_chat.outbox(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,conversation_id uuid NOT NULL REFERENCES qorlla_chat.conversations(id),seq bigint NOT NULL,event_type text NOT NULL,payload jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),published_at timestamptz);
+CREATE INDEX IF NOT EXISTS chat_outbox_pending ON qorlla_chat.outbox(id) WHERE published_at IS NULL;
+CREATE TABLE IF NOT EXISTS qorlla_chat.oauth_connections(id uuid PRIMARY KEY,tenant_id text NOT NULL,user_id text NOT NULL,provider text NOT NULL CHECK(provider IN ('google','microsoft','dropbox','box')),encrypted_tokens bytea NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(tenant_id,user_id,provider));
+CREATE TABLE IF NOT EXISTS qorlla_chat.oauth_states(state_hash text PRIMARY KEY,user_id text NOT NULL,tenant_id text NOT NULL,provider text NOT NULL,verifier_cipher bytea NOT NULL,redirect_uri text NOT NULL,expires_at timestamptz NOT NULL,used_at timestamptz);
+CREATE TABLE IF NOT EXISTS qorlla_chat.ai_audit(id uuid PRIMARY KEY,tenant_id text NOT NULL,user_id text NOT NULL,conversation_id uuid NOT NULL,operation text NOT NULL,consent_at timestamptz NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+COMMIT;

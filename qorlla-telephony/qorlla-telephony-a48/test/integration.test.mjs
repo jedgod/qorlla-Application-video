@@ -1,0 +1,8 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {signGateway,verifyGateway} from '../src/gateway-auth.mjs';
+import {validateGatewayEvent,reconcileAmounts,validateAdmission} from '../src/integration.mjs';
+const secret='a'.repeat(48),body=Buffer.from('{"hello":true}');
+test('gateway HMAC verifies and refuses tampering',()=>{const timestamp=Date.now(),nonce='abcdefghijklmnop';const signature=signGateway({method:'POST',path:'/internal/gateway/events',timestamp,nonce,body,secret});const args={method:'POST',path:'/internal/gateway/events',headers:{'x-qorlla-timestamp':String(timestamp),'x-qorlla-nonce':nonce,'x-qorlla-signature':signature},body,secret};assert.equal(verifyGateway(args).nonce,nonce);assert.throws(()=>verifyGateway({...args,body:Buffer.from('tampered')}));assert.throws(()=>verifyGateway({...args,now:timestamp+120000}));});
+test('connected requires media proof',()=>{const base={eventId:'event-0001',callId:'call-001',gatewayId:'gw-1',sequence:1,type:'MEDIA_VERIFIED'};assert.throws(()=>validateGatewayEvent(base));assert.equal(validateGatewayEvent({...base,evidence:{encrypted:true,inboundAudio:true,outboundAudio:true,gatewayVerified:true}}),'connected');});
+test('meet admission fails closed',()=>{assert.throws(()=>validateAdmission({state:'pending',hostApproved:true,shieldAllowed:true}));assert.equal(validateAdmission({state:'approved',hostApproved:true,shieldAllowed:true}),true);});
+test('CDR reconciliation flags mismatch',()=>{assert.deepEqual(reconcileAmounts({localMinor:100,carrierMinor:125,currency:'USD',carrierCurrency:'USD'}),{status:'disputed',differenceMinor:25});});

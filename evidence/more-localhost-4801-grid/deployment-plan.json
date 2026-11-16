@@ -1,0 +1,21 @@
+{
+  "target": "http://localhost:4801",
+  "container": "qlaunch-meet-1",
+  "sourceWorktree": "C:/Users/cj_wo/qv-chatql/qorlla-meet-video/public",
+  "files": [
+    "collab.js",
+    "styles.css"
+  ],
+  "restartRequired": false,
+  "databaseChanged": false,
+  "originalHashes": [
+    {
+      "file": "collab.js",
+      "sha256": "430a829ee479d1d94ee529dae009f09a74984f5ecc196348a5158038778169d9"
+    },
+    {
+      "file": "styles.css",
+      "sha256": "eb1a1a0059fa37e144ffaff93bc23781a81d417523705a8db4c792029cfa8287"
+    }
+  ]
+}

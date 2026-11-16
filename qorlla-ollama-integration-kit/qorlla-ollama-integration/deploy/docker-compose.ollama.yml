@@ -1,0 +1,22 @@
+# Example only. Attach the EXISTING Qorlla Portal backend to qorlla_ai_private.
+# No public port; no Docs replacement service; no third-party fallback.
+services:
+  ollama:
+    image: ollama/ollama:${OLLAMA_IMAGE_TAG:?Set a tested pinned image tag}
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_NO_CLOUD: "1"
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - qorlla_ai_private
+    security_opt:
+      - no-new-privileges:true
+    # Configure GPU resources separately if validated for the host.
+    # Provision model weights through an approved administrative process.
+volumes:
+  ollama_models:
+networks:
+  qorlla_ai_private:
+    internal: true

@@ -1,0 +1,1 @@
+{"name":"qorlla-smartrooms-v18","version":"1.8.0","private":true,"type":"module","engines":{"node":">=20"},"scripts":{"test":"node --test tests/*.test.mjs","check":"for f in src/*.mjs; do node --check \"$f\" || exit 1; done"},"dependencies":{"pg":"^8.13.1"}}

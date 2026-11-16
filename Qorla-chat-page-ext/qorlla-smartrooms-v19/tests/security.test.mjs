@@ -1,0 +1,12 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {signBody,verifySignature,safeRoomEvent,mediaVerdict} from '../src/security.mjs';
+import {PortalBridge} from '../src/bridge.mjs';
+const secret='x'.repeat(40);
+test('HMAC request validates and rejects tampering',()=>{const t=String(Date.now()),sig=signBody(secret,t,'{}');assert.equal(verifySignature(secret,t,'{}',sig),true);assert.equal(verifySignature(secret,t,'{"a":1}',sig),false)});
+test('expired HMAC fails',()=>{const t=String(Date.now()-120000);assert.equal(verifySignature(secret,t,'{}',signBody(secret,t,'{}')),false)});
+test('cross-room event denied',()=>assert.equal(safeRoomEvent({active:true,occurrenceId:'o',roomId:'a',epoch:2},{occurrence_id:'o',room_id:'b',payload:{epoch:2}}),false));
+test('stale epoch event denied',()=>assert.equal(safeRoomEvent({active:true,occurrenceId:'o',roomId:'a',epoch:3},{occurrence_id:'o',room_id:'a',payload:{epoch:2}}),false));
+test('TURN evidence is not server verified',()=>assert.equal(mediaVerdict([{source:'turn',evidence:{allocated:true}}]).serverVerifiedMedia,false));
+test('bridge rejects non-HTTPS',()=>assert.throws(()=>new PortalBridge({url:'http://portal',secret}),/HTTPS/));
+test('bridge requires consent',async()=>{const b=new PortalBridge({url:'https://portal.example',secret,fetcher:()=>{throw Error('should not fetch')}});await assert.rejects(b.submitRoomReport({consentEvidence:{allConsented:false}}),/consent/i)});
+test('bridge submits signed request',async()=>{const b=new PortalBridge({url:'https://portal.example',secret,fetcher:async(url,req)=>{assert.equal(verifySignature(secret,req.headers['x-qorlla-timestamp'],req.body,req.headers['x-qorlla-signature']),true);return {ok:true,json:async()=>({jobId:'job',status:'accepted'})}}});assert.equal((await b.submitRoomReport({occurrenceId:'o',roomId:'r',jobId:'job',actorId:'a',consentEvidence:{allConsented:true,participants:['a']}})).status,'accepted')});

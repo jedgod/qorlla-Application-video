@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: qorlla
+      POSTGRES_USER: qorlla
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set secret}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U qorlla']
+      interval: 5s
+      retries: 12
+    networks: [private]
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server','--appendonly','yes','--requirepass','${REDIS_PASSWORD:?set secret}']
+    volumes: [redisdata:/data]
+    networks: [private]
+  api:
+    build: ..
+    command: ['node','src/server.mjs']
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set url}
+      PORTAL_GATEWAY_URL: ${PORTAL_GATEWAY_URL:?set https url}
+      PORTAL_BRIDGE_SECRET: ${PORTAL_BRIDGE_SECRET:?set secret}
+      PORT: 4098
+    depends_on: [postgres,redis]
+    networks: [private]
+    # No public ports; connect through existing Meet reverse proxy after auth integration.
+  outbox:
+    build: ..
+    command: ['node','src/worker.mjs']
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set url}
+      REDIS_URL: ${REDIS_URL:?set url}
+    depends_on: [postgres,redis]
+    networks: [private]
+networks:
+  private:
+    internal: true
+volumes:
+  pgdata:
+  redisdata:

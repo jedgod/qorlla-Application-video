@@ -1,0 +1,26 @@
+/* More V4.1 requested 4 / 5 / 3 / 6 tile groups. Docking remains untouched. */
+#tab-more.more-v41-grids{container-name:more-v41;container-type:inline-size}
+#tab-more.more-v41-grids .more-tile-grid{display:grid;gap:6px;align-content:start;justify-content:start;grid-template-columns:repeat(4,minmax(0,1fr))}
+#tab-more.more-v41-grids .more-count-4{grid-template-columns:repeat(4,minmax(0,1fr));max-width:458px}
+#tab-more.more-v41-grids .more-count-5{grid-template-columns:repeat(3,minmax(0,1fr));max-width:574px}
+#tab-more.more-v41-grids .more-count-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+#tab-more.more-v41-grids .more-count-6{grid-template-columns:repeat(3,minmax(0,1fr));max-width:690px}
+#tab-more.more-v41-grids .more-square{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;aspect-ratio:1;min-width:0;margin:0;padding:8px 4px;border:1px solid #34465f;border-radius:11px;background:linear-gradient(145deg,#202c3e,#182130);text-align:center;color:#f1f6ff;cursor:pointer;line-height:1.2}
+#tab-more.more-v41-grids .more-square:hover:not(:disabled){background:#243950;border-color:#68a9f7}
+#tab-more.more-v41-grids .more-square:focus-visible{outline:2px solid #83bdff;outline-offset:2px}
+#tab-more.more-v41-grids .more-square:disabled{cursor:not-allowed;opacity:.62}
+#tab-more.more-v41-grids .more-square[aria-pressed=true]{background:#194d87;border-color:#75b6ff}
+#tab-more.more-v41-grids .more-square svg{width:22px;height:22px;color:#6ab8ff;flex:none}
+#tab-more.more-v41-grids .more-v41-icon svg{width:22px;height:22px;display:block}
+#tab-more.more-v41-grids .more-square-label{font-size:10px;font-weight:550;line-height:1.2;overflow-wrap:anywhere;max-width:100%}
+#tab-more.more-v41-grids .more-square-note{font-size:8px;color:#a9bbd3;line-height:1.1;display:block}
+#tab-more.more-v41-grids .more-count-3 .more-square{aspect-ratio:auto;min-height:88px}
+#tab-more.more-v41-grids .more-lock-square input{appearance:none;position:relative;margin:0;padding:0;width:32px;height:18px;border:1px solid #78869e;background:#536075;border-radius:20px;cursor:pointer}
+#tab-more.more-v41-grids .more-lock-square input:before{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:white}
+#tab-more.more-v41-grids .more-lock-square input:checked{background:#2563eb;border-color:#6aa2ff}
+#tab-more.more-v41-grids .more-lock-square input:checked:before{left:16px}
+#tab-more.more-v41-grids .more-lock-square input:disabled{cursor:not-allowed;opacity:.45}
+.more-timer-output{display:block;font-size:36px;font-variant-numeric:tabular-nums;text-align:center;margin:14px 0}
+.more-focus-mode #videos .tile:not(:first-child){opacity:.3}
+@container more-v41 (min-width:420px){#tab-more.more-v41-grids .more-count-5{grid-template-columns:repeat(5,minmax(0,1fr))}#tab-more.more-v41-grids .more-count-6{grid-template-columns:repeat(6,minmax(0,1fr))}#tab-more.more-v41-grids .more-square-label{font-size:11px}}
+@container more-v41 (max-width:280px){#tab-more.more-v41-grids .more-count-4{grid-template-columns:repeat(2,minmax(0,1fr))}#tab-more.more-v41-grids .more-count-5,#tab-more.more-v41-grids .more-count-6{grid-template-columns:repeat(2,minmax(0,1fr))}}
