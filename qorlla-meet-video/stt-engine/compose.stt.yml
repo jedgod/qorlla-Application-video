@@ -1,0 +1,21 @@
+services:
+  stt:
+    build: .
+    restart: unless-stopped
+    environment:
+      STT_INTERNAL_TOKEN: ${STT_INTERNAL_TOKEN:?Set secret}
+      STT_MODEL: ${STT_MODEL:-small}
+      STT_DEVICE: cpu
+      STT_COMPUTE_TYPE: int8
+      HF_HOME: /models
+    volumes:
+      - ${STT_MODEL_DIR:?Set model directory}:/models/hub:ro
+    networks: [meet_internal]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 4g
+    cpus: '2.0'
+networks:
+  meet_internal:
+    internal: true

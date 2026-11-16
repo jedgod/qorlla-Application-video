@@ -30,6 +30,10 @@ import { registerClassroom } from './classroom.mjs';
 import { registerChatExport } from './chat-export.mjs';
 import { createRoomEvents, PgNotifyBus, RedisStreamsBus, audienceMatches } from './room-events.mjs';
 import { createMediaRelay } from './media-relay.mjs';
+import { registerFiles } from './files.mjs';
+import { createFileStore } from './file-store.mjs';
+import { createScanner } from './file-scanner.mjs';
+import { registerTranscripts } from './transcripts.mjs';
 import { registerHandoff } from './handoff.mjs';
 import { registerHostControls } from './host-controls.mjs';
 import { registerRecording } from './recording.mjs';
@@ -427,10 +431,14 @@ const hostControls = registerHostControls({ app, io, db, auth, member, fail, roo
 const roomEventsMode = (process.env.ROOM_EVENTS || 'off').toLowerCase();
 const roomEvents = roomEventsMode === 'off' ? null : createRoomEvents({ db, deliver: (...a) => breakouts.deliverLocal(...a), onInternal: (...a) => breakouts.applyRemote(...a),
   bus: roomEventsMode === 'redis' ? new RedisStreamsBus({ url: process.env.REDIS_URL }) : new PgNotifyBus({ pool: db }) });
-const breakouts = registerBreakouts({ app, io, db, auth, member, fail, active, room, events: roomEvents, relay: mediaRelay, aiSummary: (mid) => aiConsent.summary(mid) });       // breakout rooms (v4.29): scoped rosters, signaling and events; blocks recording while rooms are open
+const breakouts = registerBreakouts({ app, io, db, auth, member, fail, active, room, events: roomEvents, relay: mediaRelay, aiSummary: (mid) => aiConsent.summary(mid), membershipChanged: (mid) => transcripts.reconcileMeeting(mid) });       // breakout rooms (v4.29): scoped rosters, signaling and events; blocks recording while rooms are open
 const classroom = registerClassroom({ app, io, db, auth, member, fail, breakouts });       // Room Mission Board, timed exercises, room whiteboard, group reports, classroom dashboard (v4.31)
 const chat = registerChat({ app, io, db, auth, member, room, fail, socketOf: (meetingId, pid) => active.get(meetingId)?.get(pid), scopeOf: breakouts.scopeOf });       // meeting chat upgrade (v4.25+)
-const more = registerMore({ app, io, db, auth, member, room, fail, rateLimit, scopeOf: breakouts.scopeOf, emitMain: (meetingId, type, payload) => breakouts.emitToScope(meetingId, null, type, payload) });       // More tab (v4.27): Q&A, timer, preferences, attendance
+// Shared files and live transcripts (v4.34): both OFF unless MEET_FILES=on (+ FILES_DIR, CLAMD_HOST) / MEET_TRANSCRIPT=on (+ STT_URL, STT_INTERNAL_TOKEN). See docs/MEET_FILES_TRANSCRIPTS.md.
+const notifyScope = (mid, scope, kind, payload) => breakouts.emitScopeAndHosts(mid, scope ?? null, kind === 'files' ? 'files-changed' : 'transcript-state', payload || { roomId: scope ?? null });
+const files = registerFiles({ app, db, auth, member, fail, store: createFileStore(), scanner: createScanner(), scopeOf: breakouts.scopeOf, notify: notifyScope, audit: (mid, actor, kind, payload) => breakouts.logEvent(mid, actor, kind, payload) });
+const transcripts = registerTranscripts({ app, db, auth, member, fail, scopeOf: breakouts.scopeOf, notify: notifyScope, audit: (mid, actor, kind, payload) => breakouts.logEvent(mid, actor, kind, payload) });
+const more = registerMore({ app, io, db, auth, member, room, fail, rateLimit, featureFlags: () => ({ files: files.enabled, transcript: transcripts.enabled }), scopeOf: breakouts.scopeOf, emitMain: (meetingId, type, payload) => breakouts.emitToScope(meetingId, null, type, payload) });       // More tab (v4.27): Q&A, timer, preferences, attendance
 const collab = registerCollab({ app, io, db, auth, fail, room, audit, toolOn: hostControls.mayUse, scopeOf: breakouts.scopeOf, roomsOf: async (meetingId) => (await breakouts.ensure(meetingId)).rooms, roomsOpen: breakouts.isActive, emitToScope: breakouts.emitToScope, emitScopeAndHosts: breakouts.emitScopeAndHosts, mayLead: breakouts.mayLead, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 const recAudit = makeAudit(db);
 const recMedia = registerRecordingStorage({ app, db, auth, fail, audit: recAudit, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
@@ -476,7 +484,7 @@ io.on('connection',socket=>{
  const prior=roster.get(pid);
  if(prior && prior!==socket.id) io.sockets.sockets.get(prior)?.disconnect(true);
  roster.set(pid,socket.id); socket.join(room(id));
- socket.data.sess=randomUUID();db.query('INSERT INTO participant_sessions(id,meeting_id,participant_id) VALUES($1,$2,$3)',[socket.data.sess,id,pid]).then(()=>limiter.arm(id)).catch(e=>console.error('[history] session open failed:',e.message));
+ socket.data.sess=randomUUID();db.query('INSERT INTO participant_sessions(id,meeting_id,participant_id) VALUES($1,$2,$3)',[socket.data.sess,id,pid]).then(()=>{limiter.arm(id);transcripts.reconcileMeeting(id).catch(()=>{});}).catch(e=>console.error('[history] session open failed:',e.message));
  if(u.role==='host'){
   recording.hostBack(id,pid).catch(()=>{});
   phone.onHostArrived(id).catch(()=>{});
@@ -540,7 +548,7 @@ io.on('connection',socket=>{
    const {rows}=await db.query('SELECT choice,count(*)::int AS count FROM poll_votes WHERE poll_id=$1 GROUP BY choice',[pollId]);io.to(room(id)).emit('poll-results',{pollId,counts:rows});ack?.({ok:true});
   }catch{ackError(ack,'Vote failed');}
  });
- socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);mediaRelay.revokeParticipant(id,pid).catch(()=>{});recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}breakouts.emitScope(id,pid,'participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
+ socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).then(()=>transcripts.reconcileMeeting(id)).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);mediaRelay.revokeParticipant(id,pid).catch(()=>{});recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}breakouts.emitScope(id,pid,'participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE disconnected_at IS NULL').catch(()=>{});   // a restart ends every connection: close what the last run left open
 server.listen(PORT,()=>{console.log(`Qorlla Meet listening on http://localhost:${PORT}`);if(roomEvents){roomEvents.start().catch(e=>console.error('[room-events] not started:',e.message));setInterval(()=>roomEvents.purge(24).catch(()=>{}),3600_000).unref();console.log(`Shared room events: ${roomEventsMode} (instance ${roomEvents.instanceId})`);}});

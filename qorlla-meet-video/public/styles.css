@@ -353,6 +353,8 @@ html.portal-only #landing .landing-card>:not(.brand):not(#portalOnlyNote){displa
 .bk-sel,.bk-box select,.cl-box select{height:24px;background:#0e1118;border:1px solid #2a3243;border-radius:6px;color:#edf2fa;font:inherit;font-size:10.5px;padding:0 4px;max-width:46%}
 
 /* Room board (v4.31) */
+.fl-box{display:flex;flex-direction:column;gap:6px}.fl-box input[type=file]{flex:1 1 140px;min-width:0;font-size:11px;color:#edf2fa}
+.tr-ctl{display:flex;flex-direction:column;gap:6px;margin-top:4px}.tr-status{font-size:12px;color:#f1f5fb}.tr-lines{max-height:160px;overflow:auto;background:#0e1118;border:1px solid #2a3243;border-radius:6px;padding:4px 6px;font-size:11.5px}.tr-lines p{margin:2px 0}
 .bk-ai{color:#c4b5fd;margin-left:6px}
 .cl-h{font-size:12px;color:#f1f5fb}.cl-tabs,.cl-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.cl-tabs .mg-act[aria-pressed=true],.cl-tools .mg-act[aria-pressed=true]{background:#143a73;border-color:#2f5fb8;color:#fff}
 .cl-form{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.cl-form input,.cl-form textarea{flex:1 1 140px;min-width:0;background:#0e1118;border:1px solid #2a3243;border-radius:6px;color:#edf2fa;font:inherit;font-size:11px;padding:4px 6px}.cl-form textarea{min-height:44px;resize:vertical}

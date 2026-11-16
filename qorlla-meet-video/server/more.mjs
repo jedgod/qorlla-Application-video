@@ -43,7 +43,7 @@ export function validateOp(op) {
 }
 const bad = (status, error) => Object.assign(new Error(error), { status });
 
-export function registerMore({ app, io, db, auth, member, room, fail, rateLimit, scopeOf = () => null, emitMain = null }) {
+export function registerMore({ app, io, db, auth, member, room, fail, rateLimit, scopeOf = () => null, emitMain = null, featureFlags = null }) {
   const r = express.Router({ mergeParams: true });
   const host = (req) => req.user.role === 'host';
   const limiter = rateLimit ? rateLimit({ windowMs: 60_000, limit: 40, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => (req.user?.participantId || 'anon') }) : (req, res, next) => next();
@@ -68,7 +68,7 @@ export function registerMore({ app, io, db, auth, member, room, fail, rateLimit,
       db.query('SELECT focus_mode, layout FROM more_preferences WHERE meeting_id=$1 AND participant_id=$2', [id, req.user.participantId]),
       db.query('SELECT COALESCE(MAX(id),0) AS last FROM more_events WHERE meeting_id=$1', [id]),
     ]);
-    res.json({ features: FEATURES, timer: timerOf(t.rows[0]), preferences: p.rows[0] ? { focusMode: p.rows[0].focus_mode, layout: p.rows[0].layout } : { focusMode: false, layout: null }, lastEvent: Number(last.rows[0].last), serverNow: new Date().toISOString() });
+    res.json({ features: { ...FEATURES, ...(featureFlags?.() || {}) }, timer: timerOf(t.rows[0]), preferences: p.rows[0] ? { focusMode: p.rows[0].focus_mode, layout: p.rows[0].layout } : { focusMode: false, layout: null }, lastEvent: Number(last.rows[0].last), serverNow: new Date().toISOString() });
   }));
 
   r.get('/events', run(async (req, res) => {

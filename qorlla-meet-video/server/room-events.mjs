@@ -9,8 +9,8 @@
 // no extra service) and Redis Streams (optional, needs the `redis` package). Events carry only routing data and small flags: never chat text, notes or answers.
 import { randomUUID } from 'node:crypto';
 
-export const DISTRIBUTED = new Set(['breakouts-changed', 'breakout-ended', 'breakout-help', 'breakout-help-resolved', 'breakout-announcement', 'classroom-changed', 'room-board', 'polls-changed', 'scope-sync', 'state-sync']);
-export const REPLAYABLE = new Set(['breakouts-changed', 'breakout-ended', 'breakout-help', 'breakout-help-resolved', 'breakout-announcement', 'classroom-changed', 'polls-changed']);
+export const DISTRIBUTED = new Set(['breakouts-changed', 'breakout-ended', 'breakout-help', 'breakout-help-resolved', 'breakout-announcement', 'classroom-changed', 'room-board', 'polls-changed', 'files-changed', 'transcript-state', 'scope-sync', 'state-sync']);
+export const REPLAYABLE = new Set(['breakouts-changed', 'breakout-ended', 'breakout-help', 'breakout-help-resolved', 'breakout-announcement', 'classroom-changed', 'polls-changed', 'files-changed', 'transcript-state']);
 export const INTERNAL = new Set(['scope-sync', 'state-sync']);          // never shown to a page: they keep the instances' view of the rooms in step
 const backoff = (attempts) => Math.min(300, 2 ** Math.min(attempts, 8));
 

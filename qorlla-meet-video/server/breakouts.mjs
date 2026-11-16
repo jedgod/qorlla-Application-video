@@ -23,7 +23,7 @@ export const LIMITS = Object.freeze({ maxRooms: 20, minMinutes: 1, maxMinutes: 2
 export const CAPS = Object.freeze(['help_triage', 'room_announcement', 'room_notes', 'room_polls']);
 const bad = (status, error) => Object.assign(new Error(error), { status });
 
-export function registerBreakouts({ app, io, db, auth, member, fail, active, room, tickMs = 5000, events = null, relay = null, relayObserveMs = 15000, aiSummary = null }) {
+export function registerBreakouts({ app, io, db, auth, member, fail, active, room, tickMs = 5000, events = null, relay = null, relayObserveMs = 15000, aiSummary = null, membershipChanged = null }) {
   const meetings = new Map();          // meetingId -> { active, deadline, map: Map(pid -> roomId), rooms: Map(roomId -> name) }
   const hostOnly = (req, res, next) => (req.user.role === 'host' ? next() : fail(res, 403, 'Only the host can do this'));
   const paths = (p) => ['/api/meetings/:id/breakouts' + p, '/api/v1/meetings/:id/breakouts' + p];
@@ -89,6 +89,7 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
   function move(mid, pid, to, remote = null) {
     const m = meetings.get(mid); const from = scopeOf(mid, pid); if (from === to && !(remote && remote.epoch !== m.epochs.get(pid))) { if (remote) m.epochs.set(pid, remote.epoch); return; }
     if (to) m.map.set(pid, to); else m.map.delete(pid);
+    queueMicrotask(() => { try { Promise.resolve(membershipChanged?.(mid)).catch(() => {}); } catch { /* the transcript service re-checks every chunk itself */ } });          // a move changes who is in a room: live transcripts re-check at once
     const prevEpoch = m.epochs.get(pid) || 0, epoch = remote ? remote.epoch : prevEpoch + 1; m.epochs.set(pid, epoch); m.relayObs.delete(pid);
     if (!remote && relay?.configured) relay.revokeEpoch(mid, pid, prevEpoch).catch(() => {});          // the room somebody left loses its relay credentials and live allocations
     m.media.set(pid, 'switching'); m.leads.delete(pid);          // a new epoch: every signal made before this move is stale. Leads lose their powers with the room.
@@ -300,5 +301,5 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
       m.leads = new Map(); if (m.active) for (const l of ld.rows) { const e = m.leads.get(l.participant_id) || { room: l.room_id, caps: new Set() }; e.caps.add(l.capability); m.leads.set(l.participant_id, e); }
     }
   }
-  return { observeRelay, ensure, deliverLocal, applyRemote, ctxOf, scopeOf, epochOf, signalGate, mayLead, capsOf, assign: async (mid, pid, rid) => { await assignOne(mid, await ensure(mid), pid, rid); }, broadcast, settle: (mid) => meetings.get(mid)?.q, logEvent, hostSocks, sameScope, emitScope, emitToScope, emitScopeAndHosts, ready, scopedList, scopeInfo, namesOf, tick, stop: () => { clearInterval(timer); if (obsTimer) clearInterval(obsTimer); }, isActive: (mid) => !!meetings.get(mid)?.active };
+  return { logEvent, observeRelay, ensure, deliverLocal, applyRemote, ctxOf, scopeOf, epochOf, signalGate, mayLead, capsOf, assign: async (mid, pid, rid) => { await assignOne(mid, await ensure(mid), pid, rid); }, broadcast, settle: (mid) => meetings.get(mid)?.q, logEvent, hostSocks, sameScope, emitScope, emitToScope, emitScopeAndHosts, ready, scopedList, scopeInfo, namesOf, tick, stop: () => { clearInterval(timer); if (obsTimer) clearInterval(obsTimer); }, isActive: (mid) => !!meetings.get(mid)?.active };
 }

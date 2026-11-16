@@ -651,6 +651,86 @@ export function initCollab(h) {
       const r = await bk('/classroom/apply', 'POST', { plan: plan.map((x) => ({ participantId: x.participantId, roomId: x.roomId })) }); const bad = r.results.filter((x) => !x.ok).length; notify(bad ? 'Placed with ' + bad + ' problem(s)' : 'People placed'); bkLoad();
     } catch (e) { notify(e.message); }
   }
+  // ---- Shared files (v4.34): uploads are scanned on the server before anybody can download them; a guest's upload also waits for the host
+  const FL = { box: null, open: false, files: [], busy: false, limits: null, err: '' };
+  const authHeaders = (extra) => ({ Authorization: 'Bearer ' + state.token, ...extra });
+  const prettyBytes = (n) => (n == null ? '' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
+  async function flLoad() { if (!FL.open) return; try { const d = await call('/files'); FL.files = d.files; FL.limits = d.limits; FL.err = ''; } catch (e) { FL.err = e.status === 503 ? 'Shared files are not available on this server.' : e.message; FL.files = []; } flRender(); }
+  async function flUpload(file, visibility) {
+    if (!file) return; FL.busy = true; FL.msg = 'Uploading ' + file.name + '…'; flRender();
+    try {
+      const r = await fetch(BASE + 'api/v1/meetings/' + state.meetingId + '/files', { method: 'POST', headers: authHeaders({ 'Content-Type': file.type || 'application/octet-stream', 'x-filename': encodeURIComponent(file.name), 'x-visibility': visibility }), body: file });
+      const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Upload failed');
+      FL.msg = d.state === 'clean' ? (d.approved ? 'Uploaded and scanned.' : 'Uploaded and scanned. The host has to approve it before others can open it.') : d.state === 'scanning' ? 'Uploaded. The scan has not finished yet.' : 'The file was rejected by the scan.'; notify(FL.msg);
+    } catch (e) { FL.msg = ''; notify(e.message); }
+    FL.busy = false; await flLoad();
+  }
+  async function flDownload(f) {
+    try { const r = await fetch(BASE + 'api/v1/meetings/' + state.meetingId + '/files/' + f.id + '/download', { headers: authHeaders() }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Download failed'); const u = URL.createObjectURL(await r.blob()), a = el('a'); a.href = u; a.download = f.name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000); } catch (e) { notify(e.message); }
+  }
+  function flRender() {
+    const box = FL.box; if (!box || box.hidden) return; box.textContent = ''; const host = state.role === 'host';
+    if (FL.err) { box.append(el('p', 'mg-note', FL.err)); return; }
+    box.append(el('p', 'mg-note', 'Every file is scanned on the server before anyone can open it. Allowed: PDF, text, PNG, JPEG, Word (.docx), up to ' + prettyBytes(FL.limits?.maxBytes || 26214400) + '. ' + (host ? '' : 'The host approves files before others can open them.')));
+    const row = el('div', 'mg-trow'); const pick = el('input', '', '', { type: 'file', 'aria-label': 'Choose a file to share', accept: '.pdf,.txt,.png,.jpg,.jpeg,.docx,application/pdf,text/plain,image/png,image/jpeg' });
+    const vis = el('select', 'bk-sel', '', { 'aria-label': 'Who can open it' }); vis.append(new Option(BK.info.roomId ? 'This room' : 'People in this room', 'room')); if (host) vis.append(new Option('Everyone in the meeting', 'meeting')); vis.append(new Option('Host only', 'host_only'));
+    const go = el('button', 'mg-act', FL.busy ? 'Uploading…' : 'Share file', { type: 'button' }); go.disabled = FL.busy; go.onclick = () => { if (!pick.files[0]) { notify('Choose a file first'); return; } flUpload(pick.files[0], vis.value); }; row.append(pick, vis, go); box.append(row);
+    if (FL.msg) box.append(el('p', 'mg-note', FL.msg));
+    if (!FL.files.length) box.append(el('p', 'mg-note', 'No files yet.'));
+    for (const f of FL.files) {
+      const c = el('div', 'bk-room'); const h = el('div', 'bk-room-h'); const label = f.state === 'clean' ? (f.approved ? 'Ready' : 'Waiting for the host') : f.state === 'scanning' ? 'Scanning…' : f.state === 'rejected' ? 'Rejected' + (f.reason ? ': ' + f.reason.replace(/_/g, ' ').replace(/^malware:.*/, 'malware found') : '') : f.state;
+      h.append(el('strong', '', f.name), el('small', '', prettyBytes(f.bytes) + ' · ' + label)); c.append(h);
+      const acts = el('div', 'mg-trow'); const ready = f.state === 'clean' && f.approved; if (ready) { const d = el('button', 'mg-act', 'Download', { type: 'button' }); d.onclick = () => flDownload(f); acts.append(d); }
+      if (host && f.state === 'clean') { const a = el('button', 'mg-act', f.approved ? 'Withdraw approval' : 'Approve', { type: 'button' }); a.onclick = async () => { try { await call('/files/' + f.id + '/approve', 'POST', { approved: !f.approved }); } catch (e) { notify(e.message); } flLoad(); }; acts.append(a); }
+      if (host || f.mine) { const x = el('button', 'mg-act', 'Delete', { type: 'button' }); x.onclick = async () => { if (!(await askConfirm('Delete this file?', f.name, 'Delete', true))) return; try { await call('/files/' + f.id, 'DELETE'); } catch (e) { notify(e.message); } flLoad(); }; acts.append(x); }
+      c.append(acts); box.append(c);
+    }
+  }
+  function flPanel() { const box = el('div', 'mg-qa fl-box'); box.hidden = true; FL.box = box; return box; }
+
+  // ---- Live transcript (v4.34): everyone in the room must agree; only YOUR microphone is recorded, by this page, in short standalone chunks; nothing is stored but the text
+  const TR = { s: null, open: false, segs: [], rec: null, stream: null, timer: 0, alive: false, seq: 0, t0: 0, box: null, boxes: new Set(), err: '', poll: 0 };
+  const trUrl = (p = '') => '/transcripts' + p;
+  async function trLoad() {
+    try { const d = await call(trUrl()); const mineScope = BK.info.roomId || null; TR.s = d.sessions.find((s) => s.status !== 'stopped' && (s.roomId || null) === mineScope) || (state.role === 'host' ? d.sessions.find((s) => s.status !== 'stopped') : null) || null; TR.err = ''; }
+    catch (e) { TR.s = null; TR.err = e.status === 503 ? 'unavailable' : e.message; }
+    if (TR.s && TR.s.status === 'active' && TR.s.mine === true && TR.s.inScope) trCaptureStart(); else trCaptureStop();
+    if (TR.s && TR.s.mine === true) { try { TR.segs = (await call(trUrl('/' + TR.s.id))).segments; } catch { /* keep what we have */ } } else if (!TR.s) TR.segs = [];
+    trRender();
+  }
+  async function trCaptureStart() {
+    if (TR.alive || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') return; TR.alive = true; TR.seq = 0; TR.t0 = Date.now();
+    try { TR.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false }); } catch { TR.alive = false; notify('The transcript needs your microphone, which is not available.'); return; }
+    if (!TR.alive || !(TR.s && TR.s.status === 'active' && TR.s.mine === true)) { trCaptureStop(); return; }
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'].find((m) => MediaRecorder.isTypeSupported(m)); if (!mime) { notify('This browser cannot record in a supported format.'); trCaptureStop(); return; }
+    const cycle = () => {          // a NEW recorder every 4 s, so every chunk is a complete, standalone file the speech engine can decode
+      if (!TR.alive || !TR.stream) return; const rec = new MediaRecorder(TR.stream, { mimeType: mime }); TR.rec = rec; const start = Date.now() - TR.t0;
+      rec.ondataavailable = (ev) => { if (ev.data && ev.data.size > 100 && TR.alive && TR.s?.status === 'active') trSend(ev.data, start, mime.split(';')[0]); };
+      rec.onstop = () => { if (TR.alive) cycle(); }; rec.start(); TR.timer = setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, 4000);
+    }; cycle();
+  }
+  function trCaptureStop() { TR.alive = false; clearTimeout(TR.timer); try { if (TR.rec && TR.rec.state === 'recording') TR.rec.stop(); } catch { /* stopped */ } TR.rec = null; TR.stream?.getTracks().forEach((t) => t.stop()); TR.stream = null; }
+  async function trSend(blob, startMs, type) {
+    const s = TR.s; if (!s) return;
+    try { const r = await fetch(BASE + 'api/v1/meetings/' + state.meetingId + '/transcripts/' + s.id + '/audio', { method: 'POST', headers: authHeaders({ 'Content-Type': type, 'x-consent-epoch': String(s.epoch), 'x-chunk-id': crypto.randomUUID(), 'x-chunk-start-ms': String(startMs) }), body: blob });
+      if (r.status === 409 || r.status === 403) { trCaptureStop(); trLoad(); } else if (r.ok) { clearTimeout(TR.poll); TR.poll = setTimeout(trLoad, 1200); } } catch { /* the next chunk tries again */ }
+  }
+  function trRender() {          // the card can be built more than once (the More tab is rebuilt): paint every one that is still on the page
+    for (const b of [...TR.boxes]) { if (!b.isConnected) { if (TR.boxes.size > 6) TR.boxes.delete(b); continue; } trPaint(b); }
+  }
+  function trPaint(box) {
+    box.textContent = ''; const host = state.role === 'host', s = TR.s;
+    if (TR.err === 'unavailable') { box.append(el('small', 'mg-note', 'Live transcripts are not available on this server.')); return; }
+    if (!s) { if (host) { const b = el('button', 'mg-act', 'Start live transcript', { type: 'button', title: 'Asks everyone in this room for their agreement first' }); b.onclick = async () => { try { await call(trUrl(), 'POST', BK.info.roomId ? { roomId: BK.info.roomId } : {}); notify('Everyone in the room is being asked.'); } catch (e) { notify(e.message); } trLoad(); }; box.append(b); } else box.append(el('small', 'mg-note', 'Not running. Only the host can start it.')); return; }
+    const status = s.status === 'active' ? 'Running' : 'Waiting for everyone to agree'; box.append(el('strong', 'tr-status', status), el('small', 'mg-note', s.agreed + ' of ' + s.required + ' agreed' + (s.declined ? ', ' + s.declined + ' said no' : '') + (host && s.waiting?.length ? '. Waiting for: ' + s.waiting.join(', ') : '') + '.'));
+    if (s.inScope && s.mine !== true) { const row = el('div', 'mg-trow'); const yes = el('button', 'mg-act', 'I agree (my microphone only)', { type: 'button' }), no = el('button', 'mg-act', 'No thanks', { type: 'button' });
+      yes.onclick = async () => { try { await call(trUrl('/' + s.id + '/consent'), 'POST', { consent: true }); } catch (e) { notify(e.message); } trLoad(); }; no.onclick = async () => { try { await call(trUrl('/' + s.id + '/consent'), 'POST', { consent: false }); } catch (e) { notify(e.message); } trLoad(); }; row.append(yes, no); box.append(el('small', 'mg-note', 'Only your own microphone is recorded, in short pieces that are turned into text and then discarded. You can withdraw at any time and your words are deleted.'), row); }
+    else if (s.mine === true) { const w = el('button', 'mg-act', 'Withdraw my consent', { type: 'button' }); w.onclick = async () => { trCaptureStop(); try { await call(trUrl('/' + s.id + '/consent'), 'POST', { consent: false }); } catch (e) { notify(e.message); } trLoad(); }; box.append(w); }
+    if (host) { const x = el('button', 'mg-act', 'Stop transcript', { type: 'button' }); x.onclick = async () => { trCaptureStop(); try { await call(trUrl('/' + s.id + '/stop'), 'POST', {}); } catch (e) { notify(e.message); } trLoad(); }; box.append(x); }
+    if (s.mine === true || host) { const lines = el('div', 'tr-lines', '', { 'aria-live': 'polite', 'aria-label': 'Live transcript', tabindex: '0' }); for (const g of TR.segs.slice(-40)) lines.append(el('p', '', g.speaker + ': ' + g.text)); if (!TR.segs.length) lines.append(el('p', 'mg-note', 'Nothing said yet.')); box.append(lines);
+      const ex = el('button', 'mg-act', 'Download text', { type: 'button' }); ex.onclick = async () => { try { const r = await fetch(BASE + 'api/v1/meetings/' + state.meetingId + '/transcripts/' + s.id + '/export.txt', { headers: authHeaders() }); if (!r.ok) throw new Error('Download failed'); const u = URL.createObjectURL(await r.blob()), a = el('a'); a.href = u; a.download = 'transcript.txt'; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000); } catch (e) { notify(e.message); } }; box.append(ex); }
+  }
+  function trControl() { const box = el('div', 'tr-ctl'); TR.box = box; TR.boxes.add(box); trLoad(); clearInterval(TR.t); TR.t = setInterval(() => { if (!document.hidden && TR.box?.isConnected) trLoad(); }, 6000); return box; }
   function bkPanel() { const box = el('div', 'mg-qa bk-box'); box.hidden = true; BK.box = box; return box; }
   function buildMore() {
     const t = $('tab-more'); t.textContent = ''; t.classList.add('more-v41-compact');
@@ -709,6 +789,9 @@ export function initCollab(h) {
         const clBtn = el('button', 'mg-act', '', { type: 'button' }); clBtn.append(svg('open'), document.createTextNode('Open'));
         if (!isOn('breakouts') || (!host && !BK.info.roomId)) { clBtn.disabled = true; clBtn.title = isOn('breakouts') ? 'Available while you are in a breakout room' : NA; clBtn.setAttribute('aria-disabled', 'true'); }
         else clBtn.onclick = () => { const bx = CL.box; bx.hidden = !bx.hidden; CL.open = !bx.hidden; clBtn.setAttribute('aria-expanded', String(!bx.hidden)); if (!bx.hidden) { if (host && !BK.st) bkLoad(); clLoad(true); } };
+        const flBtn = el('button', 'mg-act', '', { type: 'button' }); flBtn.append(svg('open'), document.createTextNode('Open'));
+        if (!isOn('files')) { flBtn.disabled = true; flBtn.title = NA; flBtn.setAttribute('aria-disabled', 'true'); }
+        else flBtn.onclick = () => { const bx = FL.box; bx.hidden = !bx.hidden; FL.open = !bx.hidden; flBtn.setAttribute('aria-expanded', String(!bx.hidden)); if (!bx.hidden) flLoad(); };
         const qaBtn = el('button', 'mg-act', '', { type: 'button' }); qaBtn.append(svg('open'), document.createTextNode('Open'));
         if (!isOn('qa') || !inMain()) { qaBtn.disabled = true; qaBtn.title = inMain() ? NA : 'Only in the main room'; qaBtn.setAttribute('aria-disabled', 'true'); }
         else qaBtn.onclick = () => { const bx = M.qaBox; bx.hidden = !bx.hidden; qaBtn.lastChild.textContent = bx.hidden ? 'Open' : 'Close'; qaBtn.setAttribute('aria-expanded', String(!bx.hidden)); M.qaOpen = !bx.hidden; clearInterval(M.qaPoll); M.qaPoll = 0; if (!bx.hidden) { renderQa(); M.qaPoll = setInterval(() => { if (M.qaBox && !M.qaBox.hidden && !document.hidden) renderQa(); }, 6000); } };       // the push is the fast path; the refresh catches anything missed
@@ -716,7 +799,8 @@ export function initCollab(h) {
         if (!isOn('whiteboard') || !inMain()) { wbBtn.disabled = true; wbBtn.title = inMain() ? NA : 'Only in the main room'; wbBtn.setAttribute('aria-disabled', 'true'); }
         else wbBtn.onclick = async () => { wbBtn.disabled = true; try { if (host) await more('/whiteboard', 'POST', { action: 'open' }); await wbOpen(); } catch (e) { notify(e.message); } wbBtn.disabled = false; };
         body.append(row('pen', 'Whiteboard', 'Collaborative board for visual brainstorming.', wbBtn), row('people', 'Breakout rooms', 'Split participants into smaller discussion groups.', bkBtn), bkPanel(), row('pen', 'Room board', 'Missions, timed exercises, a drawing board and reports for your room.', clBtn), clPanel(),
-          row('folder', 'Shared files', 'Share and access meeting files (host controlled).', off('Open', 'open')), row('qa', 'Q&A', 'Collect, review and answer participant questions.', qaBtn), qaPanel());
+          row('folder', 'Shared files', 'Share files that are scanned before anyone can open them (the host approves).', flBtn), flPanel(), row('qa', 'Q&A', 'Collect, review and answer participant questions.', qaBtn), qaPanel());
+        if (FL.open && isOn('files')) { FL.box.hidden = false; flBtn.setAttribute('aria-expanded', 'true'); flLoad(); }
         if (CL.open && isOn('breakouts') && (host || BK.info.roomId)) { CL.box.hidden = false; clBtn.setAttribute('aria-expanded', 'true'); clLoad(true); }
         if (BK.open && isOn('breakouts')) { BK.box.hidden = false; bkBtn.setAttribute('aria-expanded', 'true'); bkRender(); bkLoad(); }
         if (M.qaOpen && isOn('qa')) { M.qaBox.hidden = false; qaBtn.lastChild.textContent = 'Close'; qaBtn.setAttribute('aria-expanded', 'true'); renderQa(); clearInterval(M.qaPoll); M.qaPoll = setInterval(() => { if (M.qaBox && !M.qaBox.hidden && !document.hidden) renderQa(); }, 6000); }       // the tab was rebuilt (a setting changed): keep the panel open
@@ -727,10 +811,10 @@ export function initCollab(h) {
         const live = (label) => { const box = el('div', 'mg-intel-ctl'); I.boxes.push([box, label]); intelPaint(box, label); return box; };
         const btn = (label, why) => el('button', 'mg-act', label, { type: 'button', disabled: '', title: why, 'aria-disabled': 'true' });
         card('doc', 'AI Summary', 'Generate key notes, decisions and action items', live('Generate'));
-        card('cc', 'Live Transcript', 'Real-time captions and transcript', swtch('Live transcript', false, true));
+        card('cc', 'Live Transcript', 'Real-time transcript, only with everyone\'s agreement', isOn('transcript') ? trControl() : swtch('Live transcript', false, true));
         card('list', 'Key Takeaways', 'Auto-extract topics and action items', live('View takeaways'));
         card('bot', 'Ask QorllaMate', 'Get answers from the meeting content', btn('Ask AI', 'Needs the private AI gateway question service, which is not connected yet'));
-        body.append(grid, el('p', 'mg-note', 'Summaries and takeaways use only the chat messages of people who agreed, and are produced in the Workplace AI. Live captions need a speech-to-text service that is not connected yet.'));
+        body.append(grid, el('p', 'mg-note', 'Summaries and takeaways use only the chat messages of people who agreed, and are produced in the Workplace AI. Live transcripts need a private speech-to-text service and the agreement of everyone in the room; where that is not set up the switch stays off.'));
       },
       manage(body) {
         const grid = el('div', 'mg-grid5'); const detail = el('div', 'mg-detail'); detail.hidden = true;
@@ -801,7 +885,7 @@ export function initCollab(h) {
   }
   buildNotes(); buildPolls(); buildMore();
   return {
-    attach(s) { s.on('notes-updated', remoteNotes); s.on('notes-editors', (m) => { N.editors = m.editors; const can = state.role === 'host' || m.editors.includes(state.participantId); if (can !== N.canEdit && !N.ended) { N.canEdit = can; renderAll(); announce(can ? 'You can now edit the notes' : 'Your edit access to the notes was removed'); } }); s.on('polls-changed', polls$); s.on('breakout-help', (h) => { notify(h.name + ' in ' + (h.roomName || 'a room') + ' is asking for help'); announce(h.name + ' in ' + (h.roomName || 'a room') + ' is asking for help'); breakoutsChanged(); }); s.on('breakout-help-resolved', () => { BK.helpId = null; bkPaintChip(); notify('Your request was answered'); }); s.on('breakout-announcement', (m) => { notify(m.from + ': ' + m.text); announce(m.from + ' says: ' + m.text); }); s.on('classroom-changed', () => { if (CL.open) clLoad(); if (state.role === 'host' && BK.info.active && BK.open) { clearTimeout(BK.dashT); BK.dashT = setTimeout(bkLoad, 700); } }); s.on('room-board', () => { if (CL.open && CL.tab === 'whiteboard') clWbSync(); }); s.on('more', onMore); s.on('ai-consent-request', loadIntel); s.on('ai-consent-closed', loadIntel); s.on('connect', () => { if (M.features) loadMore(); }); },
+    attach(s) { s.on('notes-updated', remoteNotes); s.on('notes-editors', (m) => { N.editors = m.editors; const can = state.role === 'host' || m.editors.includes(state.participantId); if (can !== N.canEdit && !N.ended) { N.canEdit = can; renderAll(); announce(can ? 'You can now edit the notes' : 'Your edit access to the notes was removed'); } }); s.on('polls-changed', polls$); s.on('breakout-help', (h) => { notify(h.name + ' in ' + (h.roomName || 'a room') + ' is asking for help'); announce(h.name + ' in ' + (h.roomName || 'a room') + ' is asking for help'); breakoutsChanged(); }); s.on('breakout-help-resolved', () => { BK.helpId = null; bkPaintChip(); notify('Your request was answered'); }); s.on('breakout-announcement', (m) => { notify(m.from + ': ' + m.text); announce(m.from + ' says: ' + m.text); }); s.on('files-changed', () => { if (FL.open) flLoad(); }); s.on('transcript-state', () => { if (TR.box) trLoad(); }); s.on('classroom-changed', () => { if (CL.open) clLoad(); if (state.role === 'host' && BK.info.active && BK.open) { clearTimeout(BK.dashT); BK.dashT = setTimeout(bkLoad, 700); } }); s.on('room-board', () => { if (CL.open && CL.tab === 'whiteboard') clWbSync(); }); s.on('more', onMore); s.on('ai-consent-request', loadIntel); s.on('ai-consent-closed', loadIntel); s.on('connect', () => { if (M.features) loadMore(); }); },
     breakoutScope, breakoutsChanged,
     load() { buildMore(); loadNotes(); loadPolls(); loadMore(); loadIntel(); document.querySelector('[data-tab=more]')?.addEventListener('click', loadIntel); clearInterval(I.poll); I.poll = setInterval(() => { const t = $('tab-more'); if (!document.hidden && t && !t.classList.contains('hidden')) loadIntel(); }, 8000); },       // answers are not pushed: refresh while the tab is on screen
     refreshMore() { buildMore(); },
