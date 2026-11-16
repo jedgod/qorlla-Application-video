@@ -26,6 +26,7 @@ export function registerTelephony({ app, db, bridgeAuth, phone, env = process.en
   app.get(B + '/numbers/requests', bridgeAuth, numbersOnly, wrap((req, a) => svc.listRequests(a)));
   app.get(B + '/numbers', bridgeAuth, numbersOnly, wrap((req, a) => svc.listNumbers(a, { kind: req.query.kind })));
   app.get(B + '/dial-in', bridgeAuth, wrap(() => svc.dialInDirectory()));
+  app.get(B + '/phone-readiness', bridgeAuth, wrap(() => svc.phoneReadiness()));                  // the six conditions for telephone join, from stored, fresh evidence (see service.phoneReadiness)
   app.post(B + '/numbers/:id/state', bridgeAuth, numbersOnly, json, wrap((req, a) => svc.setNumberState(a, req.params.id, (req.body || {}).state)));
   app.post(B + '/numbers/:id/reassign', bridgeAuth, numbersOnly, json, wrap((req, a) => svc.reassignNumber(a, req.params.id, (req.body || {}).to, (req.body || {}).reason)));
   app.put(B + '/accounts/:id', bridgeAuth, json, wrap((req) => svc.syncAccount({ accountId: req.params.id, verified: (req.body || {}).verified, suspended: (req.body || {}).suspended, orgId: (req.body || {}).orgId, billingHold: (req.body || {}).billingHold })));   // the main app reports each account's standing

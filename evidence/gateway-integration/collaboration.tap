@@ -1,0 +1,259 @@
+TAP version 13
+# Subtest: ask for help: only a person in a room, only the host is told, one open request, a cool-down, resolve, and a session end closes it
+ok 1 - ask for help: only a person in a room, only the host is told, one open request, a cool-down, resolve, and a session end closes it
+  ---
+  duration_ms: 31323.9831
+  type: 'test'
+  ...
+# Subtest: return to the main room: a guest leaves a room by themselves, the scopes and rosters follow, the choice survives a restart, and no media crosses
+ok 2 - return to the main room: a guest leaves a room by themselves, the scopes and rosters follow, the choice survives a restart, and no media crosses
+  ---
+  duration_ms: 6829.5726
+  type: 'test'
+  ...
+# Subtest: ready acknowledgement: a moved person shows as connecting until their page says the new peers are up
+ok 3 - ready acknowledgement: a moved person shows as connecting until their page says the new peers are up
+  ---
+  duration_ms: 1775.6523
+  type: 'test'
+  ...
+# Subtest: polls are room-scoped: only the room votes and sees them, the host oversees all, events stay in the room, ended rooms hide them from guests
+ok 4 - polls are room-scoped: only the room votes and sees them, the host oversees all, events stay in the room, ended rooms hide them from guests
+  ---
+  duration_ms: 9015.5439
+  type: 'test'
+  ...
+# Subtest: notes are room-scoped: each room has its own document, everybody in it edits, nothing leaks, the host can read any room, history stays main-only
+ok 5 - notes are room-scoped: each room has its own document, everybody in it edits, nothing leaks, the host can read any room, history stays main-only
+  ---
+  duration_ms: 5630.2331
+  type: 'test'
+  ...
+# [breakouts] move log failed Cannot use a pool after calling end on the pool
+# [breakouts] move log failed Cannot use a pool after calling end on the pool
+# Subtest: setup is host only; rooms, assignment and validation
+ok 6 - setup is host only; rooms, assignment and validation
+  ---
+  duration_ms: 21827.3193
+  type: 'test'
+  ...
+# Subtest: start: people move to their rooms, everyone else stays; the old scope sees them leave, the new scope sees them arrive; each mover gets a fresh roster
+ok 7 - start: people move to their rooms, everyone else stays; the old scope sees them leave, the new scope sees them arrive; each mover gets a fresh roster
+  ---
+  duration_ms: 2030.2032
+  type: 'test'
+  ...
+# Subtest: start needs rooms with people; recording blocks it; the host can visit a room and come back; recall returns everyone
+ok 8 - start needs rooms with people; recording blocks it; the host can visit a room and come back; recall returns everyone
+  ---
+  duration_ms: 2649.9761
+  type: 'test'
+  ...
+# Subtest: autosplit spreads the people who are here over the rooms; late changes move people while a session runs
+ok 9 - autosplit spreads the people who are here over the rooms; late changes move people while a session runs
+  ---
+  duration_ms: 1815.2999
+  type: 'test'
+  ...
+# Subtest: time runs out: the tick ends the session once and everyone is back in the main room
+ok 10 - time runs out: the tick ends the session once and everyone is back in the main room
+  ---
+  duration_ms: 3230.9475
+  type: 'test'
+  ...
+# Subtest: a server restart loses nothing: the scope map is rebuilt from PostgreSQL
+ok 11 - a server restart loses nothing: the scope map is rebuilt from PostgreSQL
+  ---
+  duration_ms: 3683.3604
+  type: 'test'
+  ...
+# Subtest: chat: an Everyone message written in a room stays in that room (live, history, save, edit, delete); main-room chat is separate
+ok 12 - chat: an Everyone message written in a room stays in that room (live, history, save, edit, delete); main-room chat is separate
+  ---
+  duration_ms: 3032.1548
+  type: 'test'
+  ...
+# Subtest: telephone admission blocks breakout start until the call terminates
+ok 13 - telephone admission blocks breakout start until the call terminates
+  ---
+  duration_ms: 1246.0073
+  type: 'test'
+  ...
+# [breakouts] move log failed Cannot use a pool after calling end on the pool
+# Subtest: plain and rich messages: body stays plain text, rich is canonical, script never survives
+ok 14 - plain and rich messages: body stays plain text, rich is canonical, script never survives
+  ---
+  duration_ms: 25132.9774
+  type: 'test'
+  ...
+# Subtest: only admitted people of THIS meeting can use the chat; other meetings are isolated
+ok 15 - only admitted people of THIS meeting can use the chat; other meetings are isolated
+  ---
+  duration_ms: 1183.2377
+  type: 'test'
+  ...
+# Subtest: replies, quotes and the list
+ok 16 - replies, quotes and the list
+  ---
+  duration_ms: 1715.5657
+  type: 'test'
+  ...
+# Subtest: edit: only the author, only text, plain and rich, and everyone is told
+ok 17 - edit: only the author, only text, plain and rich, and everyone is told
+  ---
+  duration_ms: 2005.5138
+  type: 'test'
+  ...
+# Subtest: bookmarks are private to the person; pins are for everyone and host only
+ok 18 - bookmarks are private to the person; pins are for everyone and host only
+  ---
+  duration_ms: 3053.1645
+  type: 'test'
+  ...
+# Subtest: tasks: validated title, date and assignee; listed for the meeting
+ok 19 - tasks: validated title, date and assignee; listed for the meeting
+  ---
+  duration_ms: 1903.6241
+  type: 'test'
+  ...
+# Subtest: search treats % and _ literally and pagination works
+ok 20 - search treats % and _ literally and pagination works
+  ---
+  duration_ms: 2505.6785
+  type: 'test'
+  ...
+# Subtest: GIFs: off by default; when on, results and posts are limited to GIPHY https URLs
+ok 21 - GIFs: off by default; when on, results and posts are limited to GIPHY https URLs
+  ---
+  duration_ms: 2021.1309
+  type: 'test'
+  ...
+# Subtest: attachments: off by default; when on, type by bytes, size limit, per-meeting download, one message per file
+ok 22 - attachments: off by default; when on, type by bytes, size limit, per-meeting download, one message per file
+  ---
+  duration_ms: 1892.3123
+  type: 'test'
+  ...
+# Subtest: chat.post (the socket path) validates the same way
+ok 23 - chat.post (the socket path) validates the same way
+  ---
+  duration_ms: 303.9526
+  type: 'test'
+  ...
+# Subtest: the host chat policy: default keeps the old behavior; only the host changes it; it is enforced on every send
+ok 24 - the host chat policy: default keeps the old behavior; only the host changes it; it is enforced on every send
+  ---
+  duration_ms: 2370.1372
+  type: 'test'
+  ...
+# Subtest: a private conversation is visible to its members only: reads, live events, tasks, search, export
+ok 25 - a private conversation is visible to its members only: reads, live events, tasks, search, export
+  ---
+  duration_ms: 2444.729
+  type: 'test'
+  ...
+# Subtest: delete: author or host; the text really leaves the database; everybody who could see it is told
+ok 26 - delete: author or host; the text really leaves the database; everybody who could see it is told
+  ---
+  duration_ms: 2001.9637
+  type: 'test'
+  ...
+# Subtest: Save chat exports only what that person may see, as a download, without deleted messages
+ok 27 - Save chat exports only what that person may see, as a download, without deleted messages
+  ---
+  duration_ms: 2615.6208
+  type: 'test'
+  ...
+# Subtest: idempotent sends: a retry with the same key returns the same message and announces nothing twice
+ok 28 - idempotent sends: a retry with the same key returns the same message and announces nothing twice
+  ---
+  duration_ms: 2504.9142
+  type: 'test'
+  ...
+# Subtest: attachments in a private conversation are reachable only by its members
+ok 29 - attachments in a private conversation are reachable only by its members
+  ---
+  duration_ms: 1550.9168
+  type: 'test'
+  ...
+# Subtest: a person whose admission was withdrawn stops receiving chat at once and cannot read or post with their token
+ok 30 - a person whose admission was withdrawn stops receiving chat at once and cannot read or post with their token
+  ---
+  duration_ms: 1546.0971
+  type: 'test'
+  ...
+# Subtest: "who can see your messages": the audience comes from the server; no cloud-storage connector routes exist
+ok 31 - "who can see your messages": the audience comes from the server; no cloud-storage connector routes exist
+  ---
+  duration_ms: 923.0762
+  type: 'test'
+  ...
+# Subtest: GIF search talks to the configured GIPHY address only, with the key on the server
+ok 32 - GIF search talks to the configured GIPHY address only, with the key on the server
+  ---
+  duration_ms: 854.7297
+  type: 'test'
+  ...
+# Subtest: state: real features are on, unbuilt ones say so (never a fake success)
+ok 33 - state: real features are on, unbuilt ones say so (never a fake success)
+  ---
+  duration_ms: 18053.145
+  type: 'test'
+  ...
+# Subtest: access: no token, wrong meeting and a participant who is still waiting are all refused
+ok 34 - access: no token, wrong meeting and a participant who is still waiting are all refused
+  ---
+  duration_ms: 848.7971
+  type: 'test'
+  ...
+# Subtest: Q&A: ask, vote (toggle), host answers and hides; guests cannot moderate; another meeting sees nothing
+ok 35 - Q&A: ask, vote (toggle), host answers and hides; guests cannot moderate; another meeting sees nothing
+  ---
+  duration_ms: 3462.1068
+  type: 'test'
+  ...
+# Subtest: timer: only the host runs it, the server owns the clock, limits are enforced, everyone is told
+ok 36 - timer: only the host runs it, the server owns the clock, limits are enforced, everyone is told
+  ---
+  duration_ms: 1035.6866
+  type: 'test'
+  ...
+# Subtest: preferences: saved per person and per meeting; bad values are refused
+ok 37 - preferences: saved per person and per meeting; bad values are refused
+  ---
+  duration_ms: 1457.0873
+  type: 'test'
+  ...
+# Subtest: attendance: host only, from the connection sessions Meet records
+ok 38 - attendance: host only, from the connection sessions Meet records
+  ---
+  duration_ms: 1531.7098
+  type: 'test'
+  ...
+# Subtest: whiteboard: validation is strict (bounds, colours, ids, shapes)
+ok 39 - whiteboard: validation is strict (bounds, colours, ids, shapes)
+  ---
+  duration_ms: 2.8534
+  type: 'test'
+  ...
+# Subtest: whiteboard: host opens and controls it; guests draw only while allowed; replay from a cursor; clear is host only; another meeting is separate
+ok 40 - whiteboard: host opens and controls it; guests draw only while allowed; replay from a cursor; clear is host only; another meeting is separate
+  ---
+  duration_ms: 2574.5286
+  type: 'test'
+  ...
+# Subtest: Q&A: anonymous questions hide the name from guests but not from the host or the asker
+ok 41 - Q&A: anonymous questions hide the name from guests but not from the host or the asker
+  ---
+  duration_ms: 1057.0239
+  type: 'test'
+  ...
+1..41
+# tests 41
+# suites 0
+# pass 41
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 192839.2772

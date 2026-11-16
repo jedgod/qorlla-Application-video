@@ -13,7 +13,7 @@ import { registerChat } from '../server/chat.mjs';
 // the identity comes from a header instead of a signed token, but the admitted-participant SQL is the real one.
 const URL = process.env.TEST_PG_URL || 'postgres://postgres:postgres@127.0.0.1:25611/postgres';
 const SQL = join(dirname(fileURLToPath(import.meta.url)), '..', 'sql');
-const ORDER = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', ...readdirSync(SQL).filter((f) => /^v4_\d+_/.test(f)).sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]))];
+const ORDER = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', ...readdirSync(SQL).filter((f) => /^v4_\d+_/.test(f) && !f.endsWith('.rollback.sql')).sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]))];
 const dbName = 'chat_' + Math.random().toString(36).slice(2, 10);
 let admin, pool;
 test.before(async () => {

@@ -22,8 +22,8 @@ export async function voiceTwiml({ db, phone, bridge, audio, params, query, base
   const gather = (action, prompt) => '<Gather input="dtmf" finishOnKey="#" timeout="10" action="' + url(action.step, action.extra) + '" method="POST">' + say(prompt) + '</Gather>' + say('We did not receive any input. Goodbye.') + HANG;
   const digits = String(params.Digits || '');
   if (step === 'id') {
-    if (!digits) return R(gather({ step: 'id', extra: '&a=' + attempt }, 'Enter the 11-digit meeting ID, followed by pound.'));
-    let id; try { id = normalizeMeetingId(digits); } catch { return attempt >= 2 ? R(say(GENERIC) + HANG) : R(say(GENERIC) + gather({ step: 'id', extra: '&a=' + (attempt + 1) }, 'Enter the 11-digit meeting ID, followed by pound.')); }
+    if (!digits) return R(gather({ step: 'id', extra: '&a=' + attempt }, 'Enter the meeting ID, followed by pound.'));
+    let id; try { id = normalizeMeetingId(digits); } catch { return attempt >= 2 ? R(say(GENERIC) + HANG) : R(say(GENERIC) + gather({ step: 'id', extra: '&a=' + (attempt + 1) }, 'Enter the meeting ID, followed by pound.')); }
     return R(gather({ step: 'pin', extra: '&m=' + id + '&a=0' }, 'Enter the telephone access PIN, followed by pound.'));
   }
   if (step === 'pin') {
@@ -32,11 +32,13 @@ export async function voiceTwiml({ db, phone, bridge, audio, params, query, base
     const r = await phone.verifyCall({ eventId: 'tw-' + callSid + '-p' + attempt, callId: callSid, from, meetingId: id, pin: digits }, 'twilio');
     if (r.result === 'denied' || r.result === 'locked') return attempt >= 2 || r.result === 'locked' ? R(say(GENERIC) + HANG) : R(say(GENERIC) + gather({ step: 'pin', extra: '&m=' + id + '&a=' + (attempt + 1) }, 'Enter the telephone access PIN, followed by pound.'));
     if (r.result === 'waiting') return R(say(r.say) + '<Pause length="10"/><Redirect method="POST">' + url('wait', '&m=' + id + '&a=0') + '</Redirect>');
-    return R(say(r.say) + (r.recordingNotice ? say(r.consentPrompt) : '') + await bridge.join({ callSid, meetingId: id, callRef: r.callRef }));
+    // 'approved' is NOT 'connected': the caller is let through to the media bridge, and Meet marks the call connected only when the bridge's verified-audio report arrives (phone.mediaReport). The recording notice is
+    // played then, not now.
+    return R(say(r.say) + await bridge.join({ callSid, meetingId: id, callRef: r.callRef, mediaToken: r.mediaToken || null }));
   }
   if (step === 'wait') {
     const st = await phone.statusOf(callSid, 'twilio');
-    if (st === 'connected') return R(say('The host let you in.') + await bridge.join({ callSid, meetingId: String(query.m || ''), callRef: null }));
+    if (st === 'approved' || st === 'connected') return R(say('The host let you in.') + await bridge.join({ callSid, meetingId: String(query.m || ''), callRef: null }));
     if (st === 'waiting' && attempt < 30) return R('<Pause length="10"/><Redirect method="POST">' + url('wait', '&m=' + esc(String(query.m || '')) + '&a=' + (attempt + 1)) + '</Redirect>');
     return R(say(st === 'waiting' ? 'The host did not let you in. Goodbye.' : GENERIC) + HANG);
   }

@@ -1,0 +1,419 @@
+TAP version 13
+# Subtest: a well-formed workload token from a known gateway is accepted once
+ok 1 - a well-formed workload token from a known gateway is accepted once
+  ---
+  duration_ms: 15.0581
+  type: 'test'
+  ...
+# Subtest: every way a token can be wrong is refused, with the reason recorded
+ok 2 - every way a token can be wrong is refused, with the reason recorded
+  ---
+  duration_ms: 47.3397
+  type: 'test'
+  ...
+# Subtest: the token is bound to the body: a different body, a missing hash, or a body-bound token on a bodiless call is refused
+ok 3 - the token is bound to the body: a different body, a missing hash, or a body-bound token on a bodiless call is refused
+  ---
+  duration_ms: 16.5836
+  type: 'test'
+  ...
+# Subtest: mutual TLS binding: the token must carry the thumbprint of the certificate on this connection
+ok 4 - mutual TLS binding: the token must carry the thumbprint of the certificate on this connection
+  ---
+  duration_ms: 28.6004
+  type: 'test'
+  ...
+# Subtest: a replay store that is down is a refusal, not a pass
+ok 5 - a replay store that is down is a refusal, not a pass
+  ---
+  duration_ms: 6.3651
+  type: 'test'
+  ...
+# Subtest: clock skew is bounded in both directions (injected clock)
+ok 6 - clock skew is bounded in both directions (injected clock)
+  ---
+  duration_ms: 8.8838
+  type: 'test'
+  ...
+# Subtest: format compatibility: a token minted by Meet's own signWorkloadJwt is verified (when the Meet source is available)
+ok 7 - format compatibility: a token minted by Meet's own signWorkloadJwt is verified (when the Meet source is available)
+  ---
+  duration_ms: 8.4106
+  type: 'test'
+  ...
+# Subtest: middleware: GET needs a valid token; the admission POST also needs the body hash; replays, tampering and oversize are refused, and the real reason is only logged
+ok 8 - middleware: GET needs a valid token; the admission POST also needs the body hash; replays, tampering and oversize are refused, and the real reason is only logged
+  ---
+  duration_ms: 711.1707
+  type: 'test'
+  ...
+# Subtest: replay store on PostgreSQL: three replicas verifying the SAME captured token - exactly one accepts it
+ok 9 - replay store on PostgreSQL: three replicas verifying the SAME captured token - exactly one accepts it
+  ---
+  duration_ms: 3077.3299
+  type: 'test'
+  ...
+# Subtest: the provider signature matches the known answer produced by Meet's real createProvider().sign
+ok 10 - the provider signature matches the known answer produced by Meet's real createProvider().sign
+  ---
+  duration_ms: 4.6139
+  type: 'test'
+  ...
+# Subtest: session ids carry both the meeting and the call in Meet, and nothing else is accepted
+ok 11 - session ids carry both the meeting and the call in Meet, and nothing else is accepted
+  ---
+  duration_ms: 1.9118
+  type: 'test'
+  ...
+# Subtest: configuration is validated at construction
+ok 12 - configuration is validated at construction
+  ---
+  duration_ms: 1.116
+  type: 'test'
+  ...
+# Subtest: Meet (workload identity): PIN -> approved, then verified media confirmed BY MEET -> MEDIA_CONNECTED; before that nothing is connected
+ok 13 - Meet (workload identity): PIN -> approved, then verified media confirmed BY MEET -> MEDIA_CONNECTED; before that nothing is connected
+  ---
+  duration_ms: 283.7914
+  type: 'test'
+  ...
+# Subtest: Meet (provider hmac): PIN -> approved, then verified media confirmed BY MEET -> MEDIA_CONNECTED; before that nothing is connected
+ok 14 - Meet (provider hmac): PIN -> approved, then verified media confirmed BY MEET -> MEDIA_CONNECTED; before that nothing is connected
+  ---
+  duration_ms: 76.1071
+  type: 'test'
+  ...
+# Subtest: Meet answers `connected` at the PIN step (a Meet without the lifecycle): never trusted, the caller is hung up in Meet, 503
+ok 15 - Meet answers `connected` at the PIN step (a Meet without the lifecycle): never trusted, the caller is hung up in Meet, 503
+  ---
+  duration_ms: 78.5773
+  type: 'test'
+  ...
+# Subtest: verified locally but Meet does not accept the audio (Meet judges for itself): not connected, torn down, 503
+ok 16 - verified locally but Meet does not accept the audio (Meet judges for itself): not connected, torn down, 503
+  ---
+  duration_ms: 211.3382
+  type: 'test'
+  ...
+# Subtest: weak or missing evidence never reaches "connected": the gateway refuses it locally and Meet is not even asked; no media token means nothing can be reported
+ok 17 - weak or missing evidence never reaches "connected": the gateway refuses it locally and Meet is not even asked; no media token means nothing can be reported
+  ---
+  duration_ms: 373.1623
+  type: 'test'
+  ...
+# Subtest: Meet's own judgement catches what a faulty gateway sends (it re-evaluates the raw evidence): one-way audio from a gateway whose local check was bypassed is not connected
+ok 18 - Meet's own judgement catches what a faulty gateway sends (it re-evaluates the raw evidence): one-way audio from a gateway whose local check was bypassed is not connected
+  ---
+  duration_ms: 46.587
+  type: 'test'
+  ...
+# Subtest: wrong PIN, wrong meeting, malformed PIN, no caller number, over-long call id: refused without attaching media
+ok 19 - wrong PIN, wrong meeting, malformed PIN, no caller number, over-long call id: refused without attaching media
+  ---
+  duration_ms: 104.119
+  type: 'test'
+  ...
+# Subtest: Meet unavailable, telephony disabled in Meet, bad credentials, unreachable: 503 / refusal, never an admission
+ok 20 - Meet unavailable, telephony disabled in Meet, bad credentials, unreachable: 503 / refusal, never an admission
+  ---
+  duration_ms: 98.167
+  type: 'test'
+  ...
+# Subtest: waiting room (workload long-poll): the host approves -> the media token arrives with the decision -> verified media -> MEDIA_CONNECTED
+ok 21 - waiting room (workload long-poll): the host approves -> the media token arrives with the decision -> verified media -> MEDIA_CONNECTED
+  ---
+  duration_ms: 94.2028
+  type: 'test'
+  ...
+# Subtest: waiting room (hmac status polling): the host approves -> the media token arrives with the decision -> verified media -> MEDIA_CONNECTED
+ok 22 - waiting room (hmac status polling): the host approves -> the media token arrives with the decision -> verified media -> MEDIA_CONNECTED
+  ---
+  duration_ms: 42.7564
+  type: 'test'
+  ...
+# Subtest: waiting room: refused / timed out by Meet -> refused, no media, and nothing is left waiting in Meet
+ok 23 - waiting room: refused / timed out by Meet -> refused, no media, and nothing is left waiting in Meet
+  ---
+  duration_ms: 138.6347
+  type: 'test'
+  ...
+# Subtest: waiting room: a host who never answers - the admission stops waiting, the long-poll is aborted (not left running), the caller is ended in Meet
+ok 24 - waiting room: a host who never answers - the admission stops waiting, the long-poll is aborted (not left running), the caller is ended in Meet
+  ---
+  duration_ms: 379.5043
+  type: 'test'
+  ...
+# Subtest: Meet admits but does not identify the meeting: the caller is ended in Meet and the admission fails closed
+ok 25 - Meet admits but does not identify the meeting: the caller is ended in Meet and the admission fails closed
+  ---
+  duration_ms: 56.1924
+  type: 'test'
+  ...
+# Subtest: the same call id twice (a replayed webhook) is refused by the ledger before Meet is asked again
+ok 26 - the same call id twice (a replayed webhook) is refused by the ledger before Meet is asked again
+  ---
+  duration_ms: 80.797
+  type: 'test'
+  ...
+# Subtest: keep-alive: live calls are re-measured and re-reported; a call Meet no longer accepts, or tells to terminate, is torn down at once
+ok 27 - keep-alive: live calls are re-measured and re-reported; a call Meet no longer accepts, or tells to terminate, is torn down at once
+  ---
+  duration_ms: 117.2544
+  type: 'test'
+  ...
+# Subtest: keep-alive: evidence that fails (silence, one-way) or a leg that cannot be measured is reported as it is, and Meet's answer decides
+ok 28 - keep-alive: evidence that fails (silence, one-way) or a leg that cannot be measured is reported as it is, and Meet's answer decides
+  ---
+  duration_ms: 99.713
+  type: 'test'
+  ...
+# Subtest: keep-alive: Meet unreachable - the leg stays and the error is logged (Meet's own stale-media sweeper ends the call if reports do not resume)
+ok 29 - keep-alive: Meet unreachable - the leg stays and the error is logged (Meet's own stale-media sweeper ends the call if reports do not resume)
+  ---
+  duration_ms: 215.3222
+  type: 'test'
+  ...
+# Subtest: readiness: exactly what Meet says, nothing more - only boolean true counts, and the request is a gateway-audience token
+ok 30 - readiness: exactly what Meet says, nothing more - only boolean true counts, and the request is a gateway-audience token
+  ---
+  duration_ms: 85.4377
+  type: 'test'
+  ...
+# Subtest: readiness FAILS CLOSED: errors, timeouts, malformed, stale, from the future, wrong shape - all six false, never thrown
+ok 31 - readiness FAILS CLOSED: errors, timeouts, malformed, stale, from the future, wrong shape - all six false, never thrown
+  ---
+  duration_ms: 707.0288
+  type: 'test'
+  ...
+# Subtest: readiness: a good answer is reused briefly, a failure is never cached, and it recovers the moment Meet does
+ok 32 - readiness: a good answer is reused briefly, a failure is never cached, and it recovers the moment Meet does
+  ---
+  duration_ms: 102.6498
+  type: 'test'
+  ...
+# Subtest: readiness drives the router: not ready -> 503 and nothing else is called; ready -> the admission runs
+ok 33 - readiness drives the router: not ready -> 503 and nothing else is called; ready -> the admission runs
+  ---
+  duration_ms: 228.4266
+  type: 'test'
+  ...
+# Subtest: directory client: strict parsing, one meeting per number, errors are errors
+ok 34 - directory client: strict parsing, one meeting per number, errors are errors
+  ---
+  duration_ms: 58.2859
+  type: 'test'
+  ...
+# Subtest: Shield: allowed meeting - admitted; the Shield sees a guest with the call as participant, after approval where approval is needed
+ok 35 - Shield: allowed meeting - admitted; the Shield sees a guest with the call as participant, after approval where approval is needed
+  ---
+  duration_ms: 287.8521
+  type: 'test'
+  ...
+# Subtest: Shield: guests not allowed, or meeting ended - refused, the caller is removed from the meeting, and no media is attached
+ok 36 - Shield: guests not allowed, or meeting ended - refused, the caller is removed from the meeting, and no media is attached
+  ---
+  duration_ms: 586.6683
+  type: 'test'
+  ...
+# Subtest: Shield: an unreachable Shield, a Shield that refuses our token, or a garbage answer is NEVER an admission
+ok 37 - Shield: an unreachable Shield, a Shield that refuses our token, or a garbage answer is NEVER an admission
+  ---
+  duration_ms: 241.7938
+  type: 'test'
+  ...
+# Subtest: Shield: waiting or denied admission states are never allowed through the client
+ok 38 - Shield: waiting or denied admission states are never allowed through the client
+  ---
+  duration_ms: 100.2382
+  type: 'test'
+  ...
+# [phone-join] shield unreachable beyond the grace period: ending telephone calls
+# Subtest: Shield re-check: a revoked call is ended everywhere (media, Meet, ledger); an unreachable Shield ends calls only after the grace period
+ok 39 - Shield re-check: a revoked call is ended everywhere (media, Meet, ledger); an unreachable Shield ends calls only after the grace period
+  ---
+  duration_ms: 186.9204
+  type: 'test'
+  ...
+# Subtest: terminateCall: media first, then Meet, then the record; a bridge that cannot disconnect leaves the call orphaned and says so
+ok 40 - terminateCall: media first, then Meet, then the record; a bridge that cannot disconnect leaves the call orphaned and says so
+  ---
+  duration_ms: 1.2463
+  type: 'test'
+  ...
+# Subtest: FULL PIPELINE over HTTP: signed gateway token + body hash, Redis limit, PostgreSQL ledger, Meet (lifecycle), Shield, verified media confirmed by Meet
+ok 41 - FULL PIPELINE over HTTP: signed gateway token + body hash, Redis limit, PostgreSQL ledger, Meet (lifecycle), Shield, verified media confirmed by Meet # SKIP PHONE_JOIN_TEST_DATABASE_URL and PHONE_JOIN_TEST_REDIS_URL are required
+  ---
+  duration_ms: 0.1547
+  type: 'test'
+  ...
+# Subtest: FULL PIPELINE: with any readiness condition not met, nothing is called - not Meet, not the Shield, not the ledger
+ok 42 - FULL PIPELINE: with any readiness condition not met, nothing is called - not Meet, not the Shield, not the ledger
+  ---
+  duration_ms: 60.9491
+  type: 'test'
+  ...
+# Subtest: non-lab startup refuses a missing or process-local ledger before binding any sockets
+ok 43 - non-lab startup refuses a missing or process-local ledger before binding any sockets
+  ---
+  duration_ms: 40.6113
+  type: 'test'
+  ...
+# Subtest: a complete configuration has no problems; every missing or unsafe part is named and stops the gateway from starting
+ok 44 - a complete configuration has no problems; every missing or unsafe part is named and stops the gateway from starting
+  ---
+  duration_ms: 7.0858
+  type: 'test'
+  ...
+# Subtest: an enabled and complete gateway still serves nobody while readiness evidence is missing: every call is refused 503 and no media port is opened
+ok 45 - an enabled and complete gateway still serves nobody while readiness evidence is missing: every call is refused 503 and no media port is opened
+  ---
+  duration_ms: 311.467
+  type: 'test'
+  ...
+# Subtest: credentials are looked up as own properties only (a prototype name is not a user), and only the configured trunk authenticates
+ok 46 - credentials are looked up as own properties only (a prototype name is not a user), and only the configured trunk authenticates
+  ---
+  duration_ms: 144.6205
+  type: 'test'
+  ...
+# Subtest: happy path: DTMF meeting ID + passcode, admission, then REAL two-way audio: the phone's tone reaches the meeting, the meeting's tone reaches the phone (SRTP, G.711), evidence verified by both judges
+ok 47 - happy path: DTMF meeting ID + passcode, admission, then REAL two-way audio: the phone's tone reaches the meeting, the meeting's tone reaches the phone (SRTP, G.711), evidence verified by both judges
+  ---
+  duration_ms: 7608.1294
+  type: 'test'
+  ...
+# Subtest: A5.3: a 12-digit code (and one with a leading zero) is keyed in with \#, reaches admission EXACTLY as dialled, and the passcode is its own entry
+ok 48 - A5.3: a 12-digit code (and one with a leading zero) is keyed in with \#, reaches admission EXACTLY as dialled, and the passcode is its own entry
+  ---
+  duration_ms: 13427.9573
+  type: 'test'
+  ...
+# Subtest: A5.3: a 13th digit is refused - no admission request is made, no passcode is spent, nothing is attached
+ok 49 - A5.3: a 13th digit is refused - no admission request is made, no passcode is spent, nothing is attached
+  ---
+  duration_ms: 4387.6556
+  type: 'test'
+  ...
+# Subtest: A5.3: digits pressed after a refused entry never cross the attempt boundary: nothing of the refused entry reaches admission or the passcode, and a burst of later digits is dropped, not carried over
+ok 50 - A5.3: digits pressed after a refused entry never cross the attempt boundary: nothing of the refused entry reaches admission or the passcode, and a burst of later digits is dropped, not carried over
+  ---
+  duration_ms: 9431.9155
+  type: 'test'
+  ...
+# Subtest: A5.3: a caller cannot get around the attempt budget by streaming entries: at most three attempts reach admission, then the line is hung up
+ok 51 - A5.3: a caller cannot get around the attempt budget by streaming entries: at most three attempts reach admission, then the line is hung up
+  ---
+  duration_ms: 26112.2382
+  type: 'test'
+  ...
+# Subtest: wrong meeting credentials: the caller is refused, hung up, and nothing is ever attached to the meeting
+ok 52 - wrong meeting credentials: the caller is refused, hung up, and nothing is ever attached to the meeting
+  ---
+  duration_ms: 3090.6576
+  type: 'test'
+  ...
+# Subtest: host refusal: the waiting caller is hung up, the meeting is told, no media is attached
+ok 53 - host refusal: the waiting caller is hung up, the meeting is told, no media is attached
+  ---
+  duration_ms: 3155.6228
+  type: 'test'
+  ...
+# Subtest: Security Shield revocation of a connected call (the guard's terminate path): BYE to the phone, the meeting session closed, the call ended once
+ok 54 - Security Shield revocation of a connected call (the guard's terminate path): BYE to the phone, the meeting session closed, the call ended once
+  ---
+  duration_ms: 3633.7268
+  type: 'test'
+  ...
+# Subtest: missing audio from the telephone: signalling and DTMF succeed, but NO audio packets arrive - the call is never reported connected and is hung up
+ok 55 - missing audio from the telephone: signalling and DTMF succeed, but NO audio packets arrive - the call is never reported connected and is hung up
+  ---
+  duration_ms: 4830.4803
+  type: 'test'
+  ...
+# Subtest: missing audio from the meeting: the telephone talks but the meeting sends nothing - not connected, hung up, session closed
+ok 56 - missing audio from the meeting: the telephone talks but the meeting sends nothing - not connected, hung up, session closed
+  ---
+  duration_ms: 4395.2341
+  type: 'test'
+  ...
+# Subtest: simulated (unencrypted) meeting media can never be verified: a path that is not DTLS-SRTP does not connect a caller, whatever the audio
+ok 57 - simulated (unencrypted) meeting media can never be verified: a path that is not DTLS-SRTP does not connect a caller, whatever the audio
+  ---
+  duration_ms: 3218.3861
+  type: 'test'
+  ...
+# Subtest: Meet's own judgement matters: if Meet answers "terminate" the call is torn down even though the gateway's evidence was fine
+ok 58 - Meet's own judgement matters: if Meet answers "terminate" the call is torn down even though the gateway's evidence was fine
+  ---
+  duration_ms: 3496.2291
+  type: 'test'
+  ...
+# Subtest: codec mismatch (no G.711 offered) is refused with 488 and allocates nothing; plain RTP is refused; a media address that is not the caller's is refused
+ok 59 - codec mismatch (no G.711 offered) is refused with 488 and allocates nothing; plain RTP is refused; a media address that is not the caller's is refused
+  ---
+  duration_ms: 220.955
+  type: 'test'
+  ...
+# Subtest: readiness missing: the gateway answers 503 and allocates no port and no leg (telephone dial-in stays disabled)
+ok 60 - readiness missing: the gateway answers 503 and allocates no port and no leg (telephone dial-in stays disabled)
+  ---
+  duration_ms: 216.8181
+  type: 'test'
+  ...
+# Subtest: packet loss, jitter, reordering and duplicates: audio still verifies, the jitter buffer reports what it did, and the tone is intact
+ok 61 - packet loss, jitter, reordering and duplicates: audio still verifies, the jitter buffer reports what it did, and the tone is intact
+  ---
+  duration_ms: 4886.0565
+  type: 'test'
+  ...
+# Subtest: interrupted media: when the telephone stops sending the call is ended after the recovery window; a short gap is survived
+ok 62 - interrupted media: when the telephone stops sending the call is ended after the recovery window; a short gap is survived
+  ---
+  duration_ms: 7440.827
+  type: 'test'
+  ...
+# Subtest: teardown: the phone hangs up - the leg, the meeting session, the RTP port, the claim and the dialog are all released exactly once
+ok 63 - teardown: the phone hangs up - the leg, the meeting session, the RTP port, the claim and the dialog are all released exactly once
+  ---
+  duration_ms: 3255.1162
+  type: 'test'
+  ...
+# Subtest: late media: the meeting takes longer than the step timeout - the admission gives up, and the session that appears later is closed and the caller hung up (nothing is left behind)
+ok 64 - late media: the meeting takes longer than the step timeout - the admission gives up, and the session that appears later is closed and the caller hung up (nothing is left behind)
+  ---
+  duration_ms: 4282.6889
+  type: 'test'
+  ...
+# Subtest: restart: stopping the gateway hangs up live calls with a BYE and releases everything; a new gateway then serves a new call
+ok 65 - restart: stopping the gateway hangs up live calls with a BYE and releases everything; a new gateway then serves a new call
+  ---
+  duration_ms: 12486.2131
+  type: 'test'
+  ...
+# Subtest: duplicate SIP callbacks: a retransmitted INVITE and a doubled BYE produce one admission, one leg and one teardown
+ok 66 - duplicate SIP callbacks: a retransmitted INVITE and a doubled BYE produce one admission, one leg and one teardown
+  ---
+  duration_ms: 3896.5775
+  type: 'test'
+  ...
+# Subtest: capacity: when the RTP port range is exhausted the call is refused with 503 and the earlier call is unaffected
+ok 67 - capacity: when the RTP port range is exhausted the call is refused with 503 and the earlier call is unaffected
+  ---
+  duration_ms: 4115.581
+  type: 'test'
+  ...
+# Subtest: THE WHOLE REAL CHAIN: phone -> SIP + SRTP -> gateway -> DTLS-SRTP mesh peer -> two browsers, and back; verified by both judges on the real media path (no simulated meeting audio anywhere)
+ok 68 - THE WHOLE REAL CHAIN: phone -> SIP + SRTP -> gateway -> DTLS-SRTP mesh peer -> two browsers, and back; verified by both judges on the real media path (no simulated meeting audio anywhere)
+  ---
+  duration_ms: 23829.5891
+  type: 'test'
+  ...
+1..68
+# tests 68
+# suites 0
+# pass 67
+# fail 0
+# cancelled 0
+# skipped 1
+# todo 0
+# duration_ms 174070.9168

@@ -1,0 +1,33 @@
+# Opt-in deployment overlay. Applying it recreates Meet: review the rollout guide first.
+services:
+  meet:
+    environment:
+      PHONE_GATEWAY_ENABLED: "true" # enables authenticated transport; readiness still refuses dial-in
+      PHONE_GATEWAY_REQUIRE_MTLS: "true"
+      PHONE_GATEWAY_KEYS_JSON: ${PHONE_GATEWAY_KEYS_JSON:?provide public workload key registry}
+      PHONE_GATEWAY_SUBJECTS_JSON: ${PHONE_GATEWAY_SUBJECTS_JSON:?provide least-privilege subject scopes}
+      PHONE_PEER_SIGNING_KEY_PEM: ${PHONE_PEER_SIGNING_KEY_PEM:?provide verification-peer signing key}
+      PHONE_GATEWAY_TLS_CERT: /run/phone-tls/server.crt
+      PHONE_GATEWAY_TLS_KEY: /run/phone-tls/server.key
+      PHONE_GATEWAY_TLS_CA: /run/phone-tls/ca.crt
+      PHONE_GATEWAY_TLS_HOST: 0.0.0.0
+      PHONE_GATEWAY_TLS_PORT: "3443"
+      PHONE_FEATURES: "" # no certification gates enabled by this overlay
+      VOICE_PSTN_ENABLED: "false"
+      VOICE_NUMBERS_ENABLED: "false"
+    volumes:
+      - ${QORLLA_MEET_GATEWAY_TLS_DIR:?provide server TLS directory}:/run/phone-tls:ro
+  sip-gateway:
+    profiles: [sip-verification]
+    build:
+      context: .
+      dockerfile: qorlla-phone-join/Dockerfile
+    environment:
+      GATEWAY_CONFIG_FILE: /run/gateway/config.json
+    env_file:
+      - ${QORLLA_GATEWAY_ENV_FILE:?provide gateway database environment file}
+    volumes:
+      - ${QORLLA_SIP_CONFIG_DIR:?provide private gateway configuration directory}:/run/gateway:ro
+    networks: [cluster-mesh-network]
+    # No published SIP/RTP ports: review carrier/SBC routing before exposing any ingress.
+    restart: "no"

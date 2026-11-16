@@ -155,6 +155,8 @@ export function registerBreakouts({ app, io, db, auth, member, fail, active, roo
     await logEvent(mid, req.user.participantId, 'breakout.autosplit', { rooms: n, people: here.length }); broadcast(mid); res.json({ rooms: n, assigned: here.length });
   }));
   app.post(paths('/start'), auth, member, hostOnly, run(async (req, res) => {
+    const telephone = await db.query("SELECT 1 FROM phone_calls WHERE meeting_id=$1 AND state IN ('REQUESTED','VERIFIED','AWAITING_HOST','APPROVED','MEDIA_CONNECTING','MEDIA_CONNECTED') LIMIT 1",[req.params.id]);
+    if(telephone.rowCount)return fail(res,409,'End telephone calls before starting breakout rooms');
     const minutes = req.body?.minutes; if (!Number.isInteger(minutes) || minutes < LIMITS.minMinutes || minutes > LIMITS.maxMinutes) throw bad(400, 'Choose 1 to 240 minutes');
     const mid = req.params.id, m = await ensure(mid); if (m.active) throw bad(409, 'Breakout rooms are already open');
     const rec = await db.query("SELECT 1 FROM recording_sessions WHERE meeting_id=$1 AND status IN ('awaiting','blocked','ready','recording','paused') LIMIT 1", [mid]).catch(() => ({ rowCount: 0 }));

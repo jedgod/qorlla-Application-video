@@ -12,7 +12,7 @@ import { registerCollab } from '../server/collab.mjs';
 // Breakout rooms V1.1 (v4.30): room-scoped Polls and Notes, return to the main room, ask for help, ready acknowledgement. Real PostgreSQL (TEST_PG_URL; a scratch database is created and dropped).
 const URL = process.env.TEST_PG_URL || 'postgres://postgres:postgres@127.0.0.1:25611/postgres';
 const SQL = join(dirname(fileURLToPath(import.meta.url)), '..', 'sql');
-const ORDER = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', ...readdirSync(SQL).filter((f) => /^v4_\d+_/.test(f)).sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]))];
+const ORDER = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', ...readdirSync(SQL).filter((f) => /^v4_\d+_/.test(f) && !f.endsWith('.rollback.sql')).sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]))];
 const dbName = 'bk11_' + Math.random().toString(36).slice(2, 10);
 let admin, pool;
 test.before(async () => {

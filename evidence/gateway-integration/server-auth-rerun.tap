@@ -1,0 +1,421 @@
+TAP version 13
+# Subtest: initial lifecycle event and participant roll back when event persistence fails
+ok 1 - initial lifecycle event and participant roll back when event persistence fails
+  ---
+  duration_ms: 26629.4457
+  type: 'test'
+  ...
+# Subtest: concurrent duplicate provider calls have one initial event and no orphan participant
+ok 2 - concurrent duplicate provider calls have one initial event and no orphan participant
+  ---
+  duration_ms: 3202.3506
+  type: 'test'
+  ...
+# Subtest: Meet lifecycle outbox captures committed authoritative events in order
+ok 3 - Meet lifecycle outbox captures committed authoritative events in order
+  ---
+  duration_ms: 4396.5381
+  type: 'test'
+  ...
+# Subtest: uncommitted Meet lifecycle snapshots are not visible and disappear on rollback
+ok 4 - uncommitted Meet lifecycle snapshots are not visible and disappear on rollback
+  ---
+  duration_ms: 4618.1131
+  type: 'test'
+  ...
+# Subtest: Meet rolls back call and initial history if lifecycle outbox persistence fails
+ok 5 - Meet rolls back call and initial history if lifecycle outbox persistence fails
+  ---
+  duration_ms: 2252.6188
+  type: 'test'
+  ...
+# Subtest: lifecycle: the transition table has no way into MEDIA_CONNECTED except from MEDIA_CONNECTING, and none out of TERMINATED
+ok 6 - lifecycle: the transition table has no way into MEDIA_CONNECTED except from MEDIA_CONNECTING, and none out of TERMINATED
+  ---
+  duration_ms: 0.8891
+  type: 'test'
+  ...
+# Subtest: lifecycle: audioVerified is Meet's own judgement - two-way, encrypted, fresh, long enough, allowed codec; synthetic only when allowed
+ok 7 - lifecycle: audioVerified is Meet's own judgement - two-way, encrypted, fresh, long enough, allowed codec; synthetic only when allowed
+  ---
+  duration_ms: 1.6912
+  type: 'test'
+  ...
+# Subtest: PIN verified, no waiting room: the caller is APPROVED - not connected, not online, not in the room, not counted
+ok 8 - PIN verified, no waiting room: the caller is APPROVED - not connected, not online, not in the room, not counted
+  ---
+  duration_ms: 2566.714
+  type: 'test'
+  ...
+# Subtest: only verified two-way encrypted audio connects the caller; then it is online, in the room, counted and in the history
+ok 9 - only verified two-way encrypted audio connects the caller; then it is online, in the room, counted and in the history
+  ---
+  duration_ms: 2790.4422
+  type: 'test'
+  ...
+# Subtest: NO other evidence connects: one-way, silent, few packets, unencrypted, wrong codec, stale, from the future, malformed, wrong or missing token, a real gateway claiming synthetic audio
+ok 10 - NO other evidence connects: one-way, silent, few packets, unencrypted, wrong codec, stale, from the future, malformed, wrong or missing token, a real gateway claiming synthetic audio
+  ---
+  duration_ms: 7177.5316
+  type: 'test'
+  ...
+# Subtest: the database itself refuses a connected call without verified media
+ok 11 - the database itself refuses a connected call without verified media
+  ---
+  duration_ms: 3839.2764
+  type: 'test'
+  ...
+# Subtest: a state cannot be skipped: media for a call that was never approved changes nothing
+ok 12 - a state cannot be skipped: media for a call that was never approved changes nothing
+  ---
+  duration_ms: 2094.7255
+  type: 'test'
+  ...
+# Subtest: waiting room: the host approves -> APPROVED (not connected); the host refuses -> REFUSED, participant denied, caller hung up
+ok 13 - waiting room: the host approves -> APPROVED (not connected); the host refuses -> REFUSED, participant denied, caller hung up
+  ---
+  duration_ms: 5070.6076
+  type: 'test'
+  ...
+# Subtest: waiting room end to end (test double): approved by the host -> the status route hands over the media token once -> verified media -> connected
+ok 14 - waiting room end to end (test double): approved by the host -> the status route hands over the media token once -> verified media -> connected
+  ---
+  duration_ms: 4631.8139
+  type: 'test'
+  ...
+# Subtest: host absent (no waiting room, join-before-host off): the caller waits and is APPROVED when the host arrives, still not connected
+ok 15 - host absent (no waiting room, join-before-host off): the caller waits and is APPROVED when the host arrives, still not connected
+  ---
+  duration_ms: 2114.0745
+  type: 'test'
+  ...
+# Subtest: a host who never answers: the call times out by itself (sweeper) and the caller is hung up
+ok 16 - a host who never answers: the call times out by itself (sweeper) and the caller is hung up
+  ---
+  duration_ms: 3746.3052
+  type: 'test'
+  ...
+# Subtest: two sweepers at once (two replicas) time a call out exactly once
+ok 17 - two sweepers at once (two replicas) time a call out exactly once
+  ---
+  duration_ms: 1794.0489
+  type: 'test'
+  ...
+# Subtest: approved but the gateway never delivers audio: TIMED_OUT; media that appears LATER is refused, the call is ORPHANED and the gateway is told to terminate it
+ok 18 - approved but the gateway never delivers audio: TIMED_OUT; media that appears LATER is refused, the call is ORPHANED and the gateway is told to terminate it
+  ---
+  duration_ms: 5795.1696
+  type: 'test'
+  ...
+# Subtest: connected audio must KEEP being verified: fresh reports keep the call; silence from the gateway ends it (media_lost); a report that no longer passes ends it
+not ok 19 - connected audio must KEEP being verified: fresh reports keep the call; silence from the gateway ends it (media_lost); a report that no longer passes ends it
+  ---
+  duration_ms: 6610.8201
+  type: 'test'
+  location: 'C:\\Users\\cj_wo\\OneDrive - Bowie State\\Desktop\\Qorlla_Aud-Video\\.worktrees\\phone-gateway\\qorlla-meet-video\\tests\\phone-lifecycle.pg.test.mjs:233:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    refreshed, so still fresh (1.4 s after connecting, 0.7 s after the refresh)
+
+    1 !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Users/cj_wo/OneDrive%20-%20Bowie%20State/Desktop/Qorlla_Aud-Video/.worktrees/phone-gateway/qorlla-meet-video/tests/phone-lifecycle.pg.test.mjs:235:104)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: unconfirmed hang-ups are retried, and past the limit become ORPHANED with an alert (the gateway never confirmed the leg is gone)
+ok 20 - unconfirmed hang-ups are retried, and past the limit become ORPHANED with an alert (the gateway never confirmed the leg is gone)
+  ---
+  duration_ms: 5888.194
+  type: 'test'
+  ...
+# Subtest: the meeting ending hangs every call up, whatever its state
+ok 21 - the meeting ending hangs every call up, whatever its state
+  ---
+  duration_ms: 7881.3931
+  type: 'test'
+  ...
+# Subtest: a PIN revoked while a caller is connected ends the call; a removed caller is banned and cannot come back
+ok 22 - a PIN revoked while a caller is connected ends the call; a removed caller is banned and cannot come back
+  ---
+  duration_ms: 7826.8868
+  type: 'test'
+  ...
+# Subtest: Shield enforced: allow -> approved; refuse or unreachable -> refused, REFUSED state, participant denied, never approved
+ok 23 - Shield enforced: allow -> approved; refuse or unreachable -> refused, REFUSED state, participant denied, never approved
+  ---
+  duration_ms: 10130.2307
+  type: 'test'
+  ...
+# Subtest: Shield is asked AGAIN before media connects: approved, then revoked before audio -> REFUSED and the gateway is told to terminate
+ok 24 - Shield is asked AGAIN before media connects: approved, then revoked before audio -> REFUSED and the gateway is told to terminate
+  ---
+  duration_ms: 3301.5283
+  type: 'test'
+  ...
+# {"ts":"2026-11-16T06:50:32.191Z","component":"meet-phone","event":"shield_outage_start","openCalls":2,"inherited":false,"sinceEpochMs":1794811832191}
+# {"ts":"2026-11-16T06:50:32.436Z","component":"meet-phone","event":"shield_outage_calls_ended","ended":1,"outageMs":30103,"deadlineExpired":false}
+# {"ts":"2026-11-16T06:50:32.600Z","component":"meet-phone","event":"shield_outage_calls_ended","ended":1,"outageMs":70339,"deadlineExpired":true}
+# Subtest: Shield re-check of OPEN calls: a revocation ends the call at once; an unreachable Shield ends calls only after the grace period
+ok 25 - Shield re-check of OPEN calls: a revocation ends the call at once; an unreachable Shield ends calls only after the grace period
+  ---
+  duration_ms: 11557.4823
+  type: 'test'
+  ...
+# {"ts":"2026-11-16T06:50:34.509Z","component":"meet-phone","event":"shield_outage_start","openCalls":1,"inherited":false,"sinceEpochMs":1794811834509}
+# {"ts":"2026-11-16T06:50:38.944Z","component":"meet-phone","event":"shield_outage_start","openCalls":1,"inherited":false,"sinceEpochMs":1794811838944}
+# {"ts":"2026-11-16T06:50:39.484Z","component":"meet-phone","event":"shield_outage_calls_ended","ended":1,"outageMs":0,"deadlineExpired":false}
+# {"ts":"2026-11-16T06:50:43.346Z","component":"meet-phone","event":"shield_outage_start","openCalls":1,"inherited":false,"sinceEpochMs":1794811843346}
+# {"ts":"2026-11-16T06:50:47.515Z","component":"meet-phone","event":"shield_outage_start","openCalls":1,"inherited":false,"sinceEpochMs":1794811847515}
+# Subtest: a Shield blip shorter than the pending grace does not hang up an approved call, and the call cannot connect meanwhile; SHIELD_PENDING_GRACE_SECONDS=0 keeps the old end-at-once rule; a bad value falls back to 10 s
+ok 26 - a Shield blip shorter than the pending grace does not hang up an approved call, and the call cannot connect meanwhile; SHIELD_PENDING_GRACE_SECONDS=0 keeps the old end-at-once rule; a bad value falls back to 10 s
+  ---
+  duration_ms: 15507.3688
+  type: 'test'
+  ...
+# Subtest: gateway mode never runs without the Shield, even when SHIELD_MEET_ENFORCE is off
+ok 27 - gateway mode never runs without the Shield, even when SHIELD_MEET_ENFORCE is off
+  ---
+  duration_ms: 4069.2761
+  type: 'test'
+  ...
+# Subtest: duplicate callbacks: the same event id returns the stored answer with no second effect; the same call id under a new event id is refused
+ok 28 - duplicate callbacks: the same event id returns the stored answer with no second effect; the same call id under a new event id is refused
+  ---
+  duration_ms: 10040.3961
+  type: 'test'
+  ...
+# Subtest: concurrent admissions of ONE call id (replayed webhooks across replicas): exactly one call row and one approval
+ok 29 - concurrent admissions of ONE call id (replayed webhooks across replicas): exactly one call row and one approval
+  ---
+  duration_ms: 4743.9102
+  type: 'test'
+  ...
+# Subtest: concurrent media reports for one approved call connect it exactly once
+ok 30 - concurrent media reports for one approved call connect it exactly once
+  ---
+  duration_ms: 10395.8554
+  type: 'test'
+  ...
+# Subtest: gateway mode is OFF unless explicitly enabled, and without gateway keys the original provider scheme is unchanged
+ok 31 - gateway mode is OFF unless explicitly enabled, and without gateway keys the original provider scheme is unchanged
+  ---
+  duration_ms: 4632.1202
+  type: 'test'
+  ...
+# Subtest: gateway authentication: no token, bad token, the provider HMAC, wrong audience / subject / scope / key / algorithm / expiry / body, and a replay are all refused
+ok 32 - gateway authentication: no token, bad token, the provider HMAC, wrong audience / subject / scope / key / algorithm / expiry / body, and a replay are all refused
+  ---
+  duration_ms: 2680.5889
+  type: 'test'
+  ...
+# Subtest: a valid gateway token for another scope does NOT authorise this operation (restricted identity, scopes are server-side)
+ok 33 - a valid gateway token for another scope does NOT authorise this operation (restricted identity, scopes are server-side)
+  ---
+  duration_ms: 1779.7019
+  type: 'test'
+  ...
+# Subtest: key rotation: both kids work during the overlap; retiring the old kid refuses its tokens; an unknown kid never works
+ok 34 - key rotation: both kids work during the overlap; retiring the old kid refuses its tokens; an unknown kid never works
+  ---
+  duration_ms: 2288.6018
+  type: 'test'
+  ...
+# Subtest: replay protection and the request budget are shared by every replica (PostgreSQL), and a database outage is a refusal
+ok 35 - replay protection and the request budget are shared by every replica (PostgreSQL), and a database outage is a refusal
+  ---
+  duration_ms: 3597.7979
+  type: 'test'
+  ...
+# Subtest: gateway admission needs ALL SIX readiness conditions from an authoritative source: any false, missing, malformed or failing source refuses (and creates no call)
+ok 36 - gateway admission needs ALL SIX readiness conditions from an authoritative source: any false, missing, malformed or failing source refuses (and creates no call)
+  ---
+  duration_ms: 15570.0065
+  type: 'test'
+  ...
+# Subtest: gateway mode end to end: verify -> approved -> real-looking media -> connected; synthetic evidence from a real gateway is refused; in-flight calls can still be ended when readiness drops
+ok 37 - gateway mode end to end: verify -> approved -> real-looking media -> connected; synthetic evidence from a real gateway is refused; in-flight calls can still be ended when readiness drops
+  ---
+  duration_ms: 4231.295
+  type: 'test'
+  ...
+# Subtest: host decision: bounded long-poll, durable state, the media token is issued exactly once, silence times out, concurrency is capped, scope is enforced
+not ok 38 - host decision: bounded long-poll, durable state, the media token is issued exactly once, silence times out, concurrency is capped, scope is enforced
+  ---
+  duration_ms: 16162.6595
+  type: 'test'
+  location: 'C:\\Users\\cj_wo\\OneDrive - Bowie State\\Desktop\\Qorlla_Aud-Video\\.worktrees\\phone-gateway\\qorlla-meet-video\\tests\\phone-lifecycle.pg.test.mjs:399:1'
+  failureType: 'testCodeFailure'
+  error: 'the approval timeout ended the wait before the 5 s the caller was willing to wait'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Users/cj_wo/OneDrive%20-%20Bowie%20State/Desktop/Qorlla_Aud-Video/.worktrees/phone-gateway/qorlla-meet-video/tests/phone-lifecycle.pg.test.mjs:406:205)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: gateway readiness route: its own scope, the authoritative answer, 503 when the source fails, absent outside gateway mode
+ok 39 - gateway readiness route: its own scope, the authoritative answer, 503 when the source fails, absent outside gateway mode
+  ---
+  duration_ms: 892.1029
+  type: 'test'
+  ...
+# Subtest: without gateway mode the decision route does not exist (the test double and carrier paths are unchanged)
+ok 40 - without gateway mode the decision route does not exist (the test double and carrier paths are unchanged)
+  ---
+  duration_ms: 9.5053
+  type: 'test'
+  ...
+# Subtest: mTLS: the token must carry the thumbprint of the certificate the gateway presented on THIS connection
+ok 41 - mTLS: the token must carry the thumbprint of the certificate the gateway presented on THIS connection
+  ---
+  duration_ms: 7628.1607
+  type: 'test'
+  ...
+# Subtest: readiness is computed from stored, FRESH evidence; nothing static; each condition fails closed on its own
+ok 42 - readiness is computed from stored, FRESH evidence; nothing static; each condition fails closed on its own
+  ---
+  duration_ms: 32916.8915
+  type: 'test'
+  ...
+# Subtest: gateway mode: perfect audio evidence does NOT connect a call when no verification peer exists (not configured) or the peer is not ready - fail closed
+ok 43 - gateway mode: perfect audio evidence does NOT connect a call when no verification peer exists (not configured) or the peer is not ready - fail closed
+  ---
+  duration_ms: 11704.2963
+  type: 'test'
+  ...
+# Subtest: audio bridge status: a fresh healthy heartbeat that reports its media bridge makes it connected; a bare, stale or unhealthy heartbeat does not; certification is still required for active
+ok 44 - audio bridge status: a fresh healthy heartbeat that reports its media bridge makes it connected; a bare, stale or unhealthy heartbeat does not; certification is still required for active
+  ---
+  duration_ms: 2158.0385
+  type: 'test'
+  ...
+# Subtest: the gateway heartbeat stores whether the media bridge is present, and only while healthy
+ok 45 - the gateway heartbeat stores whether the media bridge is present, and only while healthy
+  ---
+  duration_ms: 800.0369
+  type: 'test'
+  ...
+# Subtest: the whole lifecycle on the real server: approved -> single-use credential -> restricted peer negotiates with a real browser socket -> verified media -> atomic promotion -> the caller is a participant
+ok 46 - the whole lifecycle on the real server: approved -> single-use credential -> restricted peer negotiates with a real browser socket -> verified media -> atomic promotion -> the caller is a participant
+  ---
+  duration_ms: 56092.0658
+  type: 'test'
+  ...
+# Subtest: the peer can do NOTHING but negotiate: no chat, hands, notes, polls, reactions, media state, files or moderation; it hears no room traffic; bad, oversize and misdirected signals are refused
+ok 47 - the peer can do NOTHING but negotiate: no chat, hands, notes, polls, reactions, media state, files or moderation; it hears no room traffic; bad, oversize and misdirected signals are refused
+  ---
+  duration_ms: 15731.6945
+  type: 'test'
+  ...
+# Subtest: credential rules: single use, expiry, wrong key, wrong audience/scope, a participant token is not a credential and a credential is not a participant token, and nothing without the media token
+ok 48 - credential rules: single use, expiry, wrong key, wrong audience/scope, a participant token is not a credential and a credential is not a participant token, and nothing without the media token
+  ---
+  duration_ms: 17688.6354
+  type: 'test'
+  ...
+# Subtest: failure handling: gateway disconnect, media timeout, meeting end, host removal and invalid-state requests all revoke access, close the socket and end the call once; a late report cannot bring anything back
+ok 49 - failure handling: gateway disconnect, media timeout, meeting end, host removal and invalid-state requests all revoke access, close the socket and end the call once; a late report cannot bring anything back
+  ---
+  duration_ms: 24107.715
+  type: 'test'
+  ...
+# Subtest: RACE consume vs terminate: many sockets present ONE credential while the call is being ended - at most one is ever admitted, and after the call ends NO socket remains, the credential is revoked and nothing is present in the meeting
+ok 50 - RACE consume vs terminate: many sockets present ONE credential while the call is being ended - at most one is ever admitted, and after the call ends NO socket remains, the credential is revoked and nothing is present in the meeting
+  ---
+  duration_ms: 32888.7468
+  type: 'test'
+  ...
+# Subtest: RACE disconnect vs promotion: the gateway drops while verified media is being reported - the call never stays MEDIA_CONNECTED once its gateway is gone, and no participant session stays open
+ok 51 - RACE disconnect vs promotion: the gateway drops while verified media is being reported - the call never stays MEDIA_CONNECTED once its gateway is gone, and no participant session stays open
+  ---
+  duration_ms: 39088.7226
+  type: 'test'
+  ...
+# Subtest: RACE revoke vs active signalling: an authorised peer is exchanging ICE/SDP when the call is revoked - nothing it sends afterwards reaches a browser, and its socket is closed
+ok 52 - RACE revoke vs active signalling: an authorised peer is exchanging ICE/SDP when the call is revoked - nothing it sends afterwards reaches a browser, and its socket is closed
+  ---
+  duration_ms: 25952.5225
+  type: 'test'
+  ...
+# Subtest: RACE deterministic stale read: the gateway is lost while a promotion commits underneath the server's own read - the call must still end (no connected caller without a gateway)
+ok 53 - RACE deterministic stale read: the gateway is lost while a promotion commits underneath the server's own read - the call must still end (no connected caller without a gateway)
+  ---
+  duration_ms: 6570.5429
+  type: 'test'
+  ...
+# Subtest: IDEMPOTENT termination: repeated and concurrent hang-ups, disconnects, late reports and revokes record ONE terminal event, never resurrect an ended call, and never promote an orphaned one
+ok 54 - IDEMPOTENT termination: repeated and concurrent hang-ups, disconnects, late reports and revokes record ONE terminal event, never resurrect an ended call, and never promote an orphaned one
+  ---
+  duration_ms: 16604.9983
+  type: 'test'
+  ...
+# Subtest: the one-time media token is not kept in the database for ever: a retried verify gets the same answer inside the window, and the stored answer no longer holds the token after it
+ok 55 - the one-time media token is not kept in the database for ever: a retried verify gets the same answer inside the window, and the stored answer no longer holds the token after it
+  ---
+  duration_ms: 10714.8996
+  type: 'test'
+  ...
+# Subtest: replay-token expiry (controlled clock): after the production window the sweeper removes ONLY the plaintext token from the stored answer - call state, credential hash and audit history are untouched, an expired retry is a well-formed answer without a token, and no replacement credential appears
+ok 56 - replay-token expiry (controlled clock): after the production window the sweeper removes ONLY the plaintext token from the stored answer - call state, credential hash and audit history are untouched, an expired retry is a well-formed answer without a token, and no replacement credential appears
+  ---
+  duration_ms: 7463.4819
+  type: 'test'
+  ...
+# Subtest: a signing key configured BEFORE the v4.25 migration ran: the subsystem disables itself loudly, and ending a call still works (never an HTTP 500) - and nothing can be issued
+ok 57 - a signing key configured BEFORE the v4.25 migration ran: the subsystem disables itself loudly, and ending a call still works (never an HTTP 500) - and nothing can be issued
+  ---
+  duration_ms: 35401.095
+  type: 'test'
+  ...
+# Subtest: real Meet server: PIN -> approved -> verified media -> connected, seen through the bridge-secret call list; directory and readiness endpoints; the sweeper timer runs on its own
+not ok 58 - real Meet server: PIN -> approved -> verified media -> connected, seen through the bridge-secret call list; directory and readiness endpoints; the sweeper timer runs on its own
+  ---
+  duration_ms: 26422.467
+  type: 'test'
+  location: 'C:\\Users\\cj_wo\\OneDrive - Bowie State\\Desktop\\Qorlla_Aud-Video\\.worktrees\\phone-gateway\\qorlla-meet-video\\tests\\phone-server.pg.test.mjs:44:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + 'terminate'
+    - 'connected'
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'connected'
+  actual: 'terminate'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///C:/Users/cj_wo/OneDrive%20-%20Bowie%20State/Desktop/Qorlla_Aud-Video/.worktrees/phone-gateway/qorlla-meet-video/tests/phone-server.pg.test.mjs:58:153)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: real Meet server in GATEWAY MODE: not enabled -> 503; enabled but nothing certifies the system -> admission refused (503) and no call is created; heartbeats and readiness work; the health route needs its own scope
+ok 59 - real Meet server in GATEWAY MODE: not enabled -> 503; enabled but nothing certifies the system -> admission refused (503) and no call is created; heartbeats and readiness work; the health route needs its own scope
+  ---
+  duration_ms: 12705.0985
+  type: 'test'
+  ...
+1..59
+# tests 59
+# suites 0
+# pass 56
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 640547.5655

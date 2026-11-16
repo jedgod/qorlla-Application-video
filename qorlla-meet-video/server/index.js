@@ -20,6 +20,10 @@ import { recoveryService } from './recovery-service.mjs';
 import { registerCollab } from './collab.mjs';
 import { makeLimit } from './limit.mjs';
 import { registerPhone } from './phone.mjs';
+import { createPhonePeers } from './phone-peer.mjs';
+import { createGatewayAuth } from './phone-gateway-auth.mjs';
+import { gatewayTlsListener } from './phone-gateway-tls.mjs';
+import { normalizePhoneMeetingCode } from './meeting-code.mjs';
 import { makeAudit } from './recording-audit.mjs';
 import { registerRecordingStorage } from './recording-store.mjs';
 import { registerAiConsent } from './ai-consent.mjs';
@@ -418,7 +422,7 @@ app.post('/api/meetings/:id/end',auth,member,async(req,res)=>{
  await db.query("UPDATE meetings SET ended_at=now(), end_reason='host_ended' WHERE id=$1",[req.params.id]);
  recording.stopFor(req.params.id,'meeting_ended',req.user.participantId).catch(()=>{});await phone.endAll(req.params.id,'meeting_ended').catch(()=>{});         // every caller is hung up before the host is told it is done
  io.to(room(req.params.id)).emit('meeting-ended');
- if(shield&&shieldCfg.enforce)shield.end(req.params.id).catch(()=>{});
+ shieldEnd(req.params.id);
  audit(req.params.id,req.user.participantId,'meeting.ended'); res.json({ok:true});
 });
 // Recording consent: request / consent / consents / start / stop (+ state and audit), under /api/meetings/:id/recording and /api/v1/meetings/:id/recording
@@ -436,12 +440,56 @@ let limiter;
 const recording = registerRecording({ app, io, db, auth, member, fail, room, audit: recAudit, media: recMedia, getRoster: activeList, getName: (meetingId, pid) => names.get(meetingId)?.get(pid) || 'A participant' });
 limiter = makeLimit({ io, db, room, audit, upgradeUrl: process.env.UPGRADE_URL || '/pricing?reason=meeting-limit', onEnd: async (id) => { await recording.stopFor(id, 'meeting_ended'); await phone.endAll(id, 'time_limit'); } });
 const carrier = createCarrier(process.env);                 // a real telephone carrier only when PHONE_CARRIER and its credentials are set; otherwise inert
-const phone = registerPhone({ app, io, db, auth, member, fail, room, audit, resolveMeeting, activeHas: (mid, pid) => !!active.get(mid)?.has(pid), phoneOnline, names, recording, carrier: carrier.configured ? carrier : null });
+// Telephone callers have no signalling session, so the Security Shield is asked about them here: before approval, before they count as connected, and on a timer for every open call (phone.shieldSweep).
+// Operational counters and structured log lines for the Shield dialogue (A5.5). Nothing here is on the termination path: reports and meeting-end notices are fire-and-forget and can only count and log.
+const shieldOps = { counters: { report_sent: 0, report_failed: 0, meeting_end_sent: 0, meeting_end_failed: 0 }, log: (event, o = {}) => { try { console.error(JSON.stringify({ ts: new Date().toISOString(), component: 'meet-shield', event, ...o })); } catch { /* logging must never throw */ } } };
+const shieldEnd = (meetingId) => { if (!shield) return Promise.resolve(false); return shield.endResult(meetingId).then((r) => { if (r.ok) shieldOps.counters.meeting_end_sent++; else { shieldOps.counters.meeting_end_failed++; shieldOps.log('shield_meeting_end_failed', { status: r.status }); } return r.ok; }, () => false); };
+const phoneShield = { enforce: shieldCfg.enforce, configured: !!shield,
+  authorize: async (meetingId, participantId) => {
+    await breakouts.ensure(meetingId);
+    if(breakouts.isActive(meetingId))return {allow:false,reason:'BREAKOUTS_ACTIVE'};
+    if (!shield) return { allow: false, reason: 'SHIELD_UNAVAILABLE' };
+    const { rows: [m] } = await db.query('SELECT id, org_id, host_account_id, guest_enabled FROM meetings WHERE id=$1', [meetingId]); if (!m) return { allow: false, reason: 'MEETING_UNKNOWN_OR_ENDED' };
+    const reg = await shield.registerResult({ id: m.id, org_id: m.org_id, host_account_id: m.host_account_id, guest_enabled: m.guest_enabled });
+    if (!reg.ok) return { allow: false, reason: reg.status === 409 && reg.error === 'meeting_ended' ? 'MEETING_ENDED' : 'SHIELD_UNAVAILABLE' };      // an ended meeting is a REFUSAL; only a Shield that could not answer is "unavailable"
+    const r = await shield.authorize({ meetingId, participantId, role: 'guest', admission: 'admitted' });
+    // A5.5: a telephone caller is only admitted into a meeting with a VERIFIED OWNER CONTEXT (a registered host account the Shield knows). The Shield flags an allow for a meeting registered without any host as `ownership: none`;
+    // for telephone calls that is not enough. Registration of such meetings and browser admission are unchanged: only this telephone bridge reads the flag.
+    if (r && r.allow === true && r.ownership === 'none') { shieldOps.log('phone_ownerless_meeting_refused', {}); return { allow: false, reason: 'OWNERLESS_MEETING' }; }
+    return r;
+  },
+  recheck: (list) => (shield ? shield.recheck(list) : Promise.resolve(null)),
+  report: async (kind, ref) => { if (!shield) { shieldOps.counters.report_failed++; shieldOps.log('shield_report_failed', { kind, reason: 'no_shield' }); return false; }
+    const r = await shield.reportResult(kind, ref).catch(() => ({ ok: false, status: 0 })); if (r.ok) shieldOps.counters.report_sent++; else { shieldOps.counters.report_failed++; shieldOps.log('shield_report_failed', { kind, status: r.status }); } return r.ok; } };
+const phoneGateway = createGatewayAuth({ db, env: process.env });                // the telephone gateway's own identity (audience, subjects, scopes, keys); inert unless PHONE_GATEWAY_KEYS_JSON and PHONE_GATEWAY_SUBJECTS_JSON are set
+if (phoneGateway.problems.length && (process.env.PHONE_GATEWAY_KEYS_JSON || process.env.PHONE_GATEWAY_SUBJECTS_JSON)) console.error('[phone-gateway] incomplete configuration, gateway mode stays off:', phoneGateway.problems.join(', '));
+const phonePeers = createPhonePeers({ db, io, room });
+const phone = registerPhone({ app, io, peers: phonePeers, db, auth, member, fail, room, audit, resolveMeeting, activeHas: (mid, pid) => !!active.get(mid)?.has(pid), phoneOnline, names, recording, carrier: carrier.configured ? carrier : null,
+  shield: phoneShield, gateway: phoneGateway, readiness: () => telephony.svc.phoneReadiness() });
+phonePeers.checkSchema().catch(() => {});
+phonePeers.bind({ shieldAllows: phone.shieldAllows, onLost: phone.peerLost, activeList: mid => breakouts.isActive(mid) ? [] : activeList(mid).filter(pid => breakouts.scopeOf(mid,pid) === null), browserSocketId: (mid, pid) => !breakouts.isActive(mid) && breakouts.scopeOf(mid,pid) === null ? active.get(mid)?.get(pid) : undefined });
 const telephony = registerTelephony({ app, db, bridgeAuth, phone, carrier });
+// Telephone lifecycle timers: approval and media timeouts, lost media, unconfirmed hang-ups (phone.sweep); Shield re-check of open calls. Safe on every replica: each move is atomic and checked against the current state.
+{ const t1 = setInterval(() => { phone.sweep().catch((e) => console.error('[phone] sweep failed:', e.message)); }, Number(process.env.PHONE_SWEEP_MS || 5000)); t1.unref();
+  if (phone.gatewayMode || (shield && shieldCfg.enforce)) { const t2 = setInterval(() => { phone.shieldSweep().catch((e) => console.error('[phone] shield sweep failed:', e.message)); }, shieldCfg.recheckMs); t2.unref(); } }
+// Meeting directory for the telephone gateway (bridge secret): a meeting number -> the Meet meeting and, when it was scheduled by the main app, that scheduled-meeting id. One-to-one by construction
+// (external_meeting_links: meeting_id UNIQUE, PRIMARY KEY (source_system, source_id)); an unexpected duplicate is refused rather than guessed.
+// Operational counters for the telephone/Shield dialogue (bridge secret; numbers only, no identifiers): reports and meeting-end notices sent or failed, outages seen, calls ended by an outage.
+app.get('/api/integrations/phone/counters', bridgeAuth, (_req, res) => res.set('Cache-Control', 'no-store').json({ shield: shieldOps.counters, phone: phone.counters }));
+app.get('/api/integrations/phone/meetings/:digits', bridgeAuth, async (req, res) => {
+  try {
+    const digits = normalizePhoneMeetingCode(req.params.digits); if (!digits) return fail(res, 400, 'Invalid meeting number');
+    const id = await resolveMeeting(digits); if (!id) return fail(res, 404, 'Not available');
+    const { rows: [m] } = await db.query('SELECT id, ended_at, locked, waiting_room FROM meetings WHERE id=$1', [id]); if (!m || m.ended_at) return fail(res, 404, 'Not available');
+    const { rows } = await db.query("SELECT source_id FROM external_meeting_links WHERE meeting_id=$1 AND source_system='qorlla-main'", [m.id]); if (rows.length > 1) return fail(res, 409, 'Ambiguous meeting');
+    res.set('Cache-Control', 'no-store').json({ meetingId: m.id, sourceId: rows[0] ? rows[0].source_id : null, locked: !!m.locked, waitingRoom: !!m.waiting_room });
+  } catch (e) { console.error('[phone] directory failed:', e.message); fail(res, 503, 'Unavailable'); }
+});
 app.get('/api/health',async(_req,res)=>{try{await db.query('SELECT 1');res.json({ok:true});}catch{res.status(503).json({ok:false});}});
 const ackError=(ack,message)=>typeof ack==='function'&&ack({ok:false,error:message});
 io.use(async(socket,next)=>{
  try {
+  if(socket.handshake.auth?.kind==='verification-peer'){const p=await phonePeers.authenticate(socket.handshake.auth.token);socket.data.peer=p;socket.data.user=p.user;return next();}
   const user=verify(socket.handshake.auth?.token);
   const {rows}=await db.query("SELECT m.ended_at,m.id AS mid,m.org_id,m.host_account_id,m.guest_enabled,p.id,p.admission,p.role,p.account_id FROM meetings m JOIN participants p ON p.meeting_id=m.id WHERE m.id=$1 AND p.id=$2 AND p.admission='admitted'",[user.meetingId,user.participantId]);
   if(!rows.length||rows[0].ended_at) throw Error('Meeting unavailable');
@@ -456,9 +504,10 @@ io.use(async(socket,next)=>{
   socket.data.user=user;next();
  } catch { next(new Error('Unauthorized')); }
 });
-if(shield&&shieldCfg.enforce)startSessionGuard({io,db,client:shield,config:shieldCfg});
+if(shield&&shieldCfg.enforce)startSessionGuard({io,db,client:shield,config:shieldCfg,audit,onPhonePeer:phone.revokeParticipant});
 io.on('connection',socket=>{
  const u=socket.data.user, id=u.meetingId, pid=u.participantId;
+ if(socket.data.peer){phonePeers.attach(socket,socket.data.peer).catch(()=>socket.disconnect(true));return;}
  // Flood control: signalling is exempt (WebRTC negotiation bursts); every other event shares a sliding budget.
  const BUDGET=Number(process.env.SOCKET_EVENT_BUDGET||40), BUDGET_MS=10_000; let stamps=[];
  socket.use(([event,...args],next)=>{
@@ -490,9 +539,11 @@ io.on('connection',socket=>{
  breakouts.emitScope(id,pid,'participant-online',{participantId:pid,name:u.name,role:u.role});
  const isOnline=(target)=>roster.get(target);
  socket.on('signal',({to,data}={},ack)=>{
-  if(typeof to!=='string'||!data||!['offer','answer','candidate'].includes(data.type)) return ackError(ack,'Invalid signal');
-  const target=isOnline(to); const gate=target?breakouts.signalGate(id,pid,to,data):{error:'Participant offline'}; if(gate.error) return ackError(ack,gate.error);          // never across rooms, never from before the sender's last move
-  io.to(target).emit('signal',{from:pid,data,toEpoch:gate.toEpoch}); if(typeof ack==='function')ack({ok:true});          // stamped with the RECIPIENT'S current epoch: the page drops anything addressed to an older one
+  if(typeof to!=='string'||!data||!['offer','answer','candidate','restart','rebuild'].includes(data.type)) return ackError(ack,'Invalid signal');
+  const telephone=phonePeers.socketIdFor(id,to);
+  if(telephone){if(breakouts.isActive(id)||breakouts.scopeOf(id,pid)!==null)return ackError(ack,'Telephone audio is unavailable during breakout rooms');io.to(telephone).emit('signal',{from:pid,data});phonePeers.noteFromBrowser(id,to,data.type);if(typeof ack==='function')ack({ok:true});return;}
+  const target=isOnline(to); const gate=target?breakouts.signalGate(id,pid,to,data):{error:'Participant offline'}; if(gate.error) return ackError(ack,gate.error);
+  io.to(target).emit('signal',{from:pid,data,toEpoch:gate.toEpoch}); if(typeof ack==='function')ack({ok:true});
  });
  socket.on('chat',async(payload,ack)=>{
   const p=typeof payload==='string'?{body:payload}:(payload&&typeof payload==='object'?payload:null); if(!p)return ackError(ack,'Empty message');
@@ -531,7 +582,8 @@ io.on('connection',socket=>{
    const {rows}=await db.query('SELECT choice,count(*)::int AS count FROM poll_votes WHERE poll_id=$1 GROUP BY choice',[pollId]);io.to(room(id)).emit('poll-results',{pollId,counts:rows});ack?.({ok:true});
   }catch{ackError(ack,'Vote failed');}
  });
- socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}breakouts.emitScope(id,pid,'participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
+ socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}breakouts.emitScope(id,pid,'participant-offline',{participantId:pid});phonePeers.notifyOffline(id,pid);db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE disconnected_at IS NULL').catch(()=>{});   // a restart ends every connection: close what the last run left open
+gatewayTlsListener({app,io});
 server.listen(PORT,()=>console.log(`Qorlla Meet listening on http://localhost:${PORT}`));

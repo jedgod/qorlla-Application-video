@@ -16,9 +16,13 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.13.1",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "zoom-core-workspace": "file:../../.."
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.1"
   }
 }

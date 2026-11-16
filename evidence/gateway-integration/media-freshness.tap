@@ -1,0 +1,16 @@
+TAP version 13
+# Subtest: connected audio must KEEP being verified: fresh reports keep the call; silence from the gateway ends it (media_lost); a report that no longer passes ends it
+ok 1 - connected audio must KEEP being verified: fresh reports keep the call; silence from the gateway ends it (media_lost); a report that no longer passes ends it
+  ---
+  duration_ms: 23194.0567
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 32748.1389

@@ -1,0 +1,16 @@
+TAP version 13
+# Subtest: REAL CHROMIUM + GATEWAY PROCESS + MEET: admission through the real flow, ICE/DTLS/SRTP, A->phone, B->phone, phone->A and B, no self-audio, no cross-meeting leakage, promotion only after Meet validates, clean termination
+ok 1 - REAL CHROMIUM + GATEWAY PROCESS + MEET: admission through the real flow, ICE/DTLS/SRTP, A->phone, B->phone, phone->A and B, no self-audio, no cross-meeting leakage, promotion only after Meet validates, clean termination
+  ---
+  duration_ms: 106033.3436
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 118958.5952

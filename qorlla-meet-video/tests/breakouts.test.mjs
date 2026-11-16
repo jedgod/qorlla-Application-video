@@ -12,7 +12,7 @@ import { registerChat } from '../server/chat.mjs';
 // Breakout rooms (v4.29) against a REAL PostgreSQL (TEST_PG_URL; a scratch database is created and dropped). Sockets are recorded per socket id, so "who was told what" is exact.
 const URL = process.env.TEST_PG_URL || 'postgres://postgres:postgres@127.0.0.1:25611/postgres';
 const SQL = join(dirname(fileURLToPath(import.meta.url)), '..', 'sql');
-const ORDER = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', ...readdirSync(SQL).filter((f) => /^v4_\d+_/.test(f)).sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]))];
+const ORDER = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', ...readdirSync(SQL).filter((f) => /^v4_\d+_/.test(f) && !f.endsWith('.rollback.sql')).sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]))];
 const dbName = 'bk_' + Math.random().toString(36).slice(2, 10);
 let admin, pool;
 test.before(async () => {
@@ -170,4 +170,13 @@ test('chat: an Everyone message written in a room stays in that room (live, hist
   await h.call('POST', m.P('/recall'), m.host.user);                                                                                              // after the session the room text stays out of the main chat
   assert.deepEqual(await hist(m.di.user), ['back in main']);
   await new Promise((r) => srv.close(r)); await h.close();
+});
+
+test('telephone admission blocks breakout start until the call terminates', async()=>{
+ const h=await harness();try{const m=await h.meeting(1);const r=(await h.call('POST',m.P('/rooms'),m.host.user,{name:'Team'})).body;
+ await h.call('POST',m.P('/assign'),m.host.user,{participantId:m.ann.id,roomId:r.id});
+ const call=randomUUID();await pool.query("INSERT INTO phone_calls(id,meeting_id,provider,provider_call_id,caller_hash,status,state) VALUES($1,$2,'gateway',$3,'test-caller','waiting','APPROVED')",[call,m.mid,call]);
+ const blocked=await h.call('POST',m.P('/start'),m.host.user,{minutes:5});assert.equal(blocked.status,409);assert.match(blocked.body.error,/telephone/);assert.equal(h.b.isActive(m.mid),false);
+ await pool.query("UPDATE phone_calls SET state='TERMINATED',status='ended' WHERE id=$1",[call]);assert.equal((await h.call('POST',m.P('/start'),m.host.user,{minutes:5})).status,200);
+ }finally{await h.close();}
 });

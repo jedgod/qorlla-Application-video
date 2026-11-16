@@ -1,11 +1,13 @@
 // Qorlla Telephony v2: pure rules (no I/O). Adapted from the qorlla-telephony-v2 reference package; everything here fails closed.
 import crypto from 'node:crypto';
+import { normalizePhoneMeetingCode } from '../meeting-code.mjs';
 
 export const err = (code, message, status = 400) => Object.assign(new Error(message || code), { code, status });
 
-export function normalizeMeetingId(input) {                         // Qorlla meeting IDs are exactly 11 digits (spaces and dashes allowed when typed)
-  const digits = String(input ?? '').replace(/[\s-]/g, '');
-  if (!/^\d{11}$/.test(digits)) throw err('INVALID_MEETING_ID', 'The meeting ID must have 11 digits.');
+// The telephone meeting code has ONE definition: server/meeting-code.mjs (the main app's 11-digit ID or Meet's 12-digit code; only space and hyphen are removed). The optional Twilio adapter uses it too.
+export function normalizeMeetingId(input) {
+  const digits = normalizePhoneMeetingCode(typeof input === 'string' ? input : String(input ?? ''));
+  if (!digits) throw err('INVALID_MEETING_ID', 'The meeting ID must have 11 or 12 digits.');
   return digits;
 }
 export function normalizeE164(input) {
@@ -69,8 +71,8 @@ export function deriveCapabilities(e) {
     : !e.gates.carrier ? row('off', off('carrier', 'Inbound and outbound calling is not certified.'))
     : row('active', 'Inbound and outbound calls certified.', ['Certified ' + e.gates.carrier]);
   const number = e.personalNumbers > 0 ? row('active', e.personalNumbers + ' number(s) confirmed by the carrier.', ['Provider-confirmed assignment']) : row('unassigned', 'No number is assigned to you.');
-  const bridge = !e.bridgeReady ? row('not_built', 'No SIP/RTP-to-Qorlla media gateway is installed. Telephone audio cannot reach the meeting.')
-    : !e.gates.bridge ? row('pending', off('bridge', 'A media gateway is installed but two-way meeting audio is not certified.'))
+  const bridge = !e.bridgeReady ? row('not_connected', 'No SIP/RTP media gateway has reported ready to this server recently. Telephone audio cannot reach the meeting.')
+    : !e.gates.bridge ? row('pending', off('bridge', 'A media gateway is connected and reporting ready, but two-way meeting audio is not certified.'))
     : row('active', 'Two-way telephone audio certified.', ['Certified ' + e.gates.bridge]);
   const billing = !e.gates.billing ? row('not_connected', off('billing', 'Telephony billing is not certified. Paid calling stays off.'))
     : e.reconciledUsage === 0 ? row('pending', 'Billing is certified but no provider usage has been reconciled yet.')

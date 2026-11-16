@@ -1,0 +1,66 @@
+{
+  "admission": {
+    "callState": "MEDIA_CONNECTED",
+    "trail": [
+      "REQUESTED",
+      "VERIFIED",
+      "APPROVED",
+      "MEDIA_CONNECTING",
+      "MEDIA_CONNECTED"
+    ],
+    "credential": {
+      "subject": "provider:test-double",
+      "consumed_at": "2026-11-16T07:03:07.813Z",
+      "promoted_at": "2026-11-16T07:03:12.897Z",
+      "revoked_at": null
+    },
+    "connected_at": "2026-11-16T07:03:12.758Z",
+    "metEvidence": {
+      "codec": "PCMU",
+      "state": "audio_flowing",
+      "source": "rtp",
+      "encrypted": true,
+      "measuredAt": 1794812592824,
+      "observedMs": 509,
+      "inboundPackets": 74,
+      "outboundPackets": 52
+    }
+  },
+  "rtpPortsHeldDuringCall": 1,
+  "phoneHears": {
+    "snr1000": 783472.380506925,
+    "snr1500": 721649.7168698733,
+    "raw440": 9.187935942565615e-14,
+    "raw2000": 8.73478129506348e-9
+  },
+  "browserHearsPhone": {
+    "alice": {
+      "samples": 47,
+      "noise": -97.2026895427557,
+      "levels": {
+        "440": -28.62948981781681,
+        "1000": -87.74011374799193,
+        "1500": -97.73717565054096,
+        "2000": -100.45660869622691
+      }
+    },
+    "bob": {
+      "samples": 47,
+      "noise": -97.56396619311757,
+      "levels": {
+        "440": -28.558041205841135,
+        "1000": -88.18089800712812,
+        "1500": -97.01359072341674,
+        "2000": -100.52635169413398
+      }
+    }
+  },
+  "termination": {
+    "finalState": "TERMINATED",
+    "credentialRevokedAt": "2026-11-16T07:03:17.877Z",
+    "rtpPortsHeldAfterHangup": 0,
+    "aliceAndBobStillConnected": "connected",
+    "abPacketsBefore": 1051,
+    "abPacketsAfter": 1203
+  }
+}
