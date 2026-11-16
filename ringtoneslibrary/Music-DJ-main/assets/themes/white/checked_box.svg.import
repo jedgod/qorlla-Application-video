@@ -1,0 +1,20 @@
+[remap]
+
+importer="svg"
+type="DPITexture"
+uid="uid://cje5g7lps4a0v"
+path="res://.godot/imported/checked_box.svg-2a411612a2befafa690be257fd44b520.dpitex"
+
+[deps]
+
+source_file="res://assets/themes/white/checked_box.svg"
+dest_files=["res://.godot/imported/checked_box.svg-2a411612a2befafa690be257fd44b520.dpitex"]
+
+[params]
+
+base_scale=1.0
+saturation=1.0
+color_map={
+"ffffff": "666"
+}
+compress=true

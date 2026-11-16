@@ -1,0 +1,27 @@
+{
+  "name": "ringtones",
+  "version": "1.0.4",
+  "description": "📞📲🎶 An awesome & curated list of brands ringtone.",
+  "main": "README.md",
+  "scripts": {
+    "lint": "npx awesome-lint README.md"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/w3teal/Awesome-Ringtone.git"
+  },
+  "keywords": [
+    "awesome",
+    "ringtones",
+    "samsung-ringtone"
+  ],
+  "author": "Various",
+  "license": "CC0-1.0",
+  "bugs": {
+    "url": "https://github.com/w3teal/Awesome-Ringtone/issues"
+  },
+  "homepage": "https://github.com/w3teal/Awesome-Ringtone#readme",
+  "devDependencies": {
+    "awesome-lint": "^2.2.2"
+  }
+}

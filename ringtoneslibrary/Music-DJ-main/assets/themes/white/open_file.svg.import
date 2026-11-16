@@ -1,0 +1,20 @@
+[remap]
+
+importer="svg"
+type="DPITexture"
+uid="uid://ccq4hphmjutgv"
+path="res://.godot/imported/open_file.svg-1406787a09f3dc1560eded5093a47b0e.dpitex"
+
+[deps]
+
+source_file="res://assets/themes/white/open_file.svg"
+dest_files=["res://.godot/imported/open_file.svg-1406787a09f3dc1560eded5093a47b0e.dpitex"]
+
+[params]
+
+base_scale=1.0
+saturation=1.0
+color_map={
+"ffffff": "666"
+}
+compress=true

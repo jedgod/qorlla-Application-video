@@ -1,0 +1,206 @@
+class_name LoadDialog
+extends CustomDialog
+
+const LOAD_ITEM = preload("res://scenes/dialogs/load_dialog/load_item/load_item.tscn")
+
+@onready var project_container: VBoxContainer = %ProjectContainer
+@onready var scroll_container: ScrollContainer = %ScrollContainer
+@onready var new_project_button: Button = %NewProjectButton
+@onready var open_folder_button: Button = %OpenFolderButton
+@onready var file_picker_button: Button = %FilePickerButton
+@onready var no_projects_label: Label = %NoProjectsLabel
+@onready var import_file_dialog: FileDialog = %ImportFileDialog
+@onready var export_file_dialog: FileDialog = %ExportFileDialog
+
+var selected_file := ""
+
+signal project_selected(path: String)
+signal new_project
+
+
+func _ready() -> void:
+	super()
+	
+	Utils.theme_changed.connect(_on_theme_changed)
+	export_file_dialog.file_selected.connect(_on_export_file_selected)
+	
+	open_folder_button.visible = not OS.get_name() in ["Web", "Android"]
+	file_picker_button.visible = OS.get_name() in ["Windows", "Android"]
+
+
+func _populate() -> void:
+	if not Utils.has_storage_perms():
+		return
+	
+	selected_file = ""
+	
+	var projects := Utils.list_files_in_directory("user://saves/Projects/", ["mdj"])
+	var items: Array[LoadItem] = []
+	
+	for i in projects:
+		items.append(create_item(i))
+	
+	no_projects_label.visible = projects.is_empty()
+	if items.size():
+		await get_tree().process_frame
+		items[0].button.grab_focus.call_deferred()
+
+
+func _cleanup() -> void:
+	for i in project_container.get_children():
+		if i is LoadItem:
+			i.queue_free()
+
+
+func load_song(path: String) -> void:
+	project_selected.emit(path)
+	close()
+
+
+func create_item(project_path: String) -> LoadItem:
+	var item: LoadItem = LOAD_ITEM.instantiate()
+	project_container.add_child(item)
+	
+	item.expanded.connect(scroll_container.ensure_control_visible.bind(item), CONNECT_DEFERRED)
+	item.button.text = project_path
+	item.open_button.pressed.connect(load_song.bind(Variables.projects_dir.path_join(project_path)))
+	item.delete_button.pressed.connect(_on_delete_pressed.bind(item, project_path))
+	item.download_button.pressed.connect(_on_download_pressed.bind(project_path))
+	item.share_button.pressed.connect(_on_share_pressed.bind(project_path))
+	item.export_button.pressed.connect(_on_export_pressed.bind(project_path))
+	item.link_button.pressed.connect(_on_link_pressed.bind(project_path))
+	item.download_button.visible = OS.get_name() == "Web"
+	item.export_button.visible = DisplayServer.has_feature(DisplayServer.FEATURE_NATIVE_DIALOG_FILE)
+	item.share_button.visible = Utils.can_share()
+	
+	return item
+
+
+func _on_import_file_dialog_file_selected(path: String) -> void:
+	var file_name := path.uri_file_decode().get_file()
+	var new_path := "user://saves/Projects".path_join(file_name)
+	
+	if FileAccess.file_exists(new_path):
+		# Match file name with bracket numbering
+		# From stackoverflow.com/questions/7846389
+		var regex := RegEx.new()
+		regex.compile("^(.*?)(?:\\((\\d+)\\))?\\.(.+)$")
+		var result := regex.search(file_name)
+		if result == null:
+			printerr("Something went wrong when importing %s" % path)
+			print_stack()
+			Utils.toast("Something went wrong.")
+			return
+		
+		var groups := {
+				"file_name": result.strings[1],
+				"number": int(result.strings[2]) + 1 if result.strings[2] else 1,
+				"extension": result.strings[3]
+			}
+		var new_file_name := "{file_name} ({number}).{extension}".format(groups)
+		
+		while FileAccess.file_exists(new_path):
+			groups.number += 1
+			new_file_name = "{file_name} ({number}).{extension}".format(groups)
+			new_path = "user://saves/Projects".path_join(new_file_name)
+	
+	if path.get_extension() == "mid":
+		new_path += ".mdj"
+		
+		var file := FileAccess.open(new_path, FileAccess.WRITE)
+		file.store_string(JSON.stringify(MidiFile.to_mdj(path)))
+		file.close()
+	else:
+		# HACK: https://github.com/godotengine/godot/issues/74105
+		var original_file := FileAccess.open(path, FileAccess.READ)
+		var buffer := original_file.get_buffer(original_file.get_length())
+		var new_file := FileAccess.open(new_path, FileAccess.WRITE)
+		new_file.store_buffer(buffer)
+		new_file.close()
+		
+		# Might be old format
+		var song := BoomBox.convert_project(new_path)
+		song.save(new_path)
+	
+	load_song(new_path)
+
+
+func _on_delete_pressed(item: LoadItem, file_name: String) -> void:
+	var file_name_bbcode := "[color=#4ecca3]%s[/color]" % Utils.truncate(file_name, 22)
+	var body = tr("DIALOG_CONFIRMATION_BODY_DELETE") % file_name_bbcode
+	
+	if await Utils.confirm_popup("DIALOG_CONFIRMATION_TITLE_DELETE", body):
+		var path := Variables.projects_dir.path_join("%s" % file_name)
+		
+		if OS.move_to_trash(ProjectSettings.globalize_path(path)) != OK:
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+		
+		# HACK: Until https://github.com/godotengine/godot/issues/63995 is fixed
+		if OS.get_name() == "Web":
+			Options.save(0)
+		
+		#item.queue_free() # dialog gets hidden anyway
+
+
+func _on_share_pressed(file_name: String) -> void:
+	Utils.share_file(
+		"user://saves/Projects/".path_join(file_name), "", "", "", "application/json"
+	)
+
+
+func _on_link_pressed(file_name: String) -> void:
+	var file := FileAccess.open("user://saves/Projects/".path_join(file_name), FileAccess.READ)
+	var project_string := file.get_as_text()
+	file.close()
+	
+	var url := "https://pattlebass.itch.io/musicdj?song=" + project_string.uri_encode()
+	DisplayServer.clipboard_set(url)
+	Utils.toast("Copied link to clipboard", Toast.Length.LENGTH_SHORT)
+
+
+func _on_download_pressed(file_name: String) -> void:
+	var file_path := Variables.saves_dir.path_join("Projects/%s" % file_name)
+	if OS.get_name() == "Web":
+		Utils.download_file(file_path, file_name)
+
+
+var _export_source_path := ""
+func _on_export_pressed(file_name: String) -> void:
+	var file_path := Variables.saves_dir.path_join("Projects/%s" % file_name)
+	_export_source_path = file_path
+	
+	# HACK: AHHHHHHHHH
+	if OS.get_name() != "Android":
+		file_name = file_name.get_basename()
+	
+	export_file_dialog.current_file = file_name
+	export_file_dialog.popup_file_dialog()
+
+
+func _on_export_file_selected(dest: String) -> void:
+	var err := DirAccess.copy_absolute(_export_source_path, dest)
+	if err:
+		printerr("Failed to copy project (%s) to %s: %s" % [_export_source_path, dest, err])
+		Utils.toast("Export failed (%s). A file with that name may already exist." % err)
+
+
+func _on_new_project_button_pressed() -> void:
+	new_project.emit()
+
+
+func _on_cancel_button_pressed() -> void:
+	close()
+
+
+func _on_open_button_pressed() -> void:
+	OS.shell_open(ProjectSettings.globalize_path(Variables.saves_dir))
+
+
+func _on_pick_file_button_pressed() -> void:
+	import_file_dialog.popup()
+
+
+func _on_theme_changed(new_theme: String) -> void:
+	file_picker_button.icon = load("res://assets/themes/%s/open_file.svg" % new_theme)
+	open_folder_button.icon = load("res://assets/themes/%s/open_folder.svg" % new_theme)
+	new_project_button.icon = load("res://assets/themes/%s/add.svg" % new_theme)

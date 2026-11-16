@@ -1,0 +1,20 @@
+[remap]
+
+importer="svg"
+type="DPITexture"
+uid="uid://bnyo6bdqop765"
+path="res://.godot/imported/unchecked_box.svg-6421880513eed4c57226c5ae2de89ec1.dpitex"
+
+[deps]
+
+source_file="res://assets/themes/white/unchecked_box.svg"
+dest_files=["res://.godot/imported/unchecked_box.svg-6421880513eed4c57226c5ae2de89ec1.dpitex"]
+
+[params]
+
+base_scale=1.0
+saturation=1.0
+color_map={
+"ffffff": "666"
+}
+compress=true

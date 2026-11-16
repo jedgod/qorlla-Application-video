@@ -1,0 +1,386 @@
+extends Control
+
+const PROGRESS_DIALOG = preload("res://scenes/dialogs/progress_dialog/progress_dialog.tscn")
+
+@onready var play_button: Button = %Play
+@onready var export_button: Button = %Export
+@onready var save_button: Button = %SaveProject
+@onready var bpm_spin_box: SpinBox = %BPMSpinBox
+
+@onready var add_button: Button = %AddButton
+@onready var column_container: ColumnContainer = %ColumnContainer
+@onready var scroll_container: ScrollContainer = %ScrollContainer
+
+@onready var export_save_dialog: FilenameDialog = $ExportSaveDialog
+@onready var project_save_dialog: FilenameDialog = $ProjectSaveDialog
+@onready var load_dialog: LoadDialog = $LoadDialog
+@onready var sound_dialog: SoundDialog = $SoundDialog
+@onready var column_dialog: ColumnDialog = $ColumnDialog
+@onready var settings_dialog: CustomDialog = $SettingsDialog
+@onready var about_dialog: AboutDialog = $AboutDialog
+@onready var tutorial_dialog: TutorialDialog = $TutorialDialog
+
+@onready var bg_panel: Panel = $BgPanel
+@onready var dim_overlay: Panel = $DimOverlay
+@onready var input_block: Panel = $InputBlock
+
+# Notes:
+# "column" refers to the column node itself, while "column_no" refers
+# to the column as a number
+
+
+func _ready() -> void:
+	#region Signals
+	get_window().files_dropped.connect(_on_files_dropped)
+	Utils.theme_changed.connect(_on_theme_changed)
+	Utils.dim_dialog_shown.connect(show_shadow)
+	Utils.dim_dialog_hidden.connect(hide_shadow)
+	Utils.input_block_dialog_shown.connect(input_block.show)
+	Utils.input_block_dialog_hidden.connect(input_block.hide)
+	
+	BoomBox.play_ended.connect(_on_play_ended)
+	BoomBox.play_started.connect(_on_play_started)
+	BoomBox.column_play_started.connect(_on_column_play_started)
+	BoomBox.song_loaded.connect(_on_song_loaded)
+	
+	column_container.column_added.connect(_on_column_added_node)
+	
+	load_dialog.project_selected.connect(load_song_path)
+	
+	project_save_dialog.path_picked.connect(save_project)
+	export_save_dialog.path_picked.connect(export_song)
+	
+	#endregion
+	
+	Utils.change_theme(Options.theme)
+	
+	get_window().min_size.x = ProjectSettings.get("display/window/size/viewport_width") * 0.75
+	get_window().min_size.y = ProjectSettings.get("display/window/size/viewport_height") * 0.75
+	
+	new_song()
+	
+	if OS.get_name() == "Web":
+		var project := get_project_from_query()
+		if project != null:
+			BoomBox.load_song(project)
+	
+	# https://github.com/godotengine/godot/issues/73351
+	play_button.focus_neighbor_right = bpm_spin_box.get_line_edit().get_path()
+	bpm_spin_box.get_line_edit().focus_neighbor_left = play_button.get_path()
+	bpm_spin_box.get_line_edit().focus_neighbor_right = export_button.get_path()
+	export_button.focus_neighbor_left = bpm_spin_box.get_line_edit().get_path()
+
+
+func _on_theme_changed(new_theme: String) -> void:
+	theme = load("res://assets/themes/%s/%s.tres" % [new_theme, new_theme])
+
+
+func _shortcut_input(event: InputEvent) -> void:
+	if event.is_action_pressed(&"ui_undo", false, true):
+		BoomBox.undo()
+	elif event.is_action_pressed(&"ui_redo", false, true):
+		BoomBox.redo()
+
+
+func _on_song_loaded(is_undo: bool) -> void:
+	BoomBox.song.removed_column.connect(_on_removed_column)
+	BoomBox.song.trimmed_length_changed.connect(_on_song_trimmed_length_changed)
+	BoomBox.song.bpm_changed.connect(bpm_spin_box.set_value_no_signal)
+	
+	bpm_spin_box.set_value_no_signal(BoomBox.song.bpm)
+	
+	if not is_undo:
+		scroll_container.scroll_horizontal = 0
+	_on_song_trimmed_length_changed()
+
+
+func _on_column_added_node(column: Column) -> void:
+	column.tile_pressed.connect(_on_tile_pressed.bind(column))
+	column.column_button_pressed.connect(column_dialog.open_on_column.bind(column))
+	column.drag_started.connect(
+		func(): scroll_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	)
+	column.drag_ended.connect(
+		func(): scroll_container.mouse_filter = Control.MOUSE_FILTER_PASS
+	)
+	column.tile_drag_started.connect(
+		func():
+			scroll_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	)
+	column.tile_drag_ended.connect(
+		func():
+			scroll_container.mouse_filter = Control.MOUSE_FILTER_PASS
+	)
+	column.tile_swipe_started.connect(
+		func():
+			scroll_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	)
+	column.tile_swipe_ended.connect(
+		func():
+			scroll_container.mouse_filter = Control.MOUSE_FILTER_PASS
+	)
+
+
+func _on_removed_column(column_no: int) -> void:
+	# Decide focus
+	var columns := column_container.columns
+	var next_focus: Control = add_button
+	if column_no < columns.size():
+		next_focus = columns[column_no].column_button
+	elif column_no - 1 > 0 and column_no - 1 < columns.size():
+		next_focus = columns[column_no - 1].column_button
+	next_focus.grab_focus.call_deferred()
+
+
+func _on_song_trimmed_length_changed() -> void:
+	var trimmed_len := BoomBox.song.get_trimmed_length()
+	play_button.disabled = trimmed_len == 0
+	save_button.disabled = trimmed_len == 0
+	export_button.disabled = trimmed_len == 0 and !BoomBox.is_playing 
+
+
+func _on_tile_pressed(instrument: int, column: Column) -> void:
+	if BoomBox.is_playing:
+		return
+	sound_dialog.instrument = instrument
+	sound_dialog.column = column
+	sound_dialog.open()
+
+
+func _on_play_toggled(button_pressed: bool) -> void:
+	if button_pressed:
+		BoomBox.play()
+	else:
+		BoomBox.stop()
+
+
+func _on_play_started() -> void:
+	play_button.text = "BTN_STOP"
+	play_button.set_pressed_no_signal(true)
+	
+	export_button.disabled = true
+	bpm_spin_box.editable = false
+
+
+func _on_play_ended() -> void:
+	play_button.text = "BTN_PLAY"
+	play_button.set_pressed_no_signal(false)
+	
+	export_button.disabled = BoomBox.song.get_trimmed_length() == 0
+	bpm_spin_box.editable = true
+
+
+func _on_column_play_started(column_no: int) -> void:
+	scroll_container.ensure_control_visible(column_container.columns[column_no])
+
+
+func _on_export_pressed() -> void:
+	export_save_dialog.open()
+
+
+func _on_save_project_pressed() -> void:
+	project_save_dialog.open()
+
+
+func _on_open_project_pressed() -> void:
+	load_dialog.open()
+
+
+func _on_add_button_pressed() -> void:
+	BoomBox.song.add_column(BoomBox.song.get_length())
+	# HACK
+	await column_container.resized
+	await get_tree().process_frame
+	scroll_container.ensure_control_visible(add_button)
+
+
+func _on_bpm_spin_box_value_changed(value: int) -> void:
+	BoomBox.song.bpm = value
+
+
+func get_project_from_query() -> Song:
+	var project_string = JavaScriptBridge.eval(\
+		"""
+		(function getParams() {
+			const urlString = (window.location != window.parent.location)
+						? document.referrer
+						: document.location.href;
+			const url = new URL(urlString);
+			const song = url.searchParams.get("song");
+			
+			url.search = "";
+			history.replaceState(null, "", url.toString())
+			
+			return song;
+		}())
+		"""
+	)
+	if project_string:
+		var parser := JSON.new()
+		var err := parser.parse(project_string)
+		if err:
+			Utils.toast("Error parsing project from URL (code: %s)" % err)
+		else:
+			var song := Song.new().from(parser.data)
+			return song
+	return null
+
+
+func save_project(path: String) -> void:
+	# ProgressDialog
+	var progress_dialog: ProgressDialog = PROGRESS_DIALOG.instantiate()
+	add_child(progress_dialog)
+	progress_dialog.open()
+	progress_dialog.body_text = ""
+	progress_dialog.body_text_completed = ""
+	progress_dialog.popup_hidden.connect(progress_dialog.queue_free)
+	
+	progress_dialog.open_button.hide()
+	progress_dialog.share_button.hide()
+	progress_dialog.download_button.hide()
+	
+	progress_dialog.open_button.pressed.connect(
+		OS.shell_open.bind(ProjectSettings.globalize_path(Variables.saves_dir))
+	)
+	
+	var tween := create_tween()
+	tween.tween_property(progress_dialog, ^"progress", 1, 0.2)
+	tween.tween_callback(progress_dialog.close)
+	
+	var err := BoomBox.song.save(path)
+	
+	if err:
+		progress_dialog.error(err)
+	
+	var decoded_path := path.uri_file_decode()
+	Variables.opened_file = decoded_path.get_basename().get_file()
+
+
+# TODO: Remember web exports
+# HACK: All this should be done more cleanly at some point
+var _export_canceled := false
+func export_song(path: String) -> void:
+	var decoded_path := path.uri_file_decode()
+	
+	# ProgressDialog
+	var progress_dialog: ProgressDialog = PROGRESS_DIALOG.instantiate()
+	add_child(progress_dialog)
+	if OS.get_name() == "Web":
+		progress_dialog.body_text = "DIALOG_PROGRESS_KEEP_FOCUSED"
+	else:
+		progress_dialog.body_text_completed = tr("DIALOG_PROGRESS_AFTER_EXPORT") % ProjectSettings.globalize_path(decoded_path)
+	
+	progress_dialog.popup_hidden.connect(progress_dialog.queue_free)
+	progress_dialog.canceled.connect(func(): _export_canceled = true)
+	progress_dialog.open()
+	
+	progress_dialog.open_button.pressed.connect(
+		OS.shell_open.bind(path.get_base_dir())
+	)
+	progress_dialog.download_button.pressed.connect(
+		Utils.download_file.bind(path, decoded_path.get_file())
+	)
+	progress_dialog.share_button.pressed.connect(
+		Utils.share_file.bind(path, "", "", "", "audio/wav")
+	)
+	
+	progress_dialog.progress_bar.indeterminate = true
+	
+	var temp_path := Variables.TEMP_DIR.path_join("export.wav")
+	var err := await BoomBox.export_to_wav(temp_path)
+	
+	if err:
+		progress_dialog.error(err)
+		return
+	
+	err = DirAccess.copy_absolute(temp_path, path)
+	DirAccess.remove_absolute(temp_path)
+	
+	if err:
+		progress_dialog.error(err)
+		return
+	
+	progress_dialog.progress_bar.indeterminate = false
+	progress_dialog.progress = 1.0
+	
+	if _export_canceled:
+		print("Export canceled.")
+		return
+
+
+func load_song_path(path: String) -> void:
+	var file := FileAccess.open(path, FileAccess.READ)
+	var parser := JSON.new()
+	
+	var err := parser.parse(file.get_as_text())
+	file.close()
+	
+	if err:
+		var msg := "Error opening project (code: %s)" % err
+		Utils.toast(msg)
+		printerr(msg)
+		return
+	
+	BoomBox.load_song(Song.new().from(parser.data))
+	Variables.opened_file = path.get_file().get_basename()
+
+
+func new_song() -> void:
+	BoomBox.load_song(Song.new())
+	Variables.opened_file = ""
+
+
+var _shadow_tween: Tween
+func show_shadow() -> void:
+	if _shadow_tween:
+		_shadow_tween.kill()
+	_shadow_tween = create_tween()
+	_shadow_tween.tween_callback(dim_overlay.show)
+	_shadow_tween.tween_property(dim_overlay, ^"modulate:a", 1.0, 0.1)
+
+
+func hide_shadow() -> void:
+	if _shadow_tween:
+		_shadow_tween.kill()
+	_shadow_tween = create_tween()
+	_shadow_tween.tween_property(dim_overlay, ^"modulate:a", 0, 0.1)
+	_shadow_tween.tween_callback(dim_overlay.hide)
+
+
+func _on_files_dropped(files: PackedStringArray) -> void:
+	for path in files:
+		var err := Error.OK
+		match path.get_extension():
+			["mdj", "mdjt", "mid"]:
+				import_dropped_project(path)
+			"sf2":
+				err = Options.import_soundfont(path)
+		if err:
+			Utils.toast("Error for '%s': %s (%s)" % [path.get_file(), error_string(err), err])
+
+
+func import_dropped_project(path: String) -> void:
+	var file_name := path.get_file()
+	if file_name.get_extension() == "mid":
+		file_name += ".mdj"
+	
+	var can_overwrite := true
+	if FileAccess.file_exists(Variables.saves_dir.path_join("Projects/%s" % file_name)):
+		var body := tr("DIALOG_CONFIRMATION_BODY_OVERWRITE") % "[color=#4ecca3]%s[/color]" % file_name
+		can_overwrite = await Utils.confirm_popup("DIALOG_CONFIRMATION_TITLE_OVERWRITE", body)
+	
+	if can_overwrite:
+		if path.get_extension() == "mid":
+			var file := FileAccess.open(Variables.projects_dir.path_join(file_name), FileAccess.WRITE)
+			file.store_string(JSON.stringify(MidiFile.to_mdj(path)))
+			file.close()
+		else:
+			DirAccess.copy_absolute(path, Variables.projects_dir.path_join(file_name))
+
+
+func _on_load_dialog_new_project() -> void:
+	var confirmed: bool = (await Utils.confirm_popup("DIALOG_CONFIRMATION_TITLE_NEW_PROJECT",
+			"DIALOG_CONFIRMATION_BODY_NEW_PROJECT"))
+	if confirmed:
+		new_song()
+		load_dialog.hide() # normal hide() is fine, it's a hack anyway

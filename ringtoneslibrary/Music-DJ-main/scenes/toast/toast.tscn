@@ -1,0 +1,25 @@
+[gd_scene format=3 uid="uid://djt8n7oy8fwt7"]
+
+[ext_resource type="Script" uid="uid://im8yjlbjpdth" path="res://scenes/toast/toast.gd" id="1_jgp68"]
+
+[node name="Toast" type="Popup" unique_id=44173457]
+oversampling_override = 1.0
+size = Vector2i(213, 100)
+visible = true
+theme_type_variation = &"TooltipPanel"
+script = ExtResource("1_jgp68")
+metadata/_custom_type_script = "uid://im8yjlbjpdth"
+
+[node name="PanelContainer" type="PanelContainer" parent="." unique_id=886719798]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_type_variation = &"Toast"
+
+[node name="Label" type="Label" parent="PanelContainer" unique_id=1378457281]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Text"
+text = "Lorem ipsum"

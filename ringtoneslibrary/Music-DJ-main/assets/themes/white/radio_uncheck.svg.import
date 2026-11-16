@@ -1,0 +1,20 @@
+[remap]
+
+importer="svg"
+type="DPITexture"
+uid="uid://ma071whvkpde"
+path="res://.godot/imported/radio_uncheck.svg-51a110b01c6fb039b713ca09c98f67de.dpitex"
+
+[deps]
+
+source_file="res://assets/themes/white/radio_uncheck.svg"
+dest_files=["res://.godot/imported/radio_uncheck.svg-51a110b01c6fb039b713ca09c98f67de.dpitex"]
+
+[params]
+
+base_scale=1.0
+saturation=1.0
+color_map={
+"ffffff": "666"
+}
+compress=true
