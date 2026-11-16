@@ -14,7 +14,7 @@ import pg from 'pg';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..'), SQL = join(ROOT, 'sql');
 const URL = process.env.TEST_PG_URL || 'postgres://postgres:postgres@127.0.0.1:25611/postgres';
-const { chromium } = createRequire(join(process.env.PLAYWRIGHT_DIR || process.cwd(), 'package.json'))('playwright');
+const pw = createRequire(join(process.env.PLAYWRIGHT_DIR || process.cwd(), 'package.json'))('playwright'); const BROWSER = process.env.BROWSER || 'chromium';          // BROWSER=firefox runs the same steps in Firefox (fake microphone through its own prefs)
 const ORDER = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', ...readdirSync(SQL).filter((f) => /^v4_\d+_/.test(f)).sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]))];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = []; const check = (n, ok, d = '') => { results.push(ok); console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok || !d ? '' : '  -> ' + d)); };
@@ -34,8 +34,8 @@ const child = spawn(process.execPath, ['server/index.js'], { cwd: ROOT, env: { .
   MEET_FILES: 'on', FILES_DIR: join(dir, 'files'), CLAMD_HOST: '127.0.0.1', CLAMD_PORT: String(clamd.address().port), MEET_TRANSCRIPT: 'on', STT_URL: 'http://127.0.0.1:' + stt.address().port, STT_INTERNAL_TOKEN: TOKEN }, stdio: ['ignore', 'pipe', 'pipe'] });
 let log = ''; child.stdout.on('data', (d) => (log += d)); child.stderr.on('data', (d) => (log += d)); for (let i = 0; i < 240 && !log.includes('listening'); i++) await wait(250);
 if (!log.includes('listening')) { console.log('server did not start: ' + log.slice(-500)); process.exit(2); }
-const browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] }); const errs = [];
-const open = async (name, code) => { const ctx = await browser.newContext({ permissions: ['camera', 'microphone'], viewport: { width: 1250, height: 800 }, acceptDownloads: true }); const p = await ctx.newPage(); p.on('pageerror', (e) => errs.push(name + ': ' + e.message)); if (process.env.FT_DEBUG) p.on('response', async (r) => { if (/\/(files|transcripts)/.test(r.url()) && (r.request().method() !== 'GET' || /transcripts/.test(r.url()))) console.log('HTTP', name, r.request().method(), r.status(), r.url().replace(/.*meetings\/[^/]+/, ''), (await r.text().catch(() => '')).slice(0, 120)); });
+const browser = await pw[BROWSER].launch(BROWSER === 'firefox' ? { firefoxUserPrefs: { 'media.navigator.streams.fake': true, 'media.navigator.permission.disabled': true } } : { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] }); const errs = [];
+const open = async (name, code) => { const ctx = await browser.newContext({ ...(BROWSER === 'chromium' ? { permissions: ['camera', 'microphone'] } : {}), viewport: { width: 1250, height: 800 }, acceptDownloads: true }); const p = await ctx.newPage(); p.on('pageerror', (e) => errs.push(name + ': ' + e.message)); if (process.env.FT_DEBUG) p.on('response', async (r) => { if (/\/(files|transcripts)/.test(r.url()) && (r.request().method() !== 'GET' || /transcripts/.test(r.url()))) console.log('HTTP', name, r.request().method(), r.status(), r.url().replace(/.*meetings\/[^/]+/, ''), (await r.text().catch(() => '')).slice(0, 120)); });
   await p.goto(`http://localhost:${PORT}/?mic=off&camera=off`); await p.fill('#displayName', name); if (code) { await p.fill('#meetingId', code); await p.click('#joinBtn'); } else { await p.fill('#meetingTitle', 'Files and transcript'); await p.click('#createBtn'); }
   await p.waitForSelector('#app:not(.hidden)', { timeout: 30000 }); await p.click('[data-tab=more]'); return p; };
 const body = (p) => p.locator('body').innerText();

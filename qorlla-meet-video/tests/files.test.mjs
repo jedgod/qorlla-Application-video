@@ -12,7 +12,8 @@ import { dirname, join } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { registerFiles, FILE_LIMITS } from '../server/files.mjs';
 import { createFileStore } from '../server/file-store.mjs';
-import { createScanner, detectType, activeContent } from '../server/file-scanner.mjs';
+import { createScanner, detectType, activeContent, clamdScan } from '../server/file-scanner.mjs';
+const REAL = process.env.CLAMD_REAL_PORT ? Number(process.env.CLAMD_REAL_PORT) : 0;          // set to run the pipeline against a REAL clamd (docker clamav/clamav) instead of the fake one
 
 // Shared files (v4.34): the IMMUTABLE scan pipeline. Real PostgreSQL (TEST_PG_URL), a real private directory, a FAKE clamd speaking the INSTREAM protocol (labelled: it flags the standard EICAR string and a marker).
 const URL = process.env.TEST_PG_URL || 'postgres://postgres:postgres@127.0.0.1:25611/postgres';
@@ -40,7 +41,7 @@ const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.doc
 
 async function rig({ env = {}, limits = FILE_LIMITS, scan = true } = {}) {
   const clamd = await fakeClamd(); const dir = await fs.mkdtemp(path.join(tmp, 'f-')); const store = createFileStore({ FILES_DIR: dir });
-  const scanner = createScanner({ env: scan ? { CLAMD_HOST: '127.0.0.1', CLAMD_PORT: String(clamd.port), CLAMD_TIMEOUT_MS: '2000' } : {} });
+  const scanner = createScanner({ env: scan ? { CLAMD_HOST: '127.0.0.1', CLAMD_PORT: String(REAL || clamd.port), CLAMD_TIMEOUT_MS: REAL ? '30000' : '2000' } : {} });
   const scopes = new Map(), notes = [], audits = []; const fail = (res, status, error) => res.status(status).json({ error });
   const app = express(); app.use(express.json());
   const auth = (req, res, next) => { try { req.user = JSON.parse(req.get('x-user')); next(); } catch { fail(res, 401, 'x'); } };
@@ -77,7 +78,7 @@ test('clean path: bytes are streamed into quarantine, scanned, promoted to a wri
 
 test('malware, spoofed types, active content and macros are rejected: nothing reaches the clean store and the quarantine copy is removed', async () => {
   const t = await rig(); const { P } = t;
-  const cases = [['eicar.txt', 'text/plain', Buffer.from(EICAR), /^malware:Fake-Test/], ['photo.pdf', 'application/pdf', PNG, /type_mismatch/], ['run.txt', 'text/plain', Buffer.from([0x4d, 0x5a, 0, 0, 1, 2, 3]), /type_not_allowed/],
+  const cases = [['eicar.txt', 'text/plain', Buffer.from(EICAR), /^malware:(Fake-Test|Qorlla\.Test)/], ['photo.pdf', 'application/pdf', PNG, /type_mismatch/], ['run.txt', 'text/plain', Buffer.from([0x4d, 0x5a, 0, 0, 1, 2, 3]), /type_not_allowed/],
     ['evil.pdf', 'application/pdf', Buffer.from('%PDF-1.4 /OpenAction << /S /JavaScript /JS (app.alert(1)) >>'), /active_content/], ['macro.docx', DOCX, docx('word/vbaProject.bin'), /active_content:macro/]];
   for (const [name, type, body, why] of cases) { const r = await t.up(P.host, name, type, body); assert.equal(r.status, 202, name); const f = await t.row(r.body.id); assert.equal(f.state, 'rejected', name); assert.match(f.reason, why, name); assert.equal(f.quarantine_key, null); }
   assert.deepEqual(await t.cleanFiles(), []); assert.deepEqual(await t.quarantine(), []);
@@ -85,7 +86,7 @@ test('malware, spoofed types, active content and macros are rejected: nothing re
   await t.close();
 });
 
-test('IMMUTABLE promotion: bytes swapped in quarantine after the scan are caught by the hash and never promoted; a modified clean object is refused on download; a clean object is never overwritten', async () => {
+test('IMMUTABLE promotion: bytes swapped in quarantine after the scan are caught by the hash and never promoted; a modified clean object is refused on download; a clean object is never overwritten', { skip: REAL ? 'needs the fake scanner hook' : false }, async () => {
   const t = await rig(); const { P } = t; const good = Buffer.from('the scanned bytes');
   t.clamd.st.onScan = async () => { const q = (await t.quarantine())[0]; const f = path.join(t.dir, 'quarantine', q); await fs.chmod(f, 0o600); await fs.writeFile(f, Buffer.from('SWAPPED AFTER THE SCAN')); };          // an attacker with disk access swaps the object while it is being scanned
   const r = await t.up(P.host, 'a.txt', 'text/plain', good); const f = await t.row(r.body.id); assert.equal(f.state, 'rejected'); assert.equal(f.reason, 'tampered'); assert.deepEqual(await t.cleanFiles(), [], 'swapped bytes were not promoted'); t.clamd.st.onScan = null;
@@ -96,7 +97,7 @@ test('IMMUTABLE promotion: bytes swapped in quarantine after the scan are caught
   await t.close();
 });
 
-test('scanner outage fails closed: the file stays in quarantine and "scanning", the supervised sweep retries it, it is rejected after the attempt limit, and it becomes clean only once a real verdict says so', async () => {
+test('scanner outage fails closed: the file stays in quarantine and "scanning", the supervised sweep retries it, it is rejected after the attempt limit, and it becomes clean only once a real verdict says so', { skip: REAL ? 'needs the fake scanner hook' : false }, async () => {
   const t = await rig({ limits: { ...FILE_LIMITS, scanAttempts: 3 } }); const { P } = t; await t.clamd.close(); t.clamd.st.down = true;
   const r = await t.up(P.host, 'a.txt', 'text/plain', Buffer.from('waiting for a scanner')); assert.equal(r.status, 202); assert.equal(r.body.state, 'scanning'); assert.equal((await t.dl(P.host, r.body.id)).status, 404); assert.equal((await t.quarantine()).length, 1);
   const age = () => pool.query("UPDATE more_files SET scan_lease=now() - interval '1 second', created_at=now() - interval '1 minute' WHERE id=$1", [r.body.id]); await age(); await t.files.sweep(); assert.equal((await t.row(r.body.id)).state, 'scanning');
@@ -148,4 +149,55 @@ test('sweep: expired files are purged (object and row), orphaned quarantine obje
 
 test('disabled by default: without MEET_FILES=on every route answers 503 and nothing is stored', async () => {
   const t = await rig({ env: { MEET_FILES: 'off' } }); const { P } = t; assert.equal((await t.up(P.host, 'a.txt', 'text/plain', Buffer.from('a'))).status, 503); assert.equal((await t.call('GET', t.url(), P.host)).status, 503); assert.equal(t.files.enabled, false); assert.deepEqual(await t.quarantine(), []); await t.close();
+});
+
+test('REAL clamd (only with CLAMD_REAL_PORT): clean bytes pass, the standard EICAR string (sent over the socket, never written to disk) and the custom marker signature are found, and the whole pipeline rejects the marker', { skip: REAL ? false : 'CLAMD_REAL_PORT not set' }, async () => {
+  const opts = { host: '127.0.0.1', port: REAL, timeoutMs: 30000 }; const EICAR_REAL = ['X5O!P%@AP[4' + String.fromCharCode(92) + 'PZX54(P^)7CC)7}$EICAR', 'STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'].join('-');
+  assert.equal(await clamdScan(Buffer.from('perfectly ordinary text'), opts), 'OK'); assert.match(await clamdScan(Buffer.from(EICAR_REAL), opts), /Eicar/i); assert.match(await clamdScan(Buffer.from('x ' + EICAR), opts), /Qorlla\.Test\.Marker/);
+  const t = await rig(); const ok = await t.up(t.P.host, 'fine.txt', 'text/plain', Buffer.from('fine')); assert.equal(ok.body.state, 'clean'); const bad = await t.up(t.P.host, 'bad.txt', 'text/plain', Buffer.from('harmless ' + EICAR)); assert.equal((await t.row(bad.body.id)).state, 'rejected'); assert.match((await t.row(bad.body.id)).reason, /^malware:Qorlla\.Test\.Marker/); assert.deepEqual(await t.cleanFiles(), [sha(Buffer.from('fine'))]); await t.close();
+});
+
+// ---- fixes from the independent review of the pipeline
+test('a deleted or swept upload can never come back to life, even if its bytes finish arriving afterwards', async () => {
+  const t = await rig(); const { P } = t; const CRLF = String.fromCharCode(13, 10);
+  const sock = net.connect(t.port, '127.0.0.1'); await new Promise((r) => sock.on('connect', r));
+  sock.write([`POST ${t.url()} HTTP/1.1`, 'Host: x', `x-user: ${JSON.stringify(P.ann.user)}`, 'x-filename: slow.txt', 'content-type: text/plain', 'content-length: 20', '', 'first5'].join(CRLF));
+  let id; for (let i = 0; i < 60 && !id; i++) { await new Promise((r) => setTimeout(r, 100)); id = (await pool.query("SELECT id FROM more_files WHERE meeting_id=$1 AND filename='slow.txt'", [t.mid])).rows[0]?.id; } assert.ok(id, 'the upload is running');
+  await t.call('DELETE', t.url(`/${id}`), P.host); const reply = new Promise((r) => { let b = ''; sock.on('data', (d) => { b += d; if (b.includes(CRLF + CRLF)) r(b); }); setTimeout(() => r(b), 4000); });
+  sock.write('0123456789abcd'); const res = await reply; sock.destroy();
+  const f = await t.row(id); assert.equal(f.state, 'deleted', 'the late bytes did not revive it'); assert.deepEqual(await t.cleanFiles(), [], 'nothing was promoted'); assert.deepEqual(await t.quarantine(), [], 'and the late bytes were removed'); void res;
+  await t.close();
+});
+
+test('delete and re-upload of the same bytes race 15 times: the new file is always downloadable (the hash lock keeps promote and purge apart)', async () => {
+  const t = await rig({ limits: { ...FILE_LIMITS, uploadsPerMinute: 100 } }); const { P } = t; const body = Buffer.from('shared bytes'); let a = (await t.up(P.host, 'a.txt', 'text/plain', body)).body.id;
+  for (let i = 0; i < 15; i++) { const [, b] = await Promise.all([t.call('DELETE', t.url(`/${a}`), P.host), t.up(P.host, `b${i}.txt`, 'text/plain', body)]); assert.equal(b.body.state, 'clean'); const d = await t.dl(P.host, b.body.id); assert.equal(d.status, 200, 'round ' + i); a = b.body.id; }
+  await t.close();
+});
+
+test('a read error is not tampering: a missing object gives 503 and the file stays clean; only a failed hash withdraws it', async () => {
+  const t = await rig(); const { P } = t; const body = Buffer.from('keep me'); const r = await t.up(P.host, 'k.txt', 'text/plain', body);
+  const target = path.join(t.dir, 'clean', sha(body).slice(0, 2), sha(body)); await fs.chmod(target, 0o600); await fs.rm(target);
+  assert.equal((await t.dl(P.host, r.body.id)).status, 503); assert.equal((await t.row(r.body.id)).state, 'clean', 'still clean: this was a missing file, not a changed one'); await t.close();
+});
+
+test('names cannot lie: extension is forced to the detected type, invisible and direction characters are removed', async () => {
+  const t = await rig({ limits: { ...FILE_LIMITS, uploadsPerMinute: 100 } }); const { P } = t; const name = async (n, type, body) => (await pool.query('SELECT filename FROM more_files WHERE id=$1', [(await t.up(P.host, n, type, body)).body.id])).rows[0].filename;
+  assert.equal(await name('update.bat', 'text/plain', Buffer.from('echo hi')), 'update.txt'); assert.equal(await name('invoice‮fdp.txt', 'text/plain', Buffer.from('a')), 'invoicefdp.txt'); assert.equal(await name('report.exe', 'image/png', PNG), 'report.png');
+  assert.equal(await name('trailing. . ', 'text/plain', Buffer.from('b')), 'trailing.txt'); assert.equal(await name('noext', 'text/plain', Buffer.from('c')), 'noext.txt'); assert.equal(await name('a​b.pdf', 'text/plain', Buffer.from('d')), 'ab.txt');
+  await t.close();
+});
+
+test('PDF hardening: escaped names, object streams, encryption and polyglots are refused', async () => {
+  const t = await rig({ limits: { ...FILE_LIMITS, uploadsPerMinute: 100 } }); const { P } = t; const why = async (n, body) => { const r = await t.up(P.host, n, 'application/pdf', body); return (await t.row(r.body.id)).reason; };
+  assert.match(await why('a.pdf', Buffer.from('%PDF-1.4 << /J#61vaScript (x) >>')), /active_content:name_escape/); assert.match(await why('b.pdf', Buffer.from('%PDF-1.5 1 0 obj << /Type /ObjStm >>')), /active_content:objstm/); assert.match(await why('c.pdf', Buffer.from('%PDF-1.5 << /Encrypt 5 0 R >>')), /active_content:encrypt/);
+  assert.match(await why('d.pdf', Buffer.from('junk %PDF-1.4 hello')), /type_mismatch|type_not_allowed/, 'the PDF header must be the first bytes'); assert.equal((await t.up(P.host, 'ok.pdf', 'application/pdf', Buffer.from('%PDF-1.4 plain document body'))).body.state, 'clean'); assert.equal((await t.up(P.host, 'link.pdf', 'application/pdf', Buffer.from('%PDF-1.4 /Type /Annotation'))).body.state, 'clean', 'ordinary keys are not mistaken for prefixes of dangerous ones');
+  await t.close();
+});
+
+test('quotas: a guest cannot fill the meeting (per-uploader limit, concurrent uploads, atomic under concurrency); the host is not blocked by it', async () => {
+  const t = await rig({ limits: { ...FILE_LIMITS, perUploader: 3, perMeeting: 5, uploadsPerMinute: 100, concurrentPerUploader: 2 } }); const { P } = t;
+  const burst = await Promise.all(Array.from({ length: 8 }, (_, i) => t.up(P.ann, `f${i}.txt`, 'text/plain', Buffer.from('x' + i)))); const ok = burst.filter((r) => r.status === 201 || r.status === 202).length;
+  assert.ok(ok <= 3, 'at most three of eight concurrent uploads were accepted: ' + JSON.stringify(burst.map((r) => r.status))); assert.ok((await pool.query("SELECT count(*)::int n FROM more_files WHERE uploader_id=$1 AND state IN ('uploading','scanning','clean')", [P.ann.id])).rows[0].n <= 3);
+  assert.equal((await t.up(P.host, 'host.txt', 'text/plain', Buffer.from('host'))).status, 201, 'the host is not blocked by a guest\'s files'); await t.close();
 });

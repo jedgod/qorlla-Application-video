@@ -97,7 +97,7 @@ if (!ALLOW_ANON_START) {
   });
 }
 app.use(express.static(directory));
-const clean = (s, max) => typeof s === 'string' ? s.trim().slice(0, max) : '';
+const clean = (s, max) => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, ' ').trim().slice(0, max) : '';          // no control characters or direction overrides in anything typed (names end up in lists, exports and logs)
 const fail = (res, status, error) => res.status(status).json({ error });
 const sign = (p) => jwt.sign(p, SECRET, { expiresIn: '8h', issuer: 'qorlla-meet' });
 const verify = (token) => jwt.verify(token, SECRET, { issuer: 'qorlla-meet' });
@@ -551,4 +551,5 @@ io.on('connection',socket=>{
  socket.on('disconnect',reason=>{db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE id=$1 AND disconnected_at IS NULL',[socket.data.sess]).then(()=>transcripts.reconcileMeeting(id)).catch(()=>{});if(roster.get(pid)!==socket.id)return;roster.delete(pid);mediaRelay.revokeParticipant(id,pid).catch(()=>{});recording.reevaluate(id,'left',pid,u.role).catch(()=>{});if(u.role==='host'){if(reason==='client namespace disconnect')recording.stopFor(id,'host_left',pid).catch(()=>{});else recording.hostLeft(id,pid).catch(()=>{});}breakouts.emitScope(id,pid,'participant-offline',{participantId:pid});db.query('UPDATE participants SET left_at=now() WHERE id=$1',[pid]).catch(console.error);});
 });
 db.query('UPDATE participant_sessions SET disconnected_at=now() WHERE disconnected_at IS NULL').catch(()=>{});   // a restart ends every connection: close what the last run left open
+setInterval(()=>{const ids=[];for(const s of io.sockets.sockets.values())if(s.data?.sess)ids.push(s.data.sess);if(ids.length)db.query('UPDATE participant_sessions SET seen_at=now() WHERE id=ANY($1::uuid[]) AND disconnected_at IS NULL',[ids]).catch(()=>{});},30000).unref();          // presence heartbeat (a crashed instance's sockets stop being refreshed)
 server.listen(PORT,()=>{console.log(`Qorlla Meet listening on http://localhost:${PORT}`);if(roomEvents){roomEvents.start().catch(e=>console.error('[room-events] not started:',e.message));setInterval(()=>roomEvents.purge(24).catch(()=>{}),3600_000).unref();console.log(`Shared room events: ${roomEventsMode} (instance ${roomEvents.instanceId})`);}});

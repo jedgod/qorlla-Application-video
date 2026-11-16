@@ -6,4 +6,5 @@ DROP TABLE IF EXISTS more_transcript_segments;
 DROP TABLE IF EXISTS more_transcript_consents;
 DROP TABLE IF EXISTS more_transcript_sessions;
 DROP TABLE IF EXISTS more_files;
+ALTER TABLE participant_sessions DROP COLUMN IF EXISTS seen_at;
 COMMIT;

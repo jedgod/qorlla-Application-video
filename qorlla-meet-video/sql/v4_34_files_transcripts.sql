@@ -4,6 +4,9 @@
 -- Both features are OFF unless MEET_FILES=on / MEET_TRANSCRIPT=on and their back ends are configured. Nothing here stores audio.
 BEGIN;
 
+-- presence heartbeat: every Meet instance refreshes the sessions of its own sockets every 30 s, so a crashed instance leaves a ghost for at most 90 s (not until somebody notices)
+ALTER TABLE participant_sessions ADD COLUMN IF NOT EXISTS seen_at timestamptz NOT NULL DEFAULT now();
+
 -- ---------------------------------------------------------------- shared files
 -- An upload is written to a QUARANTINE object that only the server can name, scanned as exactly those bytes, and promoted to a write-once, content-addressed CLEAN object (clean/<sha256>)
 -- only when it is clean. There is no upload URL a client could reuse to overwrite a scanned object. A download re-hashes the clean object and refuses if it no longer matches sha256.

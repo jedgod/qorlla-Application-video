@@ -10,7 +10,7 @@ export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 export function detectType(buf) {
   if (buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
   if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
-  if (buf.subarray(0, 1024).includes('%PDF-')) return 'application/pdf';
+  if (buf.length >= 5 && buf.subarray(0, 5).toString('latin1') === '%PDF-') return 'application/pdf';          // the header must be the first bytes: a polyglot that merely contains it is not a PDF
   if (buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && (buf[2] === 3 || buf[2] === 5)) { const s = buf.toString('latin1'); if (s.includes('[Content_Types].xml') && s.includes('word/')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'; return null; }
   if (buf.includes(0)) return null;
   try { new TextDecoder('utf-8', { fatal: true }).decode(buf); return 'text/plain'; } catch { return null; }
@@ -18,7 +18,10 @@ export function detectType(buf) {
 /** active content that a shared document must not carry */
 export function activeContent(buf, type) {
   const s = buf.toString('latin1');
-  if (type === 'application/pdf') { for (const k of ['/JavaScript', '/JS', '/Launch', '/EmbeddedFile', '/OpenAction', '/AA ', '/RichMedia']) if (s.includes(k)) return k.trim().replace('/', '').toLowerCase(); }
+  if (type === 'application/pdf') {
+    if (/\/[A-Za-z]*#[0-9A-Fa-f]{2}/.test(s)) return 'name_escape';          // /J#61vaScript: a spelling trick that defeats a plain search
+    for (const k of ['/JavaScript', '/JS', '/Launch', '/EmbeddedFile', '/OpenAction', '/AA', '/RichMedia', '/ObjStm', '/Encrypt', '/GoToR', '/SubmitForm', '/URI', '/XFA']) if (new RegExp(k.replace('/', '\\/') + '(?![A-Za-z])').test(s)) return k.replace('/', '').toLowerCase();          // /ObjStm hides keys inside compressed streams, /Encrypt hides everything: neither can be inspected, so both are refused
+  }
   if (type.startsWith('application/vnd.openxmlformats') && (s.includes('vbaProject.bin') || s.includes('macroEnabled') || s.includes('oleObject'))) return 'macro_or_ole';
   return null;
 }

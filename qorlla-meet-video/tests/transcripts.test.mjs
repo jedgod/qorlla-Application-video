@@ -97,7 +97,7 @@ test('RACE (serialized in PostgreSQL): while a consent change holds the session 
   const hold = async () => { const c = await pool.connect(); await c.query('BEGIN'); await c.query('SELECT * FROM more_transcript_sessions WHERE id=$1 FOR UPDATE', [sid]); return c; };
   const withdraw = async (c) => { await c.query("UPDATE more_transcript_consents SET consent=false WHERE session_id=$1 AND participant_id=$2", [sid, P.ann.id]); await c.query("UPDATE more_transcript_sessions SET status='paused', epoch=epoch+1 WHERE id=$1", [sid]); await c.query('COMMIT'); c.release(); };
   // 1. chunks that arrive WHILE the change is in progress wait for it and are then refused: the engine never hears them
-  let c1 = await hold(); const early = Array.from({ length: 6 }, (_, i) => t.audio(P.bo, sid, e, { start: i * 4000 })); let done = 0; early.forEach((p) => p.then(() => done++)); await new Promise((r) => setTimeout(r, 500));
+  let c1 = await hold(); /* three speakers, two chunks each: within every speaker's in-flight limit */ const early = Array.from({ length: 6 }, (_, i) => t.audio([P.bo, P.host, P.ann][i % 3], sid, e, { start: i * 4000 })); let done = 0; early.forEach((p) => p.then(() => done++)); await new Promise((r) => setTimeout(r, 500));
   assert.equal(done, 0, 'every chunk is waiting on the locked session row'); assert.equal(t.eng.st.calls.length, 0); await withdraw(c1); const r1 = await Promise.all(early); assert.deepEqual([...new Set(r1.map((r) => r.status))], [409]); assert.equal(t.eng.st.calls.length, 0, 'the engine never heard them'); assert.equal((await t.segs(sid)).length, 0);
   // 2. a chunk that is ALREADY in the engine when the change commits has its result discarded
   await t.call('POST', t.url(`/${sid}/consent`), P.ann, { consent: true }); const e2 = (await t.state(sid)).epoch; let release; const gate = new Promise((r) => (release = r)); t.eng.st.onCall = () => gate;
@@ -134,6 +134,13 @@ test('who may read a transcript: the host and the people who agreed to THAT sess
   await t.close();
 });
 
+test('presence is a heartbeat: a ghost whose instance died stops counting after 90 s, so it cannot hold a session paused for hours; a live heartbeat brings it back', async () => {
+  const t = await rig(); const { P } = t; const s = (await t.call('POST', t.url(), P.host, {})).body; await t.call('POST', t.url(`/${s.id}/consent`), P.host, { consent: true }); await t.call('POST', t.url(`/${s.id}/consent`), P.ann, { consent: true });
+  assert.equal((await t.state(s.id)).status, 'awaiting_consent', 'Bo is present and has not answered'); await pool.query("UPDATE participant_sessions SET seen_at = now() - interval '5 minutes' WHERE participant_id=$1", [P.bo.id]);
+  assert.equal(await t.tr.reconcileMeeting(t.mid), 1); assert.equal((await t.state(s.id)).status, 'active', 'Bo stopped sending heartbeats: not counted'); assert.equal((await t.state(s.id)).required, 2);
+  await pool.query('UPDATE participant_sessions SET seen_at = now() WHERE participant_id=$1', [P.bo.id]); assert.equal(await t.tr.reconcileMeeting(t.mid), 1); assert.equal((await t.state(s.id)).status, 'paused', 'Bo is back and has not agreed'); await t.close();
+});
+
 test('input hardening: audio type, size, epoch, ids and rate are validated before any consent work; the engine address and token are fixed server-side', async () => {
   const t = await rig({ limits: { ...TRANSCRIPT_LIMITS, chunksPerMinute: 4 } }); const { P } = t; const sid = await t.active(); const e = (await t.state(sid)).epoch;
   assert.equal((await t.audio(P.ann, sid, e, { type: 'text/plain' })).status, 415); assert.equal((await t.audio(P.ann, sid, e, { body: Buffer.alloc(10) })).status, 413); assert.equal((await t.audio(P.ann, sid, e, { body: Buffer.alloc(3_000_000) })).status, 413);
@@ -145,4 +152,46 @@ test('input hardening: audio type, size, epoch, ids and rate are validated befor
 
 test('disabled by default: without MEET_TRANSCRIPT=on, STT_URL and a 32-character token every route answers 503 and nothing is created', async () => {
   for (const env of [{ MEET_TRANSCRIPT: 'off' }, { STT_INTERNAL_TOKEN: 'short' }, { STT_URL: 'not-a-url' }]) { const t = await rig({ env }); assert.equal(t.tr.enabled, false); assert.equal((await t.call('POST', t.url(), t.P.host, {})).status, 503); assert.equal((await pool.query('SELECT count(*)::int n FROM more_transcript_sessions WHERE meeting_id=$1', [t.mid])).rows[0].n, 0); await t.close(); }
+});
+
+// ---- fixes from the independent review
+test('a display name with a line break cannot forge speaker lines in the export', async () => {
+  const t = await rig(); const { P } = t; await pool.query('UPDATE participants SET display_name=$2 WHERE id=$1', [P.ann.id, 'Bob\n[00:05] Alice']); const sid = await t.active(); const e = (await t.state(sid)).epoch; await t.audio(P.ann, sid, e);
+  const ex = await t.call('GET', t.url(`/${sid}/export.txt`), P.host); assert.equal(ex.status, 200); assert.equal(ex.body.trim().split('\n').length, 1, 'one line, not two: ' + JSON.stringify(ex.body));
+  await t.close();
+});
+
+test('withdrawal is always possible for somebody who agreed: after the host stopped it, and after they left; it deletes their words', async () => {
+  const t = await rig(); const { P } = t; const sid = await t.active(); const e = (await t.state(sid)).epoch; await t.audio(P.ann, sid, e); await t.audio(P.bo, sid, e, { start: 4000 }); assert.equal((await t.segs(sid)).length, 2);
+  await t.call('POST', t.url(`/${sid}/stop`), P.host, {}); const w = await t.call('POST', t.url(`/${sid}/consent`), P.ann, { consent: false }); assert.equal(w.status, 200); assert.equal((await t.segs(sid)).filter((g) => g.speaker_id === P.ann.id).length, 0, 'her words are gone although the session had ended');
+  assert.equal((await t.call('POST', t.url(`/${sid}/consent`), P.ann, { consent: true })).status, 409, 'but nobody can consent to an ended transcript');
+  const t2 = await rig(); const s2 = await t2.active(); const e2 = (await t2.state(s2)).epoch; await t2.audio(t2.P.bo, s2, e2); await pool.query('UPDATE participant_sessions SET disconnected_at=now() WHERE participant_id=$1', [t2.P.bo.id]); assert.equal((await t2.call('POST', t2.url(`/${s2}/consent`), t2.P.bo, { consent: false })).status, 200); assert.equal((await t2.segs(s2)).length, 0);
+  await t.close(); await t2.close();
+});
+
+test('a chunk that failed can be retried (and is transcribed once); a finished chunk is not; another person\'s chunk id is refused', async () => {
+  const t = await rig(); const { P } = t; const sid = await t.active(); const e = (await t.state(sid)).epoch; t.eng.st.fail = true; const first = await t.audio(P.ann, sid, e); assert.equal(first.status, 502); t.eng.st.fail = false;
+  const retry = await t.audio(P.ann, sid, e, { chunk: first.chunk }); assert.equal(retry.status, 200); assert.equal(retry.body.duplicate, undefined); assert.equal(retry.body.segments, 1); assert.equal((await t.segs(sid)).length, 1);
+  const again = await t.audio(P.ann, sid, e, { chunk: first.chunk }); assert.equal(again.body.duplicate, true); assert.equal((await t.segs(sid)).length, 1); assert.equal((await t.audio(P.bo, sid, e, { chunk: first.chunk })).status, 409);
+  await t.close();
+});
+
+test('a latecomer who agrees reads only what was said from then on; the host reads everything', async () => {
+  const t = await rig(); const { P } = t; const sid = await t.active(); const e = (await t.state(sid)).epoch; await t.audio(P.ann, sid, e); const cy = await t.join('Cy'); await t.tr.reconcileMeeting(t.mid);
+  await new Promise((r) => setTimeout(r, 50)); await t.call('POST', t.url(`/${sid}/consent`), cy, { consent: true }); const e2 = (await t.state(sid)).epoch; await new Promise((r) => setTimeout(r, 50)); await t.audio(P.bo, sid, e2, { start: 8000 });
+  const seen = (await t.call('GET', t.url(`/${sid}`), cy)).body.segments; assert.equal(seen.length, 1, 'Cy sees only the line after they agreed'); assert.equal(seen[0].speaker, 'Bo'); assert.equal((await t.call('GET', t.url(`/${sid}`), P.host)).body.segments.length, 2);
+  await t.close();
+});
+
+test('the in-flight limit is enforced from the moment a chunk is accepted: a burst never has more than the limit inside the engine', async () => {
+  const t = await rig(); const { P } = t; const sid = await t.active(); const e = (await t.state(sid)).epoch; let release; const gate = new Promise((r) => (release = r)); t.eng.st.onCall = () => gate;
+  const burst = Array.from({ length: 6 }, (_, i) => t.audio(P.ann, sid, e, { start: i * 4000 })); await new Promise((r) => setTimeout(r, 1500)); const inside = t.eng.st.calls.length; release(); t.eng.st.onCall = null; const res = await Promise.all(burst);
+  assert.ok(inside <= 2, 'at most 2 chunks reached the engine at once, saw ' + inside); assert.ok(res.filter((r) => r.status === 429).length >= 4, JSON.stringify(res.map((r) => r.status))); await t.close();
+});
+
+test('REAL speech engine (only with REAL_STT_URL, REAL_STT_TOKEN, REAL_STT_WAV): spoken words go through consent, the gateway and a real faster-whisper model into the transcript', { skip: process.env.REAL_STT_URL ? false : 'REAL_STT_URL not set' }, async () => {
+  const wav = readFileSync(process.env.REAL_STT_WAV); const t = await rig({ env: { STT_URL: process.env.REAL_STT_URL, STT_INTERNAL_TOKEN: process.env.REAL_STT_TOKEN }, limits: { ...TRANSCRIPT_LIMITS, maxAudioBytes: 5_000_000, sttTimeoutMs: 60000 } }); const { P } = t; const sid = await t.active(); const e = (await t.state(sid)).epoch;
+  const r = await t.audio(P.ann, sid, e, { body: wav }); assert.equal(r.status, 200, JSON.stringify(r.body)); const rows = await t.segs(sid); assert.ok(rows.length >= 1); assert.equal(rows[0].speaker_id, P.ann.id); assert.match(rows[0].text, /live transcript/i, rows[0].text);
+  const before = (await t.segs(sid)).length; await t.call('POST', t.url(`/${sid}/consent`), P.bo, { consent: false }); assert.equal((await t.audio(P.ann, sid, e, { body: wav })).status, 409, 'after a withdrawal the real engine is not asked'); assert.equal((await t.segs(sid)).length, before);
+  await t.close();
 });

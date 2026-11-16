@@ -12,13 +12,14 @@
 //     the speaker really in that scope right now, and every present participant consenting. A change either commits before the chunk's transaction (the chunk is refused) or waits for it (the chunk was valid when it ran).
 //   * a person's audio is only ever processed while THEY consented, whatever happens to the others: the privacy of the speaker never depends on a hook arriving in time.
 // Withdrawing deletes that person's segments of the session, stops their capture (their page is told) and pauses the session for everyone.
-// Honest limits: presence comes from `participant_sessions` (a crashed server can leave a ghost that keeps a session paused until the 6-hour bound); phone callers are not captured and cannot consent; chunk
+// Presence comes from `participant_sessions.seen_at`, which every instance refreshes every 30 s for its own sockets: a crashed instance leaves a ghost for at most 90 s.
+// Honest limits: phone callers are not captured and cannot consent; chunk
 // timestamps are the page's own clock (relative, not authoritative); MediaRecorder chunks are not guaranteed to decode on Safari/iOS.
 import { randomUUID } from 'node:crypto';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bad = (status, error) => Object.assign(new Error(error), { status });
-export const TRANSCRIPT_LIMITS = Object.freeze({ retentionDays: 30, maxAudioBytes: 2_000_000, minAudioBytes: 100, chunksPerMinute: 30, inflightPerSpeaker: 2, maxSegments: 100, sttTimeoutMs: 25000, presenceHours: 6 });
+export const TRANSCRIPT_LIMITS = Object.freeze({ retentionDays: 30, maxAudioBytes: 2_000_000, minAudioBytes: 100, chunksPerMinute: 30, inflightPerSpeaker: 2, maxSegments: 100, sttTimeoutMs: 25000, presenceSeconds: 90 });
 const AUDIO_TYPES = ['audio/webm', 'audio/ogg', 'audio/mp4'];
 
 export function registerTranscripts({ app, db, auth, member, fail, scopeOf, notify = () => {}, audit = async () => {}, env = process.env, fetchImpl = fetch, limits = TRANSCRIPT_LIMITS, sweepMs = 10000 }) {
@@ -38,19 +39,19 @@ export function registerTranscripts({ app, db, auth, member, fail, scopeOf, noti
   async function members(q, mid, scope) {
     const { rows } = await q.query(`SELECT p.id, p.display_name FROM participants p
       WHERE p.meeting_id=$1 AND p.admission='admitted'
-        AND EXISTS (SELECT 1 FROM participant_sessions s WHERE s.participant_id=p.id AND s.disconnected_at IS NULL AND s.connected_at > now() - make_interval(hours => $3))
+        AND EXISTS (SELECT 1 FROM participant_sessions s WHERE s.participant_id=p.id AND s.disconnected_at IS NULL AND s.seen_at > now() - make_interval(secs => $3))
         AND (CASE WHEN EXISTS (SELECT 1 FROM more_breakout_sessions b WHERE b.meeting_id=$1 AND b.state='active') THEN (SELECT a.room_id FROM more_breakout_assignments a WHERE a.meeting_id=$1 AND a.participant_id=p.id) ELSE NULL END) IS NOT DISTINCT FROM $2
-      ORDER BY p.display_name, p.id`, [mid, scope, limits.presenceHours]);
+      ORDER BY p.display_name, p.id`, [mid, scope, limits.presenceSeconds]);
     return rows;
   }
   const consentsOf = async (q, sid) => new Map((await q.query('SELECT participant_id, consent FROM more_transcript_consents WHERE session_id=$1', [sid])).rows.map((r) => [r.participant_id, r.consent]));
   /** recompute the status of a session whose row is locked by `c`. Returns { status, epoch, changed, members, consents } */
-  async function reconcile(c, s) {
+  async function reconcile(c, s, { dry = false } = {}) {
     if (s.status === 'stopped') return { status: 'stopped', epoch: Number(s.epoch), changed: false, members: [], consents: new Map() };
     const ms = await members(c, s.meeting_id, s.room_id), cs = await consentsOf(c, s.id);
     const unanimous = ms.length > 0 && ms.every((m) => cs.get(m.id) === true);
     const status = unanimous ? 'active' : s.status === 'awaiting_consent' ? 'awaiting_consent' : 'paused'; const changed = status !== s.status;
-    if (changed) await c.query('UPDATE more_transcript_sessions SET status=$2, epoch=epoch+1 WHERE id=$1', [s.id, status]);
+    if (changed && !dry) await c.query('UPDATE more_transcript_sessions SET status=$2, epoch=epoch+1 WHERE id=$1', [s.id, status]);          // a read (dry) never changes anything: the periodic sweep does, and announces it
     return { status, epoch: Number(s.epoch) + (changed ? 1 : 0), changed, members: ms, consents: cs };
   }
   const lockSession = async (c, mid, sid, mode = 'UPDATE') => { const r = await c.query(`SELECT * FROM more_transcript_sessions WHERE id=$1 AND meeting_id=$2 FOR ${mode}`, [sid, mid]); if (!r.rows[0]) throw bad(404, 'Transcript not found'); return r.rows[0]; };
@@ -74,8 +75,8 @@ export function registerTranscripts({ app, db, auth, member, fail, scopeOf, noti
   }
   const timer = enabled ? setInterval(() => { sweep().catch((e) => console.error('[transcripts] sweep failed', e.message)); }, sweepMs) : null; timer?.unref?.();
 
-  const viewOf = async (c, s, req) => {
-    const r = await reconcile(c, s); const mine = r.consents.get(req.user.participantId);
+  const viewOf = async (c, s, req, { dry = false } = {}) => {
+    const r = await reconcile(c, s, { dry }); const mine = r.consents.get(req.user.participantId);
     return { id: s.id, roomId: s.room_id, status: r.status, epoch: r.epoch, language: s.language, required: r.members.length, agreed: r.members.filter((m) => r.consents.get(m.id) === true).length, declined: r.members.filter((m) => r.consents.get(m.id) === false).length,
       inScope: r.members.some((m) => m.id === req.user.participantId), mine: mine === undefined ? null : mine,
       waiting: isHost(req) ? r.members.filter((m) => r.consents.get(m.id) !== true).map((m) => m.display_name) : undefined, createdAt: s.created_at, stoppedAt: s.stopped_at };
@@ -93,20 +94,22 @@ export function registerTranscripts({ app, db, auth, member, fail, scopeOf, noti
     const s = await tx(async (c) => viewOf(c, await lockSession(c, mid, id), req)); res.status(201).json(s);
   }));
   app.get(paths(''), auth, member, gate, run(async (req, res) => {
-    const mid = req.params.id, scope = scopeOf(mid, req.user.participantId) ?? null; const out = [];
+    const mid = req.params.id, scope = scopeOf(mid, req.user.participantId) ?? null; const out = []; let stale = false;
     const rows = (await db.query(`SELECT * FROM more_transcript_sessions WHERE meeting_id=$1 ORDER BY created_at DESC LIMIT 30`, [mid])).rows;
     for (const s of rows) {
       const mineSaid = (await db.query('SELECT consent FROM more_transcript_consents WHERE session_id=$1 AND participant_id=$2', [s.id, req.user.participantId])).rows[0]?.consent === true;
       if (!(isHost(req) || (s.status !== 'stopped' && (s.room_id ?? null) === scope) || mineSaid)) continue;          // another room's live session does not exist for you; a finished one is yours only if you agreed to it
-      out.push(await tx(async (c) => viewOf(c, await lockSession(c, mid, s.id), req)));
+      const v = await viewOf(db, s, req, { dry: true }); if (v.status !== s.status) stale = true; out.push(v);          // a poll takes no lock and changes nothing
     }
+    if (stale) reconcileMeeting(mid).catch(() => {});          // somebody joined or left: the real update runs once, under the lock, and tells everyone
     res.set('Cache-Control', 'no-store').json({ sessions: out });
   }));
   app.post(paths('/:sid/consent'), auth, member, gate, run(async (req, res) => {
     const mid = req.params.id, sid = req.params.sid, yes = req.body?.consent === true; if (!UUID.test(sid) || typeof req.body?.consent !== 'boolean') throw bad(400, 'Say yes or no');
     const out = await tx(async (c) => {
-      const s = await lockSession(c, mid, sid); if (s.status === 'stopped') throw bad(409, 'This transcript has ended');
-      const here = (await members(c, mid, s.room_id)).some((m) => m.id === req.user.participantId); if (!here) throw bad(403, 'You are not in the room this transcript is for');
+      const s = await lockSession(c, mid, sid); if (s.status === 'stopped' && yes) throw bad(409, 'This transcript has ended');
+      const here = (await members(c, mid, s.room_id)).some((m) => m.id === req.user.participantId); const had = (await c.query('SELECT 1 FROM more_transcript_consents WHERE session_id=$1 AND participant_id=$2', [sid, req.user.participantId])).rowCount > 0;
+      if (!here && (yes || !had)) throw bad(403, 'You are not in the room this transcript is for');          // withdrawing is always possible for somebody who agreed: after the host stopped it, or after leaving the room
       await c.query(`INSERT INTO more_transcript_consents(session_id, participant_id, consent) VALUES ($1,$2,$3) ON CONFLICT (session_id, participant_id) DO UPDATE SET consent=EXCLUDED.consent, decided_at=now()`, [sid, req.user.participantId, yes]);
       if (!yes) await c.query('DELETE FROM more_transcript_segments WHERE session_id=$1 AND speaker_id=$2', [sid, req.user.participantId]);          // withdrawing takes their words back out
       const r = await reconcile(c, s); if (!yes && !r.changed) { await c.query('UPDATE more_transcript_sessions SET epoch=epoch+1 WHERE id=$1', [sid]); r.epoch += 1; r.changed = true; }          // a withdrawal always invalidates what is in flight
@@ -121,30 +124,35 @@ export function registerTranscripts({ app, db, auth, member, fail, scopeOf, noti
   }));
 
   // ---- the transcript itself: the host, and anybody who agreed to THIS session
+  /** the host reads everything; anybody else reads what was said from the moment THEY agreed (a latecomer does not get what was said before they were there) */
   async function readable(req, sid) {
-    const s = await tx(async (c) => lockSession(c, req.params.id, sid, 'SHARE'));
-    if (!isHost(req) && (await db.query('SELECT consent FROM more_transcript_consents WHERE session_id=$1 AND participant_id=$2', [sid, req.user.participantId])).rows[0]?.consent !== true) throw bad(404, 'Transcript not found');
-    return s;
+    const s = await tx(async (c) => lockSession(c, req.params.id, sid, 'SHARE')); let since = null;
+    if (!isHost(req)) { const mine = (await db.query('SELECT consent, decided_at FROM more_transcript_consents WHERE session_id=$1 AND participant_id=$2', [sid, req.user.participantId])).rows[0]; if (mine?.consent !== true) throw bad(404, 'Transcript not found'); since = mine.decided_at; }
+    return { ...s, since };
   }
   app.get(paths('/:sid'), auth, member, gate, run(async (req, res) => {
     if (!UUID.test(req.params.sid)) throw bad(400, 'Invalid transcript'); const s = await readable(req, req.params.sid);
-    const segs = (await db.query(`SELECT g.speaker_id, p.display_name AS speaker, g.start_ms, g.end_ms, g.text FROM more_transcript_segments g JOIN participants p ON p.id=g.speaker_id WHERE g.session_id=$1 ORDER BY g.created_at, g.start_ms LIMIT 5000`, [s.id])).rows;
+    const segs = (await db.query(`SELECT g.speaker_id, p.display_name AS speaker, g.start_ms, g.end_ms, g.text FROM more_transcript_segments g JOIN participants p ON p.id=g.speaker_id WHERE g.session_id=$1 AND ($2::timestamptz IS NULL OR g.created_at >= $2) ORDER BY g.created_at, g.start_ms LIMIT 5000`, [s.id, s.since])).rows;
     res.set('Cache-Control', 'no-store').json({ session: { id: s.id, status: s.status, roomId: s.room_id, language: s.language }, segments: segs.map((g) => ({ speaker: g.speaker, startMs: Number(g.start_ms), endMs: Number(g.end_ms), text: g.text })) });
   }));
   app.get(paths('/:sid/export.txt'), auth, member, gate, run(async (req, res) => {
     if (!UUID.test(req.params.sid)) throw bad(400, 'Invalid transcript'); const s = await readable(req, req.params.sid);
-    const segs = (await db.query(`SELECT p.display_name AS speaker, g.start_ms, g.text FROM more_transcript_segments g JOIN participants p ON p.id=g.speaker_id WHERE g.session_id=$1 ORDER BY g.created_at, g.start_ms`, [s.id])).rows;
+    const segs = (await db.query(`SELECT p.display_name AS speaker, g.start_ms, g.text FROM more_transcript_segments g JOIN participants p ON p.id=g.speaker_id WHERE g.session_id=$1 AND ($2::timestamptz IS NULL OR g.created_at >= $2) ORDER BY g.created_at, g.start_ms`, [s.id, s.since])).rows;
     await audit(req.params.id, req.user.participantId, 'transcript.exported', { id: s.id });
-    res.set({ 'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': 'attachment; filename="transcript.txt"', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' }).send(segs.map((g) => `[${new Date(Number(g.start_ms)).toISOString().slice(14, 19)}] ${g.speaker}: ${g.text}`).join('\n') + '\n');
+    res.set({ 'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': 'attachment; filename="transcript.txt"', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' }).send(segs.map((g) => `[${new Date(Number(g.start_ms)).toISOString().slice(14, 19)}] ${String(g.speaker).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')}: ${String(g.text).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')}`).join('\n') + '\n');
   }));
 
   // ---- the audio gateway
   async function checkChunk(c, mid, sid, epoch, pid) {
     const s = await lockSession(c, mid, sid, 'SHARE');          // a status change waits for this transaction; this transaction sees every change that committed before it
     if (s.status !== 'active') throw bad(409, 'The transcript is not running (everybody must agree first)'); if (Number(s.epoch) !== epoch) throw bad(409, 'Your page is out of date: the consent state changed');
-    const ms = await members(c, mid, s.room_id), cs = await consentsOf(c, sid);
-    if (!ms.some((m) => m.id === pid)) throw bad(403, 'You are not in the room this transcript is for'); if (cs.get(pid) !== true) throw bad(403, 'You have not agreed');
-    if (!ms.every((m) => cs.get(m.id) === true)) throw bad(409, 'Someone in the room has not agreed');
+    // ONE query re-derives who is here and who agreed (it runs twice per chunk, so it must stay cheap with a big room)
+    const { rows: [u] } = await c.query(`WITH m AS (SELECT p.id FROM participants p WHERE p.meeting_id=$1 AND p.admission='admitted'
+        AND EXISTS (SELECT 1 FROM participant_sessions s WHERE s.participant_id=p.id AND s.disconnected_at IS NULL AND s.seen_at > now() - make_interval(secs => $3))
+        AND (CASE WHEN EXISTS (SELECT 1 FROM more_breakout_sessions b WHERE b.meeting_id=$1 AND b.state='active') THEN (SELECT a.room_id FROM more_breakout_assignments a WHERE a.meeting_id=$1 AND a.participant_id=p.id) ELSE NULL END) IS NOT DISTINCT FROM $2)
+      SELECT count(*)::int AS total, count(*) FILTER (WHERE tc.consent IS TRUE)::int AS agreed, bool_or(m.id=$5) AS present, bool_or(m.id=$5 AND tc.consent IS TRUE) AS mine
+      FROM m LEFT JOIN more_transcript_consents tc ON tc.session_id=$4 AND tc.participant_id=m.id`, [mid, s.room_id, limits.presenceSeconds, sid, pid]);
+    if (!u.present) throw bad(403, 'You are not in the room this transcript is for'); if (!u.mine) throw bad(403, 'You have not agreed'); if (u.total !== u.agreed) throw bad(409, 'Someone in the room has not agreed');
     return s;
   }
   app.post(paths('/:sid/audio'), auth, member, gate, run(async (req, res) => {
@@ -153,11 +161,16 @@ export function registerTranscripts({ app, db, auth, member, fail, scopeOf, noti
     if (!UUID.test(sid) || !UUID.test(chunkId) || !Number.isSafeInteger(epoch) || epoch < 1 || !Number.isSafeInteger(startMs) || startMs < 0 || startMs > 12 * 3600 * 1000) throw bad(400, 'Invalid audio request');
     if (!AUDIO_TYPES.includes(type)) throw bad(415, 'Unsupported audio type'); if (!Number.isSafeInteger(len) || len < limits.minAudioBytes || len > limits.maxAudioBytes) throw bad(413, 'Invalid audio size');
     if (!okRate(pid)) throw bad(429, 'Too many audio chunks'); if ((busy.get(pid) || 0) >= limits.inflightPerSpeaker) throw bad(429, 'Too many chunks in flight');
+    busy.set(pid, (busy.get(pid) || 0) + 1); let ctl = null;          // counted from the moment the request is accepted (body reading, locks and the engine all count)
+    try {
     const chunks = []; let size = 0; await new Promise((resolve, reject) => { req.on('data', (d) => { size += d.length; if (size > limits.maxAudioBytes) { req.destroy(); reject(bad(413, 'Invalid audio size')); } else chunks.push(d); }); req.on('end', resolve); req.on('error', reject); req.on('aborted', () => reject(bad(400, 'Upload interrupted'))); });
     const audio = Buffer.concat(chunks); if (audio.length !== len) throw bad(400, 'Audio size did not match');
-    const s = await tx(async (c) => { const row = await checkChunk(c, mid, sid, epoch, pid); const ins = await c.query(`INSERT INTO more_transcript_chunks(session_id, chunk_id, speaker_id, epoch, status) VALUES ($1,$2,$3,$4,'processing') ON CONFLICT DO NOTHING RETURNING chunk_id`, [sid, chunkId, pid, epoch]); return ins.rowCount ? row : null; });
+    const s = await tx(async (c) => {
+      const row = await checkChunk(c, mid, sid, epoch, pid);
+      const ins = await c.query(`INSERT INTO more_transcript_chunks(session_id, chunk_id, speaker_id, epoch, status) VALUES ($1,$2,$3,$4,'processing') ON CONFLICT (session_id, chunk_id) DO UPDATE SET status='processing', epoch=EXCLUDED.epoch WHERE more_transcript_chunks.speaker_id=EXCLUDED.speaker_id AND more_transcript_chunks.status IN ('failed','rejected') RETURNING chunk_id`, [sid, chunkId, pid, epoch]);          // a retry of a chunk that FAILED is processed again; a finished or running one is not
+      if (ins.rowCount) return row; const ex = (await c.query('SELECT speaker_id FROM more_transcript_chunks WHERE session_id=$1 AND chunk_id=$2', [sid, chunkId])).rows[0]; if (ex && ex.speaker_id !== pid) throw bad(409, 'That chunk id belongs to somebody else'); return null; });
     if (!s) return res.json({ accepted: true, duplicate: true });
-    busy.set(pid, (busy.get(pid) || 0) + 1); const ctl = new AbortController(); (inflight.get(sid) || inflight.set(sid, new Set()).get(sid)).add(ctl);
+    ctl = new AbortController(); (inflight.get(sid) || inflight.set(sid, new Set()).get(sid)).add(ctl);
     const settle = (status) => db.query('UPDATE more_transcript_chunks SET status=$3 WHERE session_id=$1 AND chunk_id=$2', [sid, chunkId, status]).catch(() => {});
     try {
       const timer2 = setTimeout(() => ctl.abort(), limits.sttTimeoutMs); let result;
@@ -168,7 +181,8 @@ export function registerTranscripts({ app, db, auth, member, fail, scopeOf, noti
       catch (e) { await settle('rejected'); throw e; }          // consent or epoch changed while the engine worked: the result is discarded, nothing is stored
       res.json({ accepted: true, segments: stored });
     } catch (e) { if (!e.status) { await settle('failed'); console.error('[transcripts] engine failed:', e.message); throw bad(502, 'Speech recognition is unavailable right now'); } throw e; }
-    finally { busy.set(pid, Math.max(0, (busy.get(pid) || 1) - 1)); inflight.get(sid)?.delete(ctl); }
+    finally { inflight.get(sid)?.delete(ctl); }
+    } finally { busy.set(pid, Math.max(0, (busy.get(pid) || 1) - 1)); }
   }));
   return { enabled, reason, reconcileMeeting, sweep, members, abortSession, stop: () => timer && clearInterval(timer) };
 }
