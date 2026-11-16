@@ -1,0 +1,33 @@
+{
+  "observedAt": "2026-11-16T07:14:38.072Z",
+  "approval": "Conditional activation approved by user: restart only qlaunch-meet-1 after CPU stabilizes, remaining checks pass and no meetings are active; public dial-in stays disabled.",
+  "decision": "HOLD",
+  "cpu": {
+    "cimSamplesPercent": [
+      100,
+      100,
+      100
+    ],
+    "independentProcessorCounterPercent": [
+      100,
+      100,
+      100,
+      100
+    ],
+    "stable": false
+  },
+  "activity": {
+    "activeSessions": 0,
+    "activeMeetings": 0,
+    "openPhoneCalls": 0
+  },
+  "service": {
+    "running": true,
+    "health": "healthy",
+    "startedAt": "2026-11-15T15:06:08.599314578Z",
+    "restartCount": 0
+  },
+  "remainingChecks": "Timing checks not rerun under saturation; prior combined-server failures remain unresolved.",
+  "liveChangesPerformed": false,
+  "publicDialInEnabled": false
+}
