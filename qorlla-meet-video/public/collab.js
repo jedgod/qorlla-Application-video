@@ -32,6 +32,17 @@ export function initCollab(h) {
     out.push('## Action items', ...(d.tasks.length ? d.tasks.map((t) => '- [' + (t.status === 'done' ? 'x' : ' ') + '] ' + t.text + (t.owner ? ' — ' + t.owner : '') + (t.due ? ', due ' + t.due : '') + (t.at ? ' [' + stamp(t.at) + ']' : '')) : ['_none_']), '');
     return out.join('\n');
   }
+  // A read-only, formatted view of a notes document (headings, lists, tick boxes). Built with textContent only, so nothing typed into the notes can become markup.
+  function notesView(d) {
+    const v = el('div', 'nt-view'), sec = (title, ...kids) => { const s = el('section', 'nt-vsec'); s.append(el('h4', '', title), ...kids); v.append(s); };
+    const empty = () => el('p', 'nt-empty', 'Nothing here yet.'), li = (done, text, meta) => { const x = el('li', done === null ? '' : done ? 'done' : 'todo'); if (done !== null) x.append(el('span', 'nt-box', done ? '☑' : '☐', { 'aria-hidden': 'true' })); x.append(el('span', '', text)); if (meta) x.append(el('span', 'nt-meta', meta)); return x; };
+    const list = (items) => { const u = el('ul', 'nt-list'); u.append(...items); return u; };
+    sec('Agenda', d.agenda.length ? list(d.agenda.map((a) => li(!!a.done, a.text))) : empty());
+    sec('Notes', d.notes ? el('p', 'nt-text', d.notes) : empty());
+    sec('Key decisions', d.decisions.length ? list(d.decisions.map((x) => li(null, x.text, [x.owner ? 'owner: ' + x.owner : '', x.at ? stamp(x.at) : ''].filter(Boolean).join(' · ')))) : empty());
+    sec('Action items', d.tasks.length ? list(d.tasks.map((t) => li(t.status === 'done', t.text, [t.owner || '', t.due ? 'due ' + t.due : '', t.at ? stamp(t.at) : ''].filter(Boolean).join(' · ')))) : empty());
+    return v;
+  }
   const stripMd = (m) => m.replace(/^#+\s*/gm, '').replace(/_none_/g, '(none)');
 
   function buildNotes() {
@@ -136,9 +147,9 @@ export function initCollab(h) {
     rcModal('Notes version history', (box) => {
       box.append(el('p', 'rc-note', 'Snapshots are taken while people edit (at most every 30 seconds per person) and when someone presses Save version. The current notes are always the latest text.'));
       const ul = el('ul', 'rc-list'); if (!list.length) ul.append(el('li', '', 'No saved versions yet.'));
-      const pre = el('pre', 'nt-preview', '', { tabindex: '0', 'aria-label': 'Preview of the selected version' }); pre.hidden = true;
+      const pre = el('div', 'nt-preview nt-vwrap', '', { tabindex: '0', 'aria-label': 'Preview of the selected version' }); pre.hidden = true;
       for (const r of list) { const li = el('li'); li.append(el('span', '', 'Version ' + r.version + ' · ' + r.savedBy + ' · ' + r.reason + ' · ' + new Date(r.at).toLocaleString()));
-        const act = el('span'), pv = el('button', 'rc-secondary', 'Preview'); pv.onclick = async () => { try { const v = await call('/notes/revisions/' + r.version); pre.textContent = docToMarkdown(v.doc); pre.hidden = false; } catch (e) { notify(e.message); } };
+        const act = el('span'), pv = el('button', 'rc-secondary', 'Preview'); pv.onclick = async () => { try { const v = await call('/notes/revisions/' + r.version); pre.replaceChildren(notesView(v.doc)); pre.hidden = false; } catch (e) { notify(e.message); } };
         act.append(pv);
         if (N.isHost && !N.ended) { const rs = el('button', 'rc-secondary', 'Restore'); rs.onclick = async () => { if (!(await askConfirm('Restore version ' + r.version + '?', 'The notes return to that version for everyone. Nothing is lost: the current text stays in the history.', 'Restore', true))) return; try { const out = await call('/notes/restore', 'POST', { version: r.version }); N.version = out.version; N.doc = out.doc; N.dirty.clear(); renderAll(); notify('Notes restored'); } catch (e) { notify(e.message); } }; act.append(rs); }
         li.append(act); ul.append(li); }
@@ -472,7 +483,7 @@ export function initCollab(h) {
     BK.ready = setTimeout(check, 600);
   }
   async function bkViewNotes(r) {
-    try { const v = await call('/notes?room=' + r.id); rcModal('Notes \u00B7 ' + r.name, (box) => { box.append(el('pre', 'nt-preview', docToMarkdown(v.doc), { tabindex: '0', 'aria-label': 'Notes of ' + r.name })); const row = el('div', 'rc-row'), c = el('button', 'rc-primary', 'Close'); c.onclick = () => rcClose(); row.append(c); box.append(row); }); } catch (e) { notify(e.message); }
+    try { const v = await call('/notes?room=' + r.id); rcModal('Notes \u00B7 ' + r.name, (box) => { box.append(el('div', 'nt-preview nt-vwrap', '', { tabindex: '0', 'aria-label': 'Notes of ' + r.name })); box.lastChild.append(notesView(v.doc)); const row = el('div', 'rc-row'), c = el('button', 'rc-primary', 'Close'); c.onclick = () => rcClose(); row.append(c); box.append(row); }); } catch (e) { notify(e.message); }
   }
   function breakoutScope(info) {
     const wasRoom = BK.info.roomId; BK.info = info; BK.warned = false; clearInterval(BK.tick); BK.tick = 0; if (info.active && info.deadline) BK.tick = setInterval(bkPaintChip, 1000); bkPaintChip();
