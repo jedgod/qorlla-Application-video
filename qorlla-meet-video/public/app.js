@@ -146,7 +146,7 @@ $('shareBtn').onclick=async()=>{
     $('shareBtn').querySelector('span').textContent='Stop share';$('shareBtn').classList.add('on');$('shareBtn').setAttribute('aria-pressed','true');
     state.socket.emit('media-state',{mic:state.mic,cam:state.cam,sharing:true});
     track.onended=()=>{endShare();};
-  }catch(e){notify('Screen share unavailable: '+e.message);}};
+  }catch(e){const n=e?.name||'';notify('Screen share unavailable: '+(!navigator.mediaDevices?.getDisplayMedia?'this page must be opened over HTTPS (https://…:4844), and phones/tablets cannot share their screen from a browser':n==='NotAllowedError'?'permission was denied or the picker was cancelled':e.message));}};
 $('copyLink').onclick=()=>navigator.clipboard.writeText(location.origin+BASE+'?meeting='+($('roomId').textContent||state.meetingId)).then(()=>notify('Meeting link copied')).catch(()=>notify('Copy unavailable'));
 $('settingsBtn').onclick=()=>openSettings();
 $('recordBtn').onclick=()=>recButton();window.addEventListener('beforeunload',e=>{if(state.recording){e.preventDefault();e.returnValue='';}});
