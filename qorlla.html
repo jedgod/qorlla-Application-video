@@ -850,7 +850,8 @@ body[data-page=workspace] .center:has(.hist-panel) .page-head p { font-size: 12p
   .hist-panel .hist-list.hist-split .hist-tile { width: 26px; height: 26px; border-radius: 8px; }
   .hist-panel .hist-list.hist-split .hist-tile svg { width: 14px; height: 14px; }
   .hist-panel .hist-list.hist-split .hist-title { font-size: 12.5px; line-height: 1.25; }
-  .hist-panel .hist-list.hist-split .hist-sub { font-size: 11px; line-height: 1.25; }
+  .hist-panel .hist-list.hist-split .hist-sub { font-size: 11px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hist-panel .hist-list.hist-split .hist-main { min-width: 0; }
   .hist-panel .hist-list.hist-split .hist-chip { font-size: 11px; padding: 1px 8px; }
   .hist-panel .hist-list.hist-split > .hist-pager { padding: 2px 0; margin-right: 10px; }
   .hist-panel .hist-list.hist-split > .hist-pager .btn { height: 26px; padding: 0 10px; font-size: 12px; }
@@ -870,6 +871,17 @@ body[data-page=workspace] .center:has(.hist-panel) .page-head p { font-size: 12p
   .hist-panel .hist-list.hist-split .hist-actions { padding: 6px 0 2px; gap: 6px; }
   .hist-panel .hist-list.hist-split .hist-actions .btn { min-height: 28px; padding: 4px 4px; font-size: 11.5px; }
 }
+/* Home: the collapsible History Meetings card is a compact strip: one-line header, five rows, fixed height */
+.hist-panel:has(.hist-toggle) { padding: 8px 14px; margin-top: 12px; border-radius: 12px; }
+.hist-panel:has(.hist-toggle) .hist-toggle { gap: 8px; padding: 2px 0; }
+.hist-panel:has(.hist-toggle) .hist-tt { flex-direction: row; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; }
+.hist-panel:has(.hist-toggle) .hist-tt strong { font-size: 15px; line-height: 1.25; }
+.hist-panel:has(.hist-toggle) .hist-tt .muted { font-size: 12px; }
+.hist-panel:has(.hist-toggle) .hist-ico svg { width: 18px; height: 18px; }
+.hist-panel:has(.hist-toggle) .hist-count { min-width: 22px; height: 20px; font-size: 12px; padding: 0 7px; }
+.hist-panel:has(.hist-toggle) .hist-chev svg { width: 16px; height: 16px; }
+.hist-panel:has(.hist-toggle) .hist-panelbody { margin-top: 4px; }
+@container hist (min-width:760px) { .hist-panel:has(.hist-toggle) .hist-list.hist-split { min-height: 0; } }
 /* the ... menu, and a clearer divider between the list and the detail pane */
 .hist-dots { width: 26px; height: 26px; place-items: center; border-radius: 7px; cursor: pointer; }
 .hist-dots:hover, .hist-dots[aria-expanded=true] { background: #e8edf5; color: #0f172a; }
@@ -2765,7 +2777,7 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
     var f = { q: '', status: '', view: '', from: '', to: '' }, offset = 0, total = 0, timer = 0, seq = 0, STORE = 'zw_hist_open';
     var open = opts.collapsible ? store(STORE) !== '0' : true;
     var count = h('span', { class: 'hist-count', 'aria-label': I18n.t('Meetings in history') , text: '\u2026' });
-    var split = true, PAGE = window.innerWidth < 900 ? 6 : Math.max(4, Math.min(16, Math.floor((window.innerHeight - 320) / 47))), wide = window.matchMedia('(min-width: 900px)');
+    var split = true, PAGE = window.innerWidth < 900 ? 6 : opts.collapsible ? 5 : Math.max(4, Math.min(16, Math.floor((window.innerHeight - 320) / 47))), wide = window.matchMedia('(min-width: 900px)');
     var list = h('div', { class: 'hist-list' + (split ? ' hist-split' : ''), 'aria-live': 'polite' }), more = h('button', { class: 'btn small hidden', type: 'button', text: I18n.t('Show more') }),
       prev = h('button', { class: 'btn small hist-prev', type: 'button' }, [icon(IC.chevL), document.createTextNode(I18n.t('Prev'))]), next = h('button', { class: 'btn small primary hist-next', type: 'button' }, [document.createTextNode(I18n.t('Next')), icon(IC.chevR)]),
       ptitle = h('h3', { class: 'hist-ptitle' }), pageLbl = h('span', { class: 'hist-pageno muted' }),
@@ -2792,7 +2804,7 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
       return api2('/history/meetings?' + qs).then(function (d) {
         if (mine !== seq) return; list.setAttribute('aria-busy', 'false'); total = d.total; if (!f.status && !f.q && !f.from && !f.to) { count.textContent = String(d.total); ptitle.textContent = I18n.t('Past Meetings') + ' (' + d.total + ')'; }
         list.style.setProperty('--history-page-size', String(PAGE));
-        list.style.setProperty('--history-list-height', Math.max(300, window.innerHeight - list.getBoundingClientRect().top - 44) + 'px');
+        list.style.setProperty('--history-list-height', (opts.collapsible ? 272 : Math.max(300, window.innerHeight - list.getBoundingClientRect().top - 44)) + 'px');
         d.meetings.forEach(function (b, index) { var row = histRow(b, reload, collapseOthers, { canArchive: !!d.canArchive }); row.style.setProperty('--history-row', String(index + 1)); list.appendChild(row); }); offset += d.meetings.length;
         if (split) {
           list.appendChild(pager);
