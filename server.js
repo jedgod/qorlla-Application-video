@@ -179,7 +179,7 @@ function verifyHostKey(meeting, key) {
 }
 const meetingAccounts = new Map();      // meetingId -> Set(accountId) of signed-in people who joined (they may read that meeting's documents)
 // attendance, outcome and follow-ups are for the history screens (host / attendee checks there), never for the room broadcast or the public lookups
-const publicMeeting = ({ hostKeyHash: _h, passcodeHash: _p, passcodeEnc: _pe, reuse: _ru, storeKey: _sk, removedAccounts: _r, attendance: _a, meetActivity: _m, joinedAccounts: _j, outcome: _o, actionItems: _i, viaMeet: _v, ...rest }) => ({ ...rest, passcodeRequired: !!_p });
+const publicMeeting = ({ hostKeyHash: _h, passcodeHash: _p, passcodeEnc: _pe, reuse: _ru, storeKey: _sk, removedAccounts: _r, attendance: _a, meetActivity: _m, joinedAccounts: _j, outcome: _o, actionItems: _i, viaMeet: _v, hiddenBy: _hb, ...rest }) => ({ ...rest, passcodeRequired: !!_p });
 
 // Optional meeting passcode (MAIN meetings: 4-32 characters, scrypt). Meet has its own, separate policy (see docs/PASSCODE_POLICY.md).
 // Attempts go through the durable lockout service: 5 failures lock the meeting for 10 minutes, across restarts and processes.

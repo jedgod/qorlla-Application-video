@@ -870,6 +870,22 @@ body[data-page=workspace] .center:has(.hist-panel) .page-head p { font-size: 12p
   .hist-panel .hist-list.hist-split .hist-actions { padding: 6px 0 2px; gap: 6px; }
   .hist-panel .hist-list.hist-split .hist-actions .btn { min-height: 28px; padding: 4px 4px; font-size: 11.5px; }
 }
+/* the ... menu, and a clearer divider between the list and the detail pane */
+.hist-dots { width: 26px; height: 26px; place-items: center; border-radius: 7px; cursor: pointer; }
+.hist-dots:hover, .hist-dots[aria-expanded=true] { background: #e8edf5; color: #0f172a; }
+.hist-dots:focus-visible { outline: 2px solid #4a90ff; outline-offset: 1px; }
+.hist-menu { position: fixed; z-index: 2000; min-width: 178px; background: #fff; border: 1px solid #d8dee9; border-radius: 10px; box-shadow: 0 10px 28px rgba(15,23,42,.18); padding: 4px; }
+.hist-mi { display: flex; align-items: center; gap: 9px; width: 100%; border: 0; background: none; padding: 7px 10px; border-radius: 7px; font: inherit; font-size: 13px; text-align: left; cursor: pointer; color: #0f172a; }
+.hist-mi svg { width: 15px; height: 15px; flex: none; color: #64748b; }
+.hist-mi:hover, .hist-mi:focus-visible { background: #eef2f7; outline: none; }
+.hist-mi.danger { color: #b91c1c; margin-top: 4px; box-shadow: 0 -1px 0 #e5e9f2; } .hist-mi.danger svg { color: #b91c1c; } .hist-mi.danger:hover, .hist-mi.danger:focus-visible { background: #fef2f2; }
+.hist-mi.off { opacity: .5; cursor: not-allowed; }
+@container hist (min-width:760px) {
+  .hist-panel .hist-list.hist-split { grid-template-columns: minmax(270px,37%) minmax(0,1fr); }
+  .hist-panel .hist-list.hist-split .hist-rowhead { width: auto; margin-right: 26px; }
+  .hist-panel .hist-list.hist-split > .hist-pager { width: auto; margin-right: 26px; }
+  .hist-panel .hist-list.hist-split .hist-body { padding-left: 18px; border-left: 2px solid #cbd5e1; }
+}
 </style>
 <style id="home-compact-layout">
 /* Compact workspace greeting and five primary actions. */
@@ -2585,7 +2601,45 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
   }
 
   /** One meeting as an expandable card. Collapsed: title, topic, date, duration, attendees, status. Expanded (loaded on demand): the full record. */
-  function histRow(b, reload, collapseOthers) {
+  // ---- the ... menu of a History row: View details, Rejoin, Share, Archive, Delete ----
+  var histMenu = null;
+  function closeHistMenu(refocus) {
+    if (!histMenu) return; var m = histMenu; histMenu = null; m.el.remove();
+    document.removeEventListener('pointerdown', m.onDown, true); document.removeEventListener('keydown', m.onKey, true); window.removeEventListener('resize', m.onAway); window.removeEventListener('scroll', m.onAway, true);
+    m.anchor.setAttribute('aria-expanded', 'false'); if (refocus) m.anchor.focus();
+  }
+  function openHistMenu(anchor, entries) {
+    closeHistMenu();
+    var el = h('div', { class: 'hist-menu', role: 'menu', 'aria-label': I18n.t('Meeting actions') });
+    var btns = entries.map(function (en) {
+      var b = h('button', { type: 'button', role: 'menuitem', class: 'hist-mi' + (en.danger ? ' danger' : '') + (en.disabled ? ' off' : ''), tabindex: '-1' }, [icon(en.icon), h('span', { text: en.label })]);
+      if (en.disabled) { b.setAttribute('aria-disabled', 'true'); if (en.hint) b.title = en.hint; }
+      b.addEventListener('click', function (e) { e.stopPropagation(); if (en.disabled) { if (en.hint) toast(en.hint, 'err'); return; } closeHistMenu(false); en.run(); });
+      el.appendChild(b); return b;
+    });
+    document.body.appendChild(el);
+    var r = anchor.getBoundingClientRect(), w = el.offsetWidth, ht = el.offsetHeight, left = Math.min(Math.max(8, r.right - w), window.innerWidth - w - 8), top = r.bottom + 4;
+    if (top + ht > window.innerHeight - 8) top = Math.max(8, r.top - ht - 4);
+    el.style.left = left + 'px'; el.style.top = top + 'px';
+    var m = { el: el, anchor: anchor,
+      onDown: function (e) { if (!el.contains(e.target) && !anchor.contains(e.target)) closeHistMenu(false); },
+      onAway: function () { closeHistMenu(false); },
+      onKey: function (e) {
+        var i = btns.indexOf(document.activeElement);
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeHistMenu(true); }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); btns[(i + 1) % btns.length].focus(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); btns[(i <= 0 ? btns.length : i) - 1].focus(); }
+        else if (e.key === 'Home') { e.preventDefault(); btns[0].focus(); } else if (e.key === 'End') { e.preventDefault(); btns[btns.length - 1].focus(); }
+        else if (e.key === 'Tab') closeHistMenu(false);
+      } };
+    histMenu = m; anchor.setAttribute('aria-expanded', 'true');
+    document.addEventListener('pointerdown', m.onDown, true); document.addEventListener('keydown', m.onKey, true); window.addEventListener('resize', m.onAway); window.addEventListener('scroll', m.onAway, true);
+    btns[0].focus();
+  }
+
+  function histRow(b, reload, collapseOthers, caps) {
+    caps = caps || {};
+    var dots = h('span', { class: 'hist-dots', role: 'button', tabindex: '0', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': I18n.t('More actions') + ': ' + b.title }, [icon(IC.dots)]);
     var runId = b.runKey || b.meetingId, id = String(runId).replace(/[^0-9a-z~]/gi, ''), bodyId = 'hb-' + id, det = null, loaded = false;
     var body = h('div', { class: 'hist-body hidden', id: bodyId, role: 'region', 'aria-label': b.title });
     var head = h('button', { class: 'hist-rowhead', type: 'button', 'aria-expanded': 'false', 'aria-controls': bodyId, 'aria-label': b.title + ', ' + (HIST_STATUS[b.status] || b.status) + '. ' + I18n.t('Show details') }, [
@@ -2597,7 +2651,7 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
         h('span', { class: 'hist-sub', text: shortDay(b.actualStartAt || b.scheduledStartAt) + ' • ' + clock(b.actualStartAt || b.scheduledStartAt) + ' • ' + b.uniqueAttendeeCount + ' ' + I18n.t(b.uniqueAttendeeCount === 1 ? 'attendee' : 'attendees') }),
         h('span', { class: 'hist-meta' }, [h('span', {}, [icon(IC.clock), fmtDur(b.durationSeconds)]), h('span', {}, [icon(IC.users), b.uniqueAttendeeCount + ' ' + I18n.t(b.uniqueAttendeeCount === 1 ? 'attendee' : 'attendees')])])
       ]),
-      h('span', { class: 'hist-side' }, [h('span', { class: 'hist-chip s-' + b.status, text: I18n.t(HIST_STATUS[b.status] || b.status) }), h('span', { class: 'hist-chev', 'aria-hidden': 'true' }, [icon(IC.chevR)]), h('span', { class: 'hist-dots', 'aria-hidden': 'true' }, [icon(IC.dots)])])
+      h('span', { class: 'hist-side' }, [h('span', { class: 'hist-chip s-' + b.status, text: I18n.t(HIST_STATUS[b.status] || b.status) }), h('span', { class: 'hist-chev', 'aria-hidden': 'true' }, [icon(IC.chevR)]), dots])
     ]);
     head.insertBefore(h('span', { class: 'hist-tile', 'aria-hidden': 'true' }, [icon(IC.video)]), head.firstChild);
     var card = h('article', { class: 'hist-row', 'data-id': id }, [head, body]);
@@ -2607,6 +2661,42 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
     }
     head.addEventListener('click', function () { var open = body.classList.contains('hidden'); if (open && collapseOthers) collapseOthers(card); setOpen(open); });
     card._collapse = function () { setOpen(false); };
+    function openRow() { if (collapseOthers) collapseOthers(card); setOpen(true); head.scrollIntoView({ block: 'nearest' }); }
+    function rejoin() {                                                    // a finished meeting is frozen; "Rejoin" is the host's Start again (a NEW run of the same Meeting ID), so it follows the same rules and limits
+      openRow(); var tries = 0;
+      (function wait() {
+        var card2 = body.querySelector('.acc-card'), again = body.querySelector('.acc-again'), note = body.querySelector('.acc-note');
+        if (card2 && !again) { toast(I18n.t('Only the host can start this meeting again.'), 'err'); return; }
+        if (again && !again.disabled) { again.click(); return; }
+        if (again && note && note.textContent) { toast(again.title || I18n.t('This meeting cannot be started again.'), 'err'); return; }
+        if (++tries < 50) setTimeout(wait, 120); else toast(I18n.t('Could not load this meeting yet. Try again.'), 'err');
+      })();
+    }
+    function share() {
+      var go = function (d) {
+        var t = summaryText(b, d), copy = function () { if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { toast(I18n.t('Summary copied'), 'ok'); }, function () { toast(t); }); else toast(t); };
+        if (navigator.share) navigator.share({ title: b.title, text: t }).catch(function (e) { if (!e || e.name !== 'AbortError') copy(); }); else copy();
+      };
+      if (det) go(det); else api2('/history/meetings/' + encodeURIComponent(runId)).then(function (d) { det = d; go(d); }).catch(fail);
+    }
+    function hide(kind) {
+      var path = '/history/meetings/' + encodeURIComponent(runId);
+      if (kind === 'delete' && !window.confirm(I18n.t('Remove this meeting from your History?') + '\n"' + b.title + '"\n' + I18n.t('This cannot be undone from here. Other people keep their own History.'))) return;
+      (kind === 'delete' ? api2(path, { method: 'DELETE' }) : api2(path + '/archive', { method: 'POST', body: { archived: !b.archived } }))
+        .then(function () { toast(kind === 'delete' ? I18n.t('Removed from your History') : (b.archived ? I18n.t('Moved back to History') : I18n.t('Archived')), 'ok'); reload(); }).catch(fail);
+    }
+    function showMenu(e) {
+      e.stopPropagation(); e.preventDefault(); if (histMenu && histMenu.anchor === dots) { closeHistMenu(true); return; }
+      var need = caps.canArchive ? null : I18n.t('Available after the server update.');
+      openHistMenu(dots, [
+        { label: I18n.t('View details'), icon: IC.lines, run: openRow },
+        { label: I18n.t('Rejoin'), icon: IC.video, run: rejoin },
+        { label: I18n.t('Share'), icon: IC.send, run: share },
+        { label: b.archived ? I18n.t('Unarchive') : I18n.t('Archive'), icon: b.archived ? IC.undo : IC.save, disabled: !!need, hint: need, run: function () { hide('archive'); } },
+        { label: I18n.t('Delete'), icon: IC.trash, danger: true, disabled: !!need, hint: need, run: function () { hide('delete'); } }]);
+    }
+    dots.addEventListener('click', showMenu);
+    dots.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') showMenu(e); });
     function load() { body.textContent = I18n.t('Loading\u2026'); api2('/history/meetings/' + encodeURIComponent(runId)).then(function (d) { det = d; paint(d); }).catch(function (e) { body.textContent = ''; body.appendChild(h('div', { class: 'hist-err' }, [h('span', { text: e.message }), h('button', { class: 'btn small', type: 'button', text: I18n.t('Try again'), onclick: load })])); }); }
     function paint(d) {
       body.textContent = '';
@@ -2672,7 +2762,7 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
   /** The History Meetings section. collapsible: a dropdown on the home page (state remembered); otherwise a plain page section. */
   function historySection(opts) {
     opts = opts || {};
-    var f = { q: '', status: '', from: '', to: '' }, offset = 0, total = 0, timer = 0, seq = 0, STORE = 'zw_hist_open';
+    var f = { q: '', status: '', view: '', from: '', to: '' }, offset = 0, total = 0, timer = 0, seq = 0, STORE = 'zw_hist_open';
     var open = opts.collapsible ? store(STORE) !== '0' : true;
     var count = h('span', { class: 'hist-count', 'aria-label': I18n.t('Meetings in history') , text: '\u2026' });
     var split = true, PAGE = window.innerWidth < 900 ? 6 : Math.max(4, Math.min(16, Math.floor((window.innerHeight - 320) / 47))), wide = window.matchMedia('(min-width: 900px)');
@@ -2681,9 +2771,9 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
       ptitle = h('h3', { class: 'hist-ptitle' }), pageLbl = h('span', { class: 'hist-pageno muted' }),
       pager = h('div', { class: 'hist-pager' + (split ? '' : ' hidden'), role: 'navigation', 'aria-label': I18n.t('Pages') }, [prev, pageLbl, next]), status = h('p', { class: 'muted hist-status' });
     var chips = h('div', { class: 'hist-chips', role: 'group', 'aria-label': I18n.t('Filter by status') });
-    [['', 'All'], ['completed', 'Completed'], ['cancelled', 'Cancelled'], ['missed', 'No Show']].forEach(function (c) {
+    [['', 'All'], ['completed', 'Completed'], ['cancelled', 'Cancelled'], ['missed', 'No Show'], ['archived', 'Archived']].forEach(function (c) {
       var b = h('button', { type: 'button', class: 'hist-filterchip', 'data-status': c[0], 'aria-pressed': String(c[0] === ''), text: I18n.t(c[1]) });
-      b.addEventListener('click', function () { f.status = c[0]; Array.prototype.forEach.call(chips.children, function (x) { x.setAttribute('aria-pressed', String(x === b)); }); reset(); }); chips.appendChild(b);
+      b.addEventListener('click', function () { f.status = c[0] === 'archived' ? '' : c[0]; f.view = c[0] === 'archived' ? 'archived' : ''; Array.prototype.forEach.call(chips.children, function (x) { x.setAttribute('aria-pressed', String(x === b)); }); reset(); }); chips.appendChild(b);
     });
     var search = h('input', { type: 'search', placeholder: I18n.t('Search title or topic'), 'aria-label': I18n.t('Search title or topic') });
     search.addEventListener('input', function () { f.q = search.value; clearTimeout(timer); timer = setTimeout(reset, 250); });
@@ -2703,7 +2793,7 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
         if (mine !== seq) return; list.setAttribute('aria-busy', 'false'); total = d.total; if (!f.status && !f.q && !f.from && !f.to) { count.textContent = String(d.total); ptitle.textContent = I18n.t('Past Meetings') + ' (' + d.total + ')'; }
         list.style.setProperty('--history-page-size', String(PAGE));
         list.style.setProperty('--history-list-height', Math.max(300, window.innerHeight - list.getBoundingClientRect().top - 44) + 'px');
-        d.meetings.forEach(function (b, index) { var row = histRow(b, reload, collapseOthers); row.style.setProperty('--history-row', String(index + 1)); list.appendChild(row); }); offset += d.meetings.length;
+        d.meetings.forEach(function (b, index) { var row = histRow(b, reload, collapseOthers, { canArchive: !!d.canArchive }); row.style.setProperty('--history-row', String(index + 1)); list.appendChild(row); }); offset += d.meetings.length;
         if (split) {
           list.appendChild(pager);
           var pages = Math.max(1, Math.ceil(total / PAGE)), pg = Math.floor((offset - d.meetings.length) / PAGE) + 1;

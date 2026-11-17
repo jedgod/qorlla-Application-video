@@ -105,6 +105,7 @@ function banner(m, user, now = Date.now()) {
         status: statusOf(m), scheduledStartAt: m.scheduledStartAt || m.startTime || null, actualStartAt: start ? new Date(start).toISOString() : null, actualEndAt: end ? new Date(end).toISOString() : null,
         durationSeconds: start && end ? Math.max(0, Math.round((end - start) / 1000)) : null, uniqueAttendeeCount: st.unique || 0, peakConcurrentCount: st.peak || 0,
         outcomeSummary: (m.outcome || '').slice(0, 280), previousMeetingId: m.previousMeetingId || null, endReason: m.endReason || null, recurrence: m.recurrenceLabel || '',
+        archived: !!(user && m.hiddenBy && m.hiddenBy[user.id] === 'archived'),
         runKey: m.storeKey || m.meetingId, runIndex: (m.reuse && m.reuse.index) || 0            // a re-used meeting has one frozen record per run; the same Meeting ID, a different runKey
     };
 }
@@ -167,17 +168,18 @@ function registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRoo
         const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? Date.parse(req.query.from + 'T00:00:00') : null, to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? Date.parse(req.query.to + 'T23:59:59') : null;
         const mine = [...meetingsState.values()].filter((m) => involved(m, u));
         await Promise.all(mine.map((m) => refresh(m)));
-        let rows = mine.filter((m) => FINAL.has(statusOf(m)) || m.status === 'completed').map((m) => dress(banner(m, u), m, u));
+        const view = req.query.view === 'archived' ? 'archived' : '', mark = (m) => (m.hiddenBy && m.hiddenBy[u.id]) || '';      // archived / deleted are per person: the frozen record itself never changes
+        let rows = mine.filter((m) => (FINAL.has(statusOf(m)) || m.status === 'completed') && (view ? mark(m) === 'archived' : !mark(m))).map((m) => dress(banner(m, u), m, u));
         rows = rows.filter((b) => (!st || b.status === st) && (!cat || b.category === cat) && (!host || b.hostName.toLowerCase().includes(host))
             && (!q || (b.title + ' ' + b.topic + ' ' + b.hostName).toLowerCase().includes(q))
             && (!from || Date.parse(b.actualStartAt || b.scheduledStartAt) >= from) && (!to || Date.parse(b.actualStartAt || b.scheduledStartAt) <= to));
         rows.sort((a, b) => Date.parse(b.actualStartAt || b.scheduledStartAt || 0) - Date.parse(a.actualStartAt || a.scheduledStartAt || 0));
         const offset = Math.max(0, parseInt(req.query.offset, 10) || 0), limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-        res.json({ total: rows.length, offset, limit, meetings: rows.slice(offset, offset + limit), categories: CATEGORIES });
+        res.json({ total: rows.length, offset, limit, meetings: rows.slice(offset, offset + limit), categories: CATEGORIES, canArchive: true });
     });
     app.get('/api/history/meetings/:id', async (req, res) => {
         const u = me(req, res); if (!u) return; const m = find(req);
-        if (!m || !involved(m, u)) return res.status(404).json({ error: 'This meeting is not in your history.' });
+        if (!m || !involved(m, u) || (m.hiddenBy && m.hiddenBy[u.id] === 'deleted')) return res.status(404).json({ error: 'This meeting is not in your history.' });
         await refresh(m); if (!FINAL.has(statusOf(m))) return res.status(409).json({ error: 'This meeting has not finished yet.' });
         res.json(dress(details(m, u), m, u));
     });
@@ -191,6 +193,20 @@ function registerHistory({ app, meetingsState, saveSnapshotSoon, auth, activeRoo
         if ('actionItems' in b) { const items = cleanActionItems(b.actionItems); if (!items) return res.status(400).json({ error: 'actionItems must be a list.' }); m.actionItems = items; }
         m.outcomeUpdatedAt = new Date().toISOString(); saveSnapshotSoon(); res.json(dress(details(m, u), m, u));
     });
+    // Archive / delete are PER PERSON: they hide the meeting from that person's History (archive can be undone, delete cannot be undone from the screen).
+    // The frozen record, the attendance and the host's report are not touched, so other people's History and the audit trail stay intact.
+    const hideRoute = (kind) => async (req, res) => {
+        const u = me(req, res); if (!u) return; const m = find(req);
+        if (!m || !involved(m, u) || (m.hiddenBy && m.hiddenBy[u.id] === 'deleted')) return res.status(404).json({ error: 'This meeting is not in your history.' });
+        await refresh(m); if (!FINAL.has(statusOf(m))) return res.status(409).json({ error: 'Only a finished meeting can be archived or deleted.' });
+        if (!m.hiddenBy) m.hiddenBy = {};
+        if (kind === 'delete') m.hiddenBy[u.id] = 'deleted';
+        else if (req.body && req.body.archived === false) { if (m.hiddenBy[u.id] === 'archived') delete m.hiddenBy[u.id]; } else m.hiddenBy[u.id] = 'archived';
+        if (!Object.keys(m.hiddenBy).length) delete m.hiddenBy;
+        saveSnapshotSoon(); res.json({ ok: true, archived: !!(m.hiddenBy && m.hiddenBy[u.id] === 'archived'), deleted: kind === 'delete' });
+    };
+    app.post('/api/history/meetings/:id/archive', express_json(), hideRoute('archive'));
+    app.delete('/api/history/meetings/:id', hideRoute('delete'));
     app.get('/api/history/meetings/:id/report', async (req, res) => {
         const u = me(req, res); if (!u) return; const m = find(req);
         if (!m || !involved(m, u)) return res.status(404).json({ error: 'This meeting is not in your history.' });
