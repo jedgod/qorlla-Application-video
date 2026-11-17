@@ -185,7 +185,7 @@ test('a latecomer who agrees reads only what was said from then on; the host rea
 
 test('the in-flight limit is enforced from the moment a chunk is accepted: a burst never has more than the limit inside the engine', async () => {
   const t = await rig(); const { P } = t; const sid = await t.active(); const e = (await t.state(sid)).epoch; let release; const gate = new Promise((r) => (release = r)); t.eng.st.onCall = () => gate;
-  const burst = Array.from({ length: 6 }, (_, i) => t.audio(P.ann, sid, e, { start: i * 4000 })); await new Promise((r) => setTimeout(r, 1500)); const inside = t.eng.st.calls.length; release(); t.eng.st.onCall = null; const res = await Promise.all(burst);
+  const early = []; const burst = Array.from({ length: 6 }, (_, i) => t.audio(P.ann, sid, e, { start: i * 4000 }).then((r) => { early.push(r.status); return r; })); for (let w = 0; w < 200 && early.filter((x) => x === 429).length < 4; w++) await new Promise((r) => setTimeout(r, 100)); const inside = t.eng.st.calls.length; release(); t.eng.st.onCall = null; const res = await Promise.all(burst);
   assert.ok(inside <= 2, 'at most 2 chunks reached the engine at once, saw ' + inside); assert.ok(res.filter((r) => r.status === 429).length >= 4, JSON.stringify(res.map((r) => r.status))); await t.close();
 });
 
