@@ -1238,6 +1238,36 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
   #voiceIncoming .vi-actions .vi-act { position:relative; }
   #voiceIncoming .vi-btn { width:100%; height:42px; border-radius:21px; box-shadow:none; } #voiceIncoming .vi-actions .vi-act { align-items:stretch; flex-direction:column; } #voiceIncoming .vi-actions .vi-act span { position:absolute; inset:0; display:grid; place-items:center; font-size:15px; font-weight:700; pointer-events:none; padding-left:26px; } #voiceIncoming .vi-btn svg { position:absolute; left:calc(50% - 46px); top:50%; width:20px; height:20px; transform:translateY(-50%); } #voiceIncoming .vi-btn.red svg { transform:translateY(-50%) rotate(135deg); }
 }
+
+/* Call Station: left tabs (Dial Pad / Contacts / Recent), standard keypad, incoming-call close */
+.qs-tabs { display:none; } .vi-x { display:none; }
+@media (min-width:701px) {
+  .qp.qp-station .qs-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:0; margin:2px 0 4px; border:1px solid rgba(167,139,250,.3); border-radius:12px; overflow:hidden; background:rgba(255,255,255,.04); }
+  .qs-tab { display:flex; flex-direction:column; align-items:center; gap:3px; padding:7px 4px; border:0; background:transparent; color:#d9ccff; font:inherit; font-size:12px; cursor:pointer; }
+  .qs-tab svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+  .qs-tab[aria-selected=true] { background:linear-gradient(160deg,#8b3dff,#5b21d6); color:#fff; } .qs-tab:focus-visible { outline:2px solid #fff; outline-offset:-3px; }
+  /* standard phone keypad: round keys, digit with its letters, + under 0 */
+  .qp.qp-station .qp-keys { --qk:clamp(46px, 6.2vh, 62px) !important; gap:clamp(6px,1.1vh,12px) 20px !important; }
+  .qp.qp-station .qp-key { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0; line-height:1; }
+  .qp.qp-station .qp-key strong { font-size:clamp(18px,3vh,24px) !important; } .qp.qp-station .qp-key small { display:block !important; font-size:8.5px !important; letter-spacing:1.3px; min-height:9px; margin-top:1px; }
+  .qp.qp-station .qp-numin { background:rgba(255,255,255,.05); border:1px solid rgba(167,139,250,.28); border-radius:14px; } .qp.qp-station .qp-numin input { border-bottom:0 !important; cursor:pointer; }
+  /* the keypad is closed until the number is tapped */
+  .qp.qp-station .qp-dial-drop:not([open]) { display:none; }
+  .qp.qp-station.qs-v-contacts .qp-dial-card > :not(.qs-title):not(.qs-search):not(.qs-tabs):not(#qpRecentNums), .qp.qp-station.qs-v-recent .qp-dial-card > :not(.qs-title):not(.qs-search):not(.qs-tabs):not(#qpRecentNums) { display:none !important; }
+  .qp.qp-station .qp-dial-card > #qpRecentNums { display:none; }
+  .qp.qp-station.qs-v-contacts .qp-dial-card > #qpRecentNums, .qp.qp-station.qs-v-recent .qp-dial-card > #qpRecentNums { display:block; flex:1 1 auto; min-height:0; overflow:auto; background:transparent !important; border:0 !important; padding:4px 0 0 !important; }
+  .qp.qp-station.qs-v-contacts #qpRecentNums > :not(#qpColleagues) { display:none; } .qp.qp-station.qs-v-recent #qpRecentNums > #qpColleagues { display:none; }
+  .qp.qp-station.qs-v-contacts #qpRecentNums, .qp.qp-station.qs-v-recent #qpRecentNums { color:#f4f0ff; }
+  .qp.qp-station .qp-dial-card { justify-content:flex-start !important; }
+  .qp.qp-station .qp-dial-card > * { flex-shrink:0; } .qp.qp-station .qp-dial-card > #qpRecentNums { flex-shrink:1; } .qp.qp-station #qpDialCountry { display:none; }
+  .qp.qp-station .qp-side { grid-row:1 / span 2 !important; } .qp.qp-station .qp-side .si-card:last-child { flex:1 1 auto; }
+  /* incoming call: card with a close button */
+  dialog#voiceIncoming.vi-call { grid-template-columns:64px 1fr; }
+  #voiceIncoming .vi-x { display:grid; position:absolute; top:8px; right:10px; width:30px; height:30px; place-items:center; border:0; border-radius:50%; background:transparent; color:#f4f0ff; font-size:26px; line-height:1; cursor:pointer; z-index:3; } #voiceIncoming .vi-x:hover { background:rgba(255,255,255,.12); } #voiceIncoming .vi-x:focus-visible { outline:2px solid #fff; }
+}
+@media (min-width:701px) and (max-height:880px) {
+  .qp.qp-station .qp-keys { --qk:clamp(40px, 5.4vh, 52px) !important; gap:5px 18px !important; } .qp.qp-station .qp-key small { display:block !important; font-size:8px !important; } .qp.qp-station .qs-tab { padding:5px 4px; }
+}
 </style>
 </head>
 <body data-page="workspace">
@@ -1429,6 +1459,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
 </template>
 
 <dialog id="voiceIncoming" class="vi vi-call" aria-labelledby="viTitle" aria-describedby="viWho">
+  <button type="button" class="vi-x" id="viClose" aria-label="Decline and close">&times;</button>
   <div class="vi-top" aria-hidden="true"><svg viewBox="0 0 32 32" class="vi-logo"><circle cx="15" cy="15" r="10" fill="none" stroke="#a855f7" stroke-width="5"/><path d="m21 21 7 7" stroke="#a855f7" stroke-width="5" stroke-linecap="round"/></svg><span>Qorlla</span></div>
   <h2 id="viTitle" class="vi-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span id="viTitleText">Incoming Call</span></h2>
   <div class="vi-avatar" aria-hidden="true"><span class="vi-ring r1"></span><span class="vi-ring r2"></span><span class="vi-ring r3"></span><div class="vi-face" id="viFace">Q</div></div>
@@ -3277,9 +3308,12 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
         if (k[0] === '0') { b.addEventListener('pointerdown', function () { held = false; holdT = setTimeout(function () { held = true; buzz(14); set(num + '+'); padTouch(); }, 500); }); ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { b.addEventListener(ev, function () { clearTimeout(holdT); }); }); }
         b.addEventListener('click', function () { if (held) { held = false; return; } buzz(8); set(num + k[0]); padTouch(); }); keys.appendChild(b); });
       function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
-      function padTouch() { padDrop.open = true; }
-      input.addEventListener('focus', function () { if (!phoneUI) padTouch(); });
-      input.addEventListener('click', function () { if (phoneUI) { padDrop.open = !padDrop.open; input.setAttribute('aria-expanded', String(padDrop.open)); } });   // tap the number to pop the keypad up or close it
+      function padTouch() { padDrop.open = true; if (typeof armPadClose === 'function') armPadClose(); }
+      input.addEventListener('focus', function () { if (!phoneUI) { padDrop.open = true; if (typeof armPadClose === 'function') armPadClose(); } });
+      var padTimer = null, PAD_IDLE_MS = 2 * 60 * 1000;
+      function armPadClose() { clearTimeout(padTimer); if (padDrop.open) padTimer = setTimeout(function () { padDrop.open = false; input.setAttribute('aria-expanded', 'false'); }, PAD_IDLE_MS); }   // closes after two idle minutes
+      keys.addEventListener('pointerdown', armPadClose); input.addEventListener('input', armPadClose); input.addEventListener('keydown', armPadClose);
+      input.addEventListener('click', function () { if (phoneUI) padDrop.open = !padDrop.open; else padDrop.open = true; input.setAttribute('aria-expanded', String(padDrop.open)); armPadClose(); });   // tap the number to open the keypad (phones: tap again to close)
       input.setAttribute('aria-controls', 'qpPadDrop');
       if (phoneUI) { input.readOnly = true; input.setAttribute('inputmode', 'none'); }   // read-only on phones: the system keyboard cannot open; the Qorlla keypad (and a number chosen from Recent) still fill it
       input.addEventListener('input', function () { set(input.value.replace(/[^0-9*#+ ()-]/g, '')); }); sel.addEventListener('change', paint); var delHeld = false, delT = null; del.addEventListener('pointerdown', function () { delHeld = false; delT = setTimeout(function () { delHeld = true; buzz(14); set(''); padTouch(); }, 600); }); ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { del.addEventListener(ev, function () { clearTimeout(delT); }); }); del.addEventListener('click', function () { if (delHeld) { delHeld = false; return; } buzz(8); set(num.slice(0, -1)); padTouch(); });
@@ -3316,12 +3350,25 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var mobileDial = window.matchMedia('(max-width: 760px)').matches;
       var numberDrop = h('details', { class: 'qp-dial-drop', id: 'qpNumberDrop' }, [h('summary', { text: I18n.t('Enter a number') }), sel, h('div', { class: 'qp-numin' }, [input, clear]), hint]);
       var padDrop = h('details', { class: 'qp-dial-drop', id: 'qpPadDrop' }, [h('summary', { text: I18n.t('Dial Pad') }), keys]);
-      numberDrop.open = true; padDrop.open = true;
+      numberDrop.open = true; padDrop.open = phoneUI;   // phones start with the keypad open; the desktop keypad opens when you tap the number
       var bsp = h('button', { type: 'button', class: 'qp-bsp', 'aria-label': I18n.t('Delete last digit'), text: '\u232B', onclick: function () { del.click(); } }); numberDrop.querySelector('.qp-numin').appendChild(bsp);
-      var stTitle = h('h2', { class: 'qs-title', id: 'qsTitle', text: I18n.t('Qorlla Call Station') });
+      var stTitle = h('h2', { class: 'qs-title', id: 'qsTitle', text: I18n.t('Qorlla Phone') });
       var stSearch = h('input', { type: 'search', class: 'qs-search', id: 'qsSearch', enterkeyhint: 'search', maxlength: '80', autocomplete: 'off', placeholder: I18n.t('Search or dial (name, email, or number)'), 'aria-label': I18n.t('Search or dial (name, email, or number)') });
       stSearch.addEventListener('keydown', function (e) { if (e.key !== 'Enter') return; e.preventDefault(); var v = stSearch.value.trim(); if (!v) return; if (/^[+\d][\d\s().-]*$/.test(v)) { set(v.replace(/[^\d+]/g, '')); stSearch.value = ''; } else { select('contacts'); setTimeout(function () { var c = document.querySelector('#phPanel input[type=search], .qp-card input[type=search]'); if (c && c !== stSearch) { c.value = v; c.dispatchEvent(new Event('input', { bubbles: true })); } }, 200); } });
-      dialCard.insertBefore(stTitle, dialCard.firstChild); dialCard.insertBefore(stSearch, stTitle.nextSibling);
+      var qsTabs = h('div', { class: 'qs-tabs', role: 'tablist', 'aria-label': I18n.t('Phone sections') });
+      var QSICON = { dial: '<circle cx="6" cy="6" r="1.5"/><circle cx="12" cy="6" r="1.5"/><circle cx="18" cy="6" r="1.5"/><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/><circle cx="12" cy="18" r="1.5"/>', contacts: '<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>', recent: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 2"/>' };
+      function qsView(v) {
+        root.classList.remove('qs-v-dial', 'qs-v-contacts', 'qs-v-recent'); root.classList.add('qs-v-' + v);
+        Array.prototype.forEach.call(qsTabs.children, function (b) { b.setAttribute('aria-selected', String(b.dataset.v === v)); });
+        if (v === 'dial') { padDrop.open = true; armPadClose(); }
+        if (v === 'contacts' && voice.ready && typeof voiceLoadPeople === 'function') voiceLoadPeople();
+      }
+      [['dial', 'Dial Pad'], ['contacts', 'Contacts'], ['recent', 'Recent']].forEach(function (t) {
+        var b = h('button', { type: 'button', role: 'tab', class: 'qs-tab', 'data-v': t[0], 'aria-selected': String(t[0] === 'dial'), onclick: function () { qsView(t[0]); } });
+        b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + QSICON[t[0]] + '</svg><span></span>'; b.lastChild.textContent = I18n.t(t[1]); qsTabs.appendChild(b);
+      });
+      dialCard.insertBefore(stTitle, dialCard.firstChild); dialCard.insertBefore(stSearch, stTitle.nextSibling); dialCard.insertBefore(qsTabs, stSearch.nextSibling);
+      dialCard._qsView = qsView; root.classList.add("qs-v-dial");
       dialCard.appendChild(numberDrop); dialCard.appendChild(padDrop);
       dialCard.appendChild(h('div', { class: 'qp-callrow' }, [copy, call, del, h('button', { type: 'button', class: 'qp-vcall', id: 'phVideoCall', text: I18n.t('Video Call'), title: I18n.t('Start a Qorlla video meeting'), onclick: function () { if (typeof newMeeting === 'function') newMeeting(); } })])); dialCard.appendChild(liveBox); dialCard.appendChild(note);
       dialCard.appendChild(h('label', { class: 'qp-lbl', for: 'qpCallerId', text: I18n.t('Your caller ID') })); dialCard.appendChild(caller);
@@ -4069,6 +4116,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
     }
     paintNumberCard();
 
+    function placeList() { var d = window.matchMedia('(min-width: 701px)').matches; if (d) { if (dialList.parentNode !== dialCard) dialCard.appendChild(dialList); } else if (dialList.parentNode === dialCard) grid.insertBefore(dialList, joinCard); }
     // ---- Call Station (desktop Dial Pad): centre call stage + right-hand Call Information / Call Actions. They MIRROR the real call bar (#voiceBar) and press its buttons, so no call logic is duplicated.
     var dialStage = h('section', { class: 'qp-card qp-stage', id: 'qpStage', 'aria-label': I18n.t('Call') }), dialSide = h('section', { class: 'qp-card qp-side', id: 'qpSide', 'aria-label': I18n.t('Call details') });
     (function () {
@@ -4125,7 +4173,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       Array.prototype.forEach.call(dialStage.querySelectorAll('.st-off, .si-act.st-off'), function (b) { b.addEventListener('click', function () { toast((b.getAttribute('aria-label') || b.textContent.trim()) + ': ' + I18n.t('not available in this build yet.')); }); });
       sync(); dialCard._stSync = sync;
     })();
-    [dialCard, dialStage, dialSide, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { grid.appendChild(c); }); quiet(function () { select('dial'); });
+    [dialCard, dialStage, dialSide, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { grid.appendChild(c); }); placeList(); try { window.matchMedia('(min-width: 701px)').addEventListener('change', placeList); } catch (e) { /* old browser */ } quiet(function () { select('dial'); });
     /** Applies a route that came from the address bar (deep link, refresh, Back/Forward) without adding history entries. */
     function applyRoute(sub, section) {
       quiet(function () {
@@ -5562,7 +5610,16 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
     $('viFace').textContent = isRoom ? '\uD83D\uDC65' : face; $('viKind').textContent = isRoom ? I18n.t('Group call') : I18n.t('Qorlla User');
     $('viNum').textContent = isRoom ? '' : (voice.incoming.ext ? I18n.t('ext') + ' ' + voice.incoming.ext : '');
     $('viWho').textContent = isRoom ? who : (nm || (voice.incoming.ext ? I18n.t('Extension') + ' ' + voice.incoming.ext : I18n.t('A colleague')));
-    $('viAnswer').disabled = false; var d = $('voiceIncoming'); if (!d.open) { try { d.showModal(); } catch (x) { d.setAttribute('open', ''); } } $('viAnswer').focus(); voiceTone('ring');
+    $('viAnswer').disabled = false; var d = $('voiceIncoming'); if (!d.open) { try { d.showModal(); } catch (x) { d.setAttribute('open', ''); } } voiceIncomingPlace(d); $('viAnswer').focus(); voiceTone('ring');
+  }
+  // desktop: the incoming-call card sits in the top-right corner of the phone page (or of the window when that page is not open) and never outside the screen
+  function voiceIncomingPlace(d) {
+    d.style.top = d.style.right = d.style.left = '';
+    if (!window.matchMedia('(min-width: 701px)').matches) return;
+    var g = document.querySelector('.qp.qp-station > .qp-grid'), rc = g && g.offsetParent ? g.getBoundingClientRect() : null, w = Math.min(400, window.innerWidth - 32);
+    var top = Math.max(12, rc ? rc.top + 14 : 16), right = Math.max(12, rc ? window.innerWidth - rc.right + 14 : 16);
+    if (right + w > window.innerWidth - 8) right = Math.max(8, window.innerWidth - w - 8);
+    d.style.top = top + 'px'; d.style.right = right + 'px'; d.style.left = 'auto';
   }
   function voiceIncomingHide() { voice.incoming = null; voiceToneStop(); var d = $('voiceIncoming'); if (d.open) d.close(); }
   function voiceEvent(e) {
@@ -5650,6 +5707,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
   }
   $('viAnswer').addEventListener('click', function () { var inc = voice.incoming; if (!inc) return; voiceToneStop(); voice.peerExt = inc.ext; $('viAnswer').disabled = true; (inc.room ? voice.client.joinRoom(inc.id).then(function () { voiceIncomingHide(); voiceRoomBar(); }) : voice.client.answer(inc.id).then(function () { voiceIncomingHide(); voiceBar(true, { peer: voicePeerLabel(inc.ext), text: I18n.t('Connecting\u2026'), ringing: true }); })).catch(function (e) { voiceIncomingHide(); if (e && e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') toast(I18n.t(e.status === 409 ? 'The caller already hung up.' : 'The call could not be answered.'), 'err'); }).then(function () { $('viAnswer').disabled = false; }); });
   Array.prototype.forEach.call(document.querySelectorAll('#voiceIncoming [data-vi-extra]'), function (b) { b.addEventListener('click', function () { toast(I18n.t(b.getAttribute('data-vi-extra')) + ': ' + I18n.t('available once you answer the call.')); }); });
+  $('viClose').addEventListener('click', function () { $('viDecline').click(); });
   $('viDecline').addEventListener('click', function () { var inc = voice.incoming; voiceIncomingHide(); if (inc) (inc.room ? voice.client.declineRoom(inc.id) : voice.client.reject(inc.id)).catch(function () {}); });
   $('voiceIncoming').addEventListener('cancel', function (ev) { ev.preventDefault(); $('viDecline').click(); });
   $('vbMute').addEventListener('click', function () { if (voice.client) { voice.client.setMuted(!voice.client.muted); $('vbMute').setAttribute('aria-pressed', String(voice.client.muted)); $('vbMute').textContent = voice.client.muted ? 'Unmute' : 'Mute'; } });
