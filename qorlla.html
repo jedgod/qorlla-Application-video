@@ -899,6 +899,46 @@ body[data-page=workspace] .center:has(.hist-panel) .page-head p { font-size: 12p
   .hist-panel .hist-list.hist-split .hist-body { padding-left: 18px; border-left: 2px solid #cbd5e1; }
 }
 </style>
+<style id="phone-compact-layout">
+/* Qorlla Phone, compact: less padding around the page, a slimmer header and tab bar, tighter cards, so every tab fits without scrolling. */
+body[data-page=workspace] .content:has(.qp) { padding: 10px 22px 12px; }
+body[data-page=workspace] .content .center:has(.qp) { padding: 12px 16px 10px; border-radius: 14px; }
+.qp { padding: 0; }
+.qp .qp-head { margin-bottom: 8px; gap: 8px 12px; }
+.qp .qp-logo { width: 34px; height: 34px; font-size: 20px; border-radius: 11px; }
+.qp .qp-title { gap: 10px; }
+.qp .qp-title h1 { font-size: 20px; line-height: 1.15; letter-spacing: -.3px; margin: 0; }
+.qp .qp-title p { font-size: 12px; margin: 1px 0 0; }
+.qp .qp-head .qp-tabs { padding: 2px; gap: 2px; border-radius: 10px; }
+.qp .qp-tabs button { padding: 5px 10px; font-size: 13px; min-height: 30px; border-radius: 8px; }
+.qp .qp-head .row .btn, .qp .qp-head .row button { padding: 5px 12px; font-size: 12px; min-height: 30px; }
+.qp .qp-help { padding: 8px 12px; margin-bottom: 8px; font-size: 12px; }
+.qp .qp-grid { gap: 10px; }
+.qp .qp-right { gap: 8px; }
+.qp .qp-card { padding: 10px 14px; border-radius: 12px; }
+.qp .qp-card h2 { font-size: 15px; margin: 0; line-height: 1.2; }
+.qp .qp-card h3 { font-size: 13px; margin: 8px 0 4px; }
+.qp .qp-card p, .qp .qp-card .muted, .qp .qp-card small { font-size: 12px; line-height: 1.3; }
+.qp .qp-jhead { gap: 8px; margin-bottom: 6px; }
+.qp .qp-ico { width: 30px; height: 30px; font-size: 15px; border-radius: 9px; }
+.qp .qp-card select, .qp .qp-card input[type=text], .qp .qp-card input[type=tel], .qp .qp-card input[type=password], .qp .qp-card input[type=search] { height: 32px; font-size: 13px; border-radius: 8px; }
+.qp .qp-numin { margin: 4px 0 6px; }
+.qp .qp-lbl { margin-top: 8px; font-size: 13px; }
+.qp .qp-strong { margin: 6px 0 2px; }
+.qp .qp-hint { margin: 3px 2px; min-height: 0; font-size: 12px; }
+.qp .qp-card .qp-hint, .qp .qp-card p.qp-hint { margin-top: 4px; }
+.qp .qp-blue { height: 36px; margin-top: 8px; border-radius: 8px; font-size: 13px; }
+.qp .qp-how, .qp .qp-dirbox { padding: 8px 10px; margin-top: 6px; font-size: 13px; }
+.qp .qp-filters { margin: 6px 0 2px; gap: 4px; }
+.qp .qp-filters button { padding: 3px 10px; font-size: 12px; }
+.qp .qp-call-row { padding: 6px 0; }
+.qp .qp-facts { padding: 6px 10px; margin: 6px 0; }
+.qp .qp-num { padding: 4px 0; }
+.qp .ps-layout { gap: 10px; margin-top: 6px; }
+.qp .ps-body { padding: 10px 12px; }
+.qp .ps-body h3 { font-size: 15px; margin: 0 0 6px; }
+@media (min-width: 761px) { .qp .qp-keys, .qp .qp-callrow { --qk: clamp(34px, 5.2vh, 46px); } .qp .qp-keys { gap: 6px 14px; margin: 4px 0; } .qp .qp-key strong { font-size: 20px; } .qp .qp-key small { font-size: 9px; } }
+</style>
 <style id="home-compact-layout">
 /* Compact workspace greeting and five primary actions. */
 body[data-page=workspace] .home-heading { gap:12px; padding-bottom:12px; align-items:center; }
