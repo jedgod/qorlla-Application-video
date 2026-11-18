@@ -949,6 +949,63 @@ body[data-page=workspace] .content .center:has(.qp) { padding: 12px 16px 10px; b
 .qp .ps-body { padding: 10px 12px; }
 .qp .ps-body h3 { font-size: 15px; margin: 0 0 6px; }
 @media (min-width: 761px) { .qp .qp-keys, .qp .qp-callrow { --qk: clamp(34px, 5.2vh, 46px); } .qp .qp-keys { gap: 6px 14px; margin: 4px 0; } .qp .qp-key strong { font-size: 20px; } .qp .qp-key small { font-size: 9px; } }
+
+/* Phone page on phones: the dark purple design (mockup). Scoped to phones and to the Phone page only. */
+.qp-ti, .qp-msub, .qp-topsearch, .qp-bsp, .qp-vcall { display:none; }
+@media (max-width:700px) {
+  body[data-page=workspace]:has(.qp) { background:radial-gradient(120% 60% at 50% -10%, #3b1c7a 0%, #170b33 45%, #0a0518 100%) fixed; color:#f4f0ff; }
+  body[data-page=workspace]:has(.qp) #view, body[data-page=workspace]:has(.qp) .content, body[data-page=workspace]:has(.qp) main, body[data-page=workspace]:has(.qp) .main { background:transparent !important; border:0 !important; box-shadow:none !important; }
+  body[data-page=workspace]:has(.qp) .qorlla-breadcrumbs, body[data-page=workspace]:has(.qp) .topbar { background:rgba(10,5,24,.0); border-color:transparent; color:#cbbcf5; }
+  body[data-page=workspace]:has(.qp) .qorlla-breadcrumbs a, body[data-page=workspace]:has(.qp) .qorlla-breadcrumbs span { color:#cbbcf5; }
+  body[data-page=workspace]:has(.qp) .qorlla-breadcrumbs [aria-current=page] { color:#fff; }
+  body[data-page=workspace]:has(.qp) .sidebar { background:rgba(18,9,40,.92); border-top-color:rgba(167,139,250,.25); }
+  body[data-page=workspace]:has(.qp) .sidebar .nav-item { color:#b8a8e6; } body[data-page=workspace]:has(.qp) .sidebar .nav-item.active { color:#fff; background:rgba(124,58,237,.35); }
+  body .qp, body .qp .qp-card, body .qp #dial-pad { background:transparent !important; border:0 !important; box-shadow:none !important; color:#f4f0ff; }
+  body .qp { padding:0; }
+  .qp .muted, .qp .qp-sub, .qp .qp-lbl { color:#bfb2e6; }
+  .qp-head { display:block; }
+  .qp-title { display:block; } .qp-logo { display:none; }
+  .qp-title h1 { font-size:26px; color:#fff; margin:0; }
+  .qp-title p { display:none; } .qp-title p.qp-msub { display:block; margin:4px 0 0; color:#e6dcff; font-size:15px; }
+  .qp-topsearch { display:block; margin:14px 0 12px; } .qp-topsearch input { width:100%; box-sizing:border-box; height:46px; border-radius:14px; border:1px solid rgba(167,139,250,.55); background:rgba(255,255,255,.05); color:#fff; padding:0 14px 0 44px; font-size:15px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e6dcff' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:14px center; background-size:20px; }
+  .qp-topsearch input::placeholder { color:#bfb2e6; }
+  .qp-head .qp-tabs { display:flex; flex-wrap:nowrap; overflow-x:auto; gap:8px; padding:2px 0 8px; background:transparent; border:0; width:100%; scrollbar-width:none; }
+  .qp-head .qp-tabs::-webkit-scrollbar { display:none; }
+  .qp-head .qp-tabs button { flex:0 0 76px; min-width:76px; min-height:68px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; padding:8px 4px; white-space:normal; font-size:11px; line-height:1.2; border-radius:12px; color:#d9ccff; background:rgba(255,255,255,.06); border:1px solid rgba(167,139,250,.35); }
+  .qp-head .qp-tabs button[aria-selected=true] { background:linear-gradient(160deg,#8b3dff,#5b21d6); color:#fff; border-color:#b794ff; box-shadow:0 0 14px rgba(139,61,255,.55); }
+  .qp-ti { display:block; width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; } .qp-tl { display:block; text-align:center; }
+  .qp-dial-card .qp-h, .qp-dial-card > h2, .qp-dial-card > .qp-sub { display:none; }
+  .qp-dial-drop { border:0; margin:0; padding:0; background:transparent; } .qp-dial-drop summary { display:none; }
+  .qp-dial-drop select { background:rgba(255,255,255,.07); color:#fff; border:1px solid rgba(167,139,250,.5); border-radius:14px; height:44px; }
+  .qp-dial-drop select option { color:#111; }
+  .qp-numin { position:relative; margin:10px 0; } .qp-numin input { width:100%; box-sizing:border-box; height:54px; border-radius:16px; border:1px solid rgba(167,139,250,.55); background:rgba(255,255,255,.06); color:#fff; text-align:center; font-size:26px; font-weight:650; letter-spacing:.5px; padding:0 58px 0 18px; }
+  body .qp .qp-numin .qp-x { display:none !important; }
+  body .qp .qp-numin #qpDialNumber { background:rgba(255,255,255,.06) !important; color:#fff !important; border:1px solid rgba(167,139,250,.55) !important; text-align:center; height:54px; font-size:26px; border-radius:16px; padding:0 58px 0 18px !important; }
+  body .qp .qp-numin #qpDialNumber::placeholder { color:#bfb2e6; font-size:17px; font-weight:500; }
+  .qp-bsp { display:grid; position:absolute; right:10px; top:50%; transform:translateY(-50%); width:44px; height:40px; place-items:center; background:transparent; border:0; color:#e6dcff; font-size:22px; cursor:pointer; }
+  body .qp .qp-keys, body .qp .qp-callrow { --qk:clamp(44px, min(15vw, 7.2vh), 58px); } body .qp .qp-keys { gap:clamp(6px,1.2vh,10px) 24px; margin:6px 0; }
+  body .qp .qp-key strong { font-size:24px; } body .qp .qp-key small { font-size:9px; letter-spacing:1.4px; }
+  .qp-dial-drop select { height:34px; font-size:13px; } .qp-numin { margin:6px 0 !important; } body .qp .qp-numin #qpDialNumber { height:46px !important; font-size:22px !important; } .qp-head .qp-tabs button { min-height:58px !important; padding:5px 4px !important; } .qp-topsearch input { height:42px !important; } .qp-title h1 { font-size:24px !important; } body[data-page=workspace]:has(.qp) #view { padding-top:4px !important; } body .qp .qp-callrow .qp-call, body .qp .qp-callrow .qp-vcall { height:46px; } .qp-topsearch { margin:10px 0 8px; } .qp-head .qp-tabs { padding-bottom:4px; }
+  .qp-key { background:radial-gradient(circle at 35% 30%, rgba(255,255,255,.16), rgba(255,255,255,.05)); border:1.5px solid rgba(190,170,255,.55); color:#fff; box-shadow:0 0 12px rgba(124,58,237,.25) inset; }
+  .qp-key strong { color:#fff; } .qp-key small { color:#cbbcf5; }
+  .qp-callrow { display:flex; gap:12px; align-items:stretch; margin:8px 0 4px; }
+  .qp-callrow .qp-del, .qp-callrow .qp-copyn { display:none; }
+  .qp-callrow .qp-call { flex:1 1 0; width:auto; height:52px; border-radius:26px; background:linear-gradient(180deg,#22c55e,#15a34a); color:#fff; font-size:0; border:1px solid #4ade80; display:flex; align-items:center; justify-content:center; gap:10px; }
+  .qp-callrow .qp-call::before { content:"\260E"; font-size:22px; } .qp-callrow .qp-call::after { content:"Call"; font-size:18px; font-weight:700; }
+  .qp-callrow .qp-call:disabled { opacity:.55; }
+  .qp-callrow .qp-vcall { display:flex; flex:1 1 0; height:52px; border-radius:26px; align-items:center; justify-content:center; background:rgba(124,58,237,.12); color:#fff; border:1.5px solid #a855f7; font-size:17px; font-weight:700; cursor:pointer; }
+  .qp .qp-card h2, .qp .qp-card h3 { color:#fff; }
+  .qp input:not([type=checkbox]), .qp select, .qp textarea { color-scheme:dark; }
+  .qp .qp-card input:not(.qp-numin input):not(.qp-topsearch input):not([type=checkbox]), .qp .qp-card textarea { background:rgba(255,255,255,.07); color:#fff; border-color:rgba(167,139,250,.5); }
+  .qp .btn, .qp .qp-link { background:rgba(255,255,255,.08); color:#fff; border-color:rgba(167,139,250,.5); }
+  .qp .qp-recent-num, .qp .qp-card li, .qp .qp-colleague { color:#f4f0ff; }
+  body .qp :is(select, .qp-dirbox, .qp-filters button, #qpPT-plans, #qpPT-settings, #qpPT-forward, #qpPT-voicemail, [id^=qpPT-], [id^=psNav-], .qp-clear, .qp-search) { background:rgba(255,255,255,.08) !important; color:#f4f0ff !important; border:1px solid rgba(167,139,250,.45) !important; }
+  body .qp :is(.qp-filters button[aria-pressed=true], [id^=qpPT-][aria-selected=true], [id^=psNav-][aria-selected=true], .qp-clear.primary, .btn.primary) { background:linear-gradient(160deg,#8b3dff,#5b21d6) !important; color:#fff !important; border-color:#b794ff !important; }
+  body .qp .qp-ico { background:rgba(124,58,237,.35) !important; color:#fff !important; }
+  body .qp :is(.qp-tag.grey) { background:rgba(255,255,255,.14) !important; color:#e6dcff !important; }
+  body .qp option { background:#1a0f38; color:#fff; }
+  body .qp :is(.qp-how, .qp-help) { color:#f4f0ff; }
+}
 </style>
 <style id="home-compact-layout">
 /* Compact workspace greeting and five primary actions. */
@@ -2903,10 +2960,16 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
     var root = h('div', { class: 'qp' }), grid = h('div', { class: 'qp-grid' }), alt = h('section', { class: 'qp-card qp-alt hidden', role: 'tabpanel', id: 'phPanel' });
     var bar = h('div', { class: 'qp-tabs', role: 'tablist', 'aria-label': I18n.t('Phone sections') });
     var helpBox = h('div', { class: 'qp-help hidden', id: 'phHelp', role: 'note' }, I18n.t('Qorlla Phone has two jobs: calling from your workplace (needs a connected telephony provider and a number assigned to you) and joining Qorlla meetings from any phone (needs the dial-in numbers an administrator has provisioned, the 11-digit meeting ID and the host’s telephone access PIN).'));
-    root.appendChild(h('header', { class: 'qp-head' }, [h('div', { class: 'qp-title' }, [h('span', { class: 'qp-logo', 'aria-hidden': 'true', text: '☎' }), h('div', {}, [h('h1', { text: I18n.t('Qorlla Phone') }), h('p', { class: 'muted', text: I18n.t('Calls and meeting dial-in from your workplace') })])]), bar]));
+    root.appendChild(h('header', { class: 'qp-head' }, [h('div', { class: 'qp-title' }, [h('span', { class: 'qp-logo', 'aria-hidden': 'true', text: '☎' }), h('div', {}, [h('h1', { text: I18n.t('Qorlla Phone') }), h('p', { class: 'muted', text: I18n.t('Calls and meeting dial-in from your workplace') }), h('p', { class: 'qp-msub', text: I18n.t('Call, video call and connect globally') })])]), h('div', { class: 'qp-topsearch' }, [h('input', { type: 'search', id: 'qpTopSearch', enterkeyhint: 'search', 'aria-label': I18n.t('Search by name, email or number'), placeholder: I18n.t('Search by name, email or number'), maxlength: '80', autocomplete: 'off' })]), bar]));
     root.appendChild(helpBox); root.appendChild(grid); root.appendChild(alt); viewEl.appendChild(root);
-    tabs.forEach(function (t) { var b = h('button', { type: 'button', role: 'tab', id: 'phTab-' + t[0], 'data-tab': t[0], 'aria-selected': String(t[0] === cur), tabindex: t[0] === cur ? '0' : '-1', text: I18n.t(t[1]), onclick: function () { select(t[0]); } }); bar.appendChild(b); });
+    var TABICON = { dial: 'M5 4h3v3H5zM10.5 4h3v3h-3zM16 4h3v3h-3zM5 9.5h3v3H5zM10.5 9.5h3v3h-3zM16 9.5h3v3h-3zM10.5 15h3v3h-3z', join: 'M4 7h11v10H4zM15 10l5-3v10l-5-3z', recent: 'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 8v4.5l3 2', contacts: 'M12 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4.5 20a7.5 7.5 0 0 1 15 0', settings: 'M4 5h16v14H4zM4 10h16M9 10v9', preferences: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1' };
+    tabs.forEach(function (t) { var ic = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); ic.setAttribute('viewBox', '0 0 24 24'); ic.setAttribute('class', 'qp-ti'); ic.setAttribute('aria-hidden', 'true'); var pa = document.createElementNS('http://www.w3.org/2000/svg', 'path'); pa.setAttribute('d', TABICON[t[0]] || ''); ic.appendChild(pa);
+      var b = h('button', { type: 'button', role: 'tab', id: 'phTab-' + t[0], 'data-tab': t[0], 'aria-selected': String(t[0] === cur), tabindex: t[0] === cur ? '0' : '-1', onclick: function () { select(t[0]); } }, [ic, h('span', { class: 'qp-tl', text: I18n.t(t[1]) })]); bar.appendChild(b); });
     bar.addEventListener('keydown', function (e) { var bs = Array.prototype.slice.call(bar.children), i = bs.indexOf(document.activeElement); if (i < 0) return; var to = { ArrowRight: (i + 1) % bs.length, ArrowLeft: (i + bs.length - 1) % bs.length }[e.key]; if (to === undefined) return; e.preventDefault(); bs[to].focus(); select(bs[to].dataset.tab); });
+    (function () { var ts = document.getElementById('qpTopSearch'); if (!ts) return;
+      ts.addEventListener('keydown', function (e) { if (e.key !== 'Enter') return; e.preventDefault(); var v = ts.value.trim(); if (!v) return;
+        if (/^[+\d][\d\s().-]*$/.test(v)) { select('dial'); if (dialCard && dialCard._set) dialCard._set(v.replace(/[^\d+]/g, '')); }
+        else { select('contacts'); setTimeout(function () { var c = document.querySelector('#phPanel input[type=search], #phPanel input[type=text]'); if (c) { c.value = v; c.dispatchEvent(new Event('input', { bubbles: true })); } }, 150); } }); })();
     function getInfo() { return info ? Promise.resolve(info) : phoneApi('/api/phone/dial-in-numbers').then(function (d) { info = d; return d; }); }
     function getCalls() { return calls ? Promise.resolve(calls) : phoneApi('/api/phone/calls/history').then(function (d) { calls = d.calls || []; return calls; }); }
     function select(t) {
@@ -2990,9 +3053,10 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
       var mobileDial = window.matchMedia('(max-width: 760px)').matches;
       var numberDrop = h('details', { class: 'qp-dial-drop', id: 'qpNumberDrop' }, [h('summary', { text: I18n.t('Enter a number') }), sel, h('div', { class: 'qp-numin' }, [input, clear]), hint]);
       var padDrop = h('details', { class: 'qp-dial-drop', id: 'qpPadDrop' }, [h('summary', { text: I18n.t('Dial Pad') }), keys]);
-      numberDrop.open = !mobileDial; padDrop.open = !mobileDial;
+      numberDrop.open = true; padDrop.open = true;
+      var bsp = h('button', { type: 'button', class: 'qp-bsp', 'aria-label': I18n.t('Delete last digit'), text: '\u232B', onclick: function () { del.click(); } }); numberDrop.querySelector('.qp-numin').appendChild(bsp);
       dialCard.appendChild(numberDrop); dialCard.appendChild(padDrop);
-      padDrop.appendChild(h('div', { class: 'qp-callrow' }, [copy, call, del])); dialCard.appendChild(liveBox); dialCard.appendChild(note);
+      padDrop.appendChild(h('div', { class: 'qp-callrow' }, [copy, call, del, h('button', { type: 'button', class: 'qp-vcall', id: 'phVideoCall', text: I18n.t('Video Call'), title: I18n.t('Start a Qorlla video meeting'), onclick: function () { if (typeof newMeeting === 'function') newMeeting(); } })])); dialCard.appendChild(liveBox); dialCard.appendChild(note);
       dialCard.appendChild(h('label', { class: 'qp-lbl', for: 'qpCallerId', text: I18n.t('Your caller ID') })); dialCard.appendChild(caller);
       getInfo().then(function () { paint(); if (info.carrierCalling) note.textContent = ''; }).catch(function () { /* the note already explains */ });
       paint();
