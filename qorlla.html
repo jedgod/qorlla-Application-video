@@ -4339,7 +4339,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
 
     function stFit() {
       var g = grid; if (!root.classList.contains('qp-station') || !window.matchMedia('(min-width: 701px)').matches || !g.offsetParent) { root.style.removeProperty('height'); g.style.removeProperty('--sh'); return; }
-      root.style.height = ''; var top = root.getBoundingClientRect().top, h = Math.max(480, window.innerHeight - top - 46); root.style.height = h + 'px'; g.style.setProperty('--sh', Math.max(440, h - 26) + 'px');
+      root.style.height = ''; var top = root.getBoundingClientRect().top, h = Math.max(480, window.innerHeight - top - 26); root.style.height = h + 'px'; g.style.setProperty('--sh', Math.max(440, h - 26) + 'px');
     }
     window.addEventListener('resize', stFit);
     function placeList() { var d = window.matchMedia('(min-width: 701px)').matches; if (d) { if (dialList.parentNode !== dialCard) dialCard.appendChild(dialList); } else if (dialList.parentNode === dialCard) grid.insertBefore(dialList, joinCard); }
