@@ -1121,6 +1121,10 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
   html body .qp .qp-stripsel { display:block; width:100%; height:44px; margin:8px 0 10px; border-radius:12px; padding:0 12px; font:inherit; font-size:15px; background:rgba(255,255,255,.08); color:#f4f0ff; border:1px solid rgba(167,139,250,.5); }
   html body .qp .ps-nav, html body .qp .qp-filters[aria-label="Help sections"], html body .qp [aria-label="Diagnostics"].qp-filters { display:none !important; }
 }
+
+/* Chat and Clips inside the phone shell */
+#view.embed-open { padding:0 !important; overflow:hidden !important; }
+iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var(--safe-b, 0px)); height:calc(100vh - 110px - var(--safe-b, 0px)); border:0; border-radius:14px; background:#0a0518; }
 </style>
 
 <style id="call-screen">
@@ -2003,6 +2007,8 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
       if (n.dataset.view === view) n.setAttribute('aria-current', 'page');
       else n.removeAttribute('aria-current');
     });
+    document.querySelectorAll('.nav-item[data-act=chat]').forEach(function (n) { n.classList.toggle('active', view === 'chat'); });
+    document.querySelectorAll('.nav-item[data-href]').forEach(function (n) { n.classList.toggle('active', view === 'clips' && n.dataset.href === '/clips/'); });
     $('content').classList.toggle('wide', view !== 'home');
     document.body.classList.toggle('on-home', view === 'home');          // the Workspace overview panel (and its [ |] toggles) exist on Home only
     viewEl.textContent = '';
@@ -2260,6 +2266,20 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
   // =====================================================================
   // WHITEBOARD
   // =====================================================================
+  // Phones: Chat and Clips open INSIDE the workspace (same-origin frame), so the bottom navigation (Home, Chat, Phone, Docs, Clips, More) stays on every page and the Android app draws no close button over them.
+  function phoneShell() { return !!(window.matchMedia && window.matchMedia('(max-width: 700px)').matches); }
+  var EMBED_DARK = 'html,body{background:#0a0518!important;color:#f4f0ff!important}.sidebar,.main,.chat-header,.messages,.chat-input,.composer,.empty,.modal,.panel,.card,[class*="drawer"],[class*="menu"]{background:#120928!important;color:#f4f0ff!important;border-color:rgba(167,139,250,.28)!important}button:not(.plus-btn):not([class*="primary"]):not([class*="send"]){background:rgba(255,255,255,.09)!important;color:#f4f0ff!important;border-color:rgba(167,139,250,.35)!important}input,textarea,select{background:rgba(255,255,255,.08)!important;color:#f4f0ff!important;border-color:rgba(167,139,250,.45)!important}.muted,small,[class*="sub"],[class*="preview"],[class*="time"]{color:#bfb2e6!important}.back,.crumbs,#crumbs{display:none!important}.sidebar{width:100%!important;border-right:0!important}';
+  function embedView(src, label, darken) {
+    viewEl.textContent = ''; viewEl.classList.add('embed-open');
+    var f = document.createElement('iframe'); f.className = 'embed-frame'; f.title = label; f.setAttribute('loading', 'eager'); f.src = src;
+    f.addEventListener('load', function () { try { var d = f.contentDocument; if (!d || !d.head) return; var st = d.createElement('style'); st.textContent = darken ? EMBED_DARK : '.back{display:none!important}'; d.head.appendChild(st); if (!darken) { d.documentElement.classList.add('dark'); d.documentElement.style.colorScheme = 'dark'; } } catch (e) { /* cross-origin: leave it as it is */ } });
+    // the workspace and Chat share ONE tab lock per account: while Chat is shown inside the workspace the workspace steps aside (it holds a different, harmless lock), and takes its own back when you leave
+    var uid = state.user && state.user.id, guard = !!(darken && uid && window.QorllaSingleTab);
+    if (guard) QorllaSingleTab.start('embed:' + uid, { root: '.app' });
+    viewEl.appendChild(f); cleanup = function () { viewEl.classList.remove('embed-open'); if (guard) setTimeout(function () { if (!document.querySelector('iframe.embed-frame')) QorllaSingleTab.start(uid, { root: '.app' }); }, 500); };
+  }
+  VIEWS.chat = function () { embedView('chat.html', 'Chat', true); };
+  VIEWS.clips = function () { embedView('/clips/', 'Clips', false); };
   VIEWS.whiteboard = function (opts) {
     if (!state.user) return gate(I18n.t('Whiteboards'), 'your whiteboards');
     return api('/whiteboard').then(function (boards) {
@@ -4181,7 +4201,7 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
         tile('history', 'blue', I18n.t('History'), 'Past meetings and calls', function () { show('history'); })
       ]],
       ['Collaborate', [
-        tile('chat', 'violet', I18n.t('Chat'), 'Direct messages, channels and spaces', function () { window.location.href = 'chat.html'; }),
+        tile('chat', 'violet', I18n.t('Chat'), 'Direct messages, channels and spaces', function () { act('chat'); }),
         tile('mail', 'blue', I18n.t('Mail'), 'Read and send messages', function () { show('mail'); }),
         tile('board', 'green', I18n.t('Whiteboards'), 'Draw and save boards', function () { show('whiteboard'); }),
         tile('notes', 'green', 'My Notes', 'Notes that save as you type', function () { show('notes'); })
@@ -5176,13 +5196,13 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
     var n = e.target.closest('.nav-item[data-view]');
     if (n) show(n.dataset.view, n.dataset.view === 'schedule' ? { open: true } : undefined);   // only an explicit click opens the quick-create card
     var l = e.target.closest('.nav-item[data-href]');
-    if (l) location.href = l.dataset.href;
+    if (l) { if (phoneShell() && l.dataset.href === '/clips/') show('clips'); else location.href = l.dataset.href; }
   });
   document.addEventListener('keydown', function (e) {
     var t = e.target.closest && e.target.closest('[data-act],.nav-item[data-view],.nav-item[data-href]');
     if (t && (e.key === 'Enter' || e.key === ' ') && e.target === t) {
       e.preventDefault();
-      if (t.dataset.act) act(t.dataset.act); else if (t.dataset.href) location.href = t.dataset.href; else show(t.dataset.view, t.dataset.view === 'schedule' ? { open: true } : undefined);
+      if (t.dataset.act) act(t.dataset.act); else if (t.dataset.href) { if (phoneShell() && t.dataset.href === '/clips/') show('clips'); else location.href = t.dataset.href; } else show(t.dataset.view, t.dataset.view === 'schedule' ? { open: true } : undefined);
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') { e.preventDefault(); $('searchInput').focus(); }
     var src = (e.composedPath && e.composedPath()[0]) || e.target, tag = (src && src.tagName) || '';          // the real target, also inside the Docs module's shadow root
@@ -5191,7 +5211,7 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
   function act(name) {
     if (name === 'meet' || name === 'share') openDialog('new');
     else if (name === 'join') openDialog('join');
-    else if (name === 'chat') window.location.href = 'chat.html';
+    else if (name === 'chat') { if (phoneShell()) show('chat'); else window.location.href = 'chat.html'; }
     else if (name === 'schedule') show(name, { open: true });
     else show(name);
   }
