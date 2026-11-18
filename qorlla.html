@@ -778,12 +778,9 @@
   /* phones: the bottom tab bar is in assets/product.css. Every page opened from it is its own page with a close button that goes back to the page before. */
   @media (max-width: 700px) {
     /* every page opened from a tab is its own page with a close button that goes back to the page before */
-    .view-close { display: none; }
-    body.page-open .view-close { display: flex; position: fixed; top: 8px; right: 10px; z-index: 40; width: 48px; height: 48px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--ink, #131a2a); font-size: 24px; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(19,26,42,.18); }
     body.page-open #view { padding-top: 14px; }   /* the close button sits in the breadcrumb row above the page, so the page needs no 56px reserve */
     body[data-page=workspace].page-open .topbar { display: none; }
   }
-  @media (min-width: 701px) { .view-close { display: none; } }
 </style>
   <script src="locales/es.js"></script>
   <script src="locales/fr.js"></script>
@@ -1051,7 +1048,6 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
 
     <div class="content" id="content">
       <button class="overview-edge" id="aiEdge" type="button" aria-label="Show workspace overview" aria-controls="aiPanel" aria-expanded="false" title="Show workspace overview"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
-      <button class="view-close" id="viewClose" type="button" aria-label="Close and go back"><span aria-hidden="true">&times;</span></button>
       <main class="center" id="view" tabindex="-1"></main>
 
       <aside class="ai-panel" id="aiPanel">
@@ -4957,7 +4953,6 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
     else show(name);
   }
   function closePage() { state.closing = true; try { show(state.stack.pop() || 'home'); } finally { state.closing = false; } }
-  $('viewClose').addEventListener('click', closePage);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && state.view !== 'home' && !document.querySelector('dialog[open]')) closePage(); });
   $('searchForm').addEventListener('submit', function (e) { e.preventDefault(); show('search', { q: $('searchInput').value.trim() }); });
   $('bellBtn').addEventListener('click', function () {
