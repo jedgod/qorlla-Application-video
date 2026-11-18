@@ -61,6 +61,7 @@ export class QorllaVoiceClient {
   }
   reset() {
     this.pc = null; this.stream = null; this.callId = null; this.role = null; this.remote = null; this.pendingOffer = null; this.pendingIce = []; this.remoteSet = false; this.muted = false; this.startedAt = null;
+    this.cam = null; this.camSender = null; this.videoState = 'off'; this.videoTimer = null; this.pendingVideo = null; this.consent = false; this.ctl = null; this.remoteVideo = null;
     this.generation = 0; this.peerGen = 0; this.makingOffer = false; this.offerer = false; this.restarts = 0; this.leaseTimer = null; this.watch = null; this.graceTimer = null;
   }
   resetRoom() { this.room = null; this.roomGen = 0; this.roomStream = null; this.roomLease = null; }
@@ -175,13 +176,14 @@ export class QorllaVoiceClient {
       if (!this.pc) { this.pendingOffer = m; this.emit({ type: 'offer_pending', callId: m.callId }); return; }
       return this.acceptOffer(m);
     }
-    if (m.type === 'answer' && m.sdp && this.pc && this.pc.signalingState === 'have-local-offer') { await this.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }); await this.markRemoteSet(); }
+    if (m.type === 'answer' && m.sdp && this.pc && this.pc.signalingState === 'have-local-offer') { await this.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }); await this.markRemoteSet(); if (this.videoState === 'requesting') this.afterVideoAnswer(); }
     if (m.type === 'ice' && this.pc) { if (this.remoteSet) await this.addCandidate(m.candidate); else if (this.pendingIce.length < 200) this.pendingIce.push(m.candidate); }   // candidates can outrun the offer or answer
   }
   async addCandidate(c) { try { await this.pc.addIceCandidate(c === null ? undefined : c); } catch { /* a stale or unusable candidate must not end the call */ } }
   async markRemoteSet() { this.remoteSet = true; const buffered = this.pendingIce.splice(0); for (const c of buffered) await this.addCandidate(c); }
   /** Perfect negotiation: the callee is polite. If both sides offer at once the polite side yields; the other side ignores the colliding offer. */
   async acceptOffer(m) {
+    if (/\nm=video /.test(m.sdp) && this.videoState === 'off' && !this.consent) { this.pendingVideo = m; this.emit({ type: 'video_request', callId: m.callId }); clearTimeout(this.videoTimer); this.videoTimer = setTimeout(() => { if (this.pendingVideo === m) this.declineVideo().catch(() => {}); }, 30000); return; }
     const polite = this.role === 'callee', collision = this.makingOffer || this.pc.signalingState !== 'stable';
     if (collision && !polite) return;
     await this.pc.setRemoteDescription({ type: 'offer', sdp: m.sdp }); await this.markRemoteSet();
@@ -206,7 +208,8 @@ export class QorllaVoiceClient {
   buildPc(iceServers, iceTransportPolicy) {
     const pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: iceTransportPolicy || 'all' }); this.pc = pc; this.remoteSet = false; this.pendingIce = []; this.makingOffer = false;
     this.stream.getTracks().forEach((t) => { t.enabled = !this.muted; pc.addTrack(t, this.stream); });
-    pc.ontrack = (ev) => { if (!this.remote) { const a = document.createElement('audio'); a.autoplay = true; a.playsInline = true; a.style.display = 'none'; document.body.appendChild(a); this.remote = a; } this.remote.srcObject = ev.streams[0] || new MediaStream([ev.track]); this.remote.play().catch(() => this.emit({ type: 'audio_play_blocked' })); };
+    try { const ch = pc.createDataChannel('qorlla-control', { negotiated: true, id: 1 }); this.ctl = ch; ch.onmessage = (ev) => this.onControl(ev.data); } catch { this.ctl = null; }
+    pc.ontrack = (ev) => { if (ev.track.kind === 'video') { this.remoteVideo = new MediaStream([ev.track]); this.emit({ type: 'remote_video', stream: this.remoteVideo }); ev.track.onended = () => this.emit({ type: 'remote_video_ended' }); return; } if (!this.remote) { const a = document.createElement('audio'); a.autoplay = true; a.playsInline = true; a.style.display = 'none'; document.body.appendChild(a); this.remote = a; } this.remote.srcObject = ev.streams[0] || new MediaStream([ev.track]); this.remote.play().catch(() => this.emit({ type: 'audio_play_blocked' })); };
     pc.onicecandidate = (ev) => { if (pc !== this.pc) return; try { this.send({ type: 'ice', callId: this.callId, generation: this.generation, candidate: ev.candidate ? ev.candidate.toJSON() : null }); } catch { /* signaling is down: the existing media path may still work */ } };
     pc.oniceconnectionstatechange = () => { if (pc === this.pc && (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed')) { clearTimeout(this.watch); this.restarts = 0; } };
     pc.onconnectionstatechange = () => {
@@ -279,6 +282,55 @@ export class QorllaVoiceClient {
     if (this.callId === m.upgrade.callId) this.cleanup();
     try { const room = await this.joinRoom(m.room.id); this.emit({ type: 'call_upgraded', room }); }
     catch (e) { this.emit({ type: 'upgrade_failed', roomId: m.room.id, error: String(e && e.message || e) }); }
+  }
+  // ------------------------------------------------------------------------------------------------ video inside the same call (no second connection, no second signaling path)
+  /** Asks to add video. The other person is asked first; nothing is shown to them until they accept. The camera is opened here, once. */
+  async requestVideo() {
+    if (!this.pc || !this.callId || this.videoState !== 'off') throw Error('video_not_available');
+    let cam; try { cam = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false }); } catch (e) { this.emit({ type: 'camera_error', name: e && e.name || 'error' }); throw e; }
+    this.cam = cam; const t = cam.getVideoTracks()[0]; this.camSender = this.pc.addTrack(t, cam); this.videoState = 'requesting';
+    this.emit({ type: 'video_requesting', stream: cam });
+    clearTimeout(this.videoTimer); this.videoTimer = setTimeout(() => { if (this.videoState === 'requesting') this.stopVideo('no_answer'); }, 30000);
+    await this.sendOffer();
+  }
+  afterVideoAnswer() {
+    clearTimeout(this.videoTimer);
+    const tr = this.pc.getTransceivers().find((x) => x.sender === this.camSender);
+    const refused = !tr || tr.currentDirection === 'stopped' || tr.currentDirection === 'inactive' || tr.currentDirection === null;
+    if (refused) { this.stopVideo('declined'); return; }
+    this.videoState = 'on'; this.consent = true; this.emit({ type: 'video_started', stream: this.cam });
+  }
+  /** The other person answers a video request: accept (optionally sending their own camera) or decline. */
+  async acceptVideo({ camera = true } = {}) {
+    const m = this.pendingVideo; if (!m || !this.pc) return; this.pendingVideo = null; clearTimeout(this.videoTimer);
+    let cam = null; if (camera) { try { cam = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false }); } catch (e) { this.emit({ type: 'camera_error', name: e && e.name || 'error' }); } }
+    await this.pc.setRemoteDescription({ type: 'offer', sdp: m.sdp }); await this.markRemoteSet();
+    const tr = this.pc.getTransceivers().find((x) => x.receiver.track && x.receiver.track.kind === 'video' && x.currentDirection !== 'stopped');
+    if (tr && cam) { this.cam = cam; this.camSender = tr.sender; await tr.sender.replaceTrack(cam.getVideoTracks()[0]); tr.direction = 'sendrecv'; } else if (tr) tr.direction = 'recvonly';
+    this.consent = true; this.videoState = 'on';
+    const answer = await this.pc.createAnswer(); await this.pc.setLocalDescription(answer); this.send({ type: 'answer', callId: this.callId, generation: this.generation, sdp: answer.sdp });
+    this.emit({ type: 'video_started', stream: this.cam || null });
+  }
+  async declineVideo() {
+    const m = this.pendingVideo; if (!m || !this.pc) return; this.pendingVideo = null; clearTimeout(this.videoTimer);
+    await this.pc.setRemoteDescription({ type: 'offer', sdp: m.sdp }); await this.markRemoteSet();
+    this.pc.getTransceivers().forEach((x) => { if (x.receiver.track && x.receiver.track.kind === 'video' && x.currentDirection !== 'stopped') { try { x.stop(); } catch { /* already stopped */ } } });
+    const answer = await this.pc.createAnswer(); await this.pc.setLocalDescription(answer); this.send({ type: 'answer', callId: this.callId, generation: this.generation, sdp: answer.sdp });
+    this.emit({ type: 'video_stopped', reason: 'you_declined' });
+  }
+  /** Stops OUR camera. The connection and the audio carry on; the other side is told over the call's own control channel. */
+  stopVideo(reason = 'stopped') {
+    clearTimeout(this.videoTimer); this.cam?.getTracks().forEach((t) => t.stop());
+    try { if (this.camSender && this.pc && this.pc.signalingState !== 'closed') this.camSender.replaceTrack(null).catch(() => {}); } catch { /* closed */ }
+    const was = this.videoState; this.cam = null; this.videoState = 'off'; this.consent = reason === 'stopped' ? this.consent : false;
+    this.control({ t: 'video_off' }); if (was !== 'off') this.emit({ type: 'video_stopped', reason });
+  }
+  /** Small messages to the other person's page, over the call's own channel (no extra server path). */
+  control(obj) { try { if (this.ctl && this.ctl.readyState === 'open') this.ctl.send(JSON.stringify(obj)); } catch { /* channel closed */ } }
+  onControl(raw) {
+    let m; try { m = JSON.parse(raw); } catch { return; } if (!m || typeof m.t !== 'string' || m.t.length > 32) return;
+    if (m.t === 'video_off') { this.emit({ type: 'remote_video_ended' }); return; }
+    if (['move_req', 'move_ok', 'move_no', 'move_cancel'].includes(m.t)) this.emit({ type: 'control', t: m.t, meetingId: typeof m.meetingId === 'string' ? m.meetingId.slice(0, 20) : '', topic: typeof m.topic === 'string' ? m.topic.slice(0, 120) : '' });
   }
   setMuted(muted) {
     this.muted = !!muted;
@@ -413,6 +465,7 @@ export class QorllaVoiceClient {
   /** Per-member statistics for a room. */
   async roomStats() { const out = {}; for (const [account, p] of this.peers) out[account] = await this.stats(p.pc); return out; }
   cleanup() {
+    clearTimeout(this.videoTimer); this.cam?.getTracks().forEach((t) => t.stop()); if (this.videoState !== 'off') this.emit({ type: 'video_stopped', reason: 'call_ended' });
     clearInterval(this.leaseTimer); clearTimeout(this.watch); clearTimeout(this.graceTimer);
     this.stream?.getTracks().forEach((t) => t.stop()); try { this.pc?.close(); } catch { /* already closed */ } this.remote?.remove(); this.reset();
   }

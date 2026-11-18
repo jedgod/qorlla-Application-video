@@ -1507,6 +1507,27 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
   html body .qp.qp-station > .qp-grid { grid-template-columns:clamp(260px, 22vw, 340px) minmax(0, 1fr) clamp(200px, 15vw, 230px) !important; }
 }
 @media (min-width:701px) and (max-width:1200px) { html body .qp.qp-station > .qp-grid { grid-template-columns:clamp(240px, 28vw, 300px) minmax(0, 1fr) !important; } }
+
+/* Phone video + move to meeting */
+.qv-stage { display:none; }
+.va-ask { padding:20px 22px !important; background:linear-gradient(160deg,#2a1260,#120a2a) !important; color:#fff; border:1px solid rgba(167,139,250,.55) !important; border-radius:18px !important; text-align:left; }
+.va-ask h2 { font-size:17px; margin:0 0 6px; } .va-ask .vi-sub { color:#d9ccff; font-size:13px; margin:0 0 14px; } .va-btns { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; } .va-ask .btn { background:rgba(255,255,255,.1); color:#fff; border:1px solid rgba(167,139,250,.5); } .va-ask .btn.primary { background:linear-gradient(160deg,#8b3dff,#5b21d6); } .va-ask .btn.danger { background:#c81e3a; border-color:#c81e3a; } .va-ask::backdrop { background:rgba(10,5,24,.6); }
+.vmb { position:fixed; inset:12px auto auto 50%; margin:0; transform:translateX(-50%); z-index:200; overflow:visible; display:flex; align-items:center; gap:10px; flex-wrap:wrap; max-width:min(720px, calc(100vw - 24px)); padding:10px 14px; border-radius:14px; background:#1d0f40; color:#fff; border:1px solid rgba(167,139,250,.6); box-shadow:0 14px 40px rgba(0,0,0,.5); font-size:13px; } .vmb.hidden { display:none; } .vmb .btn { background:rgba(255,255,255,.1); color:#fff; border:1px solid rgba(167,139,250,.5); } .vmb .btn.primary { background:linear-gradient(160deg,#8b3dff,#5b21d6); }
+body.qv-on .qv-stage { display:block; position:relative; }
+@media (min-width:701px) { .qv-mob { display:none !important; } }
+body.qv-on .qv-stage .qv-remote { display:none; width:100%; height:100%; object-fit:cover; background:#000; border-radius:16px; } body.qv-remote-on .qv-stage .qv-remote { display:block; }
+body.qv-on .qv-stage .qv-local { display:none; position:absolute; right:8px; bottom:8px; width:26%; aspect-ratio:4/3; object-fit:cover; border-radius:10px; border:2px solid rgba(255,255,255,.7); background:#000; transform:scaleX(-1); } body.qv-local-on .qv-stage .qv-local { display:block; }
+body.qv-on:not(.qv-remote-on) .qv-stage:not(.qv-mob) .qv-local { position:static; width:60%; margin:0 auto; }
+@media (min-width:701px) {
+  body.qv-on .qp-stage .qv-stage { width:min(92%, 520px); aspect-ratio:16/9; margin:6px 0; flex:0 0 auto; }
+  body.qv-on .qp-stage .st-avatar { display:none; }
+  .qp-vsplit { position:relative; display:flex; gap:0; width:100%; } .qp-vsplit .qp-vcall { flex:1 1 auto; border-radius:21px 0 0 21px !important; } .qp-vsplit .qp-vmore { flex:0 0 40px; border:1.5px solid rgba(190,170,255,.55); border-left:0; border-radius:0 21px 21px 0; background:rgba(255,255,255,.06); color:#fff; cursor:pointer; font-size:14px; } .qp-vsplit .qp-vmore:disabled { opacity:.5; cursor:default; }
+  .qp-vmenu { position:absolute; left:0; right:0; bottom:calc(100% + 6px); z-index:6; display:flex; flex-direction:column; padding:4px; border-radius:12px; background:#1d0f40; border:1px solid rgba(167,139,250,.55); box-shadow:0 12px 30px rgba(0,0,0,.5); } .qp-vmenu.hidden { display:none; } .qp-vmenu button { text-align:left; padding:9px 12px; border:0; border-radius:8px; background:transparent; color:#f4f0ff; font:inherit; font-size:13px; cursor:pointer; } .qp-vmenu button:hover, .qp-vmenu button:focus-visible { background:rgba(139,92,246,.35); outline:none; }
+}
+@media (max-width:700px) {
+  #voiceBar .qv-stage.qv-mob { width:min(94vw, 420px); aspect-ratio:3/4; margin:10px auto 0; flex:0 1 auto; max-height:46vh; } body.qv-on #voiceBar .vbs-avatar { display:none; }
+  .qp-vsplit { display:contents; } .qp-vmore, .qp-vmenu { display:none; }
+}
 </style>
 </head>
 <body data-page="workspace">
@@ -1697,6 +1718,11 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
   <div id="homeHistory"></div>
 </template>
 
+<dialog id="voiceAsk" class="vi va-ask" aria-labelledby="vaskT">
+  <h2 id="vaskT"></h2><p id="vaskB" class="vi-sub"></p>
+  <div class="va-btns"><button type="button" class="btn danger" id="vaskNo">Decline</button><button type="button" class="btn" id="vaskAlt" hidden></button><button type="button" class="btn primary" id="vaskYes">Accept</button></div>
+</dialog>
+<div id="voiceMoveBar" class="vmb hidden" popover="manual" role="status" aria-live="polite"><span id="vmbText"></span><button type="button" class="btn small primary" id="vmbNow">End phone call now</button><button type="button" class="btn small" id="vmbStay">Stay on the phone call</button></div>
 <dialog id="voiceIncoming" class="vi vi-call" aria-labelledby="viTitle" aria-describedby="viWho">
   <button type="button" class="vi-x" id="viClose" aria-label="Decline and close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
   <div class="vi-top" aria-hidden="true"><svg viewBox="0 0 32 32" class="vi-logo"><circle cx="15" cy="15" r="10" fill="none" stroke="#a855f7" stroke-width="5"/><path d="m21 21 7 7" stroke="#a855f7" stroke-width="5" stroke-linecap="round"/></svg><span>Qorlla</span></div>
@@ -1733,12 +1759,13 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
   <div class="vbs-top" aria-hidden="true"><svg viewBox="0 0 32 32" class="vbs-logo"><circle cx="15" cy="15" r="10" fill="none" stroke="#a855f7" stroke-width="5"/><path d="m21 21 7 7" stroke="#a855f7" stroke-width="5" stroke-linecap="round"/></svg><span>Qorlla</span></div>
   <div class="vbs-time" aria-hidden="true"><svg viewBox="0 0 24 24" class="vbs-sig"><rect x="3" y="14" width="3.5" height="6" rx="1"/><rect x="9" y="10" width="3.5" height="10" rx="1"/><rect x="15" y="5" width="3.5" height="15" rx="1"/></svg><span id="vbsTime"></span></div>
   <button type="button" class="vbs-add hidden" id="vbsAdd" aria-label="Add person"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="3.5"/><path d="M3.5 20a6.5 6.5 0 0 1 13 0M19 6v6M16 9h6"/></svg></button>
+  <div class="qv-stage qv-mob" aria-label="Video"><video class="qv-remote" autoplay playsinline></video><video class="qv-local" autoplay playsinline muted></video></div>
   <div class="vbs-avatar" aria-hidden="true"><span class="vbs-ring r1"></span><span class="vbs-ring r2"></span><span class="vbs-ring r3"></span><div class="vbs-face" id="vbsFace">Q</div></div>
   <h2 class="vbs-name" id="vbsName"></h2>
   <p class="vbs-num" id="vbsNum"></p>
   <div class="vbs-grid" role="group" aria-label="Call controls">
     <div class="vbs-act"><button type="button" class="vbs-btn" id="vbsMute" aria-label="Mute"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button><span>Mute</span></div>
-    <div class="vbs-act"><button type="button" class="vbs-btn vbs-off" id="vbsVideo" aria-label="Video" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h12v10H3zM15 10l6-3v10l-6-3z"/></svg></button><span>Video</span></div>
+    <div class="vbs-act"><button type="button" class="vbs-btn" id="vbsVideo" aria-label="Video"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h12v10H3zM15 10l6-3v10l-6-3z"/></svg></button><span>Video</span></div>
     <div class="vbs-act"><button type="button" class="vbs-btn vbs-off" id="vbsSpeaker" aria-label="Speaker" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h4l5-4v13l-5-4H4zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg></button><span>Speaker</span></div>
     <div class="vbs-act"><button type="button" class="vbs-btn vbs-off" id="vbsKeypad" aria-label="Keypad" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="1.4"/><circle cx="12" cy="6" r="1.4"/><circle cx="18" cy="6" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/><circle cx="6" cy="18" r="1.4"/><circle cx="12" cy="18" r="1.4"/><circle cx="18" cy="18" r="1.4"/></svg></button><span>Keypad</span></div>
     <div class="vbs-act"><button type="button" class="vbs-btn vbs-off" id="vbsRecord" aria-label="Record" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg></button><span>Record</span></div>
@@ -3534,7 +3561,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       function paint() {
         input.value = num; var n = e164(), ext = isExt() || isAlias(); clear.classList.toggle('hidden', !num); copy.disabled = !num; del.disabled = !num;
         hint.textContent = !num ? (voice.state === 'verify' ? I18n.t('Verify your email address to use Qorlla Voice (Settings, Account).') : voice.state === 'suspended' ? I18n.t('Your account is suspended.') : '') : ext ? extHint() : (n && !(info && info.carrierCalling)) ? I18n.t('Public telephone numbers are not available: Qorlla calls internal extensions only.') + ' (' + n + ')' : n ? I18n.t('Will call') + ' ' + n : I18n.t('Enter a valid phone number (7 to 15 digits).');
-        var vcb = document.getElementById('phVideoCall'); setTimeout(function () { if (vcb) { vcb.disabled = !!call.disabled; vcb.title = call.disabled ? I18n.t('Enter a valid colleague extension first') : I18n.t('Start a Qorlla video meeting'); } }, 0);
+        var vcb = document.getElementById('phVideoCall'), vcm = document.getElementById('phVideoMore'); setTimeout(function () { if (vcb) { vcb.disabled = !!call.disabled; vcb.title = call.disabled ? I18n.t('Enter a valid colleague extension first') : I18n.t('Call and ask to add video'); } if (vcm) vcm.disabled = !!call.disabled; }, 0);
         call.disabled = ext ? !(voice.ready && voice.client && !voice.client.callId && num !== voice.ext && (isAlias() || (voice.people || []).some(function (pp) { return !pp.self && pp.extension === num; })) && !isEmergency() && !(voice.features && voice.features.internalCalls === false)) : !(n && info && info.carrierCalling);
         myExt.textContent = voice.ready && voice.ext ? I18n.t('Your Qorlla extension') + ': ' + voice.ext + ' \u00B7 ' + I18n.t('internet calls to colleagues') + (voice.number ? ' \u00B7 ' + I18n.t('Your Qorlla number') + ': ' + (voice.number.e164 || '') : '') : voice.state === 'verify' ? I18n.t('Verify your email address to use Qorlla Voice.') : voice.state === 'suspended' ? I18n.t('Your account is suspended.') : '';
         if (voice.ready) note.textContent = I18n.t('Dial a colleague\u2019s extension (3 to 8 digits) for a free internet call. Calls to outside phone numbers need a telephony provider.'); else if (!(info && info.carrierCalling)) note.textContent = I18n.t('Calling is off: carrier calling requires a connected telephony provider and provisioned calling permissions.');
@@ -3590,6 +3617,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var mobileDial = window.matchMedia('(max-width: 760px)').matches;
       var numberDrop = h('details', { class: 'qp-dial-drop', id: 'qpNumberDrop' }, [h('summary', { text: I18n.t('Enter a number') }), sel, h('div', { class: 'qp-numin' }, [input, clear]), hint]);
       var padDrop = h('details', { class: 'qp-dial-drop', id: 'qpPadDrop' }, [h('summary', { text: I18n.t('Dial Pad') }), keys]);
+      document.addEventListener('click', function () { var vm = document.getElementById('phVideoMenu'); if (vm) vm.classList.add('hidden'); });
       numberDrop.open = true; padDrop.open = true;   // phones start with the keypad open; the desktop keypad opens when you tap the number
       var bsp = h('button', { type: 'button', class: 'qp-bsp', 'aria-label': I18n.t('Delete last digit'), text: '\u2297', onclick: function () { del.click(); } }); numberDrop.querySelector('.qp-numin').appendChild(bsp);
       var stTitle = h('h2', { class: 'qs-title', id: 'qsTitle', text: I18n.t('Qorlla Call Station') });
@@ -3610,7 +3638,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       dialCard.insertBefore(stTitle, dialCard.firstChild); dialCard.insertBefore(stSearch, stTitle.nextSibling); dialCard.insertBefore(qsTabs, stSearch.nextSibling);
       dialCard._qsView = qsView; root.classList.add("qs-v-dial");
       dialCard.appendChild(numberDrop); dialCard.appendChild(padDrop);
-      dialCard.appendChild(h('div', { class: 'qp-callrow' }, [copy, call, del, h('button', { type: 'button', class: 'qp-vcall', id: 'phVideoCall', text: I18n.t('Video Call'), title: I18n.t('Start a Qorlla video meeting'), onclick: function () { if (typeof newMeeting === 'function') newMeeting(); } })])); dialCard.appendChild(liveBox); dialCard.appendChild(note);
+      dialCard.appendChild(h('div', { class: 'qp-callrow' }, [copy, call, del, h('div', { class: 'qp-vsplit' }, [h('button', { type: 'button', class: 'qp-vcall', id: 'phVideoCall', text: I18n.t('Video Call'), title: I18n.t('Call and ask to add video'), onclick: function () { if (call.disabled) return; voice.autoVideo = true; call.click(); } }), h('button', { type: 'button', class: 'qp-vmore', id: 'phVideoMore', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': I18n.t('More video call options'), text: '\u25BE', onclick: function (ev) { ev.stopPropagation(); var m = document.getElementById('phVideoMenu'); m.classList.toggle('hidden'); this.setAttribute('aria-expanded', String(!m.classList.contains('hidden'))); } }), h('div', { class: 'qp-vmenu hidden', id: 'phVideoMenu', role: 'menu' }, [h('button', { type: 'button', role: 'menuitem', text: I18n.t('Video Call (Phone)'), onclick: function () { document.getElementById('phVideoMenu').classList.add('hidden'); document.getElementById('phVideoCall').click(); } }), h('button', { type: 'button', role: 'menuitem', text: I18n.t('Video Call (Qorlla Meeting)'), onclick: function () { document.getElementById('phVideoMenu').classList.add('hidden'); if (typeof newMeeting === 'function') newMeeting(); } })])])])); dialCard.appendChild(liveBox); dialCard.appendChild(note);
       dialCard.appendChild(h('label', { class: 'qp-lbl', for: 'qpCallerId', text: I18n.t('Your caller ID') })); dialCard.appendChild(caller);
       getInfo().then(function () { paint(); if (info.carrierCalling) note.textContent = ''; }).catch(function () { /* the note already explains */ });
       paint();
@@ -4397,13 +4425,15 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var endrow = el('div', 'st-endrow'); endrow.appendChild(end); endrow.appendChild(move);
       var dash = el('div', 'st-dash', '<div class="st-dash-t">' + I18n.t('Recent and favorite contacts') + '</div><div class="st-dash-chips" id="stChips"></div><div class="st-dash-row"><button type="button" class="st-open" id="stOpenMeet">' + SV('<path d="M3 7h12v10H3zM15 10l6-3v10l-6-3z"/>') + '<span>' + I18n.t('Open Qorlla Meeting') + '</span></button></div><ol class="st-how"><li>' + I18n.t('Dial an extension or pick a colleague') + '</li><li>' + I18n.t('Press Call') + '</li><li>' + I18n.t('Use the controls once connected') + '</li></ol>');
       var dock = el('button', 'st-dock', SV('<path d="m6 6 6 6-6 6M12 6l6 6-6 6"/>'), 'stDock'); dock.type = 'button'; dock.setAttribute('aria-label', I18n.t('Show or hide call details')); dock.setAttribute('aria-expanded', 'true'); dock.setAttribute('aria-controls', 'qpSide');
-      [top, time, av, nm, num, pill, badge, ctls, endrow, idle, dash, dock].forEach(function (n) { dialStage.appendChild(n); });
+      var vstage = el('div', 'qv-stage', '<video class="qv-remote" autoplay playsinline></video><video class="qv-local" autoplay playsinline muted></video>'); vstage.setAttribute('aria-label', I18n.t('Video'));
+      [top, time, vstage, av, nm, num, pill, badge, ctls, endrow, idle, dash, dock].forEach(function (n) { dialStage.appendChild(n); });
       // right-hand panels
       function row(k, id) { return '<div class="si-row"><span>' + k + '</span><b id="' + id + '"></b></div>'; }
       var info = el('div', 'si-card', '<h3>' + SV('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/>') + I18n.t('Call Information') + '</h3>' + row(I18n.t('Type'), 'siType') + row(I18n.t('Status'), 'siStatus') + row(I18n.t('Started'), 'siStarted') + row(I18n.t('Duration'), 'siDur') + row(I18n.t('Encryption'), 'siEnc') + row(I18n.t('Network'), 'siNet'));
       var parts = el('div', 'si-card si-parts', '<button type="button" class="si-phead" id="siPH" aria-expanded="true" aria-controls="siPB"><span class="si-ic">' + SV('<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 19a6 6 0 0 1 12 0M15.5 19a4.5 4.5 0 0 1 6 0"/>') + '</span><span id="siPT">' + I18n.t('Participants') + ' (0)</span><span class="si-chev">' + SV('<path d="m6 9 6 6 6-6"/>') + '</span></button><div class="si-pbody" id="siPB"><div class="si-pempty" id="siPE">' + SV('<circle cx="12" cy="8" r="3"/><circle cx="5.5" cy="10" r="2.2"/><circle cx="18.5" cy="10" r="2.2"/><path d="M6.5 19a5.5 5.5 0 0 1 11 0M1.5 18a4 4 0 0 1 4-3.5M22.5 18a4 4 0 0 0-4-3.5"/>') + '<span>' + I18n.t('No participants') + '</span></div><div class="si-prow hidden" id="siPR"><span class="si-pface" id="siPF">Q</span><span class="si-ptxt"><b id="siPN"></b><small id="siPS"></small></span><span class="si-mic">' + SV('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>') + '</span></div></div>');
       var acts = el('div', 'si-card', '<h3>' + SV('<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>') + I18n.t('Actions') + '</h3>');
       function sact(id, label, d, off, chev) { var b = el('button', 'si-act' + (off ? ' st-off' : ''), SV(d) + '<span>' + label + '</span>' + (chev ? '<i class="si-go">' + SV('<path d="m9 6 6 6-6 6"/>') + '</i>' : ''), id); b.type = 'button'; if (off) b.setAttribute('aria-disabled', 'true'); acts.appendChild(b); return b; }
+      sact('siMove', I18n.t('Move to Qorlla Meeting'), '<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 19a6 6 0 0 1 12 0M15.5 19a4.5 4.5 0 0 1 6 0"/>');
       sact('siAdd', I18n.t('Add Participant'), '<circle cx="10" cy="8" r="3.5"/><path d="M3.5 20a6.5 6.5 0 0 1 13 0M19 6v6M16 9h6"/>');
       sact('siHold', I18n.t('Hold / Resume'), '<rect x="7" y="5" width="3.5" height="14" rx="1"/><rect x="13.5" y="5" width="3.5" height="14" rx="1"/>');
       sact('siTransfer', I18n.t('Transfer Call'), '<path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/>', true);
@@ -4439,7 +4469,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
         $s('siDur').textContent = live && conn && t[1] ? fmt(parseInt(t[1], 10) * 60 + parseInt(t[2], 10)) : '\u2014';
         var pm = peer.match(/(\d+)\s+(?:people|persons)/i), pc2 = live ? (pm ? Math.max(1, parseInt(pm[1], 10) - 1) : 1) : 0;
         $s('siPT').textContent = I18n.t('Participants') + ' (' + pc2 + ')'; $s('siPE').classList.toggle('hidden', live); $s('siPR').classList.toggle('hidden', !live); $s('siPN').textContent = name; $s('siPS').textContent = conn ? I18n.t('In Call') : I18n.t('Connecting'); $s('siPS').className = conn ? 'ok' : ''; $s('siPF').textContent = $s('stFace').textContent;
-        if (!live) netShow(null); $s('siAdd').disabled = !live || document.getElementById('vbAdd').classList.contains('hidden'); $s('stMove').disabled = !live;
+        if (!live) netShow(null); $s('siAdd').disabled = !live || document.getElementById('vbAdd').classList.contains('hidden'); $s('stMove').disabled = !live; $s('siMove').disabled = !live; $s('stVideo').parentNode.lastChild.textContent = voice.video === 'on' || voice.video === 'requesting' ? I18n.t('Stop video') : I18n.t('Video'); $s('stVideo').setAttribute('aria-pressed', String(voice.video === 'on' || voice.video === 'requesting'));
         $s('stPill').classList.toggle('hidden', !(live && conn)); $s('stPillT').textContent = I18n.t('Connected') + (t[1] ? ' \u00B7 ' + (t[1] + ':' + t[2]) : '');
         $s('stAddP').disabled = !live || document.getElementById('vbAdd').classList.contains('hidden'); $s('stAddP').parentNode.classList.toggle('st-dim', $s('stAddP').disabled);
         var cn = dialSide.querySelector('.si-corner'); cn.classList.toggle('hidden', !live); if (live) { $s('scState').textContent = conn ? I18n.t('Connected') + (t[1] ? ' \u00B7 ' + t[1] + ':' + t[2] : '') : st.replace(/\u2026$/, '') + '\u2026'; $s('scState').className = 'sc-state' + (conn ? ' ok' : ''); $s('scName').textContent = name; $s('scNum').textContent = ext; $s('scFace').textContent = $s('stFace').textContent; }
@@ -4459,7 +4489,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       }
       paintChips(); voiceOff.push(voiceOn(paintChips)); setInterval(function () { if (!root.classList.contains('st-incall')) paintChips(); }, 15000);
       $s('stOpenMeet').addEventListener('click', function () { if (typeof openDialog === 'function') openDialog('join'); });
-      $s('stMove').addEventListener('click', function () { if (typeof newMeeting === 'function') { newMeeting(); toast(I18n.t('Started a Qorlla video meeting. Share its invitation to bring') + ' ' + ($s('stName').textContent || I18n.t('the other person')) + ' ' + I18n.t('in.')); } });
+      $s('stMove').addEventListener('click', function () { voiceMoveStart(); }); $s('siMove').addEventListener('click', function () { voiceMoveStart(); });
       $s('siAdd').addEventListener('click', function () { document.getElementById('vbAdd').click(); });
       $s('stPeople').addEventListener('click', function () { var pb = $s('siPH'); if (root.classList.contains('qs-narrow')) root.classList.add('qs-drawer-open'); if (pb && pb.getAttribute('aria-expanded') !== 'true') pb.click(); });
       // details panel: collapsible on wide screens, a drawer on small ones
@@ -4509,7 +4539,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
           { label: I18n.t('Message') + ' ' + nm, run: function () { $s('stChat').click(); } }
         ]);
       });
-      $s('stVideo').addEventListener('click', function () { if (typeof newMeeting === 'function') { newMeeting(); toast(I18n.t('Started a Qorlla video meeting. Share its invitation to bring') + ' ' + ($s('stName').textContent || I18n.t('the other person')) + ' ' + I18n.t('in.')); } });
+      $s('stVideo').addEventListener('click', function () { voiceVideoToggle(); }); document.addEventListener('qv-sync', sync);
       $s('stVideo').classList.remove('st-off'); $s('stVideo').removeAttribute('aria-disabled'); $s('stSpeaker').classList.remove('st-off'); $s('stSpeaker').removeAttribute('aria-disabled'); $s('stKeypad').classList.remove('st-off'); $s('stKeypad').removeAttribute('aria-disabled'); $s('stMore').classList.remove('st-off'); $s('stMore').removeAttribute('aria-disabled');
       // Record and Transfer need a recording service with participant consent and an engine transfer step: they say so instead of pretending
       var WHY = { siTransfer: 'Transferring a call needs an engine transfer step that is not built yet. Use Add Participant instead.', stRecord: 'Recording a call needs every participant\u2019s consent and a recording service; it is not switched on.', siRec: 'Recording a call needs every participant\u2019s consent and a recording service; it is not switched on.', stTransfer: 'Transferring a call needs an engine transfer step that is not built yet. Use Add Participant instead.' };
@@ -5956,7 +5986,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
   function voiceToneStop() { if (!voice.tone) return; clearInterval(voice.tone.iv); if (voice.tone.audio) { try { voice.tone.audio.pause(); } catch (e) { /* gone */ } } try { voice.tone.ctx.close(); } catch (e) { /* closed */ } voice.tone = null; }
   // ---- the call bar
   function voiceBar(show, o) {
-    var bar = $('voiceBar'); if (!show) { bar.classList.add('hidden'); $('vbAdd').classList.add('hidden'); var vd = $('voiceAdd'); if (vd.open) vd.close(); clearInterval(voice.bar && voice.bar.iv); voice.bar = null; return; }
+    var bar = $('voiceBar'); if (!show) { if (!bar.classList.contains('hidden')) document.dispatchEvent(new Event('voice-call-ended')); bar.classList.add('hidden'); $('vbAdd').classList.add('hidden'); var vd = $('voiceAdd'); if (vd.open) vd.close(); clearInterval(voice.bar && voice.bar.iv); voice.bar = null; return; }
     $('vbAdd').classList.toggle('hidden', !(o.since || o.addable));
     bar.classList.remove('hidden'); if (o.peer) $('vbPeer').textContent = o.peer; $('vbStatus').textContent = o.text; $('vbMute').setAttribute('aria-pressed', String(!!(voice.client && voice.client.muted))); $('vbMute').textContent = voice.client && voice.client.muted ? 'Unmute' : 'Mute';
     bar.querySelector('.vb-dot').classList.toggle('ring', !!o.ringing);
@@ -5990,7 +6020,70 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
     var w = Math.min(400, window.innerWidth - 32); d.style.top = '16px'; d.style.right = '16px'; d.style.left = 'auto'; d.style.width = w + 'px';
   }
   function voiceIncomingHide() { var qpr = document.querySelector('.qp'); if (qpr) qpr.classList.remove('st-ringing'); voice.incoming = null; voiceToneStop(); var d = $('voiceIncoming'); if (d.open) d.close(); }
+
+  // =====================================================================
+  // Phone video (inside the same call) and "Move to Qorlla Meeting" (asks first, keeps the call until the meeting is open)
+  // =====================================================================
+  function qvSet(kind, stream) { Array.prototype.forEach.call(document.querySelectorAll('.qv-' + kind), function (v) { v.srcObject = stream || null; if (stream) { var pl = v.play(); if (pl && pl.catch) pl.catch(function () {}); } }); }
+  function qvShow() { document.body.classList.toggle('qv-on', voice.video === 'on' || voice.video === 'requesting' || !!voice.remoteVideoOn); document.body.classList.toggle('qv-remote-on', !!voice.remoteVideoOn); document.body.classList.toggle('qv-local-on', !!voice.localVideoOn); document.dispatchEvent(new Event('qv-sync')); }
+  function voiceVideoToggle() {
+    var c = voice.client; if (!c || !c.callId) { toast(I18n.t('Start a call first.')); return; }
+    if (voice.video === 'on' || voice.video === 'requesting') { c.stopVideo('stopped'); return; }
+    voice.video = 'requesting'; qvShow();
+    c.requestVideo().then(function () { toast(I18n.t('Asking') + ' ' + ($('vbPeer').textContent || I18n.t('the other person')) + ' ' + I18n.t('to start video\u2026')); }).catch(function (e) { voice.video = 'off'; qvShow(); if (!e || !e.name) toast(I18n.t('Video is not available on this call.')); });
+  }
+  function voiceAsk(title, body, yes, no, alt) {
+    var d = $('voiceAsk'); $('vaskT').textContent = title; $('vaskB').textContent = body; $('vaskYes').textContent = yes; $('vaskNo').textContent = no || I18n.t('Decline'); var a = $('vaskAlt'); a.hidden = !alt; if (alt) a.textContent = alt.label;
+    $('vaskYes').onclick = function () { d.close(); yes_cb && yes_cb(); }; var yes_cb = null;
+    return { open: function (cbYes, cbNo, cbAlt) { yes_cb = cbYes; $('vaskNo').onclick = function () { d.close(); if (cbNo) cbNo(); }; if (alt) $('vaskAlt').onclick = function () { d.close(); if (cbAlt) cbAlt(); }; d.oncancel = function (ev) { ev.preventDefault(); d.close(); if (cbNo) cbNo(); }; try { d.showModal(); } catch (x) { d.setAttribute('open', ''); } $('vaskYes').focus(); } };
+  }
+  /* a modal dialog makes everything outside it unclickable, so while one is open the move bar lives inside it */
+  function voiceMoveBarShow(text) { var b = $('voiceMoveBar'); $('vmbText').textContent = text; b.classList.remove('hidden'); try { var dlg = document.querySelector('dialog[open]:not(#voiceAsk)'), home = dlg || document.body; if (b.matches(':popover-open')) b.hidePopover(); if (b.parentNode !== home) home.appendChild(b); b.showPopover(); } catch (e) { /* no popover support: the fixed bar still shows */ } }
+  function voiceMoveClear(unmute) { clearInterval(voice.moveIv); clearTimeout(voice.moveAskT); voice.move = null; try { $('voiceMoveBar').hidePopover(); } catch (e) { /* not open */ } $('voiceMoveBar').classList.add('hidden'); if (unmute && voice.client && voice.client.callId) voice.client.setMuted(false); }
+  // after both people agreed: the phone call is muted (no second microphone capture) and ends when the meeting is open, or after a short countdown
+  function voiceMoveCountdown() {
+    var c = voice.client, left = 45; if (!c) return; try { if (voice.video === 'on' || voice.video === 'requesting') c.stopVideo('moving'); } catch (e) { /* none */ } c.setMuted(true);
+    clearInterval(voice.moveIv); var tick = function () { voiceMoveBarShow(I18n.t('Moving to the Qorlla Meeting. Your microphone is off on this phone call, which ends in') + ' ' + left + ' ' + I18n.t('seconds.')); if (left-- <= 0) { voiceMoveClear(false); $('vbEnd').click(); } }; tick(); voice.moveIv = setInterval(tick, 1000);
+  }
+  document.addEventListener('voice-call-ended', function () { voice.autoVideo = false; voiceMoveClear(false); });
+  $('vmbNow').addEventListener('click', function () { voiceMoveClear(false); $('vbEnd').click(); });
+  $('vmbStay').addEventListener('click', function () { var c = voice.client; if (c) c.control({ t: 'move_cancel' }); voiceMoveClear(true); toast(I18n.t('Staying on the phone call.')); });
+  function voiceMoveStart() {
+    var c = voice.client; if (!c || !c.callId || document.getElementById('voiceBar').classList.contains('hidden')) { toast(I18n.t('Move to Qorlla Meeting is available during a phone call.')); return; }
+    if (!(c.ctl && c.ctl.readyState === 'open')) { toast(I18n.t('The other person\u2019s app cannot take part in a move yet. Use Add Participant, or start a meeting and share the invitation.')); return; }
+    if (voice.move) return; voice.move = { role: 'host' };
+    var name = myName(), stamp = ''; try { stamp = new Date().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { stamp = ''; }
+    var title = ((name ? name + "'s call" : 'Qorlla call') + (stamp ? ' \u00B7 ' + stamp : '')).slice(0, 200);
+    fetch('/api/meetings/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: title }) }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); }).then(function (r) {
+      if (!r.ok || !r.d.meeting) throw new Error(r.d.error || 'The meeting could not be created.');
+      voice.move = { role: 'host', meetingId: r.d.meeting.meetingId, title: r.d.meeting.topic }; c.control({ t: 'move_req', meetingId: r.d.meeting.meetingId, topic: r.d.meeting.topic });
+      voiceMoveBarShow(I18n.t('Asking') + ' ' + ($('vbPeer').textContent || I18n.t('the other person')) + ' ' + I18n.t('to move to a Qorlla Meeting\u2026')); clearTimeout(voice.moveAskT); voice.moveAskT = setTimeout(function () { if (voice.move && !voice.move.agreed) { c.control({ t: 'move_cancel' }); voiceMoveClear(true); toast(I18n.t('No answer. You are still on the phone call.')); } }, 30000);
+    }).catch(function (e) { voice.move = null; toast(e.message || I18n.t('The meeting could not be created.'), 'err'); });
+  }
+  function voiceControl(e) {
+    var c = voice.client;
+    if (e.t === 'move_req' && !voice.move) {
+      var who = $('vbPeer').textContent || I18n.t('The other person'); voice.move = { role: 'guest', meetingId: e.meetingId, title: e.topic };
+      voiceAsk(I18n.t('Move to a Qorlla Meeting?'), who + ' ' + I18n.t('wants to move this call to a Qorlla Meeting. Your phone call stays connected until the meeting opens. Nothing starts until you accept.'), I18n.t('Accept')).open(function () { c.control({ t: 'move_ok' }); voice.move.agreed = true; voiceMoveCountdown(); if (typeof openJoin === 'function') openJoin(e.meetingId); }, function () { c.control({ t: 'move_no' }); voice.move = null; });
+    } else if (e.t === 'move_ok' && voice.move && voice.move.role === 'host') {
+      clearTimeout(voice.moveAskT); voice.move.agreed = true; var m = voice.move; voiceMoveCountdown(); pendingNew = { meetingId: m.meetingId, title: m.title, kind: 'meeting', instant: true }; openStart(pendingNew);
+    } else if (e.t === 'move_no' && voice.move) { voiceMoveClear(true); toast(I18n.t('They chose to stay on the phone call.')); }
+    else if (e.t === 'move_cancel' && voice.move) { var was = voice.move.agreed; voiceMoveClear(true); if ($('voiceAsk').open) $('voiceAsk').close(); toast(was ? I18n.t('The move was cancelled. You are still on the phone call.') : I18n.t('The move was cancelled.')); }
+  }
+  function voiceVideoEvent(e) {
+    if (e.type === 'video_request') {
+      var who = $('vbPeer').textContent || I18n.t('The other person');
+      voiceAsk(who + ' ' + I18n.t('wants to start video'), I18n.t('Your camera stays off until you accept. You can stop video at any time.'), I18n.t('Accept with my camera'), I18n.t('Decline'), { label: I18n.t('Accept, camera off') }).open(
+        function () { voice.client.acceptVideo({ camera: true }).catch(function () { toast(I18n.t('Video could not be started.'), 'err'); }); }, function () { voice.client.declineVideo().catch(function () {}); }, function () { voice.client.acceptVideo({ camera: false }).catch(function () { toast(I18n.t('Video could not be started.'), 'err'); }); });
+    } else if (e.type === 'video_requesting') { voice.video = 'requesting'; voice.localVideoOn = true; qvSet('local', e.stream); qvShow(); }
+    else if (e.type === 'video_started') { voice.video = 'on'; if (e.stream) { voice.localVideoOn = true; qvSet('local', e.stream); } qvShow(); toast(I18n.t('Video is on.')); }
+    else if (e.type === 'remote_video') { voice.remoteVideoOn = true; qvSet('remote', e.stream); qvShow(); }
+    else if (e.type === 'remote_video_ended') { voice.remoteVideoOn = false; qvSet('remote', null); qvShow(); }
+    else if (e.type === 'video_stopped') { voice.video = 'off'; voice.localVideoOn = false; voice.remoteVideoOn = false; qvSet('local', null); qvSet('remote', null); qvShow(); if (e.reason === 'declined') toast(I18n.t('They declined video.')); else if (e.reason === 'no_answer') toast(I18n.t('No answer to the video request.')); }
+    else if (e.type === 'camera_error') toast(e.name === 'NotAllowedError' ? I18n.t('Camera access was blocked. Allow it in the browser or app settings.') : I18n.t('No camera was found.'), 'err');
+  }
   function voiceEvent(e) {
+    if (/^(video_|remote_video|camera_error)/.test(e.type)) { voiceVideoEvent(e); return; } if (e.type === 'control') { voiceControl(e); return; }
     if (e.type === 'ready') { voice.ext = e.extension; voiceChanged(); }
     else if (e.type === 'incoming') { if (e.from && window.qpIsBlocked && window.qpIsBlocked(e.from.extension)) { try { voice.client.reject(e.call.id).catch(function () {}); } catch (x) { /* ignore */ } } else if (!(voice.client && (voice.client.callId || voice.client.room))) voiceIncomingShow(e); }
     else if (e.type === 'room_invite') { if (!e.upgrade && !(voice.client && (voice.client.callId || voice.client.room))) voiceIncomingShow(e); }
@@ -6008,7 +6101,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
     else if (e.type === 'call_resumed') { voiceMoveHide(); if (e.room) voiceRoomBar(); else voiceBar(true, { peer: $('vbPeer').textContent || I18n.t('Qorlla call'), text: I18n.t('Connecting\u2026'), ringing: true }); }
     else if (e.type === 'connection_recovering') { $('vbStatus').textContent = I18n.t('Reconnecting audio\u2026') + ' (' + e.attempt + ')'; }
     else if (e.type === 'call_accepted') { voiceToneStop(); voiceBar(true, { peer: voicePeerLabel(voice.peerExt || ''), text: I18n.t('Connecting\u2026'), ringing: true }); }
-    else if (e.type === 'connected') { voiceToneStop(); var c = voice.client; voiceBar(true, { peer: $('vbPeer').textContent, since: c.startedAt || Date.now() }); }
+    else if (e.type === 'connected') { voiceToneStop(); var c = voice.client; voiceBar(true, { peer: $('vbPeer').textContent, since: c.startedAt || Date.now() }); if (voice.autoVideo && c.role === 'caller' && voice.video !== 'on') { voice.autoVideo = false; setTimeout(function () { if (voice.client && voice.client.callId) voiceVideoToggle(); }, 600); } }
     else if (e.type === 'state' && e.call) {
       if (voice.incoming && voice.incoming.id === e.call.id && e.call.status !== 'ringing') { var was = voice.incoming; voiceIncomingHide(); if (e.call.status === 'missed') toast(I18n.t('Missed call from') + ' ' + (was.ext ? voicePeerLabel(was.ext) : I18n.t('a colleague'))); }
       if (e.call.status === 'missed' && voice.client && voice.client.callId === e.call.id) toast(I18n.t('No answer.'));
@@ -6054,6 +6147,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
     mo(mute, muteSync, { attributes: true, attributeFilter: ['aria-pressed'] }); mo(add, btnSync, { attributes: true, attributeFilter: ['class'] }); mo(endAll, btnSync, { attributes: true, attributeFilter: ['class'] }); mo(end, btnSync, { childList: true, characterData: true, subtree: true });
     $('vbsMute').addEventListener('click', function () { mute.click(); }); $('vbsAdd').addEventListener('click', function () { add.click(); });
     $('vbsEnd').addEventListener('click', function () { end.click(); }); $('vbsEndAll').addEventListener('click', function () { endAll.click(); });
+    $('vbsVideo').addEventListener('click', function () { voiceVideoToggle(); });
     Array.prototype.forEach.call(document.querySelectorAll('#voiceBar .vbs-off'), function (b) { b.addEventListener('click', function () { toast(I18n.t(b.getAttribute('aria-label')) + ': ' + I18n.t('not available in this build yet.')); }); });
     peerSync(); timeSync(); muteSync(); btnSync();
   })();
