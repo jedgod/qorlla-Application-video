@@ -781,6 +781,20 @@
     body.page-open #view { padding-top: 14px; }   /* the close button sits in the breadcrumb row above the page, so the page needs no 56px reserve */
     body[data-page=workspace].page-open .topbar { display: none; }
   }
+
+/* Phone: independent destinations and touch-friendly expandable dialing. */
+.qp-dial-drop { border:1px solid var(--line,#e2e8f0); border-radius:14px; margin:12px 0; padding:0 12px 12px; min-width:0; }
+.qp-dial-drop summary { cursor:pointer; padding:14px 0; font-weight:650; min-height:44px; box-sizing:border-box; }
+.qp-dial-drop:not([open]) { padding-bottom:0; }
+.qp-dial-drop summary:focus-visible { outline:2px solid var(--primary,#2456f5); outline-offset:3px; border-radius:4px; }
+.qp-dial-drop .qp-keys { margin-left:auto; margin-right:auto; }
+.qp-dial-drop input,.qp-dial-drop select { max-width:100%; box-sizing:border-box; }
+@media(max-width:760px) {
+  .qp-head .qp-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); width:100%; box-sizing:border-box; gap:5px; overflow:visible; }
+  .qp-head .qp-tabs button { min-width:0; min-height:48px; white-space:normal; padding:9px 5px; font-size:12px; line-height:1.25; border-radius:10px; }
+  .qp-dial-card { min-width:0; }
+  .qp-dial-drop summary { font-size:15px; }
+}
 </style>
   <script src="locales/es.js"></script>
   <script src="locales/fr.js"></script>
@@ -2885,13 +2899,11 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
     cleanup = function () { stopMicTest(); state.applyRoute = null; voiceOff.splice(0).forEach(function (f) { f(); }); };            // leaving the Phone view (or closing the page) always closes an open microphone and detaches its voice listeners
     var info = null, calls = null, cur = 'dial', filter = 'all', query = '', showAll = false, num = '';
     var COUNTRIES = [['US', '1', '🇺🇸', 'United States'], ['GB', '44', '🇬🇧', 'United Kingdom'], ['GH', '233', '🇬🇭', 'Ghana'], ['NG', '234', '🇳🇬', 'Nigeria'], ['CA', '1', '🇨🇦', 'Canada']];
-    var tabs = [['dial', 'Dial Pad'], ['join', 'Join Meeting'], ['recent', 'Recent Calls'], ['contacts', 'Contacts'], ['settings', 'Numbers & Plans']];
+    var tabs = [['dial', 'Dial Pad'], ['join', 'Join Meeting'], ['recent', 'Recent Calls'], ['contacts', 'Contacts'], ['settings', 'Numbers & Plans'], ['preferences', 'Phone Settings']];
     var root = h('div', { class: 'qp' }), grid = h('div', { class: 'qp-grid' }), alt = h('section', { class: 'qp-card qp-alt hidden', role: 'tabpanel', id: 'phPanel' });
     var bar = h('div', { class: 'qp-tabs', role: 'tablist', 'aria-label': I18n.t('Phone sections') });
     var helpBox = h('div', { class: 'qp-help hidden', id: 'phHelp', role: 'note' }, I18n.t('Qorlla Phone has two jobs: calling from your workplace (needs a connected telephony provider and a number assigned to you) and joining Qorlla meetings from any phone (needs the dial-in numbers an administrator has provisioned, the 11-digit meeting ID and the host’s telephone access PIN).'));
-    var settingsBtn = h('button', { class: 'btn small', type: 'button', id: 'phSettingsBtn', text: I18n.t('Phone settings'), onclick: function () { openAlt(openSettings, 'calling'); } });
-    var helpBtn = h('button', { class: 'btn small', type: 'button', id: 'phHelpBtn', text: I18n.t('Help'), onclick: function () { openAlt(openHelp, 'center'); } });
-    root.appendChild(h('header', { class: 'qp-head' }, [h('div', { class: 'qp-title' }, [h('span', { class: 'qp-logo', 'aria-hidden': 'true', text: '☎' }), h('div', {}, [h('h1', { text: I18n.t('Qorlla Phone') }), h('p', { class: 'muted', text: I18n.t('Calls and meeting dial-in from your workplace') })])]), bar, h('div', { class: 'row' }, [settingsBtn, helpBtn])]));
+    root.appendChild(h('header', { class: 'qp-head' }, [h('div', { class: 'qp-title' }, [h('span', { class: 'qp-logo', 'aria-hidden': 'true', text: '☎' }), h('div', {}, [h('h1', { text: I18n.t('Qorlla Phone') }), h('p', { class: 'muted', text: I18n.t('Calls and meeting dial-in from your workplace') })])]), bar]));
     root.appendChild(helpBox); root.appendChild(grid); root.appendChild(alt); viewEl.appendChild(root);
     tabs.forEach(function (t) { var b = h('button', { type: 'button', role: 'tab', id: 'phTab-' + t[0], 'data-tab': t[0], 'aria-selected': String(t[0] === cur), tabindex: t[0] === cur ? '0' : '-1', text: I18n.t(t[1]), onclick: function () { select(t[0]); } }); bar.appendChild(b); });
     bar.addEventListener('keydown', function (e) { var bs = Array.prototype.slice.call(bar.children), i = bs.indexOf(document.activeElement); if (i < 0) return; var to = { ArrowRight: (i + 1) % bs.length, ArrowLeft: (i + bs.length - 1) % bs.length }[e.key]; if (to === undefined) return; e.preventDefault(); bs[to].focus(); select(bs[to].dataset.tab); });
@@ -2900,6 +2912,7 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
     function select(t) {
       stopMicTest(); setRoute(PHONE_TAB_SLUG[t]);
       cur = t; Array.prototype.forEach.call(bar.children, function (b) { var on = b.dataset.tab === t; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
+      if (t === 'preferences') { openAlt(openSettings, 'calling'); return; }
       var pair = { dial: [dialCard, dialList], join: [joinCard, joinList], recent: [recentCard, recentDetail], contacts: [contactsCard, contactDetail], settings: [numberCard, plansCard] }[t];
       alt.classList.add('hidden'); grid.classList.remove('hidden');
       [dialCard, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { c.classList.toggle('hidden', pair.indexOf(c) < 0); });
@@ -2908,7 +2921,7 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
     var copyIcon = function (text, label) { return h('button', { class: 'qp-copy', type: 'button', 'aria-label': label, title: label, text: '⧉', onclick: function () { copyPlain(text, I18n.t('Number copied')); } }); };
     // ---- 1. Make a call
     var dialList = h('section', { class: 'qp-card qp-list', id: 'qpRecentNums', 'aria-labelledby': 'qpRNH' }), joinList = h('section', { class: 'qp-card qp-list', id: 'qpMeetings', 'aria-labelledby': 'qpMineH' }), recentDetail = h('section', { class: 'qp-card qp-list', id: 'qpCallDetail', 'aria-labelledby': 'qpCDH', 'aria-live': 'polite' });
-    var dialCard = h('section', { class: 'qp-card', id: 'dial-pad', 'aria-labelledby': 'qpDialH' });
+    var dialCard = h('section', { class: 'qp-card qp-dial-card', id: 'dial-pad', 'aria-labelledby': 'qpDialH' });
     (function () {
       var sel = h('select', { id: 'qpDialCountry', 'aria-label': I18n.t('Country') }, COUNTRIES.map(function (c) { return h('option', { value: c[0], text: c[0] + ' +' + c[1] + ' ' + c[3] }); }));
       var input = h('input', { type: 'tel', id: 'qpDialNumber', inputmode: 'tel', autocomplete: 'tel', maxlength: '24', placeholder: I18n.t('Enter phone number'), 'aria-label': I18n.t('Phone number'), 'aria-describedby': 'qpDialHint' });
@@ -2940,21 +2953,9 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
         var held = false, holdT = null;
         if (k[0] === '0') { b.addEventListener('pointerdown', function () { held = false; holdT = setTimeout(function () { held = true; buzz(14); set(num + '+'); padTouch(); }, 500); }); ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { b.addEventListener(ev, function () { clearTimeout(holdT); }); }); }
         b.addEventListener('click', function () { if (held) { held = false; return; } buzz(8); set(num + k[0]); padTouch(); }); keys.appendChild(b); });
-      // the pad: on phones and touch screens it stays closed until the number field is used (so the phone's own keyboard never covers the page), and closes again when idle
-      var pad = h('div', { class: 'qp-pad', id: 'qpPad' }, [keys]);
-      var padBtn = h('button', { class: 'qp-padtoggle', type: 'button', id: 'qpPadToggle', 'aria-controls': 'qpPad', 'aria-expanded': 'true', 'aria-label': I18n.t('Show dial pad'), title: I18n.t('Show dial pad') });
-      padBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="6" cy="5" r="1.8"/><circle cx="12" cy="5" r="1.8"/><circle cx="18" cy="5" r="1.8"/><circle cx="6" cy="11" r="1.8"/><circle cx="12" cy="11" r="1.8"/><circle cx="18" cy="11" r="1.8"/><circle cx="6" cy="17" r="1.8"/><circle cx="12" cy="17" r="1.8"/><circle cx="18" cy="17" r="1.8"/><circle cx="12" cy="22" r="1.8"/></svg>';
-      var touchMq = window.matchMedia ? window.matchMedia('(pointer: coarse), (max-width: 700px)') : { matches: false }, idleT = null, PAD_IDLE_MS = 8000;
-      function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* not supported */ } }
-      function padOpen(on) { pad.classList.toggle('qp-pad-closed', !on); padBtn.setAttribute('aria-expanded', on ? 'true' : 'false'); padBtn.setAttribute('aria-label', on ? I18n.t('Hide dial pad') : I18n.t('Show dial pad')); padBtn.title = padBtn.getAttribute('aria-label'); clearTimeout(idleT); if (on) { idleT = setTimeout(function () { padOpen(false); }, PAD_IDLE_MS); setTimeout(function () { try { if (!pad.classList.contains('qp-pad-closed')) call.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* older WebView */ } }, 260); } }      // keep the call button in view under the open pad
-      function padTouch() { if (!pad.classList.contains('qp-pad-closed')) padOpen(true); }      // any use restarts the idle timer
-      function padMode() { var t = touchMq.matches; input.setAttribute('inputmode', t ? 'none' : 'tel'); input.readOnly = t;      // read-only is what keeps the keyboard down on older Android WebViews that ignore inputmode=none; the dial pad is the input on a touch screen
-      pad.classList.toggle('qp-pad-auto', t); padBtn.classList.remove('hidden'); padOpen(false); }
-      input.addEventListener('focus', function () { padOpen(true); }); input.addEventListener('pointerdown', function () { if (pad.classList.contains('qp-pad-closed')) padOpen(true); });
-      padBtn.addEventListener('click', function () { padOpen(pad.classList.contains('qp-pad-closed')); });
-      document.addEventListener('pointerdown', function outside(e) { if (!root.isConnected) { document.removeEventListener('pointerdown', outside); return; } if (!pad.classList.contains('qp-pad-closed') && !(dialCard.contains(e.target) && (pad.contains(e.target) || input.contains(e.target) || padBtn.contains(e.target) || e.target.closest('.qp-callrow')))) padOpen(false); });
-      if (touchMq.addEventListener) touchMq.addEventListener('change', padMode);
-      padMode();
+      function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+      function padTouch() { padDrop.open = true; }
+      input.addEventListener('focus', padTouch);
       input.addEventListener('input', function () { set(input.value.replace(/[^0-9*#+ ()-]/g, '')); }); sel.addEventListener('change', paint); var delHeld = false, delT = null; del.addEventListener('pointerdown', function () { delHeld = false; delT = setTimeout(function () { delHeld = true; buzz(14); set(''); padTouch(); }, 600); }); ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { del.addEventListener(ev, function () { clearTimeout(delT); }); }); del.addEventListener('click', function () { if (delHeld) { delHeld = false; return; } buzz(8); set(num.slice(0, -1)); padTouch(); });
       copy.addEventListener('click', function () { if (num) { copyPlain(num, I18n.t('Number copied')); dialList._add(num); } });
       input.addEventListener('keydown', function (e) { padTouch(); if (e.key === 'Enter' && num) { e.preventDefault(); dialList._add(num); } });
@@ -2971,7 +2972,7 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
       }
       call.addEventListener('click', function () { if (isAlias()) { var d = num; call.disabled = true; voice.client.post('/dial/prepare', { dial: d }).then(function (r) { return voiceDial(r.extension); }).catch(function (e) { toast(I18n.t(e && e.status === 404 ? 'No Qorlla user has that number in your country.' : e && e.status === 429 ? 'Too many attempts. Try again in a minute.' : 'That number cannot be called.'), 'err'); }).then(function () { paint(); }); return; } if (isExt()) { var x = num; dialList._add(x); voiceDial(x); return; } var n = e164(); if (!n) return; dialList._add(n); call.disabled = true; var key = 'call-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
         phoneApi('/api/phone/calls', { method: 'POST', body: { to: n }, headers: { 'Idempotency-Key': key } }).then(live).catch(function (e) { note.textContent = phoneWhy(e); toast(phoneWhy(e), 'err'); }).then(paint); });
-      dialCard._set = set; dialCard._keys = function (e) { if (/^[0-9*#]$/.test(e.key)) { e.preventDefault(); set(num + e.key); } else if (e.key === 'Backspace') { e.preventDefault(); set(num.slice(0, -1)); } };
+      dialCard._set = function (value) { set(value); numberDrop.open = true; padDrop.open = true; }; dialCard._keys = function (e) { if (/^[0-9*#]$/.test(e.key)) { e.preventDefault(); set(num + e.key); } else if (e.key === 'Backspace') { e.preventDefault(); set(num.slice(0, -1)); } };
       dialCard.appendChild(h('h2', { id: 'qpDialH', text: I18n.t('Make a call') })); dialCard.appendChild(h('p', { class: 'muted qp-sub', text: I18n.t('Enter a phone number to call') })); var myExt = h('p', { class: 'muted qp-sub', id: 'qpMyExt', 'aria-live': 'polite' }); dialCard.appendChild(myExt);
       var aliasBox = h('div', { id: 'qpAlias', class: 'qp-alias', 'aria-live': 'polite' }); dialCard.appendChild(aliasBox);
       function paintAlias() {
@@ -2986,8 +2987,12 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
         aliasBox.appendChild(h('div', { class: 'row' }, [sel, h('label', { class: 'muted' }, [chk, h('span', { text: ' ' + I18n.t('I confirm this is the country I choose for my Qorlla number.') })]), btn]));
       }
       voiceOff.push(voiceOn(paintAlias)); paintAlias();
-      dialCard.appendChild(sel); dialCard.appendChild(h('div', { class: 'qp-numin' }, [input, clear, padBtn])); dialCard.appendChild(hint); dialCard.appendChild(pad);
-      dialCard.appendChild(h('div', { class: 'qp-callrow' }, [copy, call, del])); dialCard.appendChild(liveBox); dialCard.appendChild(note);
+      var mobileDial = window.matchMedia('(max-width: 760px)').matches;
+      var numberDrop = h('details', { class: 'qp-dial-drop', id: 'qpNumberDrop' }, [h('summary', { text: I18n.t('Enter a number') }), sel, h('div', { class: 'qp-numin' }, [input, clear]), hint]);
+      var padDrop = h('details', { class: 'qp-dial-drop', id: 'qpPadDrop' }, [h('summary', { text: I18n.t('Dial Pad') }), keys]);
+      numberDrop.open = !mobileDial; padDrop.open = !mobileDial;
+      dialCard.appendChild(numberDrop); dialCard.appendChild(padDrop);
+      padDrop.appendChild(h('div', { class: 'qp-callrow' }, [copy, call, del])); dialCard.appendChild(liveBox); dialCard.appendChild(note);
       dialCard.appendChild(h('label', { class: 'qp-lbl', for: 'qpCallerId', text: I18n.t('Your caller ID') })); dialCard.appendChild(caller);
       getInfo().then(function () { paint(); if (info.carrierCalling) note.textContent = ''; }).catch(function () { /* the note already explains */ });
       paint();
@@ -3399,7 +3404,7 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
     function openAlt(fn, arg) {
       if (fn === openSettings) setRoute('call-settings', arg && arg !== 'calling' ? SETTINGS_ID_SLUG[arg] : ''); else if (fn === openHelp) setRoute('help');
       stopMicTest(); grid.classList.add('hidden'); alt.classList.remove('hidden'); alt.classList.add('qp-wide'); alt.removeAttribute('aria-labelledby'); alt.setAttribute('role', 'region'); alt.textContent = '';
-      Array.prototype.forEach.call(bar.children, function (b) { b.setAttribute('aria-selected', 'false'); b.tabIndex = b.dataset.tab === 'dial' ? 0 : -1; }); fn(arg);
+      Array.prototype.forEach.call(bar.children, function (b) { var on = b.dataset.tab === 'preferences'; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }); fn(arg);
     }
     function statusTag(st) { var m = { ok: ['OK', 'green'], warn: ['Warning', 'orange'], fail: ['Failed', 'red'], unavailable: ['Unavailable', 'grey'], pending: ['Not checked', 'grey'] }[st] || [st, 'grey']; return badge(I18n.t(m[0]), m[1]); }
     function pcheck(id, label, on, extra) { var i = h('input', { type: 'checkbox', id: id, checked: !!on }); return h('label', { class: 'qp-check' }, [i, ' ' + label, extra || null]); }
@@ -3419,11 +3424,11 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
       alt.appendChild(h('div', { class: 'qp-jhead' }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '\u2699' }), h('div', {}, [h('h2', { id: 'psH', text: I18n.t('Phone Settings') }), h('p', { class: 'muted qp-sub', text: I18n.t('Manage your calling and meeting preferences.') })]), badge(I18n.t('Your account'), 'grey')]));
       var nav = h('div', { class: 'ps-nav', role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': I18n.t('Phone settings sections') }), body = h('div', { class: 'ps-body', id: 'psBody', role: 'tabpanel', 'aria-live': 'polite' });
       alt.appendChild(h('div', { class: 'ps-layout', id: 'psPage' }, [nav, body]));
-      var secs = [['calling', 'Calling & Caller ID', '\u260E'], ['audio', 'Audio & Devices', '\uD83C\uDF99'], ['dialin', 'Meeting Dial-in', '\uD83C\uDFA5'], ['privacy', 'Privacy & Security', '\uD83D\uDEE1'], ['notify', 'Notifications', '\uD83D\uDD14'], ['history', 'Call History', '\uD83D\uDD52'], ['plans', 'Plans & Billing', '\uD83D\uDCB3'], ['admin', 'Admin Controls', '\uD83C\uDFE2']];
+      var secs = [['calling', 'Calling & Caller ID', '\u260E'], ['audio', 'Audio & Devices', '\uD83C\uDF99'], ['dialin', 'Meeting Dial-in', '\uD83C\uDFA5'], ['privacy', 'Privacy & Security', '\uD83D\uDEE1'], ['notify', 'Notifications', '\uD83D\uDD14'], ['history', 'Call History', '\uD83D\uDD52'], ['plans', 'Plans & Billing', '\uD83D\uDCB3'], ['admin', 'Admin Controls', '\uD83C\uDFE2'], ['help', 'Help', '?']];
       secs.forEach(function (x) { nav.appendChild(h('button', { type: 'button', role: 'tab', id: 'psNav-' + x[0], 'data-s': x[0], 'aria-selected': 'false', onclick: function () { go(x[0]); } }, [h('span', { 'aria-hidden': 'true', text: x[2] + ' ' }), I18n.t(x[1])])); });
       nav.addEventListener('keydown', function (e) { var bs = Array.prototype.slice.call(nav.children), i = bs.indexOf(document.activeElement); if (i < 0) return; var to = { ArrowDown: (i + 1) % bs.length, ArrowUp: (i + bs.length - 1) % bs.length }[e.key]; if (to === undefined) return; e.preventDefault(); bs[to].focus(); go(bs[to].dataset.s); });
-      function go(id) { if (!ps) return; stopMicTest(); setRoute('call-settings', id !== 'calling' ? SETTINGS_ID_SLUG[id] : ''); Array.prototype.forEach.call(nav.children, function (b) { var on = b.dataset.s === id; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }); body.textContent = ''; body.setAttribute('aria-labelledby', 'psNav-' + id); build[id](body); }
-      var build = { calling: pCalling, audio: pAudio, dialin: pDialin, privacy: pPrivacy, notify: pNotify, history: pHistory, plans: pPlans, admin: pAdmin };
+      function go(id) { if (!ps && id !== 'help') return; stopMicTest(); setRoute('call-settings', id !== 'calling' ? SETTINGS_ID_SLUG[id] : ''); Array.prototype.forEach.call(nav.children, function (b) { var on = b.dataset.s === id; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }); body.textContent = ''; body.setAttribute('aria-labelledby', 'psNav-' + id); build[id](body); }
+      var build = { calling: pCalling, audio: pAudio, dialin: pDialin, privacy: pPrivacy, notify: pNotify, history: pHistory, plans: pPlans, admin: pAdmin, help: function (box) { openHelp('center', box); } };
       body.textContent = I18n.t('Loading\u2026');
       phoneApi('/api/phone/features').then(function (d) { feats = d.features; refreshFeats(); }).catch(function () { feats = null; });
       Promise.all([getOv(), settingsApi()]).then(function (r) { ps = r[1]; quiet(function () { go(section); }); }).catch(function (e) { body.textContent = ''; body.appendChild(h('p', { class: 'qp-bad', id: 'psErr', role: 'alert', text: phoneWhy(e) })); body.appendChild(h('button', { class: 'btn small', type: 'button', text: I18n.t('Retry'), onclick: function () { alt.textContent = ''; openSettings(section); } })); });
@@ -3604,11 +3609,12 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
 
     // ----- Help Center, Diagnostics, Support tickets -----
     var helpData = null, lastRef = '';
-    function openHelp(tab) {
-      alt.appendChild(h('div', { class: 'qp-jhead' }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '?' }), h('div', {}, [h('h2', { id: 'hpH', text: I18n.t('Qorlla Phone Help Center') }), h('p', { class: 'muted qp-sub', text: I18n.t('Guides, troubleshooting and technical support') })])]));
+    function openHelp(tab, target) {
+      var helpTarget = target || alt;
+      helpTarget.appendChild(h('div', { class: 'qp-jhead' }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '?' }), h('div', {}, [h('h2', { id: 'hpH', text: I18n.t('Qorlla Phone Help Center') }), h('p', { class: 'muted qp-sub', text: I18n.t('Guides, troubleshooting and technical support') })])]));
       var hb = h('div', { class: 'qp-filters', role: 'tablist', 'aria-label': I18n.t('Help sections') }), body = h('div', { id: 'hpBody', role: 'tabpanel', 'aria-live': 'polite' });
       [['center', 'Help Center'], ['diag', 'Diagnostics'], ['tickets', 'Support tickets']].forEach(function (t) { hb.appendChild(h('button', { type: 'button', role: 'tab', id: 'hpTab-' + t[0], 'data-t': t[0], 'aria-selected': 'false', text: I18n.t(t[1]), onclick: function () { go(t[0]); } })); });
-      alt.appendChild(hb); alt.appendChild(body);
+      helpTarget.appendChild(hb); helpTarget.appendChild(body);
       phoneApi('/api/workplace/support/me').then(function (m) { if (m.staff && !hb.querySelector('[data-t=console]')) hb.appendChild(h('button', { type: 'button', role: 'tab', id: 'hpTab-console', 'data-t': 'console', 'aria-selected': 'false', text: I18n.t('Support console'), onclick: function () { go('console'); } })); }).catch(function () { /* not staff, or the server is older: no console */ });
       function go(t) { Array.prototype.forEach.call(hb.children, function (b) { b.setAttribute('aria-selected', String(b.dataset.t === t)); }); body.textContent = ''; ({ center: hCenter, diag: hDiag, tickets: hTickets, console: hStaff })[t](body, go); }
       go(tab || 'center');
