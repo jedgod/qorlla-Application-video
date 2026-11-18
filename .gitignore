@@ -24,3 +24,7 @@ google.txt
 
 # local dev stacks hold secrets (tokens, DB passwords, keys): never track them
 .dev-stack*/
+
+.worktrees/
+
+*.secrets.local.json
