@@ -1316,6 +1316,12 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
   html body .qp.qp-station .si-act { padding:5px 12px !important; margin-top:4px !important; font-size:12.5px !important; }
   html body .qp.qp-station.st-ringing .si-row:nth-of-type(n+4), html body .qp.qp-station.st-incoming .si-row:nth-of-type(n+4) { display:flex !important; }
 }
+
+/* Call Information and Call Actions: narrower, pushed to the right edge of the column */
+@media (min-width:701px) {
+  html body .qp.qp-station .qp-side { align-items:flex-end !important; }
+  html body .qp.qp-station .qp-side .si-card { width:76% !important; box-sizing:border-box; align-self:flex-end; }
+}
 </style>
 </head>
 <body data-page="workspace">
