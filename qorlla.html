@@ -1114,6 +1114,47 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
 #voiceIncoming .vi-mini svg { width:25px; height:25px; fill:none; stroke:#fff; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; } #voiceIncoming .vi-more .vi-act { font-size:13px; font-weight:500; gap:6px; }
 @media (max-width:700px) { dialog#voiceIncoming.vi-call { width:100vw; max-width:none; height:100vh; height:100dvh; border-radius:0; margin:0; inset:0; } #voiceIncoming .vi-more { margin-bottom:calc(22px + var(--safe-b, 0px)); } }
 @media (max-height:700px) { #voiceIncoming .vi-avatar { width:150px; height:150px; margin:8px 0; } #voiceIncoming .vi-face { width:122px; height:122px; font-size:44px; } #voiceIncoming .vi-who { font-size:26px; } #voiceIncoming .vi-btn { width:72px; height:72px; } #voiceIncoming .vi-sub { display:none; } #voiceIncoming .vi-more { margin-top:12px; } }
+
+.qp-stripsel { display:none; }
+@media (max-width:700px) { html body .qp .ps-body { border:1px solid rgba(167,139,250,.3) !important; background:rgba(255,255,255,.04) !important; color:#f4f0ff !important; border-radius:16px; } html body .qp .ps-body :is(label, h2, h3, h4, p, span, legend, strong):not(.qp-tag):not(.badge) { color:#e6dcff; } html body .qp .ps-body .muted { color:#bfb2e6 !important; } }
+@media (max-width:700px) {
+  html body .qp .qp-stripsel { display:block; width:100%; height:44px; margin:8px 0 10px; border-radius:12px; padding:0 12px; font:inherit; font-size:15px; background:rgba(255,255,255,.08); color:#f4f0ff; border:1px solid rgba(167,139,250,.5); }
+  html body .qp .ps-nav, html body .qp .qp-filters[aria-label="Help sections"], html body .qp [aria-label="Diagnostics"].qp-filters { display:none !important; }
+}
+</style>
+
+<style id="call-screen">
+/* Answered call on phones: full-screen dark purple call screen (the in-call bar's logic is unchanged) */
+.vbs-top, .vbs-time, .vbs-add, .vbs-avatar, .vbs-name, .vbs-num, .vbs-grid, .vbs-end, .vbs-endall { display:none; }
+@media (max-width:700px) {
+  html body #voiceBar:not(.hidden) { position:fixed; inset:0; left:0; right:0; top:0; bottom:0; transform:none; width:100%; max-width:none; height:100vh; height:100dvh; border-radius:0; border:0; z-index:120; display:flex; flex-direction:column; align-items:center; gap:0; padding:0 0 calc(18px + var(--safe-b, 0px)); background:radial-gradient(120% 55% at 50% 0%, #4a1fa8 0%, #1d0d45 48%, #0a0518 100%); color:#fff; overflow:hidden; text-align:center; }
+  html body #voiceBar:not(.hidden) > .vb-dot, html body #voiceBar:not(.hidden) > .btn { display:none !important; }
+  html body #voiceBar:not(.hidden) > .vb-text { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+  html body #voiceBar:not(.hidden)::before { content:""; position:absolute; left:-20%; right:-20%; bottom:-8%; height:42%; background:radial-gradient(60% 80% at 50% 100%, rgba(139,61,255,.5), transparent 70%); pointer-events:none; }
+  #voiceBar:not(.hidden) .vbs-top { display:flex; align-items:center; gap:8px; margin-top:max(18px, env(safe-area-inset-top)); font-size:26px; font-weight:700; }
+  #voiceBar .vbs-logo { width:30px; height:30px; }
+  #voiceBar:not(.hidden) .vbs-time { display:flex; align-items:center; gap:10px; margin-top:12px; font-size:21px; font-variant-numeric:tabular-nums; color:#f4f0ff; }
+  #voiceBar .vbs-sig { width:20px; height:20px; fill:#22c55e; }
+  #voiceBar:not(.hidden) .vbs-add { position:absolute; top:max(14px, env(safe-area-inset-top)); right:14px; width:46px; height:46px; border-radius:14px; border:1.5px solid rgba(196,166,255,.5); background:rgba(255,255,255,.08); color:#fff; display:grid; place-items:center; cursor:pointer; }
+  #voiceBar:not(.hidden) .vbs-add.hidden { display:none; }
+  #voiceBar .vbs-add svg { width:24px; height:24px; fill:none; stroke:#fff; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  #voiceBar:not(.hidden) .vbs-avatar { display:grid; position:relative; width:200px; height:200px; margin:clamp(14px,4vh,40px) 0 clamp(10px,2.4vh,22px); place-items:center; flex:0 0 auto; }
+  #voiceBar .vbs-face { position:relative; z-index:2; width:162px; height:162px; border-radius:50%; display:grid; place-items:center; font-size:60px; font-weight:700; background:linear-gradient(145deg,#8b5cf6,#4c1d95); border:4px solid #c4a6ff; box-shadow:0 0 36px rgba(168,85,247,.7); }
+  #voiceBar .vbs-ring { position:absolute; inset:0; border-radius:50%; border:2px solid rgba(196,166,255,.5); animation:viPulse 2.6s ease-out infinite; } #voiceBar .vbs-ring.r2 { animation-delay:.9s; } #voiceBar .vbs-ring.r3 { animation-delay:1.8s; }
+  @media (prefers-reduced-motion: reduce) { #voiceBar .vbs-ring { animation:none; opacity:.35; } }
+  #voiceBar:not(.hidden) .vbs-name { display:block; position:relative; z-index:1; margin:0; font-size:28px; font-weight:700; padding:0 18px; word-break:break-word; }
+  #voiceBar:not(.hidden) .vbs-num { display:block; position:relative; z-index:1; margin:6px 0 0; font-size:19px; color:#efe8ff; letter-spacing:.4px; min-height:1.2em; }
+  #voiceBar:not(.hidden) .vbs-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:18px 10px; width:min(340px, 90vw); margin:auto 0 18px; position:relative; z-index:1; }
+  #voiceBar .vbs-act { display:flex; flex-direction:column; align-items:center; gap:7px; font-size:14px; font-weight:500; }
+  #voiceBar .vbs-btn { width:68px; height:68px; border-radius:50%; background:rgba(255,255,255,.09); border:1.5px solid rgba(196,166,255,.5); color:#fff; display:grid; place-items:center; cursor:pointer; }
+  #voiceBar .vbs-btn svg { width:28px; height:28px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  #voiceBar .vbs-btn[aria-pressed=true] { background:#fff; color:#5b21d6; } #voiceBar .vbs-btn.vbs-off { opacity:.55; }
+  #voiceBar .vbs-btn:focus-visible, #voiceBar .vbs-end:focus-visible, #voiceBar .vbs-add:focus-visible { outline:3px solid #fff; outline-offset:3px; }
+  #voiceBar:not(.hidden) .vbs-end { display:flex; align-items:center; justify-content:center; gap:10px; position:relative; z-index:1; width:min(340px, 90vw); height:58px; border:0; border-radius:29px; background:linear-gradient(180deg,#ef4444,#c81e3a); color:#fff; font-size:20px; font-weight:700; cursor:pointer; box-shadow:0 10px 26px rgba(0,0,0,.4); }
+  #voiceBar .vbs-end svg { width:26px; height:26px; fill:#fff; transform:rotate(135deg); }
+  #voiceBar:not(.hidden) .vbs-endall { display:block; position:relative; z-index:1; margin-top:10px; background:transparent; border:1px solid rgba(255,255,255,.4); color:#fff; border-radius:20px; padding:8px 18px; font-size:14px; } #voiceBar .vbs-endall.hidden { display:none; }
+}
+@media (max-width:700px) and (max-height:700px) { #voiceBar .vbs-avatar { width:140px; height:140px; margin:6px 0; } #voiceBar .vbs-face { width:112px; height:112px; font-size:42px; } #voiceBar .vbs-btn { width:58px; height:58px; } #voiceBar:not(.hidden) .vbs-grid { gap:10px 8px; margin-bottom:10px; } #voiceBar:not(.hidden) .vbs-name { font-size:24px; } }
 </style>
 </head>
 <body data-page="workspace">
@@ -1336,6 +1377,22 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
   <button type="button" class="btn small hidden" id="vbAdd">Add person</button>
   <button type="button" class="btn small danger" id="vbEnd">End call</button>
   <button type="button" class="btn small danger hidden" id="vbEndAll">End for everyone</button>
+  <div class="vbs-top" aria-hidden="true"><svg viewBox="0 0 32 32" class="vbs-logo"><circle cx="15" cy="15" r="10" fill="none" stroke="#a855f7" stroke-width="5"/><path d="m21 21 7 7" stroke="#a855f7" stroke-width="5" stroke-linecap="round"/></svg><span>Qorlla</span></div>
+  <div class="vbs-time" aria-hidden="true"><svg viewBox="0 0 24 24" class="vbs-sig"><rect x="3" y="14" width="3.5" height="6" rx="1"/><rect x="9" y="10" width="3.5" height="10" rx="1"/><rect x="15" y="5" width="3.5" height="15" rx="1"/></svg><span id="vbsTime"></span></div>
+  <button type="button" class="vbs-add hidden" id="vbsAdd" aria-label="Add person"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="3.5"/><path d="M3.5 20a6.5 6.5 0 0 1 13 0M19 6v6M16 9h6"/></svg></button>
+  <div class="vbs-avatar" aria-hidden="true"><span class="vbs-ring r1"></span><span class="vbs-ring r2"></span><span class="vbs-ring r3"></span><div class="vbs-face" id="vbsFace">Q</div></div>
+  <h2 class="vbs-name" id="vbsName"></h2>
+  <p class="vbs-num" id="vbsNum"></p>
+  <div class="vbs-grid" role="group" aria-label="Call controls">
+    <div class="vbs-act"><button type="button" class="vbs-btn" id="vbsMute" aria-label="Mute"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button><span>Mute</span></div>
+    <div class="vbs-act"><button type="button" class="vbs-btn vbs-off" id="vbsVideo" aria-label="Video" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h12v10H3zM15 10l6-3v10l-6-3z"/></svg></button><span>Video</span></div>
+    <div class="vbs-act"><button type="button" class="vbs-btn vbs-off" id="vbsSpeaker" aria-label="Speaker" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h4l5-4v13l-5-4H4zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg></button><span>Speaker</span></div>
+    <div class="vbs-act"><button type="button" class="vbs-btn vbs-off" id="vbsKeypad" aria-label="Keypad" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="1.4"/><circle cx="12" cy="6" r="1.4"/><circle cx="18" cy="6" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/><circle cx="6" cy="18" r="1.4"/><circle cx="12" cy="18" r="1.4"/><circle cx="18" cy="18" r="1.4"/></svg></button><span>Keypad</span></div>
+    <div class="vbs-act"><button type="button" class="vbs-btn vbs-off" id="vbsRecord" aria-label="Record" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg></button><span>Record</span></div>
+    <div class="vbs-act"><button type="button" class="vbs-btn vbs-off" id="vbsShare" aria-label="Share" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5M5 12v8h14v-8"/></svg></button><span>Share</span></div>
+  </div>
+  <button type="button" class="vbs-end" id="vbsEnd"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 14c5-5 13-5 18 0l-2.5 2.5-3-1.5v-2.5a11 11 0 0 0-7 0V15l-3 1.5z"/></svg><span id="vbsEndText">End Call</span></button>
+  <button type="button" class="vbs-endall hidden" id="vbsEndAll">End for everyone</button>
 </div>
 <div id="voiceMove" class="vm hidden" role="region" aria-label="Call on another device"><span id="vmText"></span><button type="button" class="btn small primary" id="vmHere">Continue here</button></div>
 <dialog id="startDialog" aria-labelledby="sdTitle" class="sd">
@@ -3589,10 +3646,19 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
     function featNote(id) { var p = h('p', { class: 'feat-note muted qp-sub', id: 'feat-' + id, 'data-feature': id }); paintFeat(p, feats && feats[id]); return p; }
     function refreshFeats() { Array.prototype.forEach.call(alt.querySelectorAll('.feat-note'), function (el) { paintFeat(el, feats && feats[el.getAttribute('data-feature')]); }); }
     function putPrefs(patch, msg, btn) { msg.className = 'muted'; msg.textContent = ''; btn.disabled = true; return settingsApi('PUT', patch).then(function (r) { ps = r; setRingtone(r.ringtone); msg.textContent = r.note || I18n.t('Saved.'); return r; }).catch(function (e) { msg.className = 'qp-bad'; msg.textContent = phoneWhy(e); }).then(function (r) { btn.disabled = false; return r; }); }
+    // phones: a drop-down that mirrors a strip of tab buttons (the buttons stay for desktop and keyboard users; CSS shows one or the other)
+    function stripDropdown(strip, label, attr) {
+      var sel = h('select', { class: 'qp-stripsel', 'aria-label': label });
+      function sync() { var cur = ''; sel.textContent = ''; Array.prototype.forEach.call(strip.children, function (b) { var k = b.getAttribute(attr); if (!k) return; var o = h('option', { value: k, text: b.textContent.replace(/\s+/g, ' ').trim() }); sel.appendChild(o); if (b.getAttribute('aria-selected') === 'true') cur = k; }); if (cur) sel.value = cur; }
+      sel.addEventListener('change', function () { var b = strip.querySelector('[' + attr + '="' + sel.value + '"]'); if (b) b.click(); });
+      new MutationObserver(sync).observe(strip, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-selected'] });
+      setTimeout(function () { if (strip.parentNode) strip.parentNode.insertBefore(sel, strip); sync(); }, 0);
+      return sel;
+    }
     function openSettings(section) {
       alt.appendChild(h('div', { class: 'qp-jhead' }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '\u2699' }), h('div', {}, [h('h2', { id: 'psH', text: I18n.t('Phone Settings') }), h('p', { class: 'muted qp-sub', text: I18n.t('Manage your calling and meeting preferences.') })]), badge(I18n.t('Your account'), 'grey')]));
       var nav = h('div', { class: 'ps-nav', role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': I18n.t('Phone settings sections') }), body = h('div', { class: 'ps-body', id: 'psBody', role: 'tabpanel', 'aria-live': 'polite' });
-      alt.appendChild(h('div', { class: 'ps-layout', id: 'psPage' }, [nav, body]));
+      alt.appendChild(h('div', { class: 'ps-layout', id: 'psPage' }, [nav, body])); stripDropdown(nav, I18n.t('Phone settings sections'), 'data-s');
       var secs = [['calling', 'Calling & Caller ID', '\u260E'], ['audio', 'Audio & Devices', '\uD83C\uDF99'], ['dialin', 'Meeting Dial-in', '\uD83C\uDFA5'], ['privacy', 'Privacy & Security', '\uD83D\uDEE1'], ['notify', 'Notifications', '\uD83D\uDD14'], ['history', 'Call History', '\uD83D\uDD52'], ['plans', 'Plans & Billing', '\uD83D\uDCB3'], ['admin', 'Admin Controls', '\uD83C\uDFE2'], ['help', 'Help', '?']];
       secs.forEach(function (x) { nav.appendChild(h('button', { type: 'button', role: 'tab', id: 'psNav-' + x[0], 'data-s': x[0], 'aria-selected': 'false', onclick: function () { go(x[0]); } }, [h('span', { 'aria-hidden': 'true', text: x[2] + ' ' }), I18n.t(x[1])])); });
       nav.addEventListener('keydown', function (e) { var bs = Array.prototype.slice.call(nav.children), i = bs.indexOf(document.activeElement); if (i < 0) return; var to = { ArrowDown: (i + 1) % bs.length, ArrowUp: (i + bs.length - 1) % bs.length }[e.key]; if (to === undefined) return; e.preventDefault(); bs[to].focus(); go(bs[to].dataset.s); });
@@ -3783,7 +3849,7 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
       helpTarget.appendChild(h('div', { class: 'qp-jhead' }, [h('span', { class: 'qp-ico sm', 'aria-hidden': 'true', text: '?' }), h('div', {}, [h('h2', { id: 'hpH', text: I18n.t('Qorlla Phone Help Center') }), h('p', { class: 'muted qp-sub', text: I18n.t('Guides, troubleshooting and technical support') })])]));
       var hb = h('div', { class: 'qp-filters', role: 'tablist', 'aria-label': I18n.t('Help sections') }), body = h('div', { id: 'hpBody', role: 'tabpanel', 'aria-live': 'polite' });
       [['center', 'Help Center'], ['diag', 'Diagnostics'], ['tickets', 'Support tickets']].forEach(function (t) { hb.appendChild(h('button', { type: 'button', role: 'tab', id: 'hpTab-' + t[0], 'data-t': t[0], 'aria-selected': 'false', text: I18n.t(t[1]), onclick: function () { go(t[0]); } })); });
-      helpTarget.appendChild(hb); helpTarget.appendChild(body);
+      helpTarget.appendChild(hb); stripDropdown(hb, I18n.t('Help sections'), 'data-t'); helpTarget.appendChild(body);
       phoneApi('/api/workplace/support/me').then(function (m) { if (m.staff && !hb.querySelector('[data-t=console]')) hb.appendChild(h('button', { type: 'button', role: 'tab', id: 'hpTab-console', 'data-t': 'console', 'aria-selected': 'false', text: I18n.t('Support console'), onclick: function () { go('console'); } })); }).catch(function () { /* not staff, or the server is older: no console */ });
       function go(t) { Array.prototype.forEach.call(hb.children, function (b) { b.setAttribute('aria-selected', String(b.dataset.t === t)); }); body.textContent = ''; ({ center: hCenter, diag: hDiag, tickets: hTickets, console: hStaff })[t](body, go); }
       go(tab || 'center');
@@ -3809,6 +3875,7 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
     function hDiag(box) {
       var mode = 'checks', inner = h('div', { id: 'hpDiagBody', 'aria-live': 'polite' }), tabs = h('div', { class: 'qp-filters', role: 'tablist', 'aria-label': I18n.t('Diagnostics') });
       [['checks', 'Service checks'], ['guide', 'Error guide']].forEach(function (t) { tabs.appendChild(h('button', { type: 'button', role: 'tab', id: 'hpD-' + t[0], 'data-m': t[0], 'aria-selected': String(t[0] === mode), text: I18n.t(t[1]), onclick: function () { mode = t[0]; Array.prototype.forEach.call(tabs.children, function (b) { b.setAttribute('aria-selected', String(b.dataset.m === mode)); }); paint(); } })); });
+      stripDropdown(tabs, I18n.t('Diagnostics'), 'data-m');
       var results = null, running = false, err = null;
       var defs = [['api', 'Phone API', 'Backend route and authorization'], ['meet', 'Meeting dial-in', 'Meeting service integration'], ['numbers', 'Dial-in numbers', 'Numbers provisioned for meetings'], ['provider', 'Telephone provider', 'Number provisioning and voice service'], ['audio', 'Audio bridge for phone callers', 'Telephone audio into the video meeting'], ['devices', 'Audio devices', 'Browser microphone and speaker access'], ['voice', 'Qorlla Voice (internet calls)', 'Self-hosted voice service and signaling']];
       function audioCheck() {
@@ -5385,6 +5452,24 @@ dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%;
     voice.people.filter(function (p) { return !p.self && p.extension && !inCall[p.extension]; }).forEach(function (p) { var o = document.createElement('option'); o.value = p.extension; o.textContent = p.displayName + ' (ext ' + p.extension + ')'; pick.appendChild(o); });
     $('vaExt').value = ''; $('vaMsg').textContent = ''; $('vaDo').disabled = false; var d = $('voiceAdd'); if (!d.open) d.showModal();
   }
+
+  // ---- phone call screen: the real bar (#voiceBar) keeps all the logic; these controls mirror it and click its buttons ----
+  (function () {
+    var peerEl = $('vbPeer'), stEl = $('vbStatus'), mute = $('vbMute'), add = $('vbAdd'), end = $('vbEnd'), endAll = $('vbEndAll');
+    function peerSync() { var t = (peerEl.textContent || '').trim(), m = t.match(/^(.*?)\s*\((ext\s*\d+)\)\s*$/i), nm = m ? m[1] : t;
+      $('vbsName').textContent = nm; $('vbsNum').textContent = m ? m[2] : '';
+      $('vbsFace').textContent = nm.replace(/[^\p{L}\p{N} ]/gu, '').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || 'Q'; }
+    function timeSync() { $('vbsTime').textContent = (stEl.textContent || '').replace(/^Connected\s*\u00B7\s*/, ''); }
+    function muteSync() { var on = mute.getAttribute('aria-pressed') === 'true', b = $('vbsMute'); b.setAttribute('aria-pressed', String(on)); b.nextElementSibling.textContent = on ? I18n.t('Unmute') : I18n.t('Mute'); b.setAttribute('aria-label', on ? I18n.t('Unmute') : I18n.t('Mute')); }
+    function btnSync() { $('vbsAdd').classList.toggle('hidden', add.classList.contains('hidden')); $('vbsEndAll').classList.toggle('hidden', endAll.classList.contains('hidden')); $('vbsEndText').textContent = (end.textContent || '').trim() === 'Leave' ? I18n.t('Leave') : I18n.t('End Call'); }
+    var mo = function (el, fn, o) { new MutationObserver(fn).observe(el, o); };
+    mo(peerEl, peerSync, { childList: true, characterData: true, subtree: true }); mo(stEl, timeSync, { childList: true, characterData: true, subtree: true });
+    mo(mute, muteSync, { attributes: true, attributeFilter: ['aria-pressed'] }); mo(add, btnSync, { attributes: true, attributeFilter: ['class'] }); mo(endAll, btnSync, { attributes: true, attributeFilter: ['class'] }); mo(end, btnSync, { childList: true, characterData: true, subtree: true });
+    $('vbsMute').addEventListener('click', function () { mute.click(); }); $('vbsAdd').addEventListener('click', function () { add.click(); });
+    $('vbsEnd').addEventListener('click', function () { end.click(); }); $('vbsEndAll').addEventListener('click', function () { endAll.click(); });
+    Array.prototype.forEach.call(document.querySelectorAll('#voiceBar .vbs-off'), function (b) { b.addEventListener('click', function () { toast(I18n.t(b.getAttribute('aria-label')) + ': ' + I18n.t('not available in this build yet.')); }); });
+    peerSync(); timeSync(); muteSync(); btnSync();
+  })();
   $('vbAdd').addEventListener('click', voiceAddOpen);
   $('vaCancel').addEventListener('click', function () { $('voiceAdd').close(); });
   $('vaDo').addEventListener('click', function () {
