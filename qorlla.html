@@ -1326,6 +1326,28 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
 @media (min-width:701px) { html body .qp.qp-station .qp-side .si-card { width:56% !important; min-width:200px; } html body .qp.qp-station .si-row, html body .qp.qp-station .si-act { font-size:11.5px !important; } html body .qp.qp-station .si-card h3 { font-size:13px !important; } }
 
 @media (min-width:701px) { html body .qp.qp-station .qp-side .si-card { width:46% !important; min-width:190px !important; padding:6px 10px !important; } html body .qp.qp-station .si-row { font-size:11px !important; padding:0 !important; } html body .qp.qp-station .si-act { font-size:11px !important; padding:4px 8px !important; margin-top:3px !important; } html body .qp.qp-station .si-act svg { width:14px; height:14px; } html body .qp.qp-station .si-card h3 { font-size:12px !important; margin:0 0 2px !important; } }
+
+/* Call Station: corner card for the live call, centred close icon, dark hover on recent rows, redial */
+.si-corner { display:none; }
+@media (min-width:701px) {
+  html body .qp.qp-station .qp-side { position:relative; }
+  html body .qp.qp-station .si-corner { display:flex; align-items:center; gap:12px; position:absolute; top:0; left:0; right:0; box-sizing:border-box; padding:12px 14px; border-radius:18px; background:linear-gradient(160deg,#2a1260,#120a2a); border:1px solid rgba(167,139,250,.55); box-shadow:0 14px 36px rgba(10,5,24,.5); z-index:3; }
+  html body .qp.qp-station .si-corner.hidden { display:none; }
+  .sc-face { flex:0 0 52px; width:52px; height:52px; border-radius:50%; display:grid; place-items:center; font-size:20px; font-weight:700; color:#fff; background:linear-gradient(145deg,#8b5cf6,#4c1d95); border:2px solid #c4a6ff; }
+  .sc-txt { flex:1; min-width:0; } .sc-state { font-size:12px; font-weight:600; color:#bfb2e6; } .sc-state.ok { color:#4ade80; } .sc-name { font-size:17px; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .sc-num { font-size:12px; color:#efe8ff; }
+  .sc-end { display:flex; align-items:center; gap:6px; height:38px; padding:0 14px; border:0; border-radius:19px; background:linear-gradient(180deg,#ef4444,#c81e3a); color:#fff; font:inherit; font-size:13.5px; font-weight:700; cursor:pointer; } .sc-end svg { width:18px; height:18px; fill:#fff; transform:rotate(135deg); } .sc-end:focus-visible { outline:2px solid #fff; outline-offset:2px; }
+  /* close icon: a 30px circle with the X exactly in its centre */
+  #voiceIncoming .vi-x { display:flex !important; align-items:center; justify-content:center; padding:0 !important; line-height:0 !important; font-size:0 !important; top:10px !important; right:10px !important; width:30px !important; height:30px !important; border-radius:50% !important; }
+  #voiceIncoming .vi-x svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2.4; stroke-linecap:round; display:block; }
+  /* recent rows: readable on hover */
+  html body .qp.qp-station .qp-dial-card .qp-recent-num:hover, html body .qp.qp-station .qp-dial-card .qp-recent-num:focus-visible { background:rgba(139,92,246,.28) !important; color:#fff !important; }
+  html body .qp.qp-station .qp-dial-card .qp-recent-num:hover *, html body .qp.qp-station .qp-dial-card .qp-recent-num:focus-visible * { color:#fff !important; }
+  html body .qp.qp-station .qp-dial-card .qp-recent-num, html body .qp.qp-station .qp-dial-card .qp-recent-num strong { color:#f4f0ff; } html body .qp.qp-station .qp-dial-card .qp-nrow { border-bottom:1px solid rgba(167,139,250,.2); }
+  html body .qp.qp-station .qp-dial-card .qp-copy { background:transparent !important; border:1px solid rgba(167,139,250,.4) !important; color:#f4f0ff !important; border-radius:10px; min-width:34px; height:34px; cursor:pointer; margin-left:4px; }
+  html body .qp.qp-station .qp-dial-card .qp-copy:hover { background:rgba(139,92,246,.4) !important; }
+  html body .qp.qp-station .qp-dial-card .qp-redial { border-color:#4ade80 !important; color:#4ade80 !important; } html body .qp.qp-station .qp-dial-card .qp-redial:hover { background:rgba(34,197,94,.28) !important; color:#fff !important; }
+  html body .qp.qp-station .qp-dial-card .qp-ph { color:#a78bfa; }
+}
 </style>
 </head>
 <body data-page="workspace">
@@ -1517,7 +1539,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
 </template>
 
 <dialog id="voiceIncoming" class="vi vi-call" aria-labelledby="viTitle" aria-describedby="viWho">
-  <button type="button" class="vi-x" id="viClose" aria-label="Decline and close">&times;</button>
+  <button type="button" class="vi-x" id="viClose" aria-label="Decline and close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
   <div class="vi-top" aria-hidden="true"><svg viewBox="0 0 32 32" class="vi-logo"><circle cx="15" cy="15" r="10" fill="none" stroke="#a855f7" stroke-width="5"/><path d="m21 21 7 7" stroke="#a855f7" stroke-width="5" stroke-linecap="round"/></svg><span>Qorlla</span></div>
   <h2 id="viTitle" class="vi-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span id="viTitleText">Incoming Call</span></h2>
   <div class="vi-avatar" aria-hidden="true"><span class="vi-ring r1"></span><span class="vi-ring r2"></span><span class="vi-ring r3"></span><div class="vi-face" id="viFace">Q</div></div>
@@ -3410,7 +3432,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var padDrop = h('details', { class: 'qp-dial-drop', id: 'qpPadDrop' }, [h('summary', { text: I18n.t('Dial Pad') }), keys]);
       numberDrop.open = true; padDrop.open = phoneUI;   // phones start with the keypad open; the desktop keypad opens when you tap the number
       var bsp = h('button', { type: 'button', class: 'qp-bsp', 'aria-label': I18n.t('Delete last digit'), text: '\u232B', onclick: function () { del.click(); } }); numberDrop.querySelector('.qp-numin').appendChild(bsp);
-      var stTitle = h('h2', { class: 'qs-title', id: 'qsTitle', text: I18n.t('Qorlla Phone') });
+      var stTitle = h('h2', { class: 'qs-title', id: 'qsTitle', text: I18n.t('Qorlla Call Station') });
       var stSearch = h('input', { type: 'search', class: 'qs-search', id: 'qsSearch', enterkeyhint: 'search', maxlength: '80', autocomplete: 'off', placeholder: I18n.t('Search or dial (name, email, or number)'), 'aria-label': I18n.t('Search or dial (name, email, or number)') });
       stSearch.addEventListener('keydown', function (e) { if (e.key !== 'Enter') return; e.preventDefault(); var v = stSearch.value.trim(); if (!v) return; if (/^[+\d][\d\s().-]*$/.test(v)) { set(v.replace(/[^\d+]/g, '')); stSearch.value = ''; } else { select('contacts'); setTimeout(function () { var c = document.querySelector('#phPanel input[type=search], .qp-card input[type=search]'); if (c && c !== stSearch) { c.value = v; c.dispatchEvent(new Event('input', { bubbles: true })); } }, 200); } });
       var qsTabs = h('div', { class: 'qs-tabs', role: 'tablist', 'aria-label': I18n.t('Phone sections') });
@@ -3450,6 +3472,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
           var w = when(x.at);
           box.appendChild(h('div', { class: 'qp-nrow' }, [
             h('button', { type: 'button', class: 'qp-recent-num', onclick: function () { dialCard._set(x.n); var i = document.getElementById('qpDialNumber'); if (i) i.focus(); } }, [h('span', { class: 'qp-ph', 'aria-hidden': 'true', text: '\u260E' }), h('span', { class: 'qp-nt' }, [h('strong', { text: x.n }), h('small', { class: 'muted', text: I18n.t('(no label)') })]), h('span', { class: 'qp-nw muted' }, [h('span', { text: w[0] }), h('span', { text: w[1] })]), h('span', { class: 'qp-chev', 'aria-hidden': 'true', text: '\u203A' })]),
+            h('button', { type: 'button', class: 'qp-copy qp-redial', 'aria-label': I18n.t('Redial') + ' ' + x.n, title: I18n.t('Redial'), text: '\u260E', onclick: function () { if (/^\d{3,8}$/.test(x.n) && voice.ready && voice.client && !voice.client.callId) { dialList._add(x.n); voiceDial(x.n); } else { dialCard._set(x.n); toast(voice.ready ? I18n.t('Only extensions (3 to 8 digits) can be called here. The number was placed in the dial pad.') : I18n.t('Qorlla Voice is not connected yet.')); } } }),
             h('button', { type: 'button', class: 'qp-copy', 'aria-label': I18n.t('Copy number') + ' ' + x.n, title: I18n.t('Copy number'), text: '\u29C9', onclick: function () { copyPlain(x.n, I18n.t('Number copied')); } })]));
         });
       }
@@ -4208,7 +4231,8 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       act('siGroup', I18n.t('Start Group Call'), '<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 19a6 6 0 0 1 12 0M15.5 19a4.5 4.5 0 0 1 6 0"/>');
       act('siRecord', I18n.t('Record Call'), '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>', true);
       act('siTransfer', I18n.t('Transfer Call'), '<path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/>', true);
-      dialSide.appendChild(info); dialSide.appendChild(acts);
+      var corner = el('div', 'si-corner hidden', '<div class="sc-face" id="scFace">Q</div><div class="sc-txt"><div class="sc-state" id="scState"></div><div class="sc-name" id="scName"></div><div class="sc-num" id="scNum"></div></div><button type="button" class="sc-end" id="scEnd" aria-label="End call"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 14c5-5 13-5 18 0l-2.5 2.5-3-1.5v-2.5a11 11 0 0 0-7 0V15l-3 1.5z"/></svg><span>End</span></button>');
+      dialSide.appendChild(corner); dialSide.appendChild(info); dialSide.appendChild(acts);
       function $s(id) { return dialStage.querySelector('#' + id) || dialSide.querySelector('#' + id); }
       var startedAt = null;
       function fmt(sec) { var h2 = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), x = sec % 60, z = function (n) { return String(n).padStart(2, '0'); }; return z(h2) + ':' + z(m) + ':' + z(x); }
@@ -4226,10 +4250,12 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
         $s('siType').textContent = live ? I18n.t('Voice Call') : '\u2014'; $s('siStatus').textContent = live ? (conn ? I18n.t('Connected') : st) : I18n.t('Ready'); $s('siStatus').className = live && conn ? 'ok' : '';
         $s('siFrom').textContent = voice.ext ? I18n.t('ext') + ' ' + voice.ext : '\u2014'; $s('siStarted').textContent = startedAt ? startedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '\u2014'; $s('siEnc').textContent = live && conn ? I18n.t('Encrypted (WebRTC)') : '\u2014';
         $s('siAdd').disabled = !live || document.getElementById('vbAdd').classList.contains('hidden');
+        var cn = dialSide.querySelector('.si-corner'); cn.classList.toggle('hidden', !live); if (live) { $s('scState').textContent = conn ? I18n.t('Connected') + (t[1] ? ' \u00B7 ' + t[1] + ':' + t[2] : '') : st.replace(/\u2026$/, '') + '\u2026'; $s('scState').className = 'sc-state' + (conn ? ' ok' : ''); $s('scName').textContent = name; $s('scNum').textContent = ext; $s('scFace').textContent = $s('stFace').textContent; }
       }
       var mo = function (n, o) { if (n) new MutationObserver(sync).observe(n, o); };
       mo(document.getElementById('voiceBar'), { attributes: true, attributeFilter: ['class'] }); mo(document.getElementById('vbPeer'), { childList: true, characterData: true, subtree: true }); mo(document.getElementById('vbStatus'), { childList: true, characterData: true, subtree: true });
       mo(document.getElementById('vbMute'), { attributes: true, attributeFilter: ['aria-pressed'] }); mo(document.getElementById('vbAdd'), { attributes: true, attributeFilter: ['class'] }); mo(document.getElementById('vbEnd'), { childList: true, characterData: true, subtree: true });
+      dialSide.querySelector('#scEnd').addEventListener('click', function () { document.getElementById('vbEnd').click(); });
       $s('stMute').addEventListener('click', function () { document.getElementById('vbMute').click(); }); $s('stEnd').addEventListener('click', function () { document.getElementById('vbEnd').click(); });
       $s('siAdd').addEventListener('click', function () { document.getElementById('vbAdd').click(); });
       $s('siGroup').addEventListener('click', function () { var gb = document.getElementById('qpGroupBtn'); if (gb) gb.click(); else toast(I18n.t('Group calls need at least two colleagues.')); });
