@@ -1159,6 +1159,85 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
   #voiceBar:not(.hidden) .vbs-endall { display:block; position:relative; z-index:1; margin-top:10px; background:transparent; border:1px solid rgba(255,255,255,.4); color:#fff; border-radius:20px; padding:8px 18px; font-size:14px; } #voiceBar .vbs-endall.hidden { display:none; }
 }
 @media (max-width:700px) and (max-height:700px) { #voiceBar .vbs-avatar { width:140px; height:140px; margin:6px 0; } #voiceBar .vbs-face { width:112px; height:112px; font-size:42px; } #voiceBar .vbs-btn { width:58px; height:58px; } #voiceBar:not(.hidden) .vbs-grid { gap:10px 8px; margin-bottom:10px; } #voiceBar:not(.hidden) .vbs-name { font-size:24px; } }
+
+/* Desktop Dial Pad = Call Station: three partitions (keypad | call stage | call information and actions), dark purple, fits the screen */
+.qs-title, .qs-search, .qp-stage, .qp-side { display:none; }
+@media (min-width:701px) {
+  .qp.qp-station { height:calc(100vh - 235px); min-height:520px; display:flex; flex-direction:column; }
+  .qp.qp-station > .qp-grid { flex:1 1 auto; min-height:0; display:grid; grid-template-columns:minmax(290px,340px) minmax(0,1fr) minmax(280px,330px); grid-template-rows:auto minmax(0,1fr); align-items:stretch; align-content:stretch; overflow:hidden; gap:12px; padding:12px; border-radius:20px; background:radial-gradient(120% 90% at 50% 0%, #3b1c7a 0%, #170b33 55%, #0a0518 100%); box-shadow:0 10px 30px rgba(23,11,51,.35); color:#f4f0ff; }
+  .qp.qp-station .qp-card { background:rgba(255,255,255,.05); border:1px solid rgba(167,139,250,.28); border-radius:16px; color:#f4f0ff; padding:14px; box-shadow:none; }
+  .qp.qp-station .qp-card :is(h2,h3,strong,label) { color:#fff; } .qp.qp-station .muted, .qp.qp-station .qp-sub, .qp.qp-station .qp-hint { color:#bfb2e6; }
+  /* left: keypad */
+  .qp.qp-station .qp-dial-card { grid-column:1; grid-row:1 / span 2; display:flex !important; flex-direction:column; align-items:stretch; justify-content:center; gap:6px; overflow:hidden; }
+  .qp.qp-station .qs-title { display:block; margin:0 0 4px; font-size:21px; font-weight:700; letter-spacing:-.3px; }
+  .qp.qp-station .qs-search { display:block; width:100%; box-sizing:border-box; height:38px; border-radius:12px; border:1px solid rgba(167,139,250,.45); background:rgba(255,255,255,.06); color:#fff; padding:0 12px 0 38px; font-size:13px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e6dcff' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:12px center; background-size:17px; }
+  .qp.qp-station .qs-search::placeholder { color:#bfb2e6; }
+  .qp.qp-station .qp-dial-drop { border:0; margin:0; padding:0; background:transparent; } .qp.qp-station .qp-dial-drop summary { display:none; }
+  .qp.qp-station .qp-dial-drop select, .qp.qp-station .qp-card select { height:32px; font-size:12px; background:rgba(255,255,255,.07) !important; color:#f4f0ff !important; border:1px solid rgba(167,139,250,.4) !important; border-radius:10px; } .qp.qp-station option { background:#1a0f38; color:#fff; }
+  .qp.qp-station .qp-numin { margin:4px 0; } .qp.qp-station .qp-numin input { height:40px; text-align:center; font-size:22px; font-weight:650; background:transparent !important; color:#fff !important; border:0 !important; border-bottom:1px solid rgba(167,139,250,.3) !important; border-radius:0; padding:0 44px; }
+  .qp.qp-station .qp-numin .qp-x { display:none; } .qp.qp-station .qp-bsp { display:grid; position:absolute; right:6px; top:50%; transform:translateY(-50%); width:36px; height:34px; place-items:center; background:transparent; border:0; color:#e6dcff; font-size:20px; cursor:pointer; }
+  .qp.qp-station .qp-keys { --qk:clamp(38px, 5.2vh, 54px); gap:clamp(5px,1vh,10px) 18px; margin:6px 0; justify-content:center; }
+  .qp.qp-station .qp-key { background:radial-gradient(circle at 35% 30%, rgba(255,255,255,.14), rgba(255,255,255,.04)); border:1.5px solid rgba(190,170,255,.5); color:#fff; box-shadow:0 0 10px rgba(124,58,237,.22) inset; } .qp.qp-station .qp-key strong { color:#fff; font-size:21px; } .qp.qp-station .qp-key small { color:#cbbcf5; font-size:8.5px; letter-spacing:1.2px; }
+  .qp.qp-station .qp-callrow { display:flex; flex-direction:column; gap:8px; align-items:stretch; margin:6px 0 2px; }
+  .qp.qp-station .qp-callrow .qp-del, .qp.qp-station .qp-callrow .qp-copyn { display:none; }
+  .qp.qp-station .qp-callrow .qp-call { width:auto; height:44px; border-radius:22px; background:linear-gradient(180deg,#8b3dff,#6d28d9); color:#fff; font-size:0; border:1px solid #b794ff; display:flex; align-items:center; justify-content:center; gap:10px; }
+  .qp.qp-station .qp-callrow .qp-call::before { content:"\260E"; font-size:19px; } .qp.qp-station .qp-callrow .qp-call::after { content:"Call"; font-size:16px; font-weight:700; } .qp.qp-station .qp-call:disabled { opacity:.55; }
+  .qp.qp-station .qp-callrow .qp-vcall { display:flex; height:42px; border-radius:21px; align-items:center; justify-content:center; background:rgba(255,255,255,.06); color:#fff; border:1.5px solid rgba(190,170,255,.55); font-size:15px; font-weight:650; cursor:pointer; }
+  .qp.qp-station .qp-dial-card > h2:not(.qs-title), .qp.qp-station .qp-dial-card > p, .qp.qp-station .qp-dial-card .qp-sub { display:none !important; }
+  .qp.qp-station .qp-dial-card, .qp.qp-station .qp-stage, .qp.qp-station .qp-list { min-height:0; }
+  .qp.qp-station #qpDialHint, .qp.qp-station #phCallNote, .qp.qp-station .qp-dial-card > .qp-lbl, .qp.qp-station #qpCallerId, .qp.qp-station .qp-live { display:none; }
+  /* centre: stage */
+  .qp.qp-station .qp-stage { grid-column:2; grid-row:1 / span 2; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:0; position:relative; overflow:hidden; background:radial-gradient(90% 60% at 50% 40%, rgba(139,61,255,.28), transparent 70%), rgba(255,255,255,.03); }
+  .st-top { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; color:#f4f0ff; } .st-sig svg { width:18px; height:18px; fill:#22c55e; } .st-lock svg { width:15px; height:15px; fill:none; stroke:#e6dcff; stroke-width:2; } .st-lock.hidden { display:none; }
+  .st-time { min-height:1.4em; margin-top:6px; font-size:15px; font-variant-numeric:tabular-nums; color:#efe8ff; }
+  .st-avatar { position:relative; width:clamp(130px,22vh,200px); height:clamp(130px,22vh,200px); margin:clamp(8px,2vh,22px) 0; display:grid; place-items:center; flex:0 0 auto; }
+  .st-face { position:relative; z-index:2; width:78%; height:78%; border-radius:50%; display:grid; place-items:center; font-size:clamp(36px,7vh,62px); font-weight:700; color:#fff; background:linear-gradient(145deg,#8b5cf6,#4c1d95); border:4px solid #c4a6ff; box-shadow:0 0 36px rgba(168,85,247,.65); }
+  .st-ring { position:absolute; inset:0; border-radius:50%; border:2px solid rgba(196,166,255,.5); animation:viPulse 2.6s ease-out infinite; } .st-ring.r2 { animation-delay:.9s; } .st-ring.r3 { animation-delay:1.8s; }
+  .qp:not(.st-incall) .st-ring { animation:none; opacity:.25; }
+  @media (prefers-reduced-motion: reduce) { .st-ring { animation:none !important; opacity:.3; } }
+  .st-name { margin:0; font-size:clamp(20px,3.2vh,28px); font-weight:700; color:#fff; } .st-num { margin:4px 0 0; font-size:16px; color:#efe8ff; min-height:1.2em; }
+  .st-badge { display:flex; align-items:center; gap:7px; margin:10px 0 0; padding:6px 14px; border-radius:12px; background:rgba(255,255,255,.08); border:1px solid rgba(196,166,255,.35); font-size:13px; color:#efe8ff; } .st-badge.hidden { display:none; } .st-badge svg { width:17px; height:17px; fill:none; stroke:#e6dcff; stroke-width:1.8; }
+  .st-ctls { display:flex; gap:clamp(12px,2.2vw,28px); margin:clamp(14px,3vh,34px) 0 clamp(10px,2vh,18px); } .st-act { display:flex; flex-direction:column; align-items:center; gap:6px; font-size:12.5px; color:#efe8ff; }
+  .st-btn { width:52px; height:52px; border-radius:50%; background:rgba(255,255,255,.08); border:1.5px solid rgba(196,166,255,.5); color:#fff; display:grid; place-items:center; cursor:pointer; } .st-btn svg { width:23px; height:23px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .st-btn[aria-pressed=true] { background:#fff; color:#5b21d6; } .st-off { opacity:.5; } .qp:not(.st-incall) .st-ctls .st-btn { opacity:.4; pointer-events:none; }
+  .st-end { display:none; align-items:center; justify-content:center; gap:10px; min-width:200px; height:46px; padding:0 26px; border:0; border-radius:23px; background:linear-gradient(180deg,#ef4444,#c81e3a); color:#fff; font-size:16px; font-weight:700; cursor:pointer; box-shadow:0 8px 22px rgba(0,0,0,.4); } .st-end svg { width:22px; height:22px; fill:#fff; transform:rotate(135deg); } .qp.st-incall .st-end { display:flex; }
+  .st-idle { margin:0; max-width:300px; font-size:13px; color:#bfb2e6; } .qp.st-incall .st-idle { display:none; }
+  /* right: info + actions, colleagues below */
+  .qp.qp-station .qp-side { grid-column:3; grid-row:1; display:flex; flex-direction:column; gap:10px; background:transparent; border:0; padding:0; }
+  .qp.qp-station .qp-side .si-card { background:rgba(255,255,255,.05); border:1px solid rgba(167,139,250,.28); border-radius:16px; padding:12px 14px; }
+  .si-card h3 { display:flex; align-items:center; gap:8px; margin:0 0 8px; font-size:15px; } .si-card h3 svg { width:18px; height:18px; fill:none; stroke:#e6dcff; stroke-width:1.8; }
+  .si-row { display:flex; justify-content:space-between; gap:10px; padding:4px 0; font-size:12.5px; color:#bfb2e6; } .si-row b { font-weight:600; color:#fff; text-align:right; } .si-row b.ok { color:#4ade80; }
+  .si-act { display:flex; align-items:center; gap:10px; width:100%; box-sizing:border-box; margin-top:6px; padding:8px 12px; border-radius:11px; background:rgba(255,255,255,.06); border:1px solid rgba(167,139,250,.35); color:#f4f0ff; font-size:13.5px; cursor:pointer; text-align:left; } .si-act svg { width:19px; height:19px; flex:0 0 auto; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; } .si-act:disabled { opacity:.45; cursor:default; }
+  .qp.qp-station .qp-list { grid-column:3; grid-row:2; min-height:0; overflow:auto; padding:10px 12px; }
+  .qp.qp-station .qp-list :is(.qp-item, .qp-nrow, .qp-recent-num, li, div) { color:#f4f0ff; border-color:rgba(167,139,250,.2); }
+  .qp.qp-station .qp-list :is(button.btn, input) { background:rgba(255,255,255,.08) !important; color:#f4f0ff !important; border:1px solid rgba(167,139,250,.4) !important; }
+  .qp.qp-station .qp-list .qp-ico { background:rgba(124,58,237,.35) !important; color:#fff !important; }
+  body:has(.qp.qp-station.st-incall) #voiceBar { display:none !important; }
+  .qp.qp-station { height:calc(100vh - 200px); }
+}
+@media (min-width:701px) and (max-height:880px) {
+  .qp.qp-station { height:calc(100vh - 190px); min-height:470px; }
+  .qp.qp-station .qs-title { font-size:18px; margin:0; } .qp.qp-station .qs-search { height:32px; } .qp.qp-station .qp-dial-card { gap:4px; padding:10px 12px; }
+  .qp.qp-station .qp-keys { --qk:clamp(34px, 4.6vh, 44px); gap:5px 16px; margin:2px 0; } .qp.qp-station .qp-key strong { font-size:18px; } .qp.qp-station .qp-key small { display:none; }
+  .qp.qp-station .qp-numin input { height:34px; font-size:19px; } .qp.qp-station .qp-callrow .qp-call, .qp.qp-station .qp-callrow .qp-vcall { height:36px; }
+  .st-avatar { width:clamp(100px,17vh,150px); height:clamp(100px,17vh,150px); margin:6px 0; } .st-ctls { margin:10px 0 8px; gap:14px; } .st-btn { width:44px; height:44px; } .st-end { height:40px; }
+  .qp.qp-station .qp-side .si-card { padding:8px 12px; } .si-row { padding:2px 0; } .si-act { padding:6px 10px; margin-top:4px; } .qp.qp-station .qp-list { padding:8px 10px; }
+}
+@media (min-width:701px) {
+}
+/* desktop: incoming call is a card in the top-right corner (not a full screen) */
+@media (min-width:701px) {
+  dialog#voiceIncoming.vi-call { position:fixed; inset:16px 16px auto auto; margin:0; width:min(400px, calc(100vw - 32px)); height:auto; border-radius:20px; display:none; padding:14px 16px 16px; background:linear-gradient(160deg,#2a1260,#120a2a); border:1px solid rgba(167,139,250,.55); box-shadow:0 18px 50px rgba(10,5,24,.55); text-align:left; align-items:stretch; }
+  dialog#voiceIncoming.vi-call[open] { display:grid; grid-template-columns:64px 1fr; grid-template-areas:"av title" "av who" "av num" "act act"; column-gap:14px; row-gap:0; }
+  dialog#voiceIncoming.vi-call::backdrop { background:transparent !important; backdrop-filter:none !important; -webkit-backdrop-filter:none !important; } #voiceIncoming .vi-actions .vi-act:nth-child(2) { order:-1; } dialog#voiceIncoming.vi-call::before { display:none; }
+  #voiceIncoming .vi-top, #voiceIncoming .vi-badge, #voiceIncoming .vi-sub, #voiceIncoming .vi-more { display:none; }
+  #voiceIncoming .vi-title { grid-area:title; margin:0; font-size:13px; } #voiceIncoming .vi-title svg { width:15px; height:15px; }
+  #voiceIncoming .vi-avatar { grid-area:av; width:64px; height:64px; margin:0; align-self:center; } #voiceIncoming .vi-ring { display:none; } #voiceIncoming .vi-face { width:64px; height:64px; font-size:24px; border-width:2px; box-shadow:0 0 14px rgba(168,85,247,.6); }
+  #voiceIncoming .vi-who { grid-area:who; padding:0; font-size:19px; text-align:left; } #voiceIncoming .vi-num { grid-area:num; margin:2px 0 0; font-size:13px; text-align:left; }
+  #voiceIncoming .vi-actions { grid-area:act; margin-top:12px; padding:0; gap:10px; } #voiceIncoming .vi-act { flex:1 1 0; flex-direction:row-reverse; justify-content:center; gap:8px; }
+  #voiceIncoming .vi-actions .vi-act { position:relative; }
+  #voiceIncoming .vi-btn { width:100%; height:42px; border-radius:21px; box-shadow:none; } #voiceIncoming .vi-actions .vi-act { align-items:stretch; flex-direction:column; } #voiceIncoming .vi-actions .vi-act span { position:absolute; inset:0; display:grid; place-items:center; font-size:15px; font-weight:700; pointer-events:none; padding-left:26px; } #voiceIncoming .vi-btn svg { position:absolute; left:calc(50% - 46px); top:50%; width:20px; height:20px; transform:translateY(-50%); } #voiceIncoming .vi-btn.red svg { transform:translateY(-50%) rotate(135deg); }
+}
 </style>
 </head>
 <body data-page="workspace">
@@ -3155,9 +3234,10 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       cur = t; Array.prototype.forEach.call(bar.children, function (b) { var on = b.dataset.tab === t; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       if (t === 'preferences') { openAlt(openSettings, 'calling'); return; }
       if (t === 'help') { openAlt(openHelp, 'center'); return; }
-      var pair = { dial: [dialCard, dialList], join: [joinCard, joinList], recent: [recentCard, recentDetail], contacts: [contactsCard, contactDetail], settings: [numberCard, plansCard] }[t];
+      var pair = { dial: [dialCard, dialStage, dialSide, dialList], join: [joinCard, joinList], recent: [recentCard, recentDetail], contacts: [contactsCard, contactDetail], settings: [numberCard, plansCard] }[t];
       alt.classList.add('hidden'); grid.classList.remove('hidden');
-      [dialCard, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { c.classList.toggle('hidden', pair.indexOf(c) < 0); });
+      root.classList.toggle('qp-station', t === 'dial');
+      [dialCard, dialStage, dialSide, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { c.classList.toggle('hidden', pair.indexOf(c) < 0); });
       if (t === 'contacts') loadContacts(); if (t === 'settings') loadPlans(); if (t === 'recent' && recentCard._load && voice.ready) recentCard._load(); if (t === 'dial' && voice.ready) voiceLoadPeople();   // new internet calls appear when you open the tab
     }
     var copyIcon = function (text, label) { return h('button', { class: 'qp-copy', type: 'button', 'aria-label': label, title: label, text: '⧉', onclick: function () { copyPlain(text, I18n.t('Number copied')); } }); };
@@ -3238,6 +3318,10 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var padDrop = h('details', { class: 'qp-dial-drop', id: 'qpPadDrop' }, [h('summary', { text: I18n.t('Dial Pad') }), keys]);
       numberDrop.open = true; padDrop.open = true;
       var bsp = h('button', { type: 'button', class: 'qp-bsp', 'aria-label': I18n.t('Delete last digit'), text: '\u232B', onclick: function () { del.click(); } }); numberDrop.querySelector('.qp-numin').appendChild(bsp);
+      var stTitle = h('h2', { class: 'qs-title', id: 'qsTitle', text: I18n.t('Qorlla Call Station') });
+      var stSearch = h('input', { type: 'search', class: 'qs-search', id: 'qsSearch', enterkeyhint: 'search', maxlength: '80', autocomplete: 'off', placeholder: I18n.t('Search or dial (name, email, or number)'), 'aria-label': I18n.t('Search or dial (name, email, or number)') });
+      stSearch.addEventListener('keydown', function (e) { if (e.key !== 'Enter') return; e.preventDefault(); var v = stSearch.value.trim(); if (!v) return; if (/^[+\d][\d\s().-]*$/.test(v)) { set(v.replace(/[^\d+]/g, '')); stSearch.value = ''; } else { select('contacts'); setTimeout(function () { var c = document.querySelector('#phPanel input[type=search], .qp-card input[type=search]'); if (c && c !== stSearch) { c.value = v; c.dispatchEvent(new Event('input', { bubbles: true })); } }, 200); } });
+      dialCard.insertBefore(stTitle, dialCard.firstChild); dialCard.insertBefore(stSearch, stTitle.nextSibling);
       dialCard.appendChild(numberDrop); dialCard.appendChild(padDrop);
       dialCard.appendChild(h('div', { class: 'qp-callrow' }, [copy, call, del, h('button', { type: 'button', class: 'qp-vcall', id: 'phVideoCall', text: I18n.t('Video Call'), title: I18n.t('Start a Qorlla video meeting'), onclick: function () { if (typeof newMeeting === 'function') newMeeting(); } })])); dialCard.appendChild(liveBox); dialCard.appendChild(note);
       dialCard.appendChild(h('label', { class: 'qp-lbl', for: 'qpCallerId', text: I18n.t('Your caller ID') })); dialCard.appendChild(caller);
@@ -3984,7 +4068,64 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       load();
     }
     paintNumberCard();
-    [dialCard, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { grid.appendChild(c); }); quiet(function () { select('dial'); });
+
+    // ---- Call Station (desktop Dial Pad): centre call stage + right-hand Call Information / Call Actions. They MIRROR the real call bar (#voiceBar) and press its buttons, so no call logic is duplicated.
+    var dialStage = h('section', { class: 'qp-card qp-stage', id: 'qpStage', 'aria-label': I18n.t('Call') }), dialSide = h('section', { class: 'qp-card qp-side', id: 'qpSide', 'aria-label': I18n.t('Call details') });
+    (function () {
+      var SV = function (d) { return '<svg viewBox="0 0 24 24" aria-hidden="true">' + d + '</svg>'; };
+      function el(tag, cls, html, id) { var n = document.createElement(tag); if (cls) n.className = cls; if (html != null) n.innerHTML = html; if (id) n.id = id; return n; }
+      var top = el('div', 'st-top', '<span class="st-sig">' + SV('<rect x="3" y="14" width="3.5" height="6" rx="1"/><rect x="9" y="10" width="3.5" height="10" rx="1"/><rect x="15" y="5" width="3.5" height="15" rx="1"/>') + '</span><span id="stState">' + I18n.t('Qorlla Call') + ' \u00B7 ' + I18n.t('Ready') + '</span><span class="st-lock hidden" id="stLock" title="' + I18n.t('Media is encrypted in transit (WebRTC DTLS-SRTP)') + '">' + SV('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>') + '</span>');
+      var time = el('div', 'st-time', '', 'stTime');
+      var av = el('div', 'st-avatar', '<span class="st-ring r1"></span><span class="st-ring r2"></span><span class="st-ring r3"></span><div class="st-face" id="stFace">Q</div>');
+      var nm = el('h2', 'st-name', '', 'stName'), num = el('p', 'st-num', '', 'stNum'), badge = el('p', 'st-badge hidden', SV('<circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0M17 6v6M14 9h6"/>') + '<span>' + I18n.t('Qorlla User') + '</span>', 'stBadge');
+      function ctl(id, label, d, off) { var w = el('div', 'st-act'), b = el('button', 'st-btn' + (off ? ' st-off' : ''), SV(d), id); b.type = 'button'; b.setAttribute('aria-label', label); if (off) b.setAttribute('aria-disabled', 'true'); w.appendChild(b); w.appendChild(el('span', '', label)); return w; }
+      var ctls = el('div', 'st-ctls');
+      ctls.appendChild(ctl('stMute', I18n.t('Mute'), '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>'));
+      ctls.appendChild(ctl('stVideo', I18n.t('Video'), '<path d="M3 7h12v10H3zM15 10l6-3v10l-6-3z"/>', true));
+      ctls.appendChild(ctl('stSpeaker', I18n.t('Speaker'), '<path d="M4 9.5h4l5-4v13l-5-4H4zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>', true));
+      ctls.appendChild(ctl('stKeypad', I18n.t('Keypad'), '<circle cx="6" cy="6" r="1.4"/><circle cx="12" cy="6" r="1.4"/><circle cx="18" cy="6" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/><circle cx="6" cy="18" r="1.4"/><circle cx="12" cy="18" r="1.4"/><circle cx="18" cy="18" r="1.4"/>', true));
+      ctls.appendChild(ctl('stMore', I18n.t('More'), '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>', true));
+      var end = el('button', 'st-end', SV('<path d="M3 14c5-5 13-5 18 0l-2.5 2.5-3-1.5v-2.5a11 11 0 0 0-7 0V15l-3 1.5z"/>') + '<span id="stEndText">' + I18n.t('End Call') + '</span>', 'stEnd'); end.type = 'button';
+      var idle = el('p', 'st-idle', I18n.t('Enter a number or choose a colleague, then press Call.'), 'stIdle');
+      [top, time, av, nm, num, badge, ctls, end, idle].forEach(function (n) { dialStage.appendChild(n); });
+      // right-hand panels
+      function row(k, id) { return '<div class="si-row"><span>' + k + '</span><b id="' + id + '"></b></div>'; }
+      var info = el('div', 'si-card', '<h3>' + SV('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/>') + I18n.t('Call Information') + '</h3>' + row(I18n.t('Type'), 'siType') + row(I18n.t('Status'), 'siStatus') + row(I18n.t('From'), 'siFrom') + row(I18n.t('Started'), 'siStarted') + row(I18n.t('Encryption'), 'siEnc'));
+      var acts = el('div', 'si-card', '<h3>' + SV('<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>') + I18n.t('Call Actions') + '</h3>');
+      function act(id, label, d, off) { var b = el('button', 'si-act' + (off ? ' st-off' : ''), SV(d) + '<span>' + label + '</span>', id); b.type = 'button'; if (off) b.setAttribute('aria-disabled', 'true'); acts.appendChild(b); return b; }
+      act('siAdd', I18n.t('Add Participant'), '<circle cx="10" cy="8" r="3.5"/><path d="M3.5 20a6.5 6.5 0 0 1 13 0M19 6v6M16 9h6"/>');
+      act('siGroup', I18n.t('Start Group Call'), '<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 19a6 6 0 0 1 12 0M15.5 19a4.5 4.5 0 0 1 6 0"/>');
+      act('siRecord', I18n.t('Record Call'), '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>', true);
+      act('siTransfer', I18n.t('Transfer Call'), '<path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/>', true);
+      dialSide.appendChild(info); dialSide.appendChild(acts);
+      function $s(id) { return dialStage.querySelector('#' + id) || dialSide.querySelector('#' + id); }
+      var startedAt = null;
+      function fmt(sec) { var h2 = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), x = sec % 60, z = function (n) { return String(n).padStart(2, '0'); }; return z(h2) + ':' + z(m) + ':' + z(x); }
+      function sync() {
+        var bar = document.getElementById('voiceBar'); if (!bar) return; var live = !bar.classList.contains('hidden');
+        var peer = (document.getElementById('vbPeer').textContent || '').trim(), st = (document.getElementById('vbStatus').textContent || '').trim(), m = peer.match(/^(.*?)\s*\((ext\s*\d+)\)\s*$/i), name = m ? m[1] : peer, ext = m ? m[2] : '';
+        var conn = /^Connected/i.test(st); if (live && conn && !startedAt) startedAt = new Date(); if (!live) startedAt = null;
+        root.classList.toggle('st-incall', live);
+        $s('stState').textContent = live ? I18n.t('Qorlla Call') + ' \u00B7 ' + (conn ? I18n.t('Encrypted') : st.replace(/\u2026$/, '')) : I18n.t('Qorlla Call') + ' \u00B7 ' + I18n.t('Ready'); $s('stLock').classList.toggle('hidden', !(live && conn));
+        var t = (st.match(/(\d\d):(\d\d)$/) || []); $s('stTime').textContent = live && conn && t[1] ? fmt(parseInt(t[1], 10) * 60 + parseInt(t[2], 10)) : '';
+        $s('stName').textContent = live ? name : I18n.t('Ready to call'); $s('stNum').textContent = live ? ext : ''; $s('stBadge').classList.toggle('hidden', !live);
+        $s('stFace').textContent = live ? (name.replace(/[^\p{L}\p{N} ]/gu, '').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || 'Q') : '\u260E';
+        var mu = document.getElementById('vbMute').getAttribute('aria-pressed') === 'true'; $s('stMute').setAttribute('aria-pressed', String(mu)); $s('stMute').parentNode.lastChild.textContent = mu ? I18n.t('Unmute') : I18n.t('Mute');
+        $s('stEndText').textContent = (document.getElementById('vbEnd').textContent || '').trim() === 'Leave' ? I18n.t('Leave') : I18n.t('End Call');
+        $s('siType').textContent = live ? I18n.t('Voice Call') : '\u2014'; $s('siStatus').textContent = live ? (conn ? I18n.t('Connected') : st) : I18n.t('Ready'); $s('siStatus').className = live && conn ? 'ok' : '';
+        $s('siFrom').textContent = voice.ext ? I18n.t('ext') + ' ' + voice.ext : '\u2014'; $s('siStarted').textContent = startedAt ? startedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '\u2014'; $s('siEnc').textContent = live && conn ? I18n.t('Encrypted (WebRTC)') : '\u2014';
+        $s('siAdd').disabled = !live || document.getElementById('vbAdd').classList.contains('hidden');
+      }
+      var mo = function (n, o) { if (n) new MutationObserver(sync).observe(n, o); };
+      mo(document.getElementById('voiceBar'), { attributes: true, attributeFilter: ['class'] }); mo(document.getElementById('vbPeer'), { childList: true, characterData: true, subtree: true }); mo(document.getElementById('vbStatus'), { childList: true, characterData: true, subtree: true });
+      mo(document.getElementById('vbMute'), { attributes: true, attributeFilter: ['aria-pressed'] }); mo(document.getElementById('vbAdd'), { attributes: true, attributeFilter: ['class'] }); mo(document.getElementById('vbEnd'), { childList: true, characterData: true, subtree: true });
+      $s('stMute').addEventListener('click', function () { document.getElementById('vbMute').click(); }); $s('stEnd').addEventListener('click', function () { document.getElementById('vbEnd').click(); });
+      $s('siAdd').addEventListener('click', function () { document.getElementById('vbAdd').click(); });
+      $s('siGroup').addEventListener('click', function () { var gb = document.getElementById('qpGroupBtn'); if (gb) gb.click(); else toast(I18n.t('Group calls need at least two colleagues.')); });
+      Array.prototype.forEach.call(dialStage.querySelectorAll('.st-off, .si-act.st-off'), function (b) { b.addEventListener('click', function () { toast((b.getAttribute('aria-label') || b.textContent.trim()) + ': ' + I18n.t('not available in this build yet.')); }); });
+      sync(); dialCard._stSync = sync;
+    })();
+    [dialCard, dialStage, dialSide, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { grid.appendChild(c); }); quiet(function () { select('dial'); });
     /** Applies a route that came from the address bar (deep link, refresh, Back/Forward) without adding history entries. */
     function applyRoute(sub, section) {
       quiet(function () {
