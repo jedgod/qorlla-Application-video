@@ -3042,7 +3042,8 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
     var dialCard = h('section', { class: 'qp-card qp-dial-card', id: 'dial-pad', 'aria-labelledby': 'qpDialH' });
     (function () {
       var sel = h('select', { id: 'qpDialCountry', 'aria-label': I18n.t('Country') }, COUNTRIES.map(function (c) { return h('option', { value: c[0], text: c[0] + ' +' + c[1] + ' ' + c[3] }); }));
-      var input = h('input', { type: 'tel', id: 'qpDialNumber', inputmode: 'tel', autocomplete: 'tel', maxlength: '24', placeholder: I18n.t('Enter phone number'), 'aria-label': I18n.t('Phone number'), 'aria-describedby': 'qpDialHint' });
+      var phoneUI = window.matchMedia('(max-width: 700px), (pointer: coarse)').matches;   // phones: the on-screen Qorlla keypad is the keyboard, the phone's own keypad never opens
+      var input = h('input', { type: 'tel', id: 'qpDialNumber', inputmode: phoneUI ? 'none' : 'tel', autocomplete: 'tel', maxlength: '24', placeholder: I18n.t('Enter phone number'), 'aria-label': I18n.t('Phone number'), 'aria-describedby': 'qpDialHint' });
       var clear = h('button', { class: 'qp-x', type: 'button', 'aria-label': I18n.t('Clear number'), title: I18n.t('Clear number'), onclick: function () { set(''); input.focus(); } });
       clear.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 5H9l-6.5 7L9 19h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z"/><path d="m13 9.5 5 5m0-5-5 5"/></svg>';
       var hint = h('p', { class: 'muted qp-hint', id: 'qpDialHint', 'aria-live': 'polite' });
@@ -3073,7 +3074,10 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
         b.addEventListener('click', function () { if (held) { held = false; return; } buzz(8); set(num + k[0]); padTouch(); }); keys.appendChild(b); });
       function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
       function padTouch() { padDrop.open = true; }
-      input.addEventListener('focus', padTouch);
+      input.addEventListener('focus', function () { if (!phoneUI) padTouch(); });
+      input.addEventListener('click', function () { if (phoneUI) { padDrop.open = !padDrop.open; input.setAttribute('aria-expanded', String(padDrop.open)); } });   // tap the number to pop the keypad up or close it
+      input.setAttribute('aria-controls', 'qpPadDrop');
+      if (phoneUI) { input.readOnly = true; input.setAttribute('inputmode', 'none'); }   // read-only on phones: the system keyboard cannot open; the Qorlla keypad (and a number chosen from Recent) still fill it
       input.addEventListener('input', function () { set(input.value.replace(/[^0-9*#+ ()-]/g, '')); }); sel.addEventListener('change', paint); var delHeld = false, delT = null; del.addEventListener('pointerdown', function () { delHeld = false; delT = setTimeout(function () { delHeld = true; buzz(14); set(''); padTouch(); }, 600); }); ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { del.addEventListener(ev, function () { clearTimeout(delT); }); }); del.addEventListener('click', function () { if (delHeld) { delHeld = false; return; } buzz(8); set(num.slice(0, -1)); padTouch(); });
       copy.addEventListener('click', function () { if (num) { copyPlain(num, I18n.t('Number copied')); dialList._add(num); } });
       input.addEventListener('keydown', function (e) { padTouch(); if (e.key === 'Enter' && num) { e.preventDefault(); dialList._add(num); } });
@@ -3111,7 +3115,7 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
       numberDrop.open = true; padDrop.open = true;
       var bsp = h('button', { type: 'button', class: 'qp-bsp', 'aria-label': I18n.t('Delete last digit'), text: '\u232B', onclick: function () { del.click(); } }); numberDrop.querySelector('.qp-numin').appendChild(bsp);
       dialCard.appendChild(numberDrop); dialCard.appendChild(padDrop);
-      padDrop.appendChild(h('div', { class: 'qp-callrow' }, [copy, call, del, h('button', { type: 'button', class: 'qp-vcall', id: 'phVideoCall', text: I18n.t('Video Call'), title: I18n.t('Start a Qorlla video meeting'), onclick: function () { if (typeof newMeeting === 'function') newMeeting(); } })])); dialCard.appendChild(liveBox); dialCard.appendChild(note);
+      dialCard.appendChild(h('div', { class: 'qp-callrow' }, [copy, call, del, h('button', { type: 'button', class: 'qp-vcall', id: 'phVideoCall', text: I18n.t('Video Call'), title: I18n.t('Start a Qorlla video meeting'), onclick: function () { if (typeof newMeeting === 'function') newMeeting(); } })])); dialCard.appendChild(liveBox); dialCard.appendChild(note);
       dialCard.appendChild(h('label', { class: 'qp-lbl', for: 'qpCallerId', text: I18n.t('Your caller ID') })); dialCard.appendChild(caller);
       getInfo().then(function () { paint(); if (info.carrierCalling) note.textContent = ''; }).catch(function () { /* the note already explains */ });
       paint();
