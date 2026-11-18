@@ -1,0 +1,6 @@
+{
+  "name":"qorlla-qgics","version":"1.0.0","private":true,"type":"module",
+  "scripts":{"start":"node src/server.js","test":"node --test test/*.test.js"},
+  "engines":{"node":">=20"},
+  "dependencies":{"better-sqlite3":"^11.8.1","express":"^4.21.2","helmet":"^8.0.0","pg":"^8.13.1","zod":"^3.24.2"}
+}
