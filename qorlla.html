@@ -1081,7 +1081,41 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
  body[data-page=workspace] .home-heading + .actions .action-btn { flex-direction:column; gap:5px; padding:8px 4px; min-height:70px; }
  body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:11px; }
 }
-</style></head>
+</style>
+<style id="incoming-call-screen">
+/* Incoming call: full-screen dark purple call screen (phones) / a phone-shaped card (desktop) */
+dialog#voiceIncoming.vi-call { padding:0; border:0; color:#fff; text-align:center; overflow:hidden; background:radial-gradient(120% 55% at 50% 0%, #4a1fa8 0%, #1d0d45 48%, #0a0518 100%); box-shadow:0 24px 70px rgba(10,5,24,.6); width:min(400px, calc(100vw - 24px)); height:min(780px, calc(100vh - 24px)); max-height:none; border-radius:30px; flex-direction:column; align-items:center; }
+dialog#voiceIncoming.vi-call[open] { display:flex; }
+dialog#voiceIncoming.vi-call::backdrop { background:rgba(10,5,24,.72); }
+dialog#voiceIncoming.vi-call::before { content:""; position:absolute; left:-20%; right:-20%; bottom:-8%; height:46%; background:radial-gradient(60% 80% at 50% 100%, rgba(139,61,255,.55), transparent 70%); pointer-events:none; }
+#voiceIncoming .vi-top { display:flex; align-items:center; gap:8px; font-size:26px; font-weight:700; margin-top:max(20px, env(safe-area-inset-top)); letter-spacing:-.3px; }
+#voiceIncoming .vi-logo { width:30px; height:30px; }
+#voiceIncoming .vi-title { display:flex; align-items:center; gap:8px; margin:16px 0 0; font-size:22px; font-weight:700; color:#4ade80; }
+#voiceIncoming .vi-title svg { width:22px; height:22px; fill:none; stroke:#4ade80; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+#voiceIncoming .vi-avatar { position:relative; width:190px; height:190px; margin:clamp(14px,3.2vh,34px) 0 clamp(10px,2vh,20px); display:grid; place-items:center; flex:0 0 auto; }
+#voiceIncoming .vi-face { position:relative; z-index:2; width:156px; height:156px; border-radius:50%; display:grid; place-items:center; font-size:58px; font-weight:700; background:linear-gradient(145deg,#8b5cf6,#4c1d95); border:4px solid #c4a6ff; box-shadow:0 0 34px rgba(168,85,247,.7); }
+#voiceIncoming .vi-ring { position:absolute; inset:0; border-radius:50%; border:2px solid rgba(196,166,255,.55); animation:viPulse 2.4s ease-out infinite; }
+#voiceIncoming .vi-ring.r2 { animation-delay:.8s; } #voiceIncoming .vi-ring.r3 { animation-delay:1.6s; }
+@keyframes viPulse { from { transform:scale(.82); opacity:.9; } to { transform:scale(1.32); opacity:0; } }
+@media (prefers-reduced-motion: reduce) { #voiceIncoming .vi-ring { animation:none; opacity:.35; } }
+#voiceIncoming .vi-who { position:relative; z-index:1; margin:0; font-size:30px; font-weight:700; line-height:1.15; padding:0 18px; word-break:break-word; }
+#voiceIncoming .vi-num { position:relative; z-index:1; margin:6px 0 0; font-size:20px; letter-spacing:.5px; color:#efe8ff; }
+#voiceIncoming .vi-badge { position:relative; z-index:1; display:flex; align-items:center; gap:8px; margin:12px 0 0; font-size:15px; color:#e6dcff; }
+#voiceIncoming .vi-badge svg { width:20px; height:20px; fill:none; stroke:#e6dcff; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; } #voiceIncoming .vi-badge .vi-ok { width:19px; height:19px; stroke:#fff; stroke-width:2.2; }
+#voiceIncoming .vi-sub { position:relative; z-index:1; margin:10px 24px 0; font-size:12px; color:#bfb2e6; opacity:.85; }
+#voiceIncoming .vi-actions { position:relative; z-index:1; display:flex; justify-content:center; gap:clamp(48px, 18vw, 84px); margin-top:auto; padding-top:12px; }
+#voiceIncoming .vi-act { display:flex; flex-direction:column; align-items:center; gap:8px; font-size:15px; font-weight:600; }
+#voiceIncoming .vi-btn { width:86px; height:86px; border-radius:50%; border:0; display:grid; place-items:center; cursor:pointer; color:#fff; box-shadow:0 10px 26px rgba(0,0,0,.4); }
+#voiceIncoming .vi-btn.red { background:linear-gradient(160deg,#ef4444,#c81e3a); } #voiceIncoming .vi-btn.green { background:linear-gradient(160deg,#22c55e,#15a34a); }
+#voiceIncoming .vi-btn:disabled { opacity:.6; } #voiceIncoming .vi-btn:focus-visible, #voiceIncoming .vi-mini:focus-visible { outline:3px solid #fff; outline-offset:3px; }
+#voiceIncoming .vi-btn svg { width:38px; height:38px; fill:#fff; } #voiceIncoming .vi-btn.red svg { transform:rotate(135deg); }
+#voiceIncoming .vi-more { position:relative; z-index:1; display:flex; justify-content:center; gap:34px; margin:22px 0 max(26px, env(safe-area-inset-bottom)); }
+#voiceIncoming .vi-mini { width:56px; height:56px; border-radius:50%; background:rgba(255,255,255,.1); border:1.5px solid rgba(196,166,255,.5); color:#fff; display:grid; place-items:center; cursor:pointer; }
+#voiceIncoming .vi-mini svg { width:25px; height:25px; fill:none; stroke:#fff; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; } #voiceIncoming .vi-more .vi-act { font-size:13px; font-weight:500; gap:6px; }
+@media (max-width:700px) { dialog#voiceIncoming.vi-call { width:100vw; max-width:none; height:100vh; height:100dvh; border-radius:0; margin:0; inset:0; } #voiceIncoming .vi-more { margin-bottom:calc(22px + var(--safe-b, 0px)); } }
+@media (max-height:700px) { #voiceIncoming .vi-avatar { width:150px; height:150px; margin:8px 0; } #voiceIncoming .vi-face { width:122px; height:122px; font-size:44px; } #voiceIncoming .vi-who { font-size:26px; } #voiceIncoming .vi-btn { width:72px; height:72px; } #voiceIncoming .vi-sub { display:none; } #voiceIncoming .vi-more { margin-top:12px; } }
+</style>
+</head>
 <body data-page="workspace">
 <a class="skip-link" href="#view"><span data-i18n="Skip to content">Skip to content</span></a>
 <div class="app">
@@ -1270,11 +1304,23 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
   <div id="homeHistory"></div>
 </template>
 
-<dialog id="voiceIncoming" class="vi" aria-labelledby="viTitle" aria-describedby="viWho">
-  <h2 id="viTitle">Incoming Qorlla call</h2>
+<dialog id="voiceIncoming" class="vi vi-call" aria-labelledby="viTitle" aria-describedby="viWho">
+  <div class="vi-top" aria-hidden="true"><svg viewBox="0 0 32 32" class="vi-logo"><circle cx="15" cy="15" r="10" fill="none" stroke="#a855f7" stroke-width="5"/><path d="m21 21 7 7" stroke="#a855f7" stroke-width="5" stroke-linecap="round"/></svg><span>Qorlla</span></div>
+  <h2 id="viTitle" class="vi-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg><span id="viTitleText">Incoming Call</span></h2>
+  <div class="vi-avatar" aria-hidden="true"><span class="vi-ring r1"></span><span class="vi-ring r2"></span><span class="vi-ring r3"></span><div class="vi-face" id="viFace">Q</div></div>
   <p id="viWho" class="vi-who"></p>
-  <p class="muted vi-sub">Internet call: no phone number is involved, and your microphone stays off until you answer.</p>
-  <div class="vi-actions"><button type="button" class="btn danger" id="viDecline">Decline</button><button type="button" class="btn primary" id="viAnswer">Answer</button></div>
+  <p id="viNum" class="vi-num"></p>
+  <p class="vi-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0M17 6v6M14 9h6"/></svg><span id="viKind">Qorlla User</span><svg class="vi-ok" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#8b5cf6" stroke="none"/><path d="m7.5 12.5 3 3 6-6.5" stroke="#fff" fill="none"/></svg></p>
+  <p class="vi-sub">Internet call: your microphone stays off until you answer.</p>
+  <div class="vi-actions">
+    <div class="vi-act"><button type="button" class="vi-btn red" id="viDecline" aria-label="Decline"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 14c5-5 13-5 18 0l-2.5 2.5-3-1.5v-2.5a11 11 0 0 0-7 0V15l-3 1.5z"/></svg></button><span>Decline</span></div>
+    <div class="vi-act"><button type="button" class="vi-btn green" id="viAnswer" aria-label="Answer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg></button><span>Answer</span></div>
+  </div>
+  <div class="vi-more" role="group" aria-label="More">
+    <div class="vi-act"><button type="button" class="vi-mini" data-vi-extra="Message" aria-label="Message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 10h8M8 13h5"/></svg></button><span>Message</span></div>
+    <div class="vi-act"><button type="button" class="vi-mini" data-vi-extra="Video" aria-label="Video"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h12v10H3zM15 10l6-3v10l-6-3z"/></svg></button><span>Video</span></div>
+    <div class="vi-act"><button type="button" class="vi-mini" data-vi-extra="More" aria-label="More"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button><span>More</span></div>
+  </div>
 </dialog>
 <dialog id="voiceAdd" class="vi" aria-labelledby="vaTitle">
   <h2 id="vaTitle">Add someone to this call</h2>
@@ -5282,8 +5328,12 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
   function voiceIncomingShow(e) {
     var isRoom = !!e.room, id = isRoom ? e.room.id : e.call.id; voice.incoming = { id: id, room: isRoom, ext: e.from && e.from.extension }; var who = voice.incoming.ext ? voicePeerLabel(voice.incoming.ext) : I18n.t('A colleague');
     if (isRoom) who = who + ' \u00B7 ' + I18n.t('group call') + ' (' + e.room.members.filter(function (m) { return m.status !== 'missed'; }).length + ' ' + I18n.t('people') + ')';
-    $('viTitle').textContent = isRoom ? I18n.t('Incoming Qorlla group call') : I18n.t('Incoming Qorlla call');
-    $('viWho').textContent = who; var d = $('voiceIncoming'); if (!d.open) { try { d.showModal(); } catch (x) { d.setAttribute('open', ''); } } $('viAnswer').focus(); voiceTone('ring');
+    $('viTitleText').textContent = isRoom ? I18n.t('Incoming group call') : I18n.t('Incoming Call');
+    var nm = isRoom ? null : (voice.incoming.ext ? voiceName(voice.incoming.ext) : null), face = (nm || who).replace(/\(.*\)/, '').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || 'Q';
+    $('viFace').textContent = isRoom ? '\uD83D\uDC65' : face; $('viKind').textContent = isRoom ? I18n.t('Group call') : I18n.t('Qorlla User');
+    $('viNum').textContent = isRoom ? '' : (voice.incoming.ext ? I18n.t('ext') + ' ' + voice.incoming.ext : '');
+    $('viWho').textContent = isRoom ? who : (nm || (voice.incoming.ext ? I18n.t('Extension') + ' ' + voice.incoming.ext : I18n.t('A colleague')));
+    $('viAnswer').disabled = false; var d = $('voiceIncoming'); if (!d.open) { try { d.showModal(); } catch (x) { d.setAttribute('open', ''); } } $('viAnswer').focus(); voiceTone('ring');
   }
   function voiceIncomingHide() { voice.incoming = null; voiceToneStop(); var d = $('voiceIncoming'); if (d.open) d.close(); }
   function voiceEvent(e) {
@@ -5352,6 +5402,7 @@ body[data-page=workspace] .home-heading + .actions .action-btn span { font-size:
     return voice.client.createRoom(exts, '').catch(function (e) { voiceBar(false); if (e && e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') toast(I18n.t(VOICE_ERR[e.code] || 'The group call could not be started.'), 'err'); });
   }
   $('viAnswer').addEventListener('click', function () { var inc = voice.incoming; if (!inc) return; voiceToneStop(); voice.peerExt = inc.ext; $('viAnswer').disabled = true; (inc.room ? voice.client.joinRoom(inc.id).then(function () { voiceIncomingHide(); voiceRoomBar(); }) : voice.client.answer(inc.id).then(function () { voiceIncomingHide(); voiceBar(true, { peer: voicePeerLabel(inc.ext), text: I18n.t('Connecting\u2026'), ringing: true }); })).catch(function (e) { voiceIncomingHide(); if (e && e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') toast(I18n.t(e.status === 409 ? 'The caller already hung up.' : 'The call could not be answered.'), 'err'); }).then(function () { $('viAnswer').disabled = false; }); });
+  Array.prototype.forEach.call(document.querySelectorAll('#voiceIncoming [data-vi-extra]'), function (b) { b.addEventListener('click', function () { toast(I18n.t(b.getAttribute('data-vi-extra')) + ': ' + I18n.t('available once you answer the call.')); }); });
   $('viDecline').addEventListener('click', function () { var inc = voice.incoming; voiceIncomingHide(); if (inc) (inc.room ? voice.client.declineRoom(inc.id) : voice.client.reject(inc.id)).catch(function () {}); });
   $('voiceIncoming').addEventListener('cancel', function (ev) { ev.preventDefault(); $('viDecline').click(); });
   $('vbMute').addEventListener('click', function () { if (voice.client) { voice.client.setMuted(!voice.client.muted); $('vbMute').setAttribute('aria-pressed', String(voice.client.muted)); $('vbMute').textContent = voice.client.muted ? 'Unmute' : 'Mute'; } });
