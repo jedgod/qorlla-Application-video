@@ -953,13 +953,13 @@ body[data-page=workspace] .content .center:has(.qp) { padding: 12px 16px 10px; b
 /* Phone page on phones: the dark purple design (mockup). Scoped to phones and to the Phone page only. */
 .qp-ti, .qp-msub, .qp-topsearch, .qp-bsp, .qp-vcall { display:none; }
 @media (max-width:700px) {
-  body[data-page=workspace]:has(.qp) { background:radial-gradient(120% 60% at 50% -10%, #3b1c7a 0%, #170b33 45%, #0a0518 100%) fixed; color:#f4f0ff; }
-  body[data-page=workspace]:has(.qp) #view, body[data-page=workspace]:has(.qp) .content, body[data-page=workspace]:has(.qp) main, body[data-page=workspace]:has(.qp) .main { background:transparent !important; border:0 !important; box-shadow:none !important; }
-  body[data-page=workspace]:has(.qp) .qorlla-breadcrumbs, body[data-page=workspace]:has(.qp) .topbar { background:rgba(10,5,24,.0); border-color:transparent; color:#cbbcf5; }
-  body[data-page=workspace]:has(.qp) .qorlla-breadcrumbs a, body[data-page=workspace]:has(.qp) .qorlla-breadcrumbs span { color:#cbbcf5; }
-  body[data-page=workspace]:has(.qp) .qorlla-breadcrumbs [aria-current=page] { color:#fff; }
-  body[data-page=workspace]:has(.qp) .sidebar { background:rgba(18,9,40,.92); border-top-color:rgba(167,139,250,.25); }
-  body[data-page=workspace]:has(.qp) .sidebar .nav-item { color:#b8a8e6; } body[data-page=workspace]:has(.qp) .sidebar .nav-item.active { color:#fff; background:rgba(124,58,237,.35); }
+  body[data-page=workspace] { background:radial-gradient(120% 60% at 50% -10%, #3b1c7a 0%, #170b33 45%, #0a0518 100%) fixed; color:#f4f0ff; }
+  body[data-page=workspace] #view, body[data-page=workspace] .content, body[data-page=workspace] main, body[data-page=workspace] .main { background:transparent !important; border:0 !important; box-shadow:none !important; }
+  body[data-page=workspace] .qorlla-breadcrumbs, body[data-page=workspace] .topbar { background:rgba(10,5,24,.0); border-color:transparent; color:#cbbcf5; }
+  body[data-page=workspace] .qorlla-breadcrumbs a, body[data-page=workspace] .qorlla-breadcrumbs span { color:#cbbcf5; }
+  body[data-page=workspace] .qorlla-breadcrumbs [aria-current=page] { color:#fff; }
+  body[data-page=workspace] .sidebar { background:rgba(18,9,40,.92); border-top-color:rgba(167,139,250,.25); }
+  body[data-page=workspace] .sidebar .nav-item { color:#b8a8e6; } body[data-page=workspace] .sidebar .nav-item.active { color:#fff; background:rgba(124,58,237,.35); }
   body .qp, body .qp .qp-card, body .qp #dial-pad { background:transparent !important; border:0 !important; box-shadow:none !important; color:#f4f0ff; }
   body .qp { padding:0; }
   .qp .muted, .qp .qp-sub, .qp .qp-lbl { color:#bfb2e6; }
@@ -985,7 +985,7 @@ body[data-page=workspace] .content .center:has(.qp) { padding: 12px 16px 10px; b
   .qp-bsp { display:grid; position:absolute; right:10px; top:50%; transform:translateY(-50%); width:44px; height:40px; place-items:center; background:transparent; border:0; color:#e6dcff; font-size:22px; cursor:pointer; }
   body .qp .qp-keys, body .qp .qp-callrow { --qk:clamp(44px, min(15vw, 7.2vh), 58px); } body .qp .qp-keys { gap:clamp(6px,1.2vh,10px) 24px; margin:6px 0; }
   body .qp .qp-key strong { font-size:24px; } body .qp .qp-key small { font-size:9px; letter-spacing:1.4px; }
-  .qp-dial-drop select { height:34px; font-size:13px; } .qp-numin { margin:6px 0 !important; } body .qp .qp-numin #qpDialNumber { height:46px !important; font-size:22px !important; } .qp-head .qp-tabs button { min-height:58px !important; padding:5px 4px !important; } .qp-topsearch input { height:42px !important; } .qp-title h1 { font-size:24px !important; } body[data-page=workspace]:has(.qp) #view { padding-top:4px !important; } body .qp .qp-callrow .qp-call, body .qp .qp-callrow .qp-vcall { height:46px; } .qp-topsearch { margin:10px 0 8px; } .qp-head .qp-tabs { padding-bottom:4px; }
+  .qp-dial-drop select { height:34px; font-size:13px; } .qp-numin { margin:6px 0 !important; } body .qp .qp-numin #qpDialNumber { height:46px !important; font-size:22px !important; } .qp-head .qp-tabs button { min-height:58px !important; padding:5px 4px !important; } .qp-topsearch input { height:42px !important; } .qp-title h1 { font-size:24px !important; } body[data-page=workspace] #view { padding-top:4px !important; } body .qp .qp-callrow .qp-call, body .qp .qp-callrow .qp-vcall { height:46px; } .qp-topsearch { margin:10px 0 8px; } .qp-head .qp-tabs { padding-bottom:4px; }
   .qp-key { background:radial-gradient(circle at 35% 30%, rgba(255,255,255,.16), rgba(255,255,255,.05)); border:1.5px solid rgba(190,170,255,.55); color:#fff; box-shadow:0 0 12px rgba(124,58,237,.25) inset; }
   .qp-key strong { color:#fff; } .qp-key small { color:#cbbcf5; }
   .qp-callrow { display:flex; gap:12px; align-items:stretch; margin:8px 0 4px; }
@@ -1005,6 +1005,33 @@ body[data-page=workspace] .content .center:has(.qp) { padding: 12px 16px 10px; b
   body .qp :is(.qp-tag.grey) { background:rgba(255,255,255,.14) !important; color:#e6dcff !important; }
   body .qp option { background:#1a0f38; color:#fff; }
   body .qp :is(.qp-how, .qp-help) { color:#f4f0ff; }
+}
+
+/* One theme for every phone page: the dark purple of the Phone page, and a navigation bar that sits fully above the phone's own controls. */
+@media (max-width:700px) {
+  body[data-page=workspace] { --bg:#0a0518; --panel:#150a30; --line:rgba(167,139,250,.28); --text:#f4f0ff; --muted:#bfb2e6; --soft:rgba(255,255,255,.05); --shadow:none; --ink:#f4f0ff; color-scheme:dark; }
+  body[data-page=workspace] .sidebar { align-items:flex-start !important; padding:2px 4px var(--safe-b) !important; height:calc(54px + var(--safe-b)) !important; background:#120928 !important; }
+  body[data-page=workspace] .sidebar .nav-item { align-self:flex-start; justify-content:center; height:50px; min-height:50px; }
+  body[data-page=workspace] .app { padding-bottom:calc(56px + var(--safe-b)) !important; }
+}
+@media (max-width:700px) {
+  body[data-page=workspace] :is(.action-btn, .card, .btn, .chip, .tile, .tool, .icon-btn, .search, .hist-row, .hist-menu, .hist-panel, .hist-sec, .hp-card, .ai-drawer, .ai-panel, .ai-pop, .center, .mtg-menu, .overview-edge, .sf-foot, .sf-side, .range-card, .login-embed, .qp-item, .qp-menu, .empty, .avatar, .editor, dialog, dialog.sd .sd-foot, dialog.sd .sd-di, dialog.sd .sd-cammenu) { background-color:rgba(255,255,255,.07) !important; color:#f4f0ff !important; border-color:rgba(167,139,250,.3) !important; }
+  body[data-page=workspace] :is(.hist-row, .tile, .card, .action-btn) * { color:inherit; }
+  body[data-page=workspace] :is(.muted, small) { color:#bfb2e6 !important; }
+  body[data-page=workspace] :is(input, select, textarea):not([type=checkbox]):not([type=radio]) { background-color:rgba(255,255,255,.08) !important; color:#f4f0ff !important; border-color:rgba(167,139,250,.45) !important; }
+  body[data-page=workspace] option { background:#1a0f38; color:#fff; }
+  body[data-page=workspace] :is(.btn.primary, .btn.primary *, .avatar) { background:linear-gradient(160deg,#8b3dff,#5b21d6) !important; color:#fff !important; border-color:#b794ff !important; }
+  body[data-page=workspace] .action-icon { background:rgba(124,58,237,.35) !important; color:#fff !important; }
+  body[data-page=workspace] :is(h1, h2, h3, h4, .greeting) { color:#fff; }
+  body[data-page=workspace] .vb { background:#1a0f38 !important; }
+  body[data-page=workspace] .cal-foot { background:rgba(255,255,255,.05) !important; color:#d9ccff !important; }
+  body[data-page=workspace] .search input::placeholder { color:#bfb2e6; }
+  body[data-page=workspace] :is(.hist-filterchip, .hist-menubtn, .hist-more, .hist-actions a, .hist-actions button) { background:rgba(255,255,255,.1) !important; color:#f4f0ff !important; border:1px solid rgba(167,139,250,.35) !important; }
+  body[data-page=workspace] .hist-filterchip[aria-pressed=true] { background:linear-gradient(160deg,#8b3dff,#5b21d6) !important; color:#fff !important; }
+  body[data-page=workspace] [class*="hist-"]:not(.hist-chip):not(.hist-filterchip):not(svg):not(path) { background-color:transparent; color:#f4f0ff; border-color:rgba(167,139,250,.28); }
+  body[data-page=workspace] :is(.hist-row, .hist-body) { background-color:rgba(255,255,255,.06) !important; }
+  body[data-page=workspace] .hist-chip { background:rgba(34,184,255,.2) !important; color:#bfeaff !important; } body[data-page=workspace] .hist-chip.s-completed { background:rgba(34,197,94,.22) !important; color:#bbf7d0 !important; }
+  body[data-page=workspace] [class*="hist-"] :is(.muted, small, .hist-meta, .hist-sub) { color:#bfb2e6 !important; }
 }
 </style>
 <style id="home-compact-layout">
