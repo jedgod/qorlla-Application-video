@@ -1434,6 +1434,52 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
 @media (min-width:701px) { html body .qp.qp-station .qs-search { font-size:12px; padding-right:8px; } html body .qp.qp-station .qp-numin input { font-size:clamp(16px, calc(var(--sh, 560px) * .032), 24px) !important; padding:0 40px 0 12px !important; } html body .qp.qp-station .qp-numin input::placeholder { font-size:.8em; } #voiceIncoming .vi-title { padding-right:34px; } }
 
 @media (min-width:701px) { html body .qp.qp-station .qp-side { overflow-y:auto !important; scrollbar-width:thin; } html body .qp.qp-station .si-phead span:nth-child(2) { white-space:nowrap; } }
+
+/* Call Station v5: keypad always visible, bigger controls, idle dashboard, collapsible right sections */
+.st-dash, .qp-star { display:none; }
+@media (min-width:701px) {
+  html body .qp.qp-station .qp-dial-drop[open] { display:grid !important; }
+  html body .qp.qp-station .qs-tabs { grid-template-columns:repeat(4, 1fr); } html body .qp.qp-station .qs-tab { font-size:11.5px; padding:6px 2px; }
+  html body .qp.qp-station.qs-v-favorites .qp-dial-card > :not(.qs-title):not(.qs-search):not(.qs-tabs):not(#qpRecentNums) { display:none !important; }
+  html body .qp.qp-station.qs-v-favorites .qp-dial-card > #qpRecentNums { display:block; flex:1 1 auto; min-height:0; overflow:auto; background:transparent !important; border:0 !important; padding:4px 0 0 !important; }
+  html body .qp.qp-station.qs-v-favorites #qpRecentNums > :not(#qpColleagues) { display:none; }
+  html body .qp.qp-station .qp-star { display:inline-flex; align-items:center; justify-content:center; } html body .qp.qp-station .qp-star[aria-pressed=true] { color:#fbbf24 !important; border-color:#fbbf24 !important; }
+  /* bigger, evenly spread controls */
+  html body .qp.qp-station .st-ctls { gap:12px 6px !important; margin-top:clamp(12px, calc(var(--sh, 560px) * .035), 30px) !important; }
+  html body .qp.qp-station .st-btn { width:clamp(46px, calc(var(--sh, 560px) * .085), 62px) !important; height:clamp(46px, calc(var(--sh, 560px) * .085), 62px) !important; }
+  html body .qp.qp-station .st-act { font-size:11.5px; gap:7px; }
+  html body .qp.qp-station .st-ctls .st-btn:disabled, html body .qp.qp-station:not(.st-incall) .st-ctls .st-btn { opacity:.5; }
+  /* idle dashboard */
+  html body .qp.qp-station:not(.st-incall) .st-dash { display:flex; flex-direction:column; align-items:center; gap:10px; margin-top:clamp(6px, calc(var(--sh, 560px) * .02), 18px); max-width:520px; width:92%; }
+  .st-dash-t { font-size:12px; letter-spacing:.4px; color:#bfb2e6; text-transform:uppercase; } .st-dash-chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; } .st-dash-none { font-size:13px; color:#bfb2e6; }
+  .st-chip { padding:7px 13px; border-radius:16px; border:1px solid rgba(196,166,255,.4); background:rgba(255,255,255,.07); color:#f4f0ff; font:inherit; font-size:12.5px; cursor:pointer; } .st-chip:hover { background:rgba(139,92,246,.35); } .st-chip:focus-visible, .st-open:focus-visible { outline:2px solid #fff; outline-offset:2px; }
+  .st-open { display:inline-flex; align-items:center; gap:9px; height:40px; padding:0 18px; border-radius:20px; border:1.5px solid #a855f7; background:rgba(124,58,237,.16); color:#fff; font:inherit; font-size:13.5px; font-weight:650; cursor:pointer; } .st-open svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+  .st-how { margin:2px 0 0; padding-left:18px; font-size:12px; color:#bfb2e6; line-height:1.6; text-align:left; }
+  html body .qp.qp-station:not(.st-incall) .st-idle { display:none; }
+  /* right panel: compact rows, every section collapsible */
+  html body .qp.qp-station .si-card.si-closed > :not(h3):not(.si-phead) { display:none; }
+  html body .qp.qp-station .si-card > h3 { cursor:pointer; justify-content:flex-start; } html body .qp.qp-station .si-card > h3::after { content:""; margin-left:auto; width:14px; height:14px; background:center/contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e6dcff' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); } html body .qp.qp-station .si-card.si-closed > h3::after { transform:rotate(-90deg); }
+  html body .qp.qp-station .si-card { padding:7px 12px !important; } html body .qp.qp-station .si-row { padding:1px 0 !important; line-height:1.35; }
+  html body .qp.qp-station:not(.st-incall) .si-row:has(#siStarted), html body .qp.qp-station:not(.st-incall) .si-row:has(#siDur), html body .qp.qp-station:not(.st-incall) .si-row:has(#siEnc), html body .qp.qp-station:not(.st-incall) .si-row:has(#siNet) { display:none; }
+  html body .qp.qp-station:not(.st-incall) .si-parts { display:none; }
+}
+
+@media (min-width:701px) and (max-width:900px) { html body[data-page=workspace] .topbar { flex-wrap:wrap !important; row-gap:6px; } html body[data-page=workspace] .topbar .language-control { margin-left:auto; max-width:100%; } html body .qp .qp-head .qp-tabs { flex-wrap:wrap !important; overflow:visible !important; } html body .qp .qp-head .qp-tabs button { flex:1 1 30% !important; } }
+
+@media (min-width:701px) and (max-width:900px) {
+  html body .qp.qp-station { height:auto !important; min-height:0 !important; }
+  html body .qp.qp-station > .qp-grid { height:auto !important; grid-template-rows:auto !important; align-items:start; }
+  html body .qp.qp-station .qp-dial-card, html body .qp.qp-station .qp-stage { grid-row:auto !important; overflow:visible; min-height:620px; }
+  html body .qp.qp-station .qp-dial-card { justify-content:flex-start !important; gap:8px; }
+  html body .qp.qp-station .qp-keys { --qk:48px !important; gap:8px 18px !important; margin:8px 0 !important; }
+  html body .qp.qp-station .st-ctls { grid-template-columns:repeat(4, minmax(0,1fr)) !important; row-gap:12px !important; }
+  html body .qp.qp-station .st-btn { width:50px !important; height:50px !important; }
+  html body .qp.qp-station .qs-title { font-size:20px !important; }
+}
+
+@media (min-width:701px) and (max-height:900px) { .st-how { display:none !important; } html body .qp.qp-station .st-time { min-height:0; } html body .qp.qp-station .qp-stage { padding-top:42px; } }
+
+@media (min-width:701px) { html body .qp.qp-station .si-row { gap:8px; white-space:nowrap; } html body .qp.qp-station .si-row b { font-size:11px; min-width:0; overflow:hidden; text-overflow:ellipsis; } .si-ptxt b { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .si-ptxt { overflow:hidden; } html body .qp.qp-station .si-row:has(#siEnc) b { font-size:10.5px; } }
 </style>
 </head>
 <body data-page="workspace">
@@ -3461,6 +3507,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       function paint() {
         input.value = num; var n = e164(), ext = isExt() || isAlias(); clear.classList.toggle('hidden', !num); copy.disabled = !num; del.disabled = !num;
         hint.textContent = !num ? (voice.state === 'verify' ? I18n.t('Verify your email address to use Qorlla Voice (Settings, Account).') : voice.state === 'suspended' ? I18n.t('Your account is suspended.') : '') : ext ? extHint() : (n && !(info && info.carrierCalling)) ? I18n.t('Public telephone numbers are not available: Qorlla calls internal extensions only.') + ' (' + n + ')' : n ? I18n.t('Will call') + ' ' + n : I18n.t('Enter a valid phone number (7 to 15 digits).');
+        var vcb = document.getElementById('phVideoCall'); setTimeout(function () { if (vcb) { vcb.disabled = !!call.disabled; vcb.title = call.disabled ? I18n.t('Enter a valid colleague extension first') : I18n.t('Start a Qorlla video meeting'); } }, 0);
         call.disabled = ext ? !(voice.ready && voice.client && !voice.client.callId && num !== voice.ext && !isEmergency() && !(voice.features && voice.features.internalCalls === false)) : !(n && info && info.carrierCalling);
         myExt.textContent = voice.ready && voice.ext ? I18n.t('Your Qorlla extension') + ': ' + voice.ext + ' \u00B7 ' + I18n.t('internet calls to colleagues') + (voice.number ? ' \u00B7 ' + I18n.t('Your Qorlla number') + ': ' + (voice.number.e164 || '') : '') : voice.state === 'verify' ? I18n.t('Verify your email address to use Qorlla Voice.') : voice.state === 'suspended' ? I18n.t('Your account is suspended.') : '';
         if (voice.ready) note.textContent = I18n.t('Dial a colleague\u2019s extension (3 to 8 digits) for a free internet call. Calls to outside phone numbers need a telephony provider.'); else if (!(info && info.carrierCalling)) note.textContent = I18n.t('Calling is off: carrier calling requires a connected telephony provider and provisioned calling permissions.');
@@ -3477,9 +3524,9 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       function padTouch() { padDrop.open = true; if (typeof armPadClose === 'function') armPadClose(); }
       input.addEventListener('focus', function () { if (!phoneUI) { padDrop.open = true; if (typeof armPadClose === 'function') armPadClose(); } });
       var padTimer = null, PAD_IDLE_MS = 2 * 60 * 1000;
-      function armPadClose() { clearTimeout(padTimer); if (padDrop.open) padTimer = setTimeout(function () { padDrop.open = false; input.setAttribute('aria-expanded', 'false'); }, PAD_IDLE_MS); }   // closes after two idle minutes
+      function armPadClose() { clearTimeout(padTimer); if (phoneUI && padDrop.open) padTimer = setTimeout(function () { padDrop.open = false; input.setAttribute('aria-expanded', 'false'); }, PAD_IDLE_MS); }   // closes after two idle minutes
       keys.addEventListener('pointerdown', armPadClose); input.addEventListener('input', armPadClose); input.addEventListener('keydown', armPadClose);
-      input.addEventListener('click', function () { if (phoneUI) padDrop.open = !padDrop.open; else padDrop.open = true; input.setAttribute('aria-expanded', String(padDrop.open)); armPadClose(); });   // tap the number to open the keypad (phones: tap again to close)
+      input.addEventListener('click', function () { if (phoneUI) padDrop.open = !padDrop.open; else padDrop.open = true; if (!phoneUI) { input.setAttribute('aria-expanded', 'true'); return; } input.setAttribute('aria-expanded', String(padDrop.open)); armPadClose(); });   // tap the number to open the keypad (phones: tap again to close)
       input.setAttribute('aria-controls', 'qpPadDrop');
       if (phoneUI) { input.readOnly = true; input.setAttribute('inputmode', 'none'); }   // read-only on phones: the system keyboard cannot open; the Qorlla keypad (and a number chosen from Recent) still fill it
       input.addEventListener('input', function () { set(input.value.replace(/[^0-9*#+ ()-]/g, '')); }); sel.addEventListener('change', paint); var delHeld = false, delT = null; del.addEventListener('pointerdown', function () { delHeld = false; delT = setTimeout(function () { delHeld = true; buzz(14); set(''); padTouch(); }, 600); }); ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { del.addEventListener(ev, function () { clearTimeout(delT); }); }); del.addEventListener('click', function () { if (delHeld) { delHeld = false; return; } buzz(8); set(num.slice(0, -1)); padTouch(); });
@@ -3516,20 +3563,20 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var mobileDial = window.matchMedia('(max-width: 760px)').matches;
       var numberDrop = h('details', { class: 'qp-dial-drop', id: 'qpNumberDrop' }, [h('summary', { text: I18n.t('Enter a number') }), sel, h('div', { class: 'qp-numin' }, [input, clear]), hint]);
       var padDrop = h('details', { class: 'qp-dial-drop', id: 'qpPadDrop' }, [h('summary', { text: I18n.t('Dial Pad') }), keys]);
-      numberDrop.open = true; padDrop.open = phoneUI;   // phones start with the keypad open; the desktop keypad opens when you tap the number
+      numberDrop.open = true; padDrop.open = true;   // phones start with the keypad open; the desktop keypad opens when you tap the number
       var bsp = h('button', { type: 'button', class: 'qp-bsp', 'aria-label': I18n.t('Delete last digit'), text: '\u2297', onclick: function () { del.click(); } }); numberDrop.querySelector('.qp-numin').appendChild(bsp);
       var stTitle = h('h2', { class: 'qs-title', id: 'qsTitle', text: I18n.t('Qorlla Call Station') });
-      var stSearch = h('input', { type: 'search', class: 'qs-search', id: 'qsSearch', enterkeyhint: 'search', maxlength: '80', autocomplete: 'off', placeholder: I18n.t('Search or dial (name, email, or number)'), 'aria-label': I18n.t('Search or dial (name, email, or number)') });
-      stSearch.addEventListener('keydown', function (e) { if (e.key !== 'Enter') return; e.preventDefault(); var v = stSearch.value.trim(); if (!v) return; if (/^[+\d][\d\s().-]*$/.test(v)) { set(v.replace(/[^\d+]/g, '')); stSearch.value = ''; } else { select('contacts'); setTimeout(function () { var c = document.querySelector('#phPanel input[type=search], .qp-card input[type=search]'); if (c && c !== stSearch) { c.value = v; c.dispatchEvent(new Event('input', { bubbles: true })); } }, 200); } });
+      var stSearch = h('input', { type: 'search', class: 'qs-search', id: 'qsSearch', enterkeyhint: 'search', maxlength: '80', autocomplete: 'off', placeholder: I18n.t('Search or dial'), 'aria-label': I18n.t('Search or dial (name, email, or number)') });
+      stSearch.addEventListener('keydown', function (e) { if (e.key !== 'Enter') return; e.preventDefault(); var v = stSearch.value.trim(); if (!v) return; if (/^[+\d][\d\s().-]*$/.test(v)) { set(v.replace(/[^\d+]/g, '')); stSearch.value = ''; } else { qsView('contacts'); if (dialList._colFilter) dialList._colFilter(v); } });
       var qsTabs = h('div', { class: 'qs-tabs', role: 'tablist', 'aria-label': I18n.t('Phone sections') });
-      var QSICON = { dial: '<circle cx="6" cy="6" r="1.5"/><circle cx="12" cy="6" r="1.5"/><circle cx="18" cy="6" r="1.5"/><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/><circle cx="12" cy="18" r="1.5"/>', contacts: '<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>', recent: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 2"/>' };
+      var QSICON = { favorites: '<path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9-4.3-4.1 5.9-.8z"/>', dial: '<circle cx="6" cy="6" r="1.5"/><circle cx="12" cy="6" r="1.5"/><circle cx="18" cy="6" r="1.5"/><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/><circle cx="12" cy="18" r="1.5"/>', contacts: '<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>', recent: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 2"/>' };
       function qsView(v) {
-        root.classList.remove('qs-v-dial', 'qs-v-contacts', 'qs-v-recent'); root.classList.add('qs-v-' + v);
+        root.classList.remove('qs-v-dial', 'qs-v-contacts', 'qs-v-recent', 'qs-v-favorites'); root.classList.add('qs-v-' + v); if (dialList._favOnly !== undefined) { dialList._favOnly = v === 'favorites'; if (dialList._paintCol) dialList._paintCol(); }
         Array.prototype.forEach.call(qsTabs.children, function (b) { b.setAttribute('aria-selected', String(b.dataset.v === v)); });
         if (v === 'dial') { padDrop.open = true; armPadClose(); }
-        if (v === 'contacts' && voice.ready && typeof voiceLoadPeople === 'function') voiceLoadPeople();
+        if ((v === 'contacts' || v === 'favorites') && voice.ready && typeof voiceLoadPeople === 'function') voiceLoadPeople();
       }
-      [['dial', 'Dial Pad'], ['contacts', 'Contacts'], ['recent', 'Recent']].forEach(function (t) {
+      [['dial', 'Dial Pad'], ['contacts', 'Contacts'], ['recent', 'Recent'], ['favorites', 'Favorites']].forEach(function (t) {
         var b = h('button', { type: 'button', role: 'tab', class: 'qs-tab', 'data-v': t[0], 'aria-selected': String(t[0] === 'dial'), onclick: function () { qsView(t[0]); } });
         b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + QSICON[t[0]] + '</svg><span></span>'; b.lastChild.textContent = I18n.t(t[1]); qsTabs.appendChild(b);
       });
@@ -3568,11 +3615,14 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var colBox = h('div', { class: 'qp-colleagues', id: 'qpColleagues' }), groupMode = false, groupSel = {}, colQuery = '';
       // with more than 8 colleagues the list needs a search, otherwise people past the eighth can never be called or added to a group call
       var colSearch = h('input', { type: 'search', id: 'qpColSearch', class: 'qp-col-search', placeholder: I18n.t('Search colleagues'), 'aria-label': I18n.t('Search colleagues'), autocomplete: 'off', oninput: function (ev) { colQuery = ev.target.value.trim().toLowerCase(); paintCol(); colSearch.focus(); } });
+      var FAVK = 'qp_favs', favs = []; try { favs = JSON.parse(localStorage.getItem(FAVK) || '[]'); } catch (e) { favs = []; } function saveFavs() { try { localStorage.setItem(FAVK, JSON.stringify(favs)); } catch (e) { /* private mode */ } }
+      dialList._favOnly = false; dialList._colFilter = function (q) { colQuery = String(q || '').trim().toLowerCase(); paintCol(); };
       function paintCol() {
         colBox.textContent = ''; if (!voice.cfg || !voice.cfg.enabled) return;
-        var others = voice.people.filter(function (p) { return !p.self; });
+        var others = voice.people.filter(function (p) { return !p.self && (!dialList._favOnly || favs.indexOf(p.extension) >= 0); });
         colBox.appendChild(h('div', { class: 'qp-ghead' }, [h('h3', { text: I18n.t('Qorlla colleagues') }), others.length > 1 ? h('button', { type: 'button', class: 'btn small', id: 'qpGroupBtn', 'aria-pressed': String(groupMode), text: groupMode ? I18n.t('Cancel group call') : I18n.t('Group call'), onclick: function () { groupMode = !groupMode; groupSel = {}; paintCol(); } }) : null]));
-        if (!others.length) colBox.appendChild(h('p', { class: 'muted', id: 'qpNoColleagues', text: voice.ready ? I18n.t('No one else has used Qorlla Voice yet.') : I18n.t('Connecting to Qorlla Voice\u2026') }));
+        if (!others.length && dialList._favOnly) colBox.appendChild(h('p', { class: 'muted', id: 'qpNoFavs', text: I18n.t('No favorites yet. Tap the star next to a colleague in Contacts.') }));
+        else if (!others.length) colBox.appendChild(h('p', { class: 'muted', id: 'qpNoColleagues', text: voice.ready ? I18n.t('No one else has used Qorlla Voice yet.') : I18n.t('Connecting to Qorlla Voice\u2026') }));
         if (others.length > 8) colBox.appendChild(colSearch);
         var shown = colQuery ? others.filter(function (p) { return (p.displayName + ' ' + p.extension).toLowerCase().indexOf(colQuery) >= 0; }) : others;
         if (colQuery && !shown.length) colBox.appendChild(h('p', { class: 'muted', id: 'qpNoColMatch', text: I18n.t('No colleague matches.') }));
@@ -3580,11 +3630,12 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
           colBox.appendChild(h('div', { class: 'qp-nrow' }, [
             groupMode ? h('input', { type: 'checkbox', class: 'qp-gsel', 'aria-label': I18n.t('Add') + ' ' + p.displayName + ' ' + I18n.t('to the group call'), checked: !!groupSel[p.extension], onchange: function (ev) { if (ev.target.checked) groupSel[p.extension] = true; else delete groupSel[p.extension]; var n = Object.keys(groupSel).length, go = $('qpGroupGo'); if (go) { go.disabled = n < 1 || n > 5 || !voice.ready; go.textContent = I18n.t('Start group call') + (n ? ' (' + n + ')' : ''); } } }) : null,
             h('button', { type: 'button', class: 'qp-recent-num qp-colleague', 'data-ext': p.extension, onclick: function () { if (groupMode) { var cb = this.parentNode.querySelector('.qp-gsel'); if (cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); } } else dialCard._set(p.extension); } }, [h('span', { class: 'qp-av sm', 'aria-hidden': 'true', text: initials(p.displayName) }), h('span', { class: 'qp-nt' }, [h('strong', { text: p.displayName }), h('small', { class: 'muted', text: I18n.t('ext') + ' ' + p.extension })])]),
+            h('button', { type: 'button', class: 'qp-copy qp-star', 'aria-label': (favs.indexOf(p.extension) >= 0 ? I18n.t('Remove from favorites') : I18n.t('Add to favorites')) + ' ' + p.displayName, 'aria-pressed': String(favs.indexOf(p.extension) >= 0), text: favs.indexOf(p.extension) >= 0 ? '\u2605' : '\u2606', onclick: function () { var i = favs.indexOf(p.extension); if (i >= 0) favs.splice(i, 1); else favs.push(p.extension); saveFavs(); paintCol(); } }),
             groupMode ? null : h('button', { type: 'button', class: 'qp-copy qp-callnow', 'aria-label': I18n.t('Call') + ' ' + p.displayName, title: I18n.t('Call'), disabled: !voice.ready, text: '\u260E', onclick: function () { voiceDial(p.extension); } })]));
         });
         if (groupMode) { var n = Object.keys(groupSel).length; colBox.appendChild(h('div', { class: 'qp-gbar' }, [h('button', { type: 'button', class: 'btn small primary', id: 'qpGroupGo', disabled: n < 1 || n > 5 || !voice.ready, text: I18n.t('Start group call') + (n ? ' (' + n + ')' : ''), onclick: function () { var exts = Object.keys(groupSel); groupMode = false; groupSel = {}; paintCol(); voiceGroupStart(exts); } }), h('small', { class: 'muted', text: I18n.t('Up to 5 colleagues. Audio is connected directly between participants.') })])); }
       }
-      voiceOff.push(voiceOn(paintCol)); paintCol(); voiceInit().then(function () { if (voice.ready) voiceLoadPeople(); });
+      dialList._paintCol = paintCol; dialList._favs = function () { return favs.slice(); }; voiceOff.push(voiceOn(paintCol)); paintCol(); voiceInit().then(function () { if (voice.ready) voiceLoadPeople(); });
       dialList.appendChild(colBox); dialList.appendChild(search); dialList.appendChild(box); paint();
     })();
     // ---- 2. Join a Qorlla meeting by phone: three steps on the left, the host's real meetings on the right
@@ -4317,12 +4368,13 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var pill = el('p', 'st-pill hidden', '<i></i><span id="stPillT"></span>', 'stPill');
       var move = el('button', 'st-move', SV('<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 19a6 6 0 0 1 12 0M15.5 19a4.5 4.5 0 0 1 6 0"/>') + '<span>' + I18n.t('Move to Qorlla Meeting') + '</span>' + SV('<path d="M5 12h14M13 6l6 6-6 6"/>'), 'stMove'); move.type = 'button';
       var endrow = el('div', 'st-endrow'); endrow.appendChild(end); endrow.appendChild(move);
+      var dash = el('div', 'st-dash', '<div class="st-dash-t">' + I18n.t('Recent and favorite contacts') + '</div><div class="st-dash-chips" id="stChips"></div><div class="st-dash-row"><button type="button" class="st-open" id="stOpenMeet">' + SV('<path d="M3 7h12v10H3zM15 10l6-3v10l-6-3z"/>') + '<span>' + I18n.t('Open Qorlla Meeting') + '</span></button></div><ol class="st-how"><li>' + I18n.t('Dial an extension or pick a colleague') + '</li><li>' + I18n.t('Press Call') + '</li><li>' + I18n.t('Use the controls once connected') + '</li></ol>');
       var dock = el('button', 'st-dock', SV('<path d="m6 6 6 6-6 6M12 6l6 6-6 6"/>'), 'stDock'); dock.type = 'button'; dock.setAttribute('aria-label', I18n.t('Show or hide call details')); dock.setAttribute('aria-expanded', 'true'); dock.setAttribute('aria-controls', 'qpSide');
-      [top, time, av, nm, num, pill, badge, ctls, endrow, idle, dock].forEach(function (n) { dialStage.appendChild(n); });
+      [top, time, av, nm, num, pill, badge, ctls, endrow, idle, dash, dock].forEach(function (n) { dialStage.appendChild(n); });
       // right-hand panels
       function row(k, id) { return '<div class="si-row"><span>' + k + '</span><b id="' + id + '"></b></div>'; }
       var info = el('div', 'si-card', '<h3>' + SV('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/>') + I18n.t('Call Information') + '</h3>' + row(I18n.t('Type'), 'siType') + row(I18n.t('Status'), 'siStatus') + row(I18n.t('Started'), 'siStarted') + row(I18n.t('Duration'), 'siDur') + row(I18n.t('Encryption'), 'siEnc') + row(I18n.t('Network'), 'siNet'));
-      var parts = el('div', 'si-card si-parts', '<button type="button" class="si-phead" id="siPH" aria-expanded="true" aria-controls="siPB"><span class="si-ic">' + SV('<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 19a6 6 0 0 1 12 0M15.5 19a4.5 4.5 0 0 1 6 0"/>') + '</span><span id="siPT">' + I18n.t('Participants') + ' (0)</span><span class="si-chev">' + SV('<path d="m6 9 6 6 6-6"/>') + '</span></button><div class="si-pbody" id="siPB"><div class="si-prow hidden" id="siPR"><span class="si-pface" id="siPF">Q</span><span class="si-ptxt"><b id="siPN"></b><small id="siPS"></small></span><span class="si-mic">' + SV('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>') + '</span></div></div>');
+      var parts = el('div', 'si-card si-parts', '<button type="button" class="si-phead" id="siPH" aria-expanded="true" aria-controls="siPB"><span class="si-ic">' + SV('<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 19a6 6 0 0 1 12 0M15.5 19a4.5 4.5 0 0 1 6 0"/>') + '</span><span id="siPT">' + I18n.t('Participants') + ' \u00B7 0</span><span class="si-chev">' + SV('<path d="m6 9 6 6 6-6"/>') + '</span></button><div class="si-pbody" id="siPB"><div class="si-prow hidden" id="siPR"><span class="si-pface" id="siPF">Q</span><span class="si-ptxt"><b id="siPN"></b><small id="siPS"></small></span><span class="si-mic">' + SV('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>') + '</span></div></div>');
       var acts = el('div', 'si-card', '<h3>' + SV('<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>') + I18n.t('Actions') + '</h3>');
       function sact(id, label, d, off, chev) { var b = el('button', 'si-act' + (off ? ' st-off' : ''), SV(d) + '<span>' + label + '</span>' + (chev ? '<i class="si-go">' + SV('<path d="m9 6 6 6-6 6"/>') + '</i>' : ''), id); b.type = 'button'; if (off) b.setAttribute('aria-disabled', 'true'); acts.appendChild(b); return b; }
       sact('siAdd', I18n.t('Add Participant'), '<circle cx="10" cy="8" r="3.5"/><path d="M3.5 20a6.5 6.5 0 0 1 13 0M19 6v6M16 9h6"/>');
@@ -4331,6 +4383,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       sact('siNotes', I18n.t('Call Notes (AI)'), '<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h6M9 16h4"/>', true);
       sact('siBlock', I18n.t('Block / Report'), '<path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/><path d="M12 9v4M12 16v.01"/>', true);
       var corner = el('div', 'si-corner hidden', '<div class="sc-face" id="scFace">Q</div><div class="sc-txt"><div class="sc-state" id="scState"></div><div class="sc-name" id="scName"></div><div class="sc-num" id="scNum"></div></div><button type="button" class="sc-end" id="scEnd" aria-label="End call"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 14c5-5 13-5 18 0l-2.5 2.5-3-1.5v-2.5a11 11 0 0 0-7 0V15l-3 1.5z"/></svg><span>End</span></button>');
+      [info, acts].forEach(function (cd) { var hd = cd.querySelector('h3'); hd.tabIndex = 0; hd.setAttribute('role', 'button'); hd.setAttribute('aria-expanded', 'true'); var tg = function () { var c = cd.classList.toggle('si-closed'); hd.setAttribute('aria-expanded', String(!c)); }; hd.addEventListener('click', tg); hd.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tg(); } }); });
       dialSide.appendChild(corner); dialSide.appendChild(info); dialSide.appendChild(parts); dialSide.appendChild(acts);
       function $s(id) { return dialStage.querySelector('#' + id) || dialSide.querySelector('#' + id); }
       var startedAt = null;
@@ -4357,7 +4410,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
         $s('siStarted').textContent = startedAt ? startedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '\u2014'; $s('siEnc').textContent = live && conn ? I18n.t('Encrypted (WebRTC)') : '\u2014';
         $s('siDur').textContent = live && conn && t[1] ? fmt(parseInt(t[1], 10) * 60 + parseInt(t[2], 10)) : '\u2014';
         var pm = peer.match(/(\d+)\s+(?:people|persons)/i), pc2 = live ? (pm ? Math.max(1, parseInt(pm[1], 10) - 1) : 1) : 0;
-        $s('siPT').textContent = I18n.t('Participants') + ' (' + pc2 + ')'; $s('siPR').classList.toggle('hidden', !live); $s('siPN').textContent = name; $s('siPS').textContent = conn ? I18n.t('In Call') : I18n.t('Connecting'); $s('siPS').className = conn ? 'ok' : ''; $s('siPF').textContent = $s('stFace').textContent;
+        $s('siPT').textContent = I18n.t('Participants') + ' \u00B7 ' + pc2; $s('siPR').classList.toggle('hidden', !live); $s('siPN').textContent = name; $s('siPS').textContent = conn ? I18n.t('In Call') : I18n.t('Connecting'); $s('siPS').className = conn ? 'ok' : ''; $s('siPF').textContent = $s('stFace').textContent;
         if (!live) netShow(null); $s('siAdd').disabled = !live || document.getElementById('vbAdd').classList.contains('hidden'); $s('stMove').disabled = !live;
         $s('stPill').classList.toggle('hidden', !(live && conn)); $s('stPillT').textContent = I18n.t('Connected') + (t[1] ? ' \u00B7 ' + (t[1] + ':' + t[2]) : '');
         $s('stAddP').disabled = !live || document.getElementById('vbAdd').classList.contains('hidden'); $s('stAddP').parentNode.classList.toggle('st-dim', $s('stAddP').disabled);
@@ -4369,6 +4422,15 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       dialSide.querySelector('#scEnd').addEventListener('click', function () { document.getElementById('vbEnd').click(); });
       $s('stMute').addEventListener('click', function () { document.getElementById('vbMute').click(); }); $s('stEnd').addEventListener('click', function () { document.getElementById('vbEnd').click(); });
       $s('stAddP').addEventListener('click', function () { document.getElementById('vbAdd').click(); });
+      function paintChips() {
+        var box = dialStage.querySelector('#stChips'); if (!box) return; box.textContent = ''; var seen = {}, list = [];
+        var favs2 = dialList._favs ? dialList._favs() : []; (voice.people || []).forEach(function (pp) { if (!pp.self && favs2.indexOf(pp.extension) >= 0) { list.push({ n: pp.displayName, e: pp.extension, fav: true }); seen[pp.extension] = 1; } });
+        try { JSON.parse(localStorage.getItem('qp_recent_numbers') || '[]').forEach(function (x) { if (!seen[x.n] && list.length < 5) { var pp = (voice.people || []).filter(function (q) { return q.extension === x.n; })[0]; list.push({ n: pp ? pp.displayName : x.n, e: x.n }); seen[x.n] = 1; } }); } catch (e) { /* none */ }
+        if (!list.length) { box.appendChild(el('span', 'st-dash-none', I18n.t('No recent calls yet.'))); return; }
+        list.slice(0, 5).forEach(function (c) { var b = el('button', 'st-chip'); b.type = 'button'; b.textContent = (c.fav ? '\u2605 ' : '') + c.n + ' \u00B7 ' + c.e; b.addEventListener('click', function () { dialCard._set(c.e); }); box.appendChild(b); });
+      }
+      paintChips(); voiceOff.push(voiceOn(paintChips)); setInterval(function () { if (!root.classList.contains('st-incall')) paintChips(); }, 15000);
+      $s('stOpenMeet').addEventListener('click', function () { if (typeof openDialog === 'function') openDialog('join'); });
       $s('stMove').addEventListener('click', function () { if (typeof newMeeting === 'function') { newMeeting(); toast(I18n.t('Started a Qorlla video meeting. Share its invitation to bring') + ' ' + ($s('stName').textContent || I18n.t('the other person')) + ' ' + I18n.t('in.')); } });
       $s('siAdd').addEventListener('click', function () { document.getElementById('vbAdd').click(); });
       $s('stPeople').addEventListener('click', function () { var pb = $s('siPH'); if (root.classList.contains('qs-narrow')) root.classList.add('qs-drawer-open'); if (pb && pb.getAttribute('aria-expanded') !== 'true') pb.click(); });
