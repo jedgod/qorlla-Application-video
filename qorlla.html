@@ -1480,6 +1480,9 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
 @media (min-width:701px) and (max-height:900px) { .st-how { display:none !important; } html body .qp.qp-station .st-time { min-height:0; } html body .qp.qp-station .qp-stage { padding-top:42px; } }
 
 @media (min-width:701px) { html body .qp.qp-station .si-row { gap:8px; white-space:nowrap; } html body .qp.qp-station .si-row b { font-size:11px; min-width:0; overflow:hidden; text-overflow:ellipsis; } .si-ptxt b { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .si-ptxt { overflow:hidden; } html body .qp.qp-station .si-row:has(#siEnc) b { font-size:10.5px; } }
+
+.st-notes-ta { width:100%; box-sizing:border-box; resize:vertical; padding:8px 10px; border-radius:10px; border:1px solid rgba(167,139,250,.45); background:rgba(255,255,255,.08); color:#f4f0ff; font:inherit; font-size:13px; margin:4px 0 6px; }
+.qp-stage .st-notes { min-width:260px; }
 </style>
 </head>
 <body data-page="workspace">
@@ -3508,7 +3511,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
         input.value = num; var n = e164(), ext = isExt() || isAlias(); clear.classList.toggle('hidden', !num); copy.disabled = !num; del.disabled = !num;
         hint.textContent = !num ? (voice.state === 'verify' ? I18n.t('Verify your email address to use Qorlla Voice (Settings, Account).') : voice.state === 'suspended' ? I18n.t('Your account is suspended.') : '') : ext ? extHint() : (n && !(info && info.carrierCalling)) ? I18n.t('Public telephone numbers are not available: Qorlla calls internal extensions only.') + ' (' + n + ')' : n ? I18n.t('Will call') + ' ' + n : I18n.t('Enter a valid phone number (7 to 15 digits).');
         var vcb = document.getElementById('phVideoCall'); setTimeout(function () { if (vcb) { vcb.disabled = !!call.disabled; vcb.title = call.disabled ? I18n.t('Enter a valid colleague extension first') : I18n.t('Start a Qorlla video meeting'); } }, 0);
-        call.disabled = ext ? !(voice.ready && voice.client && !voice.client.callId && num !== voice.ext && !isEmergency() && !(voice.features && voice.features.internalCalls === false)) : !(n && info && info.carrierCalling);
+        call.disabled = ext ? !(voice.ready && voice.client && !voice.client.callId && num !== voice.ext && (isAlias() || (voice.people || []).some(function (pp) { return !pp.self && pp.extension === num; })) && !isEmergency() && !(voice.features && voice.features.internalCalls === false)) : !(n && info && info.carrierCalling);
         myExt.textContent = voice.ready && voice.ext ? I18n.t('Your Qorlla extension') + ': ' + voice.ext + ' \u00B7 ' + I18n.t('internet calls to colleagues') + (voice.number ? ' \u00B7 ' + I18n.t('Your Qorlla number') + ': ' + (voice.number.e164 || '') : '') : voice.state === 'verify' ? I18n.t('Verify your email address to use Qorlla Voice.') : voice.state === 'suspended' ? I18n.t('Your account is suspended.') : '';
         if (voice.ready) note.textContent = I18n.t('Dial a colleague\u2019s extension (3 to 8 digits) for a free internet call. Calls to outside phone numbers need a telephony provider.'); else if (!(info && info.carrierCalling)) note.textContent = I18n.t('Calling is off: carrier calling requires a connected telephony provider and provisioned calling permissions.');
       }
@@ -4378,10 +4381,10 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var acts = el('div', 'si-card', '<h3>' + SV('<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>') + I18n.t('Actions') + '</h3>');
       function sact(id, label, d, off, chev) { var b = el('button', 'si-act' + (off ? ' st-off' : ''), SV(d) + '<span>' + label + '</span>' + (chev ? '<i class="si-go">' + SV('<path d="m9 6 6 6-6 6"/>') + '</i>' : ''), id); b.type = 'button'; if (off) b.setAttribute('aria-disabled', 'true'); acts.appendChild(b); return b; }
       sact('siAdd', I18n.t('Add Participant'), '<circle cx="10" cy="8" r="3.5"/><path d="M3.5 20a6.5 6.5 0 0 1 13 0M19 6v6M16 9h6"/>');
-      sact('siHold', I18n.t('Hold / Resume'), '<rect x="7" y="5" width="3.5" height="14" rx="1"/><rect x="13.5" y="5" width="3.5" height="14" rx="1"/>', true);
+      sact('siHold', I18n.t('Hold / Resume'), '<rect x="7" y="5" width="3.5" height="14" rx="1"/><rect x="13.5" y="5" width="3.5" height="14" rx="1"/>');
       sact('siTransfer', I18n.t('Transfer Call'), '<path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/>', true);
-      sact('siNotes', I18n.t('Call Notes (AI)'), '<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h6M9 16h4"/>', true);
-      sact('siBlock', I18n.t('Block / Report'), '<path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/><path d="M12 9v4M12 16v.01"/>', true);
+      sact('siNotes', I18n.t('Call Notes'), '<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h6M9 16h4"/>');
+      sact('siBlock', I18n.t('Block / Report'), '<path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/><path d="M12 9v4M12 16v.01"/>');
       var corner = el('div', 'si-corner hidden', '<div class="sc-face" id="scFace">Q</div><div class="sc-txt"><div class="sc-state" id="scState"></div><div class="sc-name" id="scName"></div><div class="sc-num" id="scNum"></div></div><button type="button" class="sc-end" id="scEnd" aria-label="End call"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 14c5-5 13-5 18 0l-2.5 2.5-3-1.5v-2.5a11 11 0 0 0-7 0V15l-3 1.5z"/></svg><span>End</span></button>');
       [info, acts].forEach(function (cd) { var hd = cd.querySelector('h3'); hd.tabIndex = 0; hd.setAttribute('role', 'button'); hd.setAttribute('aria-expanded', 'true'); var tg = function () { var c = cd.classList.toggle('si-closed'); hd.setAttribute('aria-expanded', String(!c)); }; hd.addEventListener('click', tg); hd.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tg(); } }); });
       dialSide.appendChild(corner); dialSide.appendChild(info); dialSide.appendChild(parts); dialSide.appendChild(acts);
@@ -4389,9 +4392,10 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var startedAt = null;
       function fmt(sec) { var h2 = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), x = sec % 60, z = function (n) { return String(n).padStart(2, '0'); }; return z(h2) + ':' + z(m) + ':' + z(x); }
       function netShow(q) { var n = $s('siNet'); if (!n) return; if (!q) { n.textContent = '\u2014'; n.className = ''; return; } n.innerHTML = '<span class="si-bars b' + q[0] + '"><i></i><i></i><i></i></span>' + q[1]; n.className = 'ok'; }
+      var encText = '';
       function netCheck() {
         var pc = voice.client && voice.client.pc; if (!root.classList.contains('st-incall') || !pc || !pc.getStats) return;
-        pc.getStats().then(function (rep) { var rtt = null; rep.forEach(function (x) { if (x.type === 'candidate-pair' && x.state === 'succeeded' && (x.nominated || x.selected) && typeof x.currentRoundTripTime === 'number') rtt = x.currentRoundTripTime; });
+        pc.getStats().then(function (rep) { var rtt = null; rep.forEach(function (x) { if (x.type === 'transport' && x.dtlsState === 'connected') encText = 'DTLS-SRTP' + (x.srtpCipher ? ' \u00B7 ' + x.srtpCipher.replace(/_/g, '-') : ''); if (x.type === 'candidate-pair' && x.state === 'succeeded' && (x.nominated || x.selected) && typeof x.currentRoundTripTime === 'number') rtt = x.currentRoundTripTime; });
           if (rtt === null) return netShow(null); netShow(rtt < 0.12 ? [3, I18n.t('Excellent')] : rtt < 0.3 ? [2, I18n.t('Good')] : [1, I18n.t('Fair')]); }).catch(function () {});
       }
       setInterval(netCheck, 3000);
@@ -4407,7 +4411,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
         var mu = document.getElementById('vbMute').getAttribute('aria-pressed') === 'true'; $s('stMute').setAttribute('aria-pressed', String(mu)); $s('stMute').parentNode.lastChild.textContent = mu ? I18n.t('Unmute') : I18n.t('Mute');
         $s('stEndText').textContent = (document.getElementById('vbEnd').textContent || '').trim() === 'Leave' ? I18n.t('Leave') : I18n.t('End Call');
         $s('siType').textContent = live ? I18n.t('Voice Call') : '\u2014'; $s('siStatus').textContent = live ? (conn ? I18n.t('Connected') : st) : I18n.t('Ready'); $s('siStatus').className = live && conn ? 'ok' : '';
-        $s('siStarted').textContent = startedAt ? startedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '\u2014'; $s('siEnc').textContent = live && conn ? I18n.t('Encrypted (WebRTC)') : '\u2014';
+        $s('siStarted').textContent = startedAt ? startedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '\u2014'; $s('siEnc').textContent = live && conn ? (encText || I18n.t('Encrypted (WebRTC)')) : '\u2014'; $s('siEnc').title = I18n.t('Media is encrypted between the two devices with DTLS-SRTP (checked on the live connection). It is not labelled end-to-end because Qorlla cannot yet verify the other person\u2019s key.'); if (!live) { encText = ''; holdOff(); }
         $s('siDur').textContent = live && conn && t[1] ? fmt(parseInt(t[1], 10) * 60 + parseInt(t[2], 10)) : '\u2014';
         var pm = peer.match(/(\d+)\s+(?:people|persons)/i), pc2 = live ? (pm ? Math.max(1, parseInt(pm[1], 10) - 1) : 1) : 0;
         $s('siPT').textContent = I18n.t('Participants') + ' \u00B7 ' + pc2; $s('siPR').classList.toggle('hidden', !live); $s('siPN').textContent = name; $s('siPS').textContent = conn ? I18n.t('In Call') : I18n.t('Connecting'); $s('siPS').className = conn ? 'ok' : ''; $s('siPF').textContent = $s('stFace').textContent;
@@ -4472,6 +4476,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
           { label: I18n.t('Copy extension'), run: function () { if (ext) copyPlain(ext, I18n.t('Extension copied')); } },
           { label: I18n.t('Add participant'), run: function () { var a = document.getElementById('vbAdd'); if (a && !a.classList.contains('hidden')) a.click(); else toast(I18n.t('You can add people once the call is connected.')); } },
           { label: I18n.t('Touch tones (keypad)'), run: function () { $s('stKeypad').click(); } },
+          { label: blockedList().length ? I18n.t('Unblock all') + ' (' + blockedList().length + ')' : I18n.t('No blocked contacts'), run: function () { if (blockedList().length) { try { localStorage.removeItem('qp_blocked'); } catch (x) { /* none */ } toast(I18n.t('Unblocked.')); } } },
           { label: I18n.t('Start a group call'), run: function () { var gb = document.getElementById('qpGroupBtn'); if (dialCard._qsView) dialCard._qsView('contacts'); if (gb) { if (gb.getAttribute('aria-pressed') !== 'true') gb.click(); } else toast(I18n.t('Group calls need at least two colleagues.')); } },
           { label: I18n.t('Message') + ' ' + nm, run: function () { $s('stChat').click(); } }
         ]);
@@ -4479,8 +4484,34 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       $s('stVideo').addEventListener('click', function () { if (typeof newMeeting === 'function') { newMeeting(); toast(I18n.t('Started a Qorlla video meeting. Share its invitation to bring') + ' ' + ($s('stName').textContent || I18n.t('the other person')) + ' ' + I18n.t('in.')); } });
       $s('stVideo').classList.remove('st-off'); $s('stVideo').removeAttribute('aria-disabled'); $s('stSpeaker').classList.remove('st-off'); $s('stSpeaker').removeAttribute('aria-disabled'); $s('stKeypad').classList.remove('st-off'); $s('stKeypad').removeAttribute('aria-disabled'); $s('stMore').classList.remove('st-off'); $s('stMore').removeAttribute('aria-disabled');
       // Record and Transfer need a recording service with participant consent and an engine transfer step: they say so instead of pretending
-      var WHY = { siHold: 'Hold is not supported by the voice service yet.', siTransfer: 'Transferring a call needs an engine transfer step that is not built yet. Use Add Participant instead.', stRecord: 'Recording a call needs every participant\u2019s consent and a recording service; it is not switched on.', siRec: 'Recording a call needs every participant\u2019s consent and a recording service; it is not switched on.', stHold: 'Hold is not supported by the voice service yet.', stTransfer: 'Transferring a call needs an engine transfer step that is not built yet. Use Add Participant instead.', siNotes: 'AI call notes are not enabled: they would need the other person\u2019s consent and a transcription service.', siBlock: 'Block and report are not built yet.' };
+      var WHY = { siTransfer: 'Transferring a call needs an engine transfer step that is not built yet. Use Add Participant instead.', stRecord: 'Recording a call needs every participant\u2019s consent and a recording service; it is not switched on.', siRec: 'Recording a call needs every participant\u2019s consent and a recording service; it is not switched on.', stTransfer: 'Transferring a call needs an engine transfer step that is not built yet. Use Add Participant instead.' };
       Object.keys(WHY).forEach(function (id) { var b = $s(id); if (!b) return; b.title = I18n.t(WHY[id]); b.addEventListener('click', function () { toast(I18n.t(WHY[id])); }); });
+      // ---- Hold (this device), Call Notes (this device), Block / Report ----
+      var held = false;
+      function holdOff() { if (!held) return; held = false; try { (voice.client && voice.client.stream ? voice.client.stream.getAudioTracks() : []).forEach(function (t) { t.enabled = !(voice.client && voice.client.muted); }); } catch (e) { /* call ended */ } Array.prototype.forEach.call(document.querySelectorAll('body > audio'), function (a) { try { a.play(); } catch (e) { /* gone */ } }); var hb = $s('siHold'); if (hb) { hb.setAttribute('aria-pressed', 'false'); hb.lastChild.textContent = I18n.t('Hold / Resume'); } }
+      $s('siHold').addEventListener('click', function () {
+        if (!liveCallNow()) return;
+        if (held) { holdOff(); toast(I18n.t('Call resumed.')); return; }
+        held = true; try { voice.client.stream.getAudioTracks().forEach(function (t) { t.enabled = false; }); } catch (e) { /* none */ } Array.prototype.forEach.call(document.querySelectorAll('body > audio'), function (a) { a.pause(); });
+        $s('siHold').setAttribute('aria-pressed', 'true'); $s('siHold').lastChild.textContent = I18n.t('Resume'); toast(I18n.t('On hold on this device: you cannot hear them and they cannot hear you. They are not told. Press Resume to continue.'));
+      });
+      function liveCallNow() { return !document.getElementById('voiceBar').classList.contains('hidden'); }
+      $s('siNotes').addEventListener('click', function (ev) {
+        if (!liveCallNow()) return; ev.stopPropagation(); closePop(); var who = ($s('stName').textContent || '') + ' ' + ($s('stNum').textContent || '');
+        var m = el('div', 'st-pop st-notes'); m.setAttribute('role', 'dialog'); m.setAttribute('aria-label', I18n.t('Call Notes')); m.appendChild(el('div', 'st-pop-t', I18n.t('Call Notes') + ' \u00B7 ' + who.trim()));
+        var ta = el('textarea', 'st-notes-ta'); ta.rows = 5; ta.maxLength = 2000; ta.placeholder = I18n.t('Type notes for this call. They are saved on this device only.'); m.appendChild(ta);
+        var sv = el('button', 'st-pop-i', I18n.t('Save note')); sv.type = 'button'; sv.addEventListener('click', function () { var t = ta.value.trim(); if (!t) { closePop(); return; } var a = []; try { a = JSON.parse(localStorage.getItem('qp_call_notes') || '[]'); } catch (e) { a = []; } a.unshift({ at: Date.now(), who: who.trim(), text: t }); try { localStorage.setItem('qp_call_notes', JSON.stringify(a.slice(0, 100))); toast(I18n.t('Note saved on this device.')); } catch (e) { toast(I18n.t('The note could not be saved.')); } closePop(); }); m.appendChild(sv);
+        dialStage.appendChild(m); m.style.left = '50%'; m.style.transform = 'translateX(-50%)'; m.style.bottom = '90px'; m.style.maxWidth = '340px'; if (root.classList.contains('qs-drawer-open')) { root.classList.remove('qs-drawer-open'); } ta.focus();
+      });
+      function blockedList() { try { return JSON.parse(localStorage.getItem('qp_blocked') || '[]'); } catch (e) { return []; } }
+      window.qpIsBlocked = function (ext) { return !!ext && blockedList().indexOf(String(ext)) >= 0; };
+      $s('siBlock').addEventListener('click', function (e) {
+        e.stopPropagation(); if (!liveCallNow()) return; var ext = (($s('stNum').textContent || '').match(/\d+/) || [''])[0], nm = $s('stName').textContent || ext;
+        if (root.classList.contains('qs-drawer-open')) root.classList.remove('qs-drawer-open'); pop($s('stMore'), I18n.t('Block / Report'), [
+          { label: I18n.t('Block') + ' ' + nm + ' ' + I18n.t('on this device'), run: function () { if (!ext) return; if (!window.confirm(I18n.t('Block') + ' ' + nm + '? ' + I18n.t('Their calls will be declined on this device. You can unblock from More.'))) return; var a = blockedList(); if (a.indexOf(ext) < 0) a.push(ext); try { localStorage.setItem('qp_blocked', JSON.stringify(a)); } catch (x) { /* private mode */ } document.getElementById('vbEnd').click(); toast(nm + ' ' + I18n.t('is blocked on this device.')); } },
+          { label: I18n.t('Report a problem'), run: function () { openAlt(openHelp, 'tickets'); } }
+        ]);
+      });
       sync(); dialCard._stSync = sync;
     })();
     [dialCard, dialStage, dialSide, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { grid.appendChild(c); }); stFit(); placeList(); try { window.matchMedia('(min-width: 701px)').addEventListener('change', placeList); } catch (e) { /* old browser */ } quiet(function () { select('dial'); });
@@ -5933,7 +5964,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
   function voiceIncomingHide() { var qpr = document.querySelector('.qp'); if (qpr) qpr.classList.remove('st-ringing'); voice.incoming = null; voiceToneStop(); var d = $('voiceIncoming'); if (d.open) d.close(); }
   function voiceEvent(e) {
     if (e.type === 'ready') { voice.ext = e.extension; voiceChanged(); }
-    else if (e.type === 'incoming') { if (!(voice.client && (voice.client.callId || voice.client.room))) voiceIncomingShow(e); }
+    else if (e.type === 'incoming') { if (e.from && window.qpIsBlocked && window.qpIsBlocked(e.from.extension)) { try { voice.client.reject(e.call.id).catch(function () {}); } catch (x) { /* ignore */ } } else if (!(voice.client && (voice.client.callId || voice.client.room))) voiceIncomingShow(e); }
     else if (e.type === 'room_invite') { if (!e.upgrade && !(voice.client && (voice.client.callId || voice.client.room))) voiceIncomingShow(e); }
     else if (e.type === 'upgrade_failed') { voiceBar(false); voice.connected = {}; toast(I18n.t('You could not be moved into the group call.'), 'err'); }
     else if (e.type === 'call_upgraded') { voiceHistoryDirty(); }
