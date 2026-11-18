@@ -1483,6 +1483,9 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
 
 .st-notes-ta { width:100%; box-sizing:border-box; resize:vertical; padding:8px 10px; border-radius:10px; border:1px solid rgba(167,139,250,.45); background:rgba(255,255,255,.08); color:#f4f0ff; font:inherit; font-size:13px; margin:4px 0 6px; }
 .qp-stage .st-notes { min-width:260px; }
+
+.si-x { display:none; }
+@media (min-width:701px) and (max-width:1200px) { html body .qp.qp-station.qs-drawer-open .si-x { display:grid; position:sticky; top:0; align-self:flex-end; flex:0 0 auto; width:30px; height:30px; place-items:center; border:0; border-radius:50%; background:rgba(255,255,255,.1); color:#fff; font-size:20px; line-height:1; cursor:pointer; z-index:2; } }
 </style>
 </head>
 <body data-page="workspace">
@@ -3482,7 +3485,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       if (t === 'help') { openAlt(openHelp, 'center'); return; }
       var pair = { dial: [dialCard, dialStage, dialSide, dialList], join: [joinCard, joinList], recent: [recentCard, recentDetail], contacts: [contactsCard, contactDetail], settings: [numberCard, plansCard] }[t];
       alt.classList.add('hidden'); grid.classList.remove('hidden');
-      root.classList.toggle('qp-station', t === 'dial'); stFit(); setTimeout(stFit, 60);
+      root.classList.toggle('qp-station', t === 'dial'); root.classList.remove('qs-drawer-open'); stFit(); setTimeout(stFit, 60);
       [dialCard, dialStage, dialSide, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { c.classList.toggle('hidden', pair.indexOf(c) < 0); });
       if (t === 'contacts') loadContacts(); if (t === 'settings') loadPlans(); if (t === 'recent' && recentCard._load && voice.ready) recentCard._load(); if (t === 'dial' && voice.ready) voiceLoadPeople();   // new internet calls appear when you open the tab
     }
@@ -4441,7 +4444,11 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       // details panel: collapsible on wide screens, a drawer on small ones
       function sideState() { var narrow = window.matchMedia('(max-width: 1200px)').matches; root.classList.toggle('qs-narrow', narrow); if (!narrow) root.classList.remove('qs-drawer-open'); var open = narrow ? root.classList.contains('qs-drawer-open') : !root.classList.contains('qs-side-collapsed'); $s('stDock').setAttribute('aria-expanded', String(open)); }
       $s('stDock').addEventListener('click', function () { if (root.classList.contains('qs-narrow')) root.classList.toggle('qs-drawer-open'); else root.classList.toggle('qs-side-collapsed'); sideState(); setTimeout(function () { if (typeof voiceIncomingPlace === 'function' && voice.incoming) voiceIncomingPlace($('voiceIncoming')); }, 30); });
-      window.addEventListener('resize', sideState); sideState();
+      function closeDrawer() { if (root.classList.contains('qs-drawer-open')) { root.classList.remove('qs-drawer-open'); sideState(); } }
+      window.addEventListener('resize', function () { var was = root.classList.contains('qs-narrow'); sideState(); if (was !== root.classList.contains('qs-narrow')) closeDrawer(); }); sideState();
+      // the drawer never hangs over the page: a click anywhere else, another tab, or a close button puts it away
+      document.addEventListener('mousedown', function (e) { if (root.classList.contains('qs-drawer-open') && !dialSide.contains(e.target) && !(e.target.closest && e.target.closest('#stDock, .st-pop'))) closeDrawer(); });
+      var dx = el('button', 'si-x', '×'); dx.type = 'button'; dx.setAttribute('aria-label', I18n.t('Close call details')); dx.addEventListener('click', function () { closeDrawer(); $s('stDock').focus(); }); dialSide.insertBefore(dx, dialSide.firstChild);
       document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && root.classList.contains('qs-drawer-open')) { root.classList.remove('qs-drawer-open'); sideState(); $s('stDock').focus(); } });
       $s('stShare').addEventListener('click', function () { if (typeof openDialog === 'function') openDialog('new'); });
       $s('stChat').addEventListener('click', function () { try { window.open('chat.html', '_blank', 'noopener'); } catch (e) { toast(I18n.t('Chat could not be opened.')); } });
