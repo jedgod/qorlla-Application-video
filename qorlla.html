@@ -1348,6 +1348,46 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
   html body .qp.qp-station .qp-dial-card .qp-redial { border-color:#4ade80 !important; color:#4ade80 !important; } html body .qp.qp-station .qp-dial-card .qp-redial:hover { background:rgba(34,197,94,.28) !important; color:#fff !important; }
   html body .qp.qp-station .qp-dial-card .qp-ph { color:#a78bfa; }
 }
+
+/* Call Station layout to the picture: 2 rows of 5 controls, Call Information + Participants + Actions */
+@media (min-width:701px) {
+  html body .qp.qp-station .st-ctls { display:grid !important; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:clamp(8px, calc(var(--sh, 560px) * .022), 18px) clamp(4px, .6vw, 12px) !important; width:100%; max-width:430px; margin:clamp(8px, calc(var(--sh, 560px) * .026), 22px) auto clamp(8px, calc(var(--sh, 560px) * .02), 16px) !important; }
+  html body .qp.qp-station .st-btn { width:clamp(38px, calc(var(--sh, 560px) * .072), 54px) !important; height:clamp(38px, calc(var(--sh, 560px) * .072), 54px) !important; }
+  html body .qp.qp-station .st-act { font-size:11px; text-align:center; line-height:1.15; } html body .qp.qp-station .st-act span { white-space:normal; }
+  html body .qp.qp-station .st-act.st-dim .st-btn { opacity:.4; } html body .qp.qp-station .st-btn:disabled { opacity:.4; cursor:default; }
+  html body .qp.qp-station .st-avatar { width:clamp(100px, calc(var(--sh, 560px) * .24), 190px) !important; height:clamp(100px, calc(var(--sh, 560px) * .24), 190px) !important; }
+  html body .qp.qp-station .st-name::after { content:""; display:inline-block; width:.62em; height:.62em; margin-left:.4em; border-radius:50%; background:#8b5cf6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round'%3E%3Cpath d='m6 12.5 4 4 8-9'/%3E%3C/svg%3E") center/80% no-repeat; vertical-align:.05em; }
+  html body .qp.qp-station:not(.st-incall) .st-name::after { display:none; }
+  /* right column: full-width panels like the picture */
+  html body .qp.qp-station .qp-side { align-items:stretch !important; gap:8px !important; }
+  html body .qp.qp-station .qp-side .si-card { width:100% !important; min-width:0 !important; align-self:stretch !important; padding:9px 14px !important; }
+  html body .qp.qp-station .si-row { font-size:12px !important; padding:2px 0 !important; } html body .qp.qp-station .si-row b { display:flex; align-items:center; gap:6px; }
+  .si-bars { display:inline-flex; align-items:flex-end; gap:2px; height:12px; } .si-bars i { display:block; width:3px; background:rgba(255,255,255,.25); border-radius:1px; } .si-bars i:nth-child(1) { height:5px; } .si-bars i:nth-child(2) { height:8px; } .si-bars i:nth-child(3) { height:12px; }
+  .si-bars.b1 i:nth-child(1), .si-bars.b2 i:nth-child(-n+2), .si-bars.b3 i { background:#4ade80; }
+  .si-parts { padding:0 !important; } .si-phead { display:flex; align-items:center; gap:10px; width:100%; padding:10px 14px; border:0; background:transparent; color:#fff; font:inherit; font-weight:650; font-size:14px; cursor:pointer; text-align:left; } .si-phead .si-ic svg, .si-phead .si-chev svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; } .si-phead span:nth-child(2) { flex:1; } .si-phead[aria-expanded=false] .si-chev { transform:rotate(180deg); }
+  .si-pbody { padding:0 14px 10px; } .si-pbody.hidden { display:none; } .si-prow { display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:12px; background:rgba(255,255,255,.05); } .si-prow.hidden { display:none; }
+  .si-pface { flex:0 0 34px; width:34px; height:34px; border-radius:50%; display:grid; place-items:center; font-size:13px; font-weight:700; color:#fff; background:linear-gradient(145deg,#8b5cf6,#4c1d95); } .si-ptxt { flex:1; min-width:0; display:flex; flex-direction:column; } .si-ptxt b { font-size:13px; color:#fff; } .si-ptxt small { font-size:11.5px; color:#bfb2e6; } .si-ptxt small.ok { color:#4ade80; }
+  .si-mic svg { width:18px; height:18px; fill:none; stroke:#4ade80; stroke-width:1.8; stroke-linecap:round; }
+  html body .qp.qp-station .si-act { display:flex; align-items:center; gap:10px; font-size:12.5px !important; padding:7px 12px !important; } .si-go { margin-left:auto; display:grid; } .si-go svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2; }
+  html body .qp.qp-station.st-incoming .si-parts { display:none; }
+  html body .qp.qp-station .qp-numin .qp-bsp { font-size:22px; }
+}
+
+@media (min-width:701px) { html body .qp.qp-station .si-corner { display:none !important; } }
+
+@media (min-width:701px) {
+  html body .qp.qp-station .qp-side { justify-content:flex-start !important; gap:6px !important; overflow:hidden; }
+  html body .qp.qp-station .qp-side .si-card { padding:6px 12px !important; }
+  html body .qp.qp-station .si-card h3 { margin:0 0 1px !important; font-size:13px !important; }
+  html body .qp.qp-station .si-row { padding:1px 0 !important; font-size:11.5px !important; }
+  .si-phead { padding:7px 12px !important; } .si-pbody { padding:0 12px 6px !important; } .si-prow { padding:4px 8px !important; }
+  html body .qp.qp-station .si-act { padding:5px 10px !important; margin-top:3px !important; font-size:12px !important; }
+  html body .qp.qp-station .st-avatar { width:clamp(90px, calc(var(--sh, 560px) * .19), 150px) !important; height:clamp(90px, calc(var(--sh, 560px) * .19), 150px) !important; margin:4px 0 !important; }
+  html body .qp.qp-station .st-ctls { margin:8px auto 8px !important; gap:8px 4px !important; }
+  html body .qp.qp-station .st-badge { margin-top:6px; padding:4px 12px; }
+  html body .qp.qp-station .st-end { flex:0 0 auto; min-height:42px; height:42px !important; }
+  html body .qp.qp-station .qp-stage { justify-content:center; }
+}
 </style>
 </head>
 <body data-page="workspace">
@@ -3431,7 +3471,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var numberDrop = h('details', { class: 'qp-dial-drop', id: 'qpNumberDrop' }, [h('summary', { text: I18n.t('Enter a number') }), sel, h('div', { class: 'qp-numin' }, [input, clear]), hint]);
       var padDrop = h('details', { class: 'qp-dial-drop', id: 'qpPadDrop' }, [h('summary', { text: I18n.t('Dial Pad') }), keys]);
       numberDrop.open = true; padDrop.open = phoneUI;   // phones start with the keypad open; the desktop keypad opens when you tap the number
-      var bsp = h('button', { type: 'button', class: 'qp-bsp', 'aria-label': I18n.t('Delete last digit'), text: '\u232B', onclick: function () { del.click(); } }); numberDrop.querySelector('.qp-numin').appendChild(bsp);
+      var bsp = h('button', { type: 'button', class: 'qp-bsp', 'aria-label': I18n.t('Delete last digit'), text: '\u2297', onclick: function () { del.click(); } }); numberDrop.querySelector('.qp-numin').appendChild(bsp);
       var stTitle = h('h2', { class: 'qs-title', id: 'qsTitle', text: I18n.t('Qorlla Call Station') });
       var stSearch = h('input', { type: 'search', class: 'qs-search', id: 'qsSearch', enterkeyhint: 'search', maxlength: '80', autocomplete: 'off', placeholder: I18n.t('Search or dial (name, email, or number)'), 'aria-label': I18n.t('Search or dial (name, email, or number)') });
       stSearch.addEventListener('keydown', function (e) { if (e.key !== 'Enter') return; e.preventDefault(); var v = stSearch.value.trim(); if (!v) return; if (/^[+\d][\d\s().-]*$/.test(v)) { set(v.replace(/[^\d+]/g, '')); stSearch.value = ''; } else { select('contacts'); setTimeout(function () { var c = document.querySelector('#phPanel input[type=search], .qp-card input[type=search]'); if (c && c !== stSearch) { c.value = v; c.dispatchEvent(new Event('input', { bubbles: true })); } }, 200); } });
@@ -4211,45 +4251,63 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       var top = el('div', 'st-top', '<span class="st-sig">' + SV('<rect x="3" y="14" width="3.5" height="6" rx="1"/><rect x="9" y="10" width="3.5" height="10" rx="1"/><rect x="15" y="5" width="3.5" height="15" rx="1"/>') + '</span><span id="stState">' + I18n.t('Qorlla Call') + ' \u00B7 ' + I18n.t('Ready') + '</span><span class="st-lock hidden" id="stLock" title="' + I18n.t('Media is encrypted in transit (WebRTC DTLS-SRTP)') + '">' + SV('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>') + '</span>');
       var time = el('div', 'st-time', '', 'stTime');
       var av = el('div', 'st-avatar', '<span class="st-ring r1"></span><span class="st-ring r2"></span><span class="st-ring r3"></span><div class="st-face" id="stFace">Q</div>');
-      var nm = el('h2', 'st-name', '', 'stName'), num = el('p', 'st-num', '', 'stNum'), badge = el('p', 'st-badge hidden', SV('<circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0M17 6v6M14 9h6"/>') + '<span>' + I18n.t('Qorlla User') + '</span>', 'stBadge');
+      var nm = el('h2', 'st-name', '', 'stName'), num = el('p', 'st-num', '', 'stNum'), badge = el('p', 'st-badge hidden', SV('<circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0M17 6v6M14 9h6"/>') + '<span>' + I18n.t('Qorlla User') + ' \u00B7 ' + I18n.t('Verified') + '</span>', 'stBadge');
       function ctl(id, label, d, off) { var w = el('div', 'st-act'), b = el('button', 'st-btn' + (off ? ' st-off' : ''), SV(d), id); b.type = 'button'; b.setAttribute('aria-label', label); if (off) b.setAttribute('aria-disabled', 'true'); w.appendChild(b); w.appendChild(el('span', '', label)); return w; }
       var ctls = el('div', 'st-ctls');
       ctls.appendChild(ctl('stMute', I18n.t('Mute'), '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>'));
-      ctls.appendChild(ctl('stVideo', I18n.t('Video'), '<path d="M3 7h12v10H3zM15 10l6-3v10l-6-3z"/>', true));
-      ctls.appendChild(ctl('stSpeaker', I18n.t('Speaker'), '<path d="M4 9.5h4l5-4v13l-5-4H4zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>', true));
-      ctls.appendChild(ctl('stKeypad', I18n.t('Keypad'), '<circle cx="6" cy="6" r="1.4"/><circle cx="12" cy="6" r="1.4"/><circle cx="18" cy="6" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/><circle cx="6" cy="18" r="1.4"/><circle cx="12" cy="18" r="1.4"/><circle cx="18" cy="18" r="1.4"/>', true));
-      ctls.appendChild(ctl('stMore', I18n.t('More'), '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>', true));
+      ctls.appendChild(ctl('stVideo', I18n.t('Video'), '<path d="M3 7h12v10H3zM15 10l6-3v10l-6-3z"/>'));
+      ctls.appendChild(ctl('stShare', I18n.t('Share Screen'), '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M9.5 10 12 7.5 14.5 10M12 7.5V13"/>'));
+      ctls.appendChild(ctl('stRecord', I18n.t('Record'), '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>', true));
+      ctls.appendChild(ctl('stAddP', I18n.t('Add Participant'), '<circle cx="10" cy="8" r="3.5"/><path d="M3.5 20a6.5 6.5 0 0 1 13 0M19 6v6M16 9h6"/>'));
+      ctls.appendChild(ctl('stHold', I18n.t('Hold'), '<rect x="7" y="5" width="3.5" height="14" rx="1"/><rect x="13.5" y="5" width="3.5" height="14" rx="1"/>', true));
+      ctls.appendChild(ctl('stTransfer', I18n.t('Transfer'), '<path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/>', true));
+      ctls.appendChild(ctl('stKeypad', I18n.t('Keypad'), '<circle cx="6" cy="6" r="1.4"/><circle cx="12" cy="6" r="1.4"/><circle cx="18" cy="6" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/><circle cx="6" cy="18" r="1.4"/><circle cx="12" cy="18" r="1.4"/><circle cx="18" cy="18" r="1.4"/>'));
+      ctls.appendChild(ctl('stChat', I18n.t('In-Call Chat'), '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>'));
+      ctls.appendChild(ctl('stMore', I18n.t('More'), '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'));
+      var spk = el('button', 'hidden', '', 'stSpeaker'); spk.type = 'button'; ctls.appendChild(spk);   // speaker output is chosen from More
       var end = el('button', 'st-end', SV('<path d="M3 14c5-5 13-5 18 0l-2.5 2.5-3-1.5v-2.5a11 11 0 0 0-7 0V15l-3 1.5z"/>') + '<span id="stEndText">' + I18n.t('End Call') + '</span>', 'stEnd'); end.type = 'button';
       var idle = el('p', 'st-idle', I18n.t('Enter a number or choose a colleague, then press Call.'), 'stIdle');
       [top, time, av, nm, num, badge, ctls, end, idle].forEach(function (n) { dialStage.appendChild(n); });
       // right-hand panels
       function row(k, id) { return '<div class="si-row"><span>' + k + '</span><b id="' + id + '"></b></div>'; }
-      var info = el('div', 'si-card', '<h3>' + SV('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/>') + I18n.t('Call Information') + '</h3>' + row(I18n.t('Type'), 'siType') + row(I18n.t('Status'), 'siStatus') + row(I18n.t('From'), 'siFrom') + row(I18n.t('Started'), 'siStarted') + row(I18n.t('Encryption'), 'siEnc'));
-      var acts = el('div', 'si-card', '<h3>' + SV('<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>') + I18n.t('Call Actions') + '</h3>');
-      function act(id, label, d, off) { var b = el('button', 'si-act' + (off ? ' st-off' : ''), SV(d) + '<span>' + label + '</span>', id); b.type = 'button'; if (off) b.setAttribute('aria-disabled', 'true'); acts.appendChild(b); return b; }
-      act('siAdd', I18n.t('Add Participant'), '<circle cx="10" cy="8" r="3.5"/><path d="M3.5 20a6.5 6.5 0 0 1 13 0M19 6v6M16 9h6"/>');
-      act('siGroup', I18n.t('Start Group Call'), '<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 19a6 6 0 0 1 12 0M15.5 19a4.5 4.5 0 0 1 6 0"/>');
-      act('siRecord', I18n.t('Record Call'), '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>', true);
-      act('siTransfer', I18n.t('Transfer Call'), '<path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/>', true);
+      var info = el('div', 'si-card', '<h3>' + SV('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/>') + I18n.t('Call Information') + '</h3>' + row(I18n.t('Type'), 'siType') + row(I18n.t('Status'), 'siStatus') + row(I18n.t('Started'), 'siStarted') + row(I18n.t('Duration'), 'siDur') + row(I18n.t('Encryption'), 'siEnc') + row(I18n.t('Network'), 'siNet'));
+      var parts = el('div', 'si-card si-parts', '<button type="button" class="si-phead" id="siPH" aria-expanded="true" aria-controls="siPB"><span class="si-ic">' + SV('<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 19a6 6 0 0 1 12 0M15.5 19a4.5 4.5 0 0 1 6 0"/>') + '</span><span id="siPT">' + I18n.t('Participants') + ' (0)</span><span class="si-chev">' + SV('<path d="m6 9 6 6 6-6"/>') + '</span></button><div class="si-pbody" id="siPB"><div class="si-prow hidden" id="siPR"><span class="si-pface" id="siPF">Q</span><span class="si-ptxt"><b id="siPN"></b><small id="siPS"></small></span><span class="si-mic">' + SV('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>') + '</span></div></div>');
+      var acts = el('div', 'si-card', '<h3>' + SV('<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>') + I18n.t('Actions') + '</h3>');
+      function sact(id, label, d, off, chev) { var b = el('button', 'si-act' + (off ? ' st-off' : ''), SV(d) + '<span>' + label + '</span>' + (chev ? '<i class="si-go">' + SV('<path d="m9 6 6 6-6 6"/>') + '</i>' : ''), id); b.type = 'button'; if (off) b.setAttribute('aria-disabled', 'true'); acts.appendChild(b); return b; }
+      sact('siInvite', I18n.t('Invite to Meet'), '<path d="M3 7h12v10H3zM15 10l6-3v10l-6-3z"/>');
+      sact('siNotes', I18n.t('Call Notes (AI)'), '<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h6M9 16h4"/>', true);
+      sact('siRec', I18n.t('Call Recording'), '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>', true, true);
+      sact('siBlock', I18n.t('Block / Report'), '<path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/><path d="M12 9v4M12 16v.01"/>', true);
       var corner = el('div', 'si-corner hidden', '<div class="sc-face" id="scFace">Q</div><div class="sc-txt"><div class="sc-state" id="scState"></div><div class="sc-name" id="scName"></div><div class="sc-num" id="scNum"></div></div><button type="button" class="sc-end" id="scEnd" aria-label="End call"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 14c5-5 13-5 18 0l-2.5 2.5-3-1.5v-2.5a11 11 0 0 0-7 0V15l-3 1.5z"/></svg><span>End</span></button>');
-      dialSide.appendChild(corner); dialSide.appendChild(info); dialSide.appendChild(acts);
+      dialSide.appendChild(corner); dialSide.appendChild(info); dialSide.appendChild(parts); dialSide.appendChild(acts);
       function $s(id) { return dialStage.querySelector('#' + id) || dialSide.querySelector('#' + id); }
       var startedAt = null;
       function fmt(sec) { var h2 = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), x = sec % 60, z = function (n) { return String(n).padStart(2, '0'); }; return z(h2) + ':' + z(m) + ':' + z(x); }
+      function netShow(q) { var n = $s('siNet'); if (!n) return; if (!q) { n.textContent = '\u2014'; n.className = ''; return; } n.innerHTML = '<span class="si-bars b' + q[0] + '"><i></i><i></i><i></i></span>' + q[1]; n.className = 'ok'; }
+      function netCheck() {
+        var pc = voice.client && voice.client.pc; if (!root.classList.contains('st-incall') || !pc || !pc.getStats) return;
+        pc.getStats().then(function (rep) { var rtt = null; rep.forEach(function (x) { if (x.type === 'candidate-pair' && x.state === 'succeeded' && (x.nominated || x.selected) && typeof x.currentRoundTripTime === 'number') rtt = x.currentRoundTripTime; });
+          if (rtt === null) return netShow(null); netShow(rtt < 0.12 ? [3, I18n.t('Excellent')] : rtt < 0.3 ? [2, I18n.t('Good')] : [1, I18n.t('Fair')]); }).catch(function () {});
+      }
+      setInterval(netCheck, 3000);
       function sync() {
         var bar = document.getElementById('voiceBar'); if (!bar) return; var live = !bar.classList.contains('hidden');
         var peer = (document.getElementById('vbPeer').textContent || '').trim(), st = (document.getElementById('vbStatus').textContent || '').trim(), m = peer.match(/^(.*?)\s*\((ext\s*\d+)\)\s*$/i), name = m ? m[1] : peer, ext = m ? m[2] : '';
         var conn = /^Connected/i.test(st); if (live && conn && !startedAt) startedAt = new Date(); if (!live) startedAt = null;
         root.classList.toggle('st-incall', live);
-        $s('stState').textContent = live ? I18n.t('Qorlla Call') + ' \u00B7 ' + (conn ? I18n.t('Encrypted') : st.replace(/\u2026$/, '')) : I18n.t('Qorlla Call') + ' \u00B7 ' + I18n.t('Ready'); $s('stLock').classList.toggle('hidden', !(live && conn));
+        $s('stState').textContent = live ? I18n.t('Qorlla Call') + ' \u00B7 ' + (conn ? I18n.t('Connected') : st.replace(/\u2026$/, '')) : I18n.t('Qorlla Call') + ' \u00B7 ' + I18n.t('Ready'); $s('stLock').classList.toggle('hidden', !(live && conn));
         var t = (st.match(/(\d\d):(\d\d)$/) || []); $s('stTime').textContent = live && conn && t[1] ? fmt(parseInt(t[1], 10) * 60 + parseInt(t[2], 10)) : '';
         $s('stName').textContent = live ? name : I18n.t('Ready to call'); $s('stNum').textContent = live ? ext : ''; $s('stBadge').classList.toggle('hidden', !live);
         $s('stFace').textContent = live ? (name.replace(/[^\p{L}\p{N} ]/gu, '').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || 'Q') : '\u260E';
         var mu = document.getElementById('vbMute').getAttribute('aria-pressed') === 'true'; $s('stMute').setAttribute('aria-pressed', String(mu)); $s('stMute').parentNode.lastChild.textContent = mu ? I18n.t('Unmute') : I18n.t('Mute');
         $s('stEndText').textContent = (document.getElementById('vbEnd').textContent || '').trim() === 'Leave' ? I18n.t('Leave') : I18n.t('End Call');
         $s('siType').textContent = live ? I18n.t('Voice Call') : '\u2014'; $s('siStatus').textContent = live ? (conn ? I18n.t('Connected') : st) : I18n.t('Ready'); $s('siStatus').className = live && conn ? 'ok' : '';
-        $s('siFrom').textContent = voice.ext ? I18n.t('ext') + ' ' + voice.ext : '\u2014'; $s('siStarted').textContent = startedAt ? startedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '\u2014'; $s('siEnc').textContent = live && conn ? I18n.t('Encrypted (WebRTC)') : '\u2014';
-        $s('siAdd').disabled = !live || document.getElementById('vbAdd').classList.contains('hidden');
+        $s('siStarted').textContent = startedAt ? startedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '\u2014'; $s('siEnc').textContent = live && conn ? I18n.t('Encrypted (WebRTC)') : '\u2014';
+        $s('siDur').textContent = live && conn && t[1] ? fmt(parseInt(t[1], 10) * 60 + parseInt(t[2], 10)) : '\u2014';
+        var pm = peer.match(/(\d+)\s+(?:people|persons)/i), pc2 = live ? (pm ? Math.max(1, parseInt(pm[1], 10) - 1) : 1) : 0;
+        $s('siPT').textContent = I18n.t('Participants') + ' (' + pc2 + ')'; $s('siPR').classList.toggle('hidden', !live); $s('siPN').textContent = name; $s('siPS').textContent = conn ? I18n.t('In Call') : I18n.t('Connecting'); $s('siPS').className = conn ? 'ok' : ''; $s('siPF').textContent = $s('stFace').textContent;
+        $s('siInvite').disabled = !live; if (!live) netShow(null);
+        $s('stAddP').disabled = !live || document.getElementById('vbAdd').classList.contains('hidden'); $s('stAddP').parentNode.classList.toggle('st-dim', $s('stAddP').disabled);
         var cn = dialSide.querySelector('.si-corner'); cn.classList.toggle('hidden', !live); if (live) { $s('scState').textContent = conn ? I18n.t('Connected') + (t[1] ? ' \u00B7 ' + t[1] + ':' + t[2] : '') : st.replace(/\u2026$/, '') + '\u2026'; $s('scState').className = 'sc-state' + (conn ? ' ok' : ''); $s('scName').textContent = name; $s('scNum').textContent = ext; $s('scFace').textContent = $s('stFace').textContent; }
       }
       var mo = function (n, o) { if (n) new MutationObserver(sync).observe(n, o); };
@@ -4257,8 +4315,11 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
       mo(document.getElementById('vbMute'), { attributes: true, attributeFilter: ['aria-pressed'] }); mo(document.getElementById('vbAdd'), { attributes: true, attributeFilter: ['class'] }); mo(document.getElementById('vbEnd'), { childList: true, characterData: true, subtree: true });
       dialSide.querySelector('#scEnd').addEventListener('click', function () { document.getElementById('vbEnd').click(); });
       $s('stMute').addEventListener('click', function () { document.getElementById('vbMute').click(); }); $s('stEnd').addEventListener('click', function () { document.getElementById('vbEnd').click(); });
-      $s('siAdd').addEventListener('click', function () { document.getElementById('vbAdd').click(); });
-      $s('siGroup').addEventListener('click', function () { var gb = document.getElementById('qpGroupBtn'); if (gb) gb.click(); else toast(I18n.t('Group calls need at least two colleagues.')); });
+      $s('stAddP').addEventListener('click', function () { document.getElementById('vbAdd').click(); });
+      $s('siInvite').addEventListener('click', function () { if (typeof newMeeting === 'function') { newMeeting(); toast(I18n.t('Started a Qorlla video meeting. Share its invitation to bring') + ' ' + ($s('stName').textContent || I18n.t('the other person')) + ' ' + I18n.t('in.')); } });
+      $s('stShare').addEventListener('click', function () { if (typeof openDialog === 'function') openDialog('new'); });
+      $s('stChat').addEventListener('click', function () { try { window.open('chat.html', '_blank', 'noopener'); } catch (e) { toast(I18n.t('Chat could not be opened.')); } });
+      $s('siPH').addEventListener('click', function () { var o = $s('siPH').getAttribute('aria-expanded') !== 'true'; $s('siPH').setAttribute('aria-expanded', String(o)); $s('siPB').classList.toggle('hidden', !o); });
       // ---- Speaker (output device), Keypad (tones), More (menu), Video (video meeting): all real
       function closePop() { var o = dialStage.querySelector('.st-pop'); if (o) o.remove(); }
       document.addEventListener('click', function (e) { if (!e.target.closest || (!e.target.closest('.st-pop') && !e.target.closest('.st-act'))) closePop(); });
@@ -4273,7 +4334,7 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
         if (!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) || !els.length || !('setSinkId' in els[0])) { toast(I18n.t('This device plays the call through its own speaker; it cannot pick another output here.')); return; }
         navigator.mediaDevices.enumerateDevices().then(function (l) {
           var outs = l.filter(function (d) { return d.kind === 'audiooutput'; }); if (!outs.length) { toast(I18n.t('No speaker was found.')); return; }
-          pop($s('stSpeaker'), I18n.t('Speaker'), outs.map(function (d, i) { return { label: d.label || (I18n.t('Speaker') + ' ' + (i + 1)), on: (sinkId || 'default') === d.deviceId, run: function () { sinkId = d.deviceId; Array.prototype.forEach.call(document.querySelectorAll('body > audio'), function (a) { a.setSinkId(d.deviceId).catch(function () { toast(I18n.t('That speaker could not be used.')); }); }); $s('stSpeaker').setAttribute('aria-pressed', 'true'); } }; }));
+          pop($s('stMore'), I18n.t('Speaker'), outs.map(function (d, i) { return { label: d.label || (I18n.t('Speaker') + ' ' + (i + 1)), on: (sinkId || 'default') === d.deviceId, run: function () { sinkId = d.deviceId; Array.prototype.forEach.call(document.querySelectorAll('body > audio'), function (a) { a.setSinkId(d.deviceId).catch(function () { toast(I18n.t('That speaker could not be used.')); }); }); $s('stSpeaker').setAttribute('aria-pressed', 'true'); } }; }));
         }).catch(function () { toast(I18n.t('Speakers could not be listed.')); });
       });
       var dt = el('div', 'st-dtmf hidden'), dtOut = el('div', 'st-dtmf-out', ''); dt.appendChild(dtOut); var dtGrid = el('div', 'st-dtmf-g'); dt.appendChild(dtGrid);
@@ -4288,15 +4349,16 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
         pop($s('stMore'), I18n.t('More'), [
           { label: I18n.t('Copy extension'), run: function () { if (ext) copyPlain(ext, I18n.t('Extension copied')); } },
           { label: I18n.t('Add participant'), run: function () { var a = document.getElementById('vbAdd'); if (a && !a.classList.contains('hidden')) a.click(); else toast(I18n.t('You can add people once the call is connected.')); } },
-          { label: I18n.t('Start a group call'), run: function () { $s('siGroup').click(); } },
-          { label: I18n.t('Message') + ' ' + nm, run: function () { if (typeof act === 'function') act('chat'); } }
+          { label: I18n.t('Audio output (speaker)'), run: function () { $s('stSpeaker').click(); } },
+          { label: I18n.t('Start a group call'), run: function () { var gb = document.getElementById('qpGroupBtn'); if (dialCard._qsView) dialCard._qsView('contacts'); if (gb) { if (gb.getAttribute('aria-pressed') !== 'true') gb.click(); } else toast(I18n.t('Group calls need at least two colleagues.')); } },
+          { label: I18n.t('Message') + ' ' + nm, run: function () { $s('stChat').click(); } }
         ]);
       });
       $s('stVideo').addEventListener('click', function () { if (typeof newMeeting === 'function') { newMeeting(); toast(I18n.t('Started a Qorlla video meeting. Share its invitation to bring') + ' ' + ($s('stName').textContent || I18n.t('the other person')) + ' ' + I18n.t('in.')); } });
       $s('stVideo').classList.remove('st-off'); $s('stVideo').removeAttribute('aria-disabled'); $s('stSpeaker').classList.remove('st-off'); $s('stSpeaker').removeAttribute('aria-disabled'); $s('stKeypad').classList.remove('st-off'); $s('stKeypad').removeAttribute('aria-disabled'); $s('stMore').classList.remove('st-off'); $s('stMore').removeAttribute('aria-disabled');
       // Record and Transfer need a recording service with participant consent and an engine transfer step: they say so instead of pretending
-      var WHY = { siRecord: 'Recording a call needs every participant\u2019s consent and a recording service; it is not switched on.', siTransfer: 'Transferring a call needs an engine transfer step that is not built yet. Use Add participant instead.' };
-      ['siRecord', 'siTransfer'].forEach(function (id) { var b = $s(id); b.title = I18n.t(WHY[id]); b.addEventListener('click', function () { toast(I18n.t(WHY[id])); }); });
+      var WHY = { stRecord: 'Recording a call needs every participant\u2019s consent and a recording service; it is not switched on.', siRec: 'Recording a call needs every participant\u2019s consent and a recording service; it is not switched on.', stHold: 'Hold is not supported by the voice service yet.', stTransfer: 'Transferring a call needs an engine transfer step that is not built yet. Use Add Participant instead.', siNotes: 'AI call notes are not enabled: they would need the other person\u2019s consent and a transcription service.', siBlock: 'Block and report are not built yet.' };
+      Object.keys(WHY).forEach(function (id) { var b = $s(id); if (!b) return; b.title = I18n.t(WHY[id]); b.addEventListener('click', function () { toast(I18n.t(WHY[id])); }); });
       sync(); dialCard._stSync = sync;
     })();
     [dialCard, dialStage, dialSide, dialList, joinCard, joinList, recentCard, recentDetail, contactsCard, contactDetail, numberCard, plansCard].forEach(function (c) { grid.appendChild(c); }); stFit(); placeList(); try { window.matchMedia('(min-width: 701px)').addEventListener('change', placeList); } catch (e) { /* old browser */ } quiet(function () { select('dial'); });
