@@ -1306,6 +1306,16 @@ iframe.embed-frame { display:block; width:100%; height:calc(100dvh - 110px - var
 .qp-stage .st-dtmf { background:#14082e !important; } .qp-stage .st-pop { background:#1d0f40 !important; }
 
 @media (min-width:701px) { html body .qp.qp-station .st-avatar { width:clamp(110px, calc(var(--sh, 560px) * .26), 200px) !important; height:clamp(110px, calc(var(--sh, 560px) * .26), 200px) !important; margin:clamp(6px, calc(var(--sh, 560px) * .02), 18px) 0 !important; } html body .qp.qp-station .st-ctls { margin:clamp(10px, calc(var(--sh, 560px) * .03), 26px) 0 clamp(8px, calc(var(--sh, 560px) * .02), 16px) !important; } html body .qp.qp-station .qp-stage { padding-bottom:14px; } }
+
+/* right column: the two panels are compact and sit at the bottom of the column (the incoming card owns the top) */
+@media (min-width:701px) {
+  html body .qp.qp-station .qp-side { justify-content:flex-end !important; gap:8px !important; }
+  html body .qp.qp-station .qp-side .si-card { padding:8px 14px !important; }
+  html body .qp.qp-station .si-card h3 { font-size:13.5px !important; margin:0 0 2px !important; }
+  html body .qp.qp-station .si-row { padding:1px 0 !important; font-size:12px !important; }
+  html body .qp.qp-station .si-act { padding:5px 12px !important; margin-top:4px !important; font-size:12.5px !important; }
+  html body .qp.qp-station.st-ringing .si-row:nth-of-type(n+4), html body .qp.qp-station.st-incoming .si-row:nth-of-type(n+4) { display:flex !important; }
+}
 </style>
 </head>
 <body data-page="workspace">
