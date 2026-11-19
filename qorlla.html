@@ -1742,7 +1742,7 @@ body.qv-on:not(.qv-remote-on) .qv-stage:not(.qv-mob) .qv-local { position:static
   <h2 id="vaskT"></h2><p id="vaskB" class="vi-sub"></p>
   <div class="va-btns"><button type="button" class="btn danger" id="vaskNo">Decline</button><button type="button" class="btn" id="vaskAlt" hidden></button><button type="button" class="btn primary" id="vaskYes">Accept</button></div>
 </dialog>
-<div id="voiceMoveBar" class="vmb hidden" popover="manual" role="status" aria-live="polite"><span id="vmbText"></span><button type="button" class="btn small primary" id="vmbNow">End phone call now</button><button type="button" class="btn small" id="vmbStay">Stay on the phone call</button></div>
+<div id="voiceMoveBar" class="vmb hidden" popover="manual" role="status" aria-live="polite"><span id="vmbText"></span><button type="button" class="btn small primary" id="vmbOpen" hidden>Open meeting</button><button type="button" class="btn small " id="vmbNow">End phone call now</button><button type="button" class="btn small" id="vmbStay">Stay on the phone call</button></div>
 <dialog id="voiceIncoming" class="vi vi-call" aria-labelledby="viTitle" aria-describedby="viWho">
   <button type="button" class="vi-x" id="viClose" aria-label="Decline and close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
   <div class="vi-top" aria-hidden="true"><svg viewBox="0 0 32 32" class="vi-logo"><circle cx="15" cy="15" r="10" fill="none" stroke="#a855f7" stroke-width="5"/><path d="m21 21 7 7" stroke="#a855f7" stroke-width="5" stroke-linecap="round"/></svg><span>Qorlla</span></div>
@@ -6076,36 +6076,66 @@ body.qv-on:not(.qv-remote-on) .qv-stage:not(.qv-mob) .qv-local { position:static
   }
   /* a modal dialog makes everything outside it unclickable, so while one is open the move bar lives inside it */
   function voiceMoveBarShow(text) { var b = $('voiceMoveBar'); $('vmbText').textContent = text; b.classList.remove('hidden'); try { var dlg = document.querySelector('dialog[open]:not(#voiceAsk)'), home = dlg || document.body; if (b.matches(':popover-open')) b.hidePopover(); if (b.parentNode !== home) home.appendChild(b); b.showPopover(); } catch (e) { /* no popover support: the fixed bar still shows */ } }
-  function voiceMoveClear(unmute) { clearInterval(voice.moveIv); clearTimeout(voice.moveAskT); voice.move = null; try { $('voiceMoveBar').hidePopover(); } catch (e) { /* not open */ } $('voiceMoveBar').classList.add('hidden'); if (unmute && voice.client && voice.client.callId) voice.client.setMuted(false); }
-  // after both people agreed: the phone call is muted (no second microphone capture) and ends when the meeting is open, or after a short countdown
-  function voiceMoveCountdown() {
-    var c = voice.client, left = 45; if (!c) return; try { if (voice.video === 'on' || voice.video === 'requesting') c.stopVideo('moving'); } catch (e) { /* none */ } c.setMuted(true);
-    clearInterval(voice.moveIv); var tick = function () { voiceMoveBarShow(I18n.t('Moving to the Qorlla Meeting. Your microphone is off on this phone call, which ends in') + ' ' + left + ' ' + I18n.t('seconds.')); if (left-- <= 0) { voiceMoveClear(false); $('vbEnd').click(); } }; tick(); voice.moveIv = setInterval(tick, 1000);
+  function voiceMoveClear(unmute) { clearInterval(voice.moveIv); clearTimeout(voice.moveAskT); clearTimeout(voice.moveVerifyT); voice.move = null; try { $('voiceMoveBar').hidePopover(); } catch (e) { /* not open */ } $('voiceMoveBar').classList.add('hidden'); $('vmbOpen').hidden = true; if (unmute && voice.client && voice.client.callId) voice.client.setMuted(false); }
+  /* Phone -> Meeting. The decision is the SERVER's (engine move/start and move/accept: Shield check, single-use token); the pages only carry it out.
+     The phone call is NOT released because a Meet page opened: the host's page watches Qorlla Meet's own record of who is in the room and releases the phone call
+     only when both people are there. If that does not happen in time, the move is cancelled and the phone call simply carries on. */
+  var MOVE_VERIFY_MS = 120000;
+  function voiceMoveAgreed() {                       // both agreed: no second microphone while the meeting opens
+    var c = voice.client; if (!c) return; try { if (voice.video === 'on' || voice.video === 'requesting') c.stopVideo('moving'); } catch (e) { /* none */ } c.setMuted(true);
+    $('vmbOpen').hidden = false; $('vmbOpen').focus(); voiceMoveBarShow(I18n.t('Both of you agreed. Press Open meeting. Your phone microphone is off and the phone call stays connected until you are both in the meeting.'));
   }
-  document.addEventListener('voice-call-ended', function () { voice.autoVideo = false; voiceMoveClear(false); });
-  $('vmbNow').addEventListener('click', function () { voiceMoveClear(false); $('vbEnd').click(); });
+  function voiceMoveRelease(why) { var c = voice.client; voiceMoveClear(false); if (c && c.callId) { toast(why || I18n.t('You are both in the meeting. The phone call has ended.')); $('vbEnd').click(); } }
+  function voiceMoveWatch() {                        // host side: wait for Meet itself to report both people
+    var m = voice.move; if (!m || m.role !== 'host') return; var t0 = Date.now(), c = voice.client;
+    (function poll() {
+      if (!voice.move || voice.move !== m) return;
+      fetch('/api/meetings/' + encodeURIComponent(m.meetingId) + '/move-status', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+        if (!voice.move || voice.move !== m) return;
+        if (d && d.online >= 2) { if (c) c.control({ t: 'move_release' }); voiceMoveRelease(); return; }
+        if (Date.now() - t0 > MOVE_VERIFY_MS) { if (c) c.control({ t: 'move_cancel' }); voiceMoveClear(true); toast(I18n.t('The other person did not join the meeting in time. You are still on the phone call.')); return; }
+        voice.moveVerifyT = setTimeout(poll, 2000);
+      }).catch(function () { voice.moveVerifyT = setTimeout(poll, 3000); });
+    })();
+  }
+  $('vmbOpen').addEventListener('click', function () {
+    var m = voice.move; if (!m || !m.agreed) return; $('vmbOpen').hidden = true;
+    if (m.role === 'host') { pendingNew = { meetingId: m.meetingId, title: m.title, kind: 'meeting', instant: true }; openStart(pendingNew); voiceMoveWatch(); }
+    else if (typeof openJoin === 'function') openJoin(m.meetingId);
+    voiceMoveBarShow(I18n.t('Waiting for both of you to be in the meeting. The phone call stays connected until then.'));
+  });
+  $('vmbNow').addEventListener('click', function () { voiceMoveRelease(I18n.t('The phone call has ended.')); });
   $('vmbStay').addEventListener('click', function () { var c = voice.client; if (c) c.control({ t: 'move_cancel' }); voiceMoveClear(true); toast(I18n.t('Staying on the phone call.')); });
   function voiceMoveStart() {
     if (!qpFlag('moveToMeeting')) { toast(I18n.t('Move to Qorlla Meeting is switched off on this server.')); return; }
     var c = voice.client; if (!c || !c.callId || document.getElementById('voiceBar').classList.contains('hidden')) { toast(I18n.t('Move to Qorlla Meeting is available during a phone call.')); return; }
-    if (!(c.ctl && c.ctl.readyState === 'open')) { toast(I18n.t('The other person\u2019s app cannot take part in a move yet. Use Add Participant, or start a meeting and share the invitation.')); return; }
+    if (isMobileView()) { toast(I18n.t('On a phone the meeting replaces this page and would end the call. Move to a meeting from the desktop app, or start a meeting and share the invitation.')); return; }
+    if (!(c.ctl && c.ctl.readyState === 'open') || !c.peerCaps || !(c.peerCaps.move >= 2)) { toast(I18n.t('The other person\u2019s app is an older version and cannot take part in a move. Update it, or use Add Participant, or start a meeting and share the invitation.')); return; }
     if (voice.move) return; voice.move = { role: 'host' };
     var name = myName(), stamp = ''; try { stamp = new Date().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { stamp = ''; }
     var title = ((name ? name + "'s call" : 'Qorlla call') + (stamp ? ' \u00B7 ' + stamp : '')).slice(0, 200);
-    fetch('/api/meetings/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: title }) }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); }).then(function (r) {
+    fetch('/api/meetings/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic: title, allowGuests: false }) }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); }).then(function (r) {
       if (!r.ok || !r.d.meeting) throw new Error(r.d.error || 'The meeting could not be created.');
-      voice.move = { role: 'host', meetingId: r.d.meeting.meetingId, title: r.d.meeting.topic }; c.control({ t: 'move_req', meetingId: r.d.meeting.meetingId, topic: r.d.meeting.topic });
-      voiceMoveBarShow(I18n.t('Asking') + ' ' + ($('vbPeer').textContent || I18n.t('the other person')) + ' ' + I18n.t('to move to a Qorlla Meeting\u2026')); clearTimeout(voice.moveAskT); voice.moveAskT = setTimeout(function () { if (voice.move && !voice.move.agreed) { c.control({ t: 'move_cancel' }); voiceMoveClear(true); toast(I18n.t('No answer. You are still on the phone call.')); } }, 30000);
-    }).catch(function (e) { voice.move = null; toast(e.message || I18n.t('The meeting could not be created.'), 'err'); });
+      return c.post('/calls/' + encodeURIComponent(c.callId) + '/move/start', { meetingId: r.d.meeting.meetingId }).then(function (t) { return { meeting: r.d.meeting, t: t }; });
+    }).then(function (x) {
+      if (!voice.move) return; voice.move = { role: 'host', meetingId: x.meeting.meetingId, title: x.meeting.topic };
+      c.control({ t: 'move_req', token: x.t.token, meetingId: x.meeting.meetingId, topic: x.meeting.topic });
+      voiceMoveBarShow(I18n.t('Asking') + ' ' + ($('vbPeer').textContent || I18n.t('the other person')) + ' ' + I18n.t('to move to a Qorlla Meeting\u2026')); clearTimeout(voice.moveAskT); voice.moveAskT = setTimeout(function () { if (voice.move && !voice.move.agreed) { c.control({ t: 'move_cancel' }); voiceMoveClear(true); toast(I18n.t('No answer. You are still on the phone call.')); } }, 60000);
+    }).catch(function (e) { voice.move = null; voiceMoveClear(true); toast(e && e.code === 'move_denied' || (e && e.status === 403) ? I18n.t('Moving this call to a meeting was not allowed.') : (e && e.message) || I18n.t('The meeting could not be created.'), 'err'); });
   }
   function voiceControl(e) {
     var c = voice.client;
     if (e.t === 'move_req' && !voice.move) {
+      if (isMobileView()) { c.control({ t: 'move_no' }); toast(I18n.t('Someone asked to move this call to a meeting. On a phone that would end the call, so it was declined.')); return; }
       var who = $('vbPeer').textContent || I18n.t('The other person'); voice.move = { role: 'guest', meetingId: e.meetingId, title: e.topic };
-      voiceAsk(I18n.t('Move to a Qorlla Meeting?'), who + ' ' + I18n.t('wants to move this call to a Qorlla Meeting. Your phone call stays connected until the meeting opens. Nothing starts until you accept.'), I18n.t('Accept')).open(function () { c.control({ t: 'move_ok' }); voice.move.agreed = true; voiceMoveCountdown(); if (typeof openJoin === 'function') openJoin(e.meetingId); }, function () { c.control({ t: 'move_no' }); voice.move = null; });
-    } else if (e.t === 'move_ok' && voice.move && voice.move.role === 'host') {
-      clearTimeout(voice.moveAskT); voice.move.agreed = true; var m = voice.move; voiceMoveCountdown(); pendingNew = { meetingId: m.meetingId, title: m.title, kind: 'meeting', instant: true }; openStart(pendingNew);
-    } else if (e.t === 'move_no' && voice.move) { voiceMoveClear(true); toast(I18n.t('They chose to stay on the phone call.')); }
+      voiceAsk(I18n.t('Move to a Qorlla Meeting?'), who + ' ' + I18n.t('wants to move this call to a Qorlla Meeting. Your phone call stays connected until you are both in the meeting. Nothing starts until you accept.'), I18n.t('Accept')).open(function () {
+        c.post('/calls/' + encodeURIComponent(c.callId) + '/move/accept', { token: e.token }).then(function (a) {
+          if (!voice.move) return; voice.move.meetingId = a.meetingId; voice.move.agreed = true; c.control({ t: 'move_ok' }); voiceMoveAgreed();
+        }).catch(function () { c.control({ t: 'move_no' }); voiceMoveClear(true); toast(I18n.t('The move was not authorised. You are still on the phone call.'), 'err'); });
+      }, function () { c.control({ t: 'move_no' }); voice.move = null; });
+    } else if (e.t === 'move_ok' && voice.move && voice.move.role === 'host') { clearTimeout(voice.moveAskT); voice.move.agreed = true; voiceMoveAgreed(); }
+    else if (e.t === 'move_no' && voice.move) { voiceMoveClear(true); toast(I18n.t('They chose to stay on the phone call.')); }
+    else if (e.t === 'move_release' && voice.move && voice.move.role === 'guest') { voiceMoveRelease(); }
     else if (e.t === 'move_cancel' && voice.move) { var was = voice.move.agreed; voiceMoveClear(true); if ($('voiceAsk').open) $('voiceAsk').close(); toast(was ? I18n.t('The move was cancelled. You are still on the phone call.') : I18n.t('The move was cancelled.')); }
   }
   function voiceVideoEvent(e) {

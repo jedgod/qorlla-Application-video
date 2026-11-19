@@ -606,6 +606,14 @@ function allocateMeeting({ topic, startTime, durationMinutes, hostId, timezone, 
 }
 
 const limitCreate = rateLimit(20), limitValidate = rateLimit(60);
+// Phone -> Meeting hand-off: the HOST learns, from Qorlla Meet's own record, how many people are in the room (never who, never anything else). The phone call is released only after this says two.
+const limitMoveStatus = rateLimit(120, 10 * 60 * 1000);
+app.get('/api/meetings/:meetingId/move-status', limitMoveStatus, async (req, res) => {
+    const u = auth.getUser(req); if (!u) return res.status(401).json({ error: 'sign_in_required' });
+    const m = meetingsState.get(normalizeId(req.params.meetingId)); if (!m || m.hostId !== u.id) return res.status(404).json({ error: 'not_available' });
+    try { const a = await meetLaunch.activity(m.meetingId); res.set('Cache-Control', 'no-store').json({ online: a ? Number(a.online) || 0 : 0, unique: a ? Number(a.unique) || 0 : 0, ended: !!(a && a.endedAt) }); }
+    catch (e) { res.json({ online: 0, unique: 0, ended: false }); }
+});
 app.post('/api/meetings/create', limitCreate, (req, res) => {
     const { topic, startTime, durationMinutes, timezone } = req.body;
     const account = auth.getUser(req);

@@ -61,7 +61,7 @@ export class QorllaVoiceClient {
   }
   reset() {
     this.pc = null; this.stream = null; this.callId = null; this.role = null; this.remote = null; this.pendingOffer = null; this.pendingIce = []; this.remoteSet = false; this.muted = false; this.startedAt = null;
-    this.cam = null; this.camSender = null; this.videoState = 'off'; this.videoTimer = null; this.pendingVideo = null; this.consent = false; this.ctl = null; this.remoteVideo = null;
+    this.peerCaps = null; this.cam = null; this.camSender = null; this.videoState = 'off'; this.videoTimer = null; this.pendingVideo = null; this.consent = false; this.ctl = null; this.remoteVideo = null;
     this.generation = 0; this.peerGen = 0; this.makingOffer = false; this.offerer = false; this.restarts = 0; this.leaseTimer = null; this.watch = null; this.graceTimer = null;
   }
   resetRoom() { this.room = null; this.roomGen = 0; this.roomStream = null; this.roomLease = null; }
@@ -208,7 +208,7 @@ export class QorllaVoiceClient {
   buildPc(iceServers, iceTransportPolicy) {
     const pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: iceTransportPolicy || 'all' }); this.pc = pc; this.remoteSet = false; this.pendingIce = []; this.makingOffer = false;
     this.stream.getTracks().forEach((t) => { t.enabled = !this.muted; pc.addTrack(t, this.stream); });
-    try { const ch = pc.createDataChannel('qorlla-control', { negotiated: true, id: 1 }); this.ctl = ch; ch.onmessage = (ev) => this.onControl(ev.data); } catch { this.ctl = null; }
+    try { const ch = pc.createDataChannel('qorlla-control', { negotiated: true, id: 1 }); this.ctl = ch; ch.onopen = () => { try { ch.send(JSON.stringify({ t: 'caps', move: 2, video: 1 })); } catch { /* closed */ } }; ch.onmessage = (ev) => this.onControl(ev.data); } catch { this.ctl = null; }
     pc.ontrack = (ev) => { if (ev.track.kind === 'video') { this.remoteVideo = new MediaStream([ev.track]); this.emit({ type: 'remote_video', stream: this.remoteVideo }); ev.track.onended = () => this.emit({ type: 'remote_video_ended' }); return; } if (!this.remote) { const a = document.createElement('audio'); a.autoplay = true; a.playsInline = true; a.style.display = 'none'; document.body.appendChild(a); this.remote = a; } this.remote.srcObject = ev.streams[0] || new MediaStream([ev.track]); this.remote.play().catch(() => this.emit({ type: 'audio_play_blocked' })); };
     pc.onicecandidate = (ev) => { if (pc !== this.pc) return; try { this.send({ type: 'ice', callId: this.callId, generation: this.generation, candidate: ev.candidate ? ev.candidate.toJSON() : null }); } catch { /* signaling is down: the existing media path may still work */ } };
     pc.oniceconnectionstatechange = () => { if (pc === this.pc && (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed')) { clearTimeout(this.watch); this.restarts = 0; } };
@@ -335,8 +335,9 @@ export class QorllaVoiceClient {
   control(obj) { try { if (this.ctl && this.ctl.readyState === 'open') this.ctl.send(JSON.stringify(obj)); } catch { /* channel closed */ } }
   onControl(raw) {
     let m; try { m = JSON.parse(raw); } catch { return; } if (!m || typeof m.t !== 'string' || m.t.length > 32) return;
+    if (m.t === 'caps') { this.peerCaps = { move: Number(m.move) || 0, video: Number(m.video) || 0 }; return; }
     if (m.t === 'video_off') { this.emit({ type: 'remote_video_ended' }); return; }
-    if (['move_req', 'move_ok', 'move_no', 'move_cancel'].includes(m.t)) this.emit({ type: 'control', t: m.t, meetingId: typeof m.meetingId === 'string' ? m.meetingId.slice(0, 20) : '', topic: typeof m.topic === 'string' ? m.topic.slice(0, 120) : '' });
+    if (['move_req', 'move_ok', 'move_no', 'move_cancel', 'move_release'].includes(m.t)) this.emit({ type: 'control', t: m.t, meetingId: typeof m.meetingId === 'string' ? m.meetingId.slice(0, 20) : '', topic: typeof m.topic === 'string' ? m.topic.slice(0, 120) : '', token: typeof m.token === 'string' ? m.token.slice(0, 80) : '' });
   }
   setMuted(muted) {
     this.muted = !!muted;

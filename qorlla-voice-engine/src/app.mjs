@@ -18,6 +18,7 @@ import { VoiceRouter } from './router.mjs';
 import { validRoomId } from './rooms.mjs';
 import { createHistory, parseRetentionDays } from './history.mjs';
 import { createShield, ShieldError } from './shield.mjs';
+import { createMove } from './move.mjs';
 import { createAliases, classifyDial, AliasError } from './dial.mjs';
 import { createNumberProjection, SyncError, usable } from './number-sync.mjs';
 
@@ -73,7 +74,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     if (req.method === 'OPTIONS') return res.status(ok ? 204 : 403).end();
     next();
   });
-  const fail = (res, e) => { if (e instanceof AliasError) return res.status(e.status).json({ error: e.code }); const status = STATUS[e.code] || STATUS[e.message] || 500; if (status === 500) console.error('voice error', e?.code || e?.message); res.status(status).json({ error: status === 500 ? 'internal_error' : (e.code || e.message) }); };
+  const fail = (res, e) => { if (e && e.code === 'move_denied') return res.status(e.status || 403).json({ error: 'move_denied' }); if (e instanceof AliasError) return res.status(e.status).json({ error: e.code }); const status = STATUS[e.code] || STATUS[e.message] || 500; if (status === 500) console.error('voice error', e?.code || e?.message); res.status(status).json({ error: status === 500 ? 'internal_error' : (e.code || e.message) }); };
   const authWith = (requireVerified) => async (req, res, next) => {
     try {
       const token = bearer(req); if (!token) return res.status(401).json({ error: 'unauthorized' });
@@ -165,6 +166,16 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     if (!(await guardCapacity(res))) return;
     const r = await store.rooms.upgradeCall(req.params.id, req.account, extension, deviceId, enforce ? shield.callGuard : null); kick();
     res.set('Cache-Control', 'no-store').json({ room: r.room, generation: r.lease.generation, expiresIn: 90 });
+  }));
+  // ---- Phone -> Meeting transition (server-side decision, single-use short-lived token; see move.mjs)
+  const move = createMove({ store, shield, enforce, ttlMs: Number(env.VOICE_MOVE_TTL_SECONDS || 60) * 1000 });
+  app.post('/v1/voice/calls/:id/move/start', auth, gate('internal_calls'), route(async (req, res) => {
+    if (!validCallId(req.params.id)) return res.status(400).json({ error: 'invalid_input' });
+    const b = strict(req.body, ['meetingId']); res.set('Cache-Control', 'no-store').json(await move.start(req.account, req.params.id, b.meetingId));
+  }));
+  app.post('/v1/voice/calls/:id/move/accept', auth, gate('internal_calls'), route(async (req, res) => {
+    if (!validCallId(req.params.id)) return res.status(400).json({ error: 'invalid_input' });
+    const b = strict(req.body, ['token']); res.set('Cache-Control', 'no-store').json(await move.accept(req.account, req.params.id, b.token));
   }));
   app.post('/v1/voice/calls/:id/:action', auth, route(async (req, res) => {
     const { id, action } = req.params, mapping = { answer: 'active', reject: 'rejected', end: 'ended', fail: 'failed' }, body = req.body || {};

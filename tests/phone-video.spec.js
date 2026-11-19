@@ -71,29 +71,41 @@ test.describe('Phone video and Move to Qorlla Meeting', () => {
     await hasRemoteVideo(pa); await hasRemoteVideo(pb); await pa.locator('#stEnd').click();
   });
 
-  test('Move to Qorlla Meeting asks first, opens the meeting on both sides, keeps the call and mutes the phone microphone until cancelled', async ({ browser }) => {
+  test('Move to Qorlla Meeting: the engine authorises it, the other person is asked, both get Open meeting, the phone call stays and the phone microphones are off until cancelled', async ({ browser }) => {
     test.setTimeout(150000);
     const { pa, pb } = await connect(browser);
+    await expect.poll(() => pa.evaluate(() => !!(window.qorllaVoice.peerCaps && window.qorllaVoice.peerCaps.move >= 2)), { timeout: 15000 }).toBe(true);   // the compatibility check
     await pa.locator('#stMove').click();
-    await expect(pb.locator('#voiceAsk')).toBeVisible({ timeout: 15000 }); await expect(pb.locator('#vaskT')).toContainText('Move to a Qorlla Meeting');
-    await expect(pa.locator('#voiceMoveBar')).toBeVisible();
-    await expect(pa.locator('#vbStatus')).toContainText('Connected');             // still on the phone call while waiting
+    await expect(pb.locator('#voiceAsk')).toBeVisible({ timeout: 20000 }); await expect(pb.locator('#vaskT')).toContainText('Move to a Qorlla Meeting');
+    await expect(pa.locator('#voiceMoveBar')).toBeVisible(); await expect(pa.locator('#vbStatus')).toContainText('Connected');     // still on the phone call while waiting
     await pb.locator('#vaskYes').click();
-    await expect(pa.locator('#startDialog')).toBeVisible({ timeout: 15000 });     // host start screen
-    await expect(pb.locator('#joinDialog, #startDialog[data-mode=join]').first()).toBeVisible({ timeout: 15000 });
+    await expect(pa.locator('#vmbOpen')).toBeVisible({ timeout: 15000 }); await expect(pb.locator('#vmbOpen')).toBeVisible({ timeout: 15000 });
     expect(await pa.evaluate(() => window.qorllaVoice.muted)).toBe(true); expect(await pb.evaluate(() => window.qorllaVoice.muted)).toBe(true);
-    await expect(pa.locator('#vbStatus')).toContainText('Connected');
+    await expect(pa.locator('#vbStatus')).toContainText('Connected'); await expect(pb.locator('#vbStatus')).toContainText('Connected');
     await pa.locator('#vmbStay').click();                                          // cancel: back to a normal call, unmuted, the other side is told
     await expect.poll(() => pb.evaluate(() => window.qorllaVoice.muted), { timeout: 10000 }).toBe(false);
-    expect(await pa.evaluate(() => window.qorllaVoice.muted)).toBe(false);
-    await expect(pa.locator('#voiceMoveBar')).toBeHidden(); await pa.locator('#sdCancel').click(); await expect(pa.locator('#startDialog')).toBeHidden();
+    expect(await pa.evaluate(() => window.qorllaVoice.muted)).toBe(false); await expect(pa.locator('#voiceMoveBar')).toBeHidden();
+    await pa.locator('#stEnd').click();
+  });
+
+  test('a replayed or forged transition token is refused by the engine (the page cannot talk its way into a meeting)', async ({ browser }) => {
+    test.setTimeout(150000);
+    const { pa, pb } = await connect(browser), callId = await pa.evaluate(() => window.qorllaVoice.callId);
+    const tok = await pa.evaluate(async (id) => (await window.qorllaVoice.post('/calls/' + id + '/move/start', { meetingId: '12345678901' })).token, callId);
+    const ok = await pb.evaluate(async ([id, t]) => { try { return (await window.qorllaVoice.post('/calls/' + id + '/move/accept', { token: t })).meetingId; } catch (e) { return 'ERR' + e.status; } }, [callId, tok]);
+    expect(ok).toBe('12345678901');
+    for (const [who, page, t] of [['replay', pb, tok], ['forged', pb, 'A'.repeat(32)], ['initiator using own token', pa, tok]]) {
+      const r = await page.evaluate(async ([id, tk]) => { try { await window.qorllaVoice.post('/calls/' + id + '/move/accept', { token: tk }); return 200; } catch (e) { return e.status; } }, [callId, t]);
+      expect(r, who).toBe(403);
+    }
     await pa.locator('#stEnd').click();
   });
 
   test('declining the move keeps the phone call', async ({ browser }) => {
     test.setTimeout(150000);
     const { pa, pb } = await connect(browser);
-    await pa.locator('#stMove').click(); await expect(pb.locator('#voiceAsk')).toBeVisible({ timeout: 15000 }); await pb.locator('#vaskNo').click();
+    await expect.poll(() => pa.evaluate(() => !!(window.qorllaVoice.peerCaps && window.qorllaVoice.peerCaps.move >= 2)), { timeout: 15000 }).toBe(true);
+    await pa.locator('#stMove').click(); await expect(pb.locator('#voiceAsk')).toBeVisible({ timeout: 20000 }); await pb.locator('#vaskNo').click();
     await expect(pa.locator('#voiceMoveBar')).toBeHidden({ timeout: 15000 });
     await expect(pa.locator('#vbStatus')).toContainText('Connected'); await expect(pb.locator('#vbStatus')).toContainText('Connected');
     expect(await pa.evaluate(() => window.qorllaVoice.muted)).toBe(false);
