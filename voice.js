@@ -68,7 +68,7 @@ function createVoice({ dataDir, env = process.env }) {
         app.get('/api/voice/config', requireUser, (req, res) => {
             res.set('Cache-Control', 'no-store');
             if (!enabled()) return res.json({ enabled: false, reason: flagOn() ? 'Qorlla Voice is not configured on this server (VOICE_ADMIN_SECRET).' : 'Qorlla Voice is switched off on this server (QORLLA_VOICE_ENABLED).' });
-            res.json({ enabled: true, url: publicBase(req), internalCallsOnly: true, verificationRequired: needVerified() && !req.user.emailVerified });
+            res.json({ enabled: true, url: publicBase(req), internalCallsOnly: true, features: { video: process.env.QORLLA_PHONE_VIDEO !== 'false', moveToMeeting: process.env.QORLLA_PHONE_MOVE_TO_MEETING !== 'false' }, verificationRequired: needVerified() && !req.user.emailVerified });
         });
         app.post('/api/voice/token', requireUser, async (req, res) => {
             res.set('Cache-Control', 'no-store'); if (!enabled()) return res.status(503).json({ error: 'voice_disabled' });

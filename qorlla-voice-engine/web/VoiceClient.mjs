@@ -183,7 +183,7 @@ export class QorllaVoiceClient {
   async markRemoteSet() { this.remoteSet = true; const buffered = this.pendingIce.splice(0); for (const c of buffered) await this.addCandidate(c); }
   /** Perfect negotiation: the callee is polite. If both sides offer at once the polite side yields; the other side ignores the colliding offer. */
   async acceptOffer(m) {
-    if (/\nm=video /.test(m.sdp) && this.videoState === 'off' && !this.consent) { this.pendingVideo = m; this.emit({ type: 'video_request', callId: m.callId }); clearTimeout(this.videoTimer); this.videoTimer = setTimeout(() => { if (this.pendingVideo === m) this.declineVideo().catch(() => {}); }, 30000); return; }
+    if (/\nm=video [1-9]/.test(m.sdp) && this.videoState === 'off' && !this.consent) { this.pendingVideo = m; this.emit({ type: 'video_request', callId: m.callId }); clearTimeout(this.videoTimer); this.videoTimer = setTimeout(() => { if (this.pendingVideo === m) this.declineVideo().catch(() => {}); }, 30000); return; }
     const polite = this.role === 'callee', collision = this.makingOffer || this.pc.signalingState !== 'stable';
     if (collision && !polite) return;
     await this.pc.setRemoteDescription({ type: 'offer', sdp: m.sdp }); await this.markRemoteSet();
@@ -317,6 +317,12 @@ export class QorllaVoiceClient {
     this.pc.getTransceivers().forEach((x) => { if (x.receiver.track && x.receiver.track.kind === 'video' && x.currentDirection !== 'stopped') { try { x.stop(); } catch { /* already stopped */ } } });
     const answer = await this.pc.createAnswer(); await this.pc.setLocalDescription(answer); this.send({ type: 'answer', callId: this.callId, generation: this.generation, sdp: answer.sdp });
     this.emit({ type: 'video_stopped', reason: 'you_declined' });
+  }
+  /** Switches to another camera while video is on: one capture at a time (the old camera is released after the new one is live). */
+  async switchCamera(deviceId) {
+    if (!this.camSender || this.videoState !== 'on') throw Error('video_not_on');
+    const cam = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
+    await this.camSender.replaceTrack(cam.getVideoTracks()[0]); this.cam?.getTracks().forEach((t) => t.stop()); this.cam = cam; this.emit({ type: 'video_started', stream: cam });
   }
   /** Stops OUR camera. The connection and the audio carry on; the other side is told over the call's own control channel. */
   stopVideo(reason = 'stopped') {
