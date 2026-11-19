@@ -1535,6 +1535,19 @@ body.qv-on:not(.qv-remote-on) .qv-stage:not(.qv-mob) .qv-local { position:static
 @media (min-width:701px) { html body .qp.qp-station .si-up { border-color:rgba(167,139,250,.6) !important; background:linear-gradient(160deg,rgba(124,58,237,.28),rgba(40,16,90,.5)) !important; } html body .qp.qp-station .si-up.hidden { display:none !important; } html body .qp.qp-station .si-up h3 { font-size:12px !important; } html body .qp.qp-station.st-incoming .si-up { display:none !important; } }
 
 @media (min-width:701px) { html body .qp.qp-station .si-phead[aria-expanded=false] .si-chev { transform:none !important; } html body .qp.qp-station .si-phead[aria-expanded=true] .si-chev { transform:rotate(180deg); } html body .qp.qp-station .si-up > h3::after { display:none !important; } html body .qp.qp-station .si-up > h3 { cursor:default; font-size:11.5px !important; white-space:nowrap; } }
+
+/* video surfaces keep the controls and End Call on screen */
+@media (min-width:701px) {
+  body.qv-on .qp-stage .qv-stage { width:min(92%, 400px) !important; aspect-ratio:auto !important; height:clamp(170px, calc(var(--sh, 560px) * .36), 300px) !important; flex:0 0 auto !important; overflow:hidden; border-radius:16px; background:#000; margin:6px 0 !important; }
+  body.qv-on .qp-stage .qv-stage .qv-remote { width:100%; height:100%; object-fit:contain; }
+  body.qv-on:not(.qv-remote-on) .qp-stage .qv-stage .qv-local { position:static; width:100%; height:100%; object-fit:cover; margin:0; }
+}
+@media (max-width:700px) {
+  #voiceBar .qv-stage.qv-mob { width:min(92vw, 380px) !important; height:32vh !important; aspect-ratio:auto !important; max-height:none !important; margin:6px auto 0 !important; overflow:hidden; border-radius:16px; }
+  #voiceBar .qv-stage.qv-mob .qv-remote { width:100%; height:100%; object-fit:cover; }
+  body.qv-on #voiceBar .vbs-name { font-size:20px; margin-top:6px; } body.qv-on #voiceBar .vbs-num { display:none !important; }
+  body.qv-on #voiceBar .vbs-grid { margin-top:10px; gap:10px 8px; } body.qv-on #voiceBar .vbs-btn { width:56px; height:56px; } body.qv-on #voiceBar .vbs-end { height:50px; }
+}
 </style>
 </head>
 <body data-page="workspace">
@@ -6057,7 +6070,7 @@ body.qv-on:not(.qv-remote-on) .qv-stage:not(.qv-mob) .qv-local { position:static
     }).catch(function () { toast(I18n.t('Cameras could not be listed.'), 'err'); });
   }
   function voiceAsk(title, body, yes, no, alt) {
-    var d = $('voiceAsk'); $('vaskT').textContent = title; $('vaskB').textContent = body; $('vaskYes').textContent = yes; $('vaskNo').textContent = no || I18n.t('Decline'); var a = $('vaskAlt'); a.hidden = !alt; if (alt) a.textContent = alt.label;
+    var d = $('voiceAsk'); $('vaskT').textContent = title; $('vaskB').textContent = body; $('vaskYes').textContent = yes; $('vaskNo').textContent = no || I18n.t('Decline'); var a = $('vaskAlt'); a.hidden = !alt; if (alt) a.textContent = alt.label; a.style.display = alt ? '' : 'none';
     $('vaskYes').onclick = function () { d.close(); yes_cb && yes_cb(); }; var yes_cb = null;
     return { open: function (cbYes, cbNo, cbAlt) { yes_cb = cbYes; $('vaskNo').onclick = function () { d.close(); if (cbNo) cbNo(); }; if (alt) $('vaskAlt').onclick = function () { d.close(); if (cbAlt) cbAlt(); }; d.oncancel = function (ev) { ev.preventDefault(); d.close(); if (cbNo) cbNo(); }; try { d.showModal(); } catch (x) { d.setAttribute('open', ''); } $('vaskYes').focus(); } };
   }
