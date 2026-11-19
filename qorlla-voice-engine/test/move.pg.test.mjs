@@ -27,7 +27,7 @@ const accept = (as, callId, token) => r.api(as, 'POST', `/v1/voice/calls/${callI
 
 before(async () => {
   db = await isolatedDb(); if (!db) return; idp = await identityProvider(); const w = await workload(); pem = w.pem; jwksSrv = w.srv; jwksUrl = w.url; h = harness({ db, idp });
-  r = await h.replica({ env: { SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: ISSUER, SHIELD_WORKLOAD_ALLOWED: 'svc:ops=shield.admin|shield.suspend|voice.admin', VOICE_ADMIN_RATE_PER_MIN: '5000' } });
+  r = await h.replica({ env: { SHIELD_ENABLED: 'true', SHIELD_ENFORCE: 'true', SHIELD_WORKLOAD_JWKS_URL: jwksUrl, SHIELD_WORKLOAD_ISSUER: ISSUER, SHIELD_WORKLOAD_ALLOWED: 'svc:ops=shield.admin|shield.suspend|voice.admin', VOICE_ADMIN_RATE_PER_MIN: '5000', VOICE_RING_SECONDS: '120' } });
 });
 after(async () => { if (h) await h.closeAll(); if (idp) await idp.close(); if (jwksSrv) await new Promise((ok) => jwksSrv.close(ok)); if (db) await db.drop(); });
 const skip = (t) => !db && t.skip('no PostgreSQL reachable');
@@ -48,7 +48,7 @@ test('REPLAY, WRONG CALL, EXPIRY, GARBAGE: a spent token finds nothing; a token 
   const c1 = await liveCall({ id: 'rpann' }, { id: 'rpben' }), s = await start('rpann', c1);
   assert.equal((await accept('rpben', c1, s.body.token)).status, 200); assert.equal((await accept('rpben', c1, s.body.token)).status, 403, 'replay');
   const c2 = await liveCall({ id: 'rpcat' }, { id: 'rpdan' }), s2 = await start('rpcat', c2);
-  assert.equal((await accept('rpben', c1, s2.body.token)).status, 403, 'a token for another call'); assert.equal((await accept('rpdan', c2, s2.body.token)).status, 403, 'and it was spent by the failed attempt: it cannot be reused');
+  assert.equal((await accept('rpben', c1, s2.body.token)).status, 403, 'a token for another call'); assert.equal((await accept('rpdan', c2, s2.body.token)).status, 200, 'v2.2: a wrong-call attempt cannot burn the token (the atomic accept only matches call, recipient and token together), so the real recipient can still use it once'); assert.equal((await accept('rpdan', c2, s2.body.token)).status, 403, 'and then it is spent');
   for (const bad of ['', 'short', 'x'.repeat(200), 'A'.repeat(32)]) assert.ok([400, 403].includes((await accept('rpdan', c2, bad)).status), bad.slice(0, 8));
   assert.equal((await r.api('rpdan', 'POST', `/v1/voice/calls/${c2}/move/accept`, { token: 'A'.repeat(32), extra: 1 })).status, 400, 'unknown fields are dropped, so the token is missing');
   const clock = { t: 1000 }, fake = createMove({ store: { getCall: async () => ({ status: 'active', caller_id: 'a', callee_id: 'b' }), tx: async () => {} }, shield: { callGuard: async () => {} }, enforce: true, ttlMs: 5000, now: () => clock.t });
@@ -81,6 +81,6 @@ test('SHIELD DECISIONS: a recipient suspended after the token was issued, and a 
 
 test('RATE LIMIT: a burst of starts is slowed down per account', async (t) => {
   if (skip(t)) return;
-  const c = await liveCall({ id: 'rlann' }, { id: 'rlben' }); const codes = []; for (let i = 0; i < 9; i++) codes.push((await start('rlann', c)).status);
+  const c = await liveCall({ id: 'rlann' }, { id: 'rlben' }); const codes = []; for (let i = 0; i < 15; i++) codes.push((await start('rlann', c)).status);
   assert.ok(codes.includes(429), codes.join(',')); assert.equal(codes[0], 200);
 });

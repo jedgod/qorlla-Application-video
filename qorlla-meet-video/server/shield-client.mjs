@@ -28,6 +28,8 @@ export function createShieldClient({ config, fetchImpl = (config.transport && co
     async recheck(participants) { try { const r = await call('/v1/shield/meet/recheck', { participants }); if (r.status !== 200 || !Array.isArray(r.data.revoke)) return null; state.lastOk = now(); return r.data; } catch { return null; } },
     /** Tell the Shield about an operational failure Meet could not handle itself (it becomes a durable alert). Best effort: never throws. */
     async report(kind, ref) { try { return (await call('/v1/shield/report', { kind, source: 'meet', ...(ref ? { ref: String(ref).replace(/[^A-Za-z0-9_.:@-]/g, '').slice(0, 80) } : {}) })).status === 200; } catch { return false; } },
+    /** Phone -> Meeting hand-off: Meet vouches that ONE of its admitted, authenticated sessions is receiving audio (a growing counter). Best effort: never throws, answers {ready} or null. */
+    async handoffMedia({ meetingId, participantId, accountId, inboundAudioBytes }) { try { const r = await call('/v1/shield/meet/handoff-media', { meetingId, participantId, accountId, inboundAudioBytes }); if (r.status !== 200 && Date.now() - (state.hoWarnAt || 0) > 10000) { state.hoWarnAt = Date.now(); console.error('[shield] hand-off media report refused:', r.status, JSON.stringify(r.data).slice(0, 120)); } return r.status === 200 ? r.data : null; } catch (e) { if (Date.now() - (state.hoWarnAt || 0) > 10000) { state.hoWarnAt = Date.now(); console.error('[shield] hand-off media report failed:', e && e.message); } return null; } },
     async end(meetingId) { try { return (await call('/v1/shield/meet/end', { meetingId })).status === 200; } catch { return false; } }
   };
 }

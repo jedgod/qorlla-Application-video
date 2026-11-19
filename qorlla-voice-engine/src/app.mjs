@@ -18,7 +18,7 @@ import { VoiceRouter } from './router.mjs';
 import { validRoomId } from './rooms.mjs';
 import { createHistory, parseRetentionDays } from './history.mjs';
 import { createShield, ShieldError } from './shield.mjs';
-import { createMove } from './move.mjs';
+import { createHandoff } from './handoff.mjs';
 import { createAliases, classifyDial, AliasError } from './dial.mjs';
 import { createNumberProjection, SyncError, usable } from './number-sync.mjs';
 
@@ -167,16 +167,16 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     const r = await store.rooms.upgradeCall(req.params.id, req.account, extension, deviceId, enforce ? shield.callGuard : null); kick();
     res.set('Cache-Control', 'no-store').json({ room: r.room, generation: r.lease.generation, expiresIn: 90 });
   }));
-  // ---- Phone -> Meeting transition (server-side decision, single-use short-lived token; see move.mjs)
-  const move = createMove({ store, shield, enforce, ttlMs: Number(env.VOICE_MOVE_TTL_SECONDS || 60) * 1000 });
-  app.post('/v1/voice/calls/:id/move/start', auth, gate('internal_calls'), route(async (req, res) => {
-    if (!validCallId(req.params.id)) return res.status(400).json({ error: 'invalid_input' });
-    const b = strict(req.body, ['meetingId']); res.set('Cache-Control', 'no-store').json(await move.start(req.account, req.params.id, b.meetingId));
-  }));
-  app.post('/v1/voice/calls/:id/move/accept', auth, gate('internal_calls'), route(async (req, res) => {
-    if (!validCallId(req.params.id)) return res.status(400).json({ error: 'invalid_input' });
-    const b = strict(req.body, ['token']); res.set('Cache-Control', 'no-store').json(await move.accept(req.account, req.params.id, b.token));
-  }));
+  // ---- Phone -> Meeting hand-off (v2.2): PostgreSQL-backed lifecycle, single-use tokens, readiness evidence, server-authoritative release (see handoff.mjs)
+  const handoff = createHandoff({ store, shield, enforce, requireShield: env.VOICE_MOVE_REQUIRE_SHIELD === 'true', ttlMs: Number(env.VOICE_MOVE_TTL_SECONDS || 60) * 1000, releaseWindowMs: Number(env.VOICE_MOVE_RELEASE_WINDOW_SECONDS || 120) * 1000,
+    freshMs: Number(env.VOICE_MOVE_FRESH_MS || 10000), secret: env.VOICE_HANDOFF_SECRET || env.VOICE_ADMIN_SECRET || undefined, acceptBrowserEvidence: env.VOICE_MOVE_ACCEPT_BROWSER_EVIDENCE === 'true' });
+  const moveRoute = (fn) => [auth, gate('internal_calls'), route(async (req, res) => { if (!validCallId(req.params.id)) return res.status(400).json({ error: 'invalid_input' }); res.set('Cache-Control', 'no-store').json(await fn(req)); })];
+  app.post('/v1/voice/calls/:id/move/start', ...moveRoute((req) => handoff.start(req.account, req.params.id, strict(req.body, ['meetingId']).meetingId)));
+  app.post('/v1/voice/calls/:id/move/accept', ...moveRoute((req) => handoff.accept(req.account, req.params.id, strict(req.body, ['token']).token)));
+  app.get('/v1/voice/calls/:id/move', ...moveRoute((req) => handoff.status(req.account, req.params.id)));
+  app.post('/v1/voice/calls/:id/move/ready', ...moveRoute((req) => handoff.ready(req.account, req.params.id, strict(req.body, ['nonce', 'meetingId', 'sessionId', 'inboundAudioBytes', 'measuredAt']))));
+  app.post('/v1/voice/calls/:id/move/complete', ...moveRoute((req) => handoff.complete(req.account, req.params.id)));
+  app.post('/v1/voice/calls/:id/move/cancel', ...moveRoute((req) => handoff.cancel(req.account, req.params.id)));
   app.post('/v1/voice/calls/:id/:action', auth, route(async (req, res) => {
     const { id, action } = req.params, mapping = { answer: 'active', reject: 'rejected', end: 'ended', fail: 'failed' }, body = req.body || {};
     if (!validCallId(id) || !mapping[action]) return res.status(400).json({ error: 'invalid_input' });
@@ -290,6 +290,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   app.post('/v1/shield/meet/register', wl('meet.register'), sh(async (req, res) => res.json(await shield.registerMeeting(strict(req.body, ['meetingId', 'orgId', 'hostAccountId', 'guestEnabled', 'endsAt'])))));
   app.post('/v1/shield/meet/end', wl('meet.register'), sh(async (req, res) => res.json(await shield.endMeeting((strict(req.body, ['meetingId']) || {}).meetingId))));
   app.post('/v1/shield/meet/authorize', wl('meet.signal'), sh(async (req, res) => { const r = await shield.meetAuthorize(strict(req.body, ['meetingId', 'participantId', 'accountId', 'role', 'admission'])); res.status(r.allow ? 200 : 403).set('Cache-Control', 'no-store').json(r); }));
+  app.post('/v1/shield/meet/handoff-media', wl('meet.signal'), route(async (req, res) => res.set('Cache-Control', 'no-store').json(await handoff.readyFromMeet(strict(req.body, ['meetingId', 'participantId', 'accountId', 'inboundAudioBytes'])))));   // Meet vouches for one admitted session's inbound audio (Phone -> Meeting hand-off)
   app.post('/v1/shield/meet/recheck', wl('meet.signal'), sh(async (req, res) => res.set('Cache-Control', 'no-store').json(await shield.meetRecheck(strict(req.body, ['participants'])))));
   // Revoking a workload certificate: its own scope. The certificate is refused from the next request on, even though it is still inside its validity period.
   app.post('/v1/shield/admin/certs/revoke', wl('shield.cert.revoke'), sh(async (req, res) => res.json(await shield.revokeCertificate({ ...strict(req.body, ['thumbprint', 'reason']), actor: req.workload }))));

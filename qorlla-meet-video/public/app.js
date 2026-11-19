@@ -781,3 +781,14 @@ function hostPanel(body){
   }
   body.append(head('One person only','To let one guest share, use the People tab.'));
 }
+
+/* Phone -> Meeting hand-off (v2.2). When this window was opened FROM a phone call (the Portal adds ph=1), report how many inbound AUDIO bytes this session has received, once a second, over this
+   session's own authenticated socket. Meet's server passes it on to the Voice Engine, which decides. Nothing is sent to any other window or origin, and nothing is sent without ph=1.
+   window.__qorllaMeetProbe is a read-only view of the same numbers for tests and support. */
+(function(){
+  let timer=null;
+  function inboundAudio(){return new Promise(async res=>{let bytes=0,peers=0;try{for(const pc of state.peers.values()){peers++;const rep=await pc.getStats();rep.forEach(x=>{if(x.type==='inbound-rtp'&&(x.kind==='audio'||x.mediaType==='audio'))bytes+=Number(x.bytesReceived)||0;});}}catch(e){/* peers change under us */}res({bytes,peers});});}
+  window.__qorllaMeetProbe=async()=>({meetingId:String(state.meetingId||''),participantId:String(state.participantId||''),...(await inboundAudio())});
+  if(query.get('ph')!=='1')return;      // `query` was read when the page loaded (the address is cleaned afterwards)
+  timer=setInterval(async()=>{if(!state.socket||!state.socket.connected||!state.participantId)return;const a=await inboundAudio();try{state.socket.emit('handoff-media',{inboundAudioBytes:Math.floor(a.bytes)});}catch(e){/* reconnecting */}},1000);
+})();
