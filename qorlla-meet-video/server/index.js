@@ -491,16 +491,16 @@ io.on('connection',socket=>{
  const isOnline=(target)=>roster.get(target);
  /* Phone -> Meeting hand-off (v2.2): an ADMITTED session of a signed-in account reports how many inbound audio bytes it has received; Meet passes it to the Voice Engine (Shield workload credential), which decides. Only sessions that
     belong to an account, only integer counters, at most ~2 a second, and only when this meeting is linked to a Qorlla Portal meeting. A guest or an anonymous session is ignored. */
- let hoLink,hoAcct,hoAt=0;
+ let hoLink,hoAcct,hoAt=0,hoBusy=false;
  socket.on('handoff-media',async p=>{
   try{
-   if(!shield)return;const now=Date.now();if(now-hoAt<450)return;hoAt=now;
+   if(!shield||hoBusy)return;const now=Date.now();if(now-hoAt<450)return;hoAt=now;        // one report in flight per session: a slow answer never turns into a queue of retries
    if(hoAcct===undefined){hoAcct=socket.data.accountId||((await db.query('SELECT account_id FROM participants WHERE id=$1 AND meeting_id=$2',[pid,id])).rows[0]||{}).account_id||null;}       // the admitted participant's account (set by the Portal through the bridge, never by a browser)
    if(!hoAcct)return;
    const bytes=p&&Number.isInteger(p.inboundAudioBytes)?p.inboundAudioBytes:-1;if(bytes<0||bytes>1e12)return;
    if(hoLink===undefined){const l=await db.query("SELECT source_id FROM external_meeting_links WHERE source_system='qorlla-main' AND meeting_id=$1",[id]);hoLink=l.rowCount?String(l.rows[0].source_id).replace(/^main-/,''):null;}
    if(!hoLink)return;
-   await shield.handoffMedia({meetingId:hoLink,participantId:pid,accountId:hoAcct,inboundAudioBytes:bytes});
+   hoBusy=true;try{await shield.handoffMedia({meetingId:hoLink,participantId:pid,accountId:hoAcct,inboundAudioBytes:bytes});}finally{hoBusy=false;}
   }catch(e){/* best effort: the next report tries again */}
  });
  socket.on('signal',({to,data}={},ack)=>{

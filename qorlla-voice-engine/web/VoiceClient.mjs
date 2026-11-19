@@ -56,7 +56,7 @@ export class QorllaVoiceClient {
     Object.assign(this, { base: String(base).replace(/\/+$/, ''), token, onEvent, WS: WebSocketImpl, fetch: fetchImpl });
     this.deviceId = deviceId || keep.get('qorlla.voice.device') || uuid(); keep.set('qorlla.voice.device', this.deviceId);
     this.cursorKey = 'qorlla.voice.cursor.' + this.deviceId; this.log = new EventLog(); this.log.cursor = Number(keep.get(this.cursorKey)) || 0;
-    this.callVersions = new Map(); this.roomVersions = new Map(); this.ws = null; this.me = null; this.ringing = new Set(); this.autoStart = true; this.autoResume = true; this.peers = new Map(); this.ackTimer = null; this.replaying = false;
+    this.callVersions = new Map(); this.roomVersions = new Map(); this.earlyStates = new Map(); this.ws = null; this.me = null; this.ringing = new Set(); this.autoStart = true; this.autoResume = true; this.peers = new Map(); this.ackTimer = null; this.replaying = false;
     this.reset(); this.resetRoom();
   }
   reset() {
@@ -150,6 +150,7 @@ export class QorllaVoiceClient {
   }
   async onState(c) {
     if (!c) return;
+    if (this.dialing && c.id !== this.callId) { this.earlyStates.set(c.id, c); if (this.earlyStates.size > 20) this.earlyStates.delete(this.earlyStates.keys().next().value); }   // our own dial request has not returned yet, so we cannot know this call is ours: remember what the server says about it
     if (Number.isFinite(c.version)) { const seen = this.callVersions.get(c.id); if (seen !== undefined && c.version < seen) return; this.callVersions.set(c.id, c.version); if (this.callVersions.size > 200) this.callVersions.delete(this.callVersions.keys().next().value); }   // events can be delivered out of order (several workers, retries): an older state never overwrites a newer one
     if (c.status === 'active' && c.id === this.callId && this.role === 'caller') { this.emit({ type: 'call_accepted', call: c }); if (this.autoStart && !this.pc) await this.startAcceptedCall(c.id); }
     if (c.status === 'active' && c.id !== this.callId && this.ringing.has(c.id)) { this.ringing.delete(c.id); this.emit({ type: 'taken_elsewhere', call: c }); }          // another of my devices answered
@@ -251,7 +252,10 @@ export class QorllaVoiceClient {
     this.dialCancelled = false; const req = this.post('/calls', { extension: String(extension), idempotencyKey: uuid(), deviceId: this.deviceId }); this.dialing = req;
     let r; try { r = await req; } finally { this.dialing = null; }
     if (this.dialCancelled) { this.dialCancelled = false; await this.endById(r.call.id); throw Object.assign(Error('cancelled'), { code: 'cancelled' }); }   // End was pressed before the server answered: the call it just created is ended, so nobody rings
-    this.callId = r.call.id; this.role = 'caller'; this.generation = r.generation || 1; this.startLease(); return r.call;
+    this.callId = r.call.id; this.role = 'caller'; this.generation = r.generation || 1; this.startLease();
+    const early = this.earlyStates.get(r.call.id); this.earlyStates.clear();                           // the callee can answer (or the call can end) BEFORE this response reaches us: apply what we heard in the meantime, once
+    if (early) this.onState(early).catch(() => {});
+    return r.call;
   }
   /** Prepares the microphone first, then tells the server: if the microphone is refused the call is never answered. */
   async answer(callId) {

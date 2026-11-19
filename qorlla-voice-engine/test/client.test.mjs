@@ -75,3 +75,21 @@ test('the browser still refuses a late or older event if two replicas ever deliv
     assert.deepEqual(events.filter((e) => e.type === 'room_state' || e.type === 'room_invite').map((e) => e.type + e.room.version), ['room_state5'], 'an older invitation or roster never overtakes a newer one');
   })();
 });
+
+test('RACE (v2.3): the callee answers while the caller’s own dial request is still on its way back; the "answered" event arrives first and must NOT be lost (it used to leave the caller on "Calling…" forever)', async (t) => {
+  if (skip(t)) return;
+  const events = [], delayMs = 900; let answered = null;
+  class W extends WebSocket { constructor(url, protocols) { super(url, protocols, { origin: ORIGIN }); } }
+  // the real server handles POST /calls; we then answer the call from the callee's side AND hold the response back, so the answer reaches the caller's WebSocket before its HTTP response does
+  const fetchImpl = async (url, init = {}) => {
+    const res = await fetch(url, { ...init, headers: { ...(init.headers || {}), origin: ORIGIN } });
+    if (init.method === 'POST' && /\/v1\/voice\/calls$/.test(String(url))) { const body = await res.clone().json(); answered = await r.answer(body.call.id, 'bob'); await wait(delayMs); }
+    return res;
+  };
+  const c = new QorllaVoiceClient(r.base, () => idp.token('alice'), (e) => events.push(e), { WebSocketImpl: W, fetchImpl, deviceId: r.device('alice') }); c.autoStart = false;       // no microphone in Node: we only check the SDK DECIDED to start
+  await c.connect(); assert.ok(await until(() => events.find((e) => e.type === 'ready')));
+  const call = await c.dial(ext.bob); assert.equal(answered.status, 200, 'the callee answered before the caller had its response');
+  assert.ok(await until(() => events.find((e) => e.type === 'call_accepted' && e.call.id === call.id), 4000), 'the caller learned the call was answered, although the event came first');
+  assert.equal(events.filter((e) => e.type === 'call_accepted').length, 1, 'exactly once (no duplicate start)');
+  await r.api('alice', 'POST', `/v1/voice/calls/${call.id}/end`, {});
+});

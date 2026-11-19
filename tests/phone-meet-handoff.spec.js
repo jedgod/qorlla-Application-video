@@ -3,6 +3,9 @@ const http = require('node:http');
 const fs = require('node:fs');
 const { PASSWORD } = require('./support/meet-stack');
 const { startVoiceStack } = require('./support/voice-stack');
+const { watch, dump } = require('./support/phone-diag');
+const { Pool } = require('pg');
+const path = require('node:path');
 
 // Phone -> Meet hand-off v2.2, END TO END in two real Chromium sessions (fake camera and microphone) against the real main app, the real Voice Engine on PostgreSQL and the REAL Qorlla Meet
 // (node on :3310, own PostgreSQL schema). Meet must be running WITH a Shield workload credential for this test engine: node scripts/phone-meet-test-meet.cjs (it writes the JWKS this spec serves). What this proves: the whole path on one machine with synthetic media. What it does NOT prove: physical
@@ -10,21 +13,24 @@ const { startVoiceStack } = require('./support/voice-stack');
 const MAIN = 5343, VOICE = 5344;
 test.describe('Phone to Meet hand-off (v2.2)', () => {
   test.describe.configure({ mode: 'serial' });
-  let stack, jwks;
+  let stack, jwks, pool, T0 = Date.now(), LOG = [], PAGES = {};
+  test.beforeEach(() => { T0 = Date.now(); LOG = []; PAGES = {}; });
+  test.afterEach(async ({}, info) => { if (info.status !== info.expectedStatus && pool) await dump({ dir: process.env.PM_DIAG_DIR || path.join(__dirname, '..', 'test-results', 'diag'), name: info.title, log: LOG, pages: PAGES, pool, stack, meetLog: process.env.QORLLA_TEST_MEET_LOG || require('node:os').tmpdir() + '/meet3310.log' }); });
   test.beforeAll(async () => {
     test.setTimeout(150000);
     const JWKS = process.env.QORLLA_TEST_MEET_JWKS || require('node:os').tmpdir() + '/meet-jwks.json';                       // written by the script that started Meet with its workload key
     jwks = http.createServer((_q, res) => { res.setHeader('content-type', 'application/json'); res.end(fs.readFileSync(JWKS)); }); await new Promise((ok) => jwks.listen(5345, '127.0.0.1', ok));
     stack = await startVoiceStack({ mainPort: MAIN, voicePort: VOICE, engineEnv: { VOICE_MOVE_RELEASE_WINDOW_SECONDS: '150', VOICE_MOVE_FRESH_MS: '8000', SHIELD_ENABLED: 'true', SHIELD_WORKLOAD_JWKS_URL: 'http://127.0.0.1:5345/jwks.json', SHIELD_WORKLOAD_ISSUER: 'qorlla-workload', SHIELD_WORKLOAD_ALLOWED: 'svc:meet=meet.signal' } });
+    pool = new Pool({ connectionString: process.env.QORLLA_TEST_VOICE_DB, options: '-c search_path=' + stack.schema });
   });
-  test.afterAll(async () => { if (stack) await stack.stop(); if (jwks) await new Promise((ok) => jwks.close(ok)); });
+  test.afterAll(async () => { if (pool) await pool.end(); if (stack) await stack.stop(); if (jwks) await new Promise((ok) => jwks.close(ok)); });
   const rand = () => Math.random().toString(36).slice(2, 7);
   async function account(browser, name) {
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, permissions: ['microphone', 'camera'] }), u = (name + rand()).toLowerCase();
     expect((await ctx.request.post(stack.base + '/api/auth/register', { data: { username: u, displayName: name + ' Test', password: PASSWORD, email: u + '@example.test' } })).status()).toBeLessThan(300); return ctx;
   }
   async function openPhone(ctx) {
-    const page = await ctx.newPage(); page.on('pageerror', (e) => console.log('[pageerror]', String(e).slice(0, 300))); await page.goto(stack.base + '/qorlla.html#phone');
+    const page = await ctx.newPage(), tag = PAGES.A ? 'B' : 'A'; PAGES[tag] = page; watch(page, tag, LOG, T0); page.on('pageerror', (e) => console.log('[pageerror]', String(e).slice(0, 300))); await page.goto(stack.base + '/qorlla.html#phone');
     await expect(async () => { await page.locator('.nav-item[data-view=phone]').click(); await expect(page.locator('#phTab-dial')).toBeVisible({ timeout: 3000 }); }).toPass({ timeout: 30000 }); return page;
   }
   const ready = (p) => expect.poll(() => p.evaluate(() => !!(window.qorllaVoice && window.qorllaVoice.ws && window.qorllaVoice.ws.readyState === 1)), { timeout: 30000 }).toBe(true);
@@ -47,7 +53,7 @@ test.describe('Phone to Meet hand-off (v2.2)', () => {
   async function openMeet(page) {
     const pop = page.context().waitForEvent('page', { timeout: 30000 });
     await page.locator('#vmbOpen').click(); await expect(page.locator('#startDialog')).toBeVisible({ timeout: 15000 }); await expect(page.locator('#sdGo')).toBeEnabled({ timeout: 20000 }); await page.locator('#sdGo').click();
-    const meet = await pop; await meet.waitForURL(/localhost:3310/, { timeout: 30000 }); return meet;
+    const meet = await pop; { const tag = 'M' + (PAGES.MA ? 'B' : 'A'); PAGES[tag] = meet; watch(meet, tag, LOG, T0); } await meet.waitForURL(/localhost:3310/, { timeout: 30000 }); return meet;
   }
   const phoneState = (p) => p.evaluate(() => ({ callId: window.qorllaVoice.callId, muted: window.qorllaVoice.muted }));
   const inboundAudio = (m) => m.evaluate(async () => (await window.__qorllaMeetProbe()).bytes);

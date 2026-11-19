@@ -127,11 +127,12 @@ export function createHandoff({ store, shield, enforce, requireShield = false, t
     if (typeof meetingId !== 'string' || !/^[0-9 ]{9,16}$/.test(meetingId) || typeof participantId !== 'string' || !/^[A-Za-z0-9_-]{6,80}$/.test(participantId) || typeof accountId !== 'string' || accountId.length < 1 || accountId.length > 128 || !Number.isInteger(inboundAudioBytes) || inboundAudioBytes < 0 || inboundAudioBytes > 1e12) throw deny('INVALID_EVIDENCE', 400);
     if (busy('meet:' + accountId, 240)) throw deny('RATE_LIMITED', 429);
     const digits = meetingId.replace(/\D/g, '');
+    // ONE short transaction: lock the open hand-off row once and read the call's state in the same statement. (It used to run the full settle() sequence and lock twice per report; with
+    // two sides reporting every second plus the status polls those transactions queued behind each other on the row lock, held every pooled connection, and readiness reached the server late.)
     return store.tx(async (c) => {
-      const h0 = (await c.query("SELECT id, call_id FROM voice_handoffs WHERE status='accepted' AND regexp_replace(meeting_id, '[^0-9]', '', 'g')=$1 AND (initiator_id=$2 OR recipient_id=$2) ORDER BY created_at DESC LIMIT 1", [digits, accountId])).rows[0];
-      if (!h0) return { ready: false, reason: 'no_handoff' };
-      const open = await settle(c, h0.call_id); if (!open || open.status !== 'accepted') return { ready: false, reason: 'not_open' };
-      const h = (await c.query('SELECT * FROM voice_handoffs WHERE id=$1 FOR UPDATE', [h0.id])).rows[0]; if (h.status !== 'accepted') return { ready: false, reason: 'not_open' };
+      const h = (await c.query("SELECT h.*, c.status AS call_status FROM voice_handoffs h JOIN voice_calls c ON c.id=h.call_id WHERE h.status='accepted' AND regexp_replace(h.meeting_id, '[^0-9]', '', 'g')=$1 AND (h.initiator_id=$2 OR h.recipient_id=$2) ORDER BY h.created_at DESC LIMIT 1 FOR UPDATE OF h", [digits, accountId])).rows[0];
+      if (!h) return { ready: false, reason: 'no_handoff' };
+      if (h.call_status !== 'active' || new Date(h.release_deadline).getTime() <= now()) return { ready: false, reason: 'not_open' };       // the next status request settles (closes) it
       return applyEvidence(c, h, h.initiator_id === accountId ? 'init' : 'recip', participantId, inboundAudioBytes);
     });
   }
