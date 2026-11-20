@@ -12,12 +12,13 @@ const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, 
 async function startMain(port, extraEnv = {}) {
   const secrets = JSON.parse(fs.readFileSync(path.join(root, '.dev-stack', 'secrets.json'), 'utf8'));
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qstack-'));
-  const child = spawn(process.execPath, ['server.js'], { cwd: root, stdio: 'ignore', env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, MEET_PROBE_URL: MEET, ...extraEnv, QORLLA_BRIDGE_SECRET: secrets.bridge, MEET_DETECT: '', MEET_PUBLIC_URL: '' } });
+  const log = [], child = spawn(process.execPath, ['server.js'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, MEET_PROBE_URL: MEET, ...extraEnv, QORLLA_BRIDGE_SECRET: secrets.bridge, MEET_DETECT: '', MEET_PUBLIC_URL: '' } });
+  for (const st of [child.stdout, child.stderr]) st.on('data', (d) => { log.push(String(d)); if (log.length > 400) log.shift(); });         // the app's own output, kept for failure diagnosis
   const base = 'http://localhost:' + port;
   for (let i = 0; i < 60; i++) { try { if ((await fetch(base + '/')).ok) break; } catch (e) { /* not yet */ } await new Promise((r) => setTimeout(r, 500)); }
   const meetOk = await fetch(MEET + '/api/config').then((r) => r.ok).catch(() => false);
   if (!meetOk) throw new Error('Qorlla Meet is not running at ' + MEET + ' (node scripts/start-recording-test-meet.cjs, or qorlla-clients/e2e/start-meet.cjs)');
-  return { base, dataDir, stop() { try { child.kill(); } catch (e) { /* gone */ } try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (e) { /* busy */ } } };
+  return { base, dataDir, log, stop() { try { child.kill(); } catch (e) { /* gone */ } try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (e) { /* busy */ } } };
 }
 
 const PASSWORD = 'Handoff-pass-9917!x';

@@ -23,7 +23,7 @@ module.exports = defineConfig({
     url: baseURL + '/api/health',
     env: { PORT: port, DATA_DIR: testData, GUEST_RATE_LIMIT_MAX: '5000', MEET_DETECT: 'off' },
     reuseExistingServer: false,
-    timeout: 30000
+    timeout: 120000                                                  // only how long to wait for the app process to START (a loaded machine needs more than 30 s); no test assertion uses it
   },
   use: {
     baseURL,

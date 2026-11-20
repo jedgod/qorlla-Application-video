@@ -21,7 +21,7 @@ async function startVoiceStack({ mainPort, voicePort, engineEnv = {}, mainEnv = 
   async function startEngine() {
     engine = spawn(process.execPath, ['src/server.mjs'], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: env() });
     for (const s of [engine.stdout, engine.stderr]) s.on('data', (d) => log.push(String(d)));
-    for (let i = 0; i < 80; i++) { if (await fetch('http://127.0.0.1:' + voicePort + '/readyz').then((r) => r.ok).catch(() => false)) return; await new Promise((r) => setTimeout(r, 250)); }
+    for (let i = 0; i < 240; i++) { if (await fetch('http://127.0.0.1:' + voicePort + '/readyz').then((r) => r.ok).catch(() => false)) return; await new Promise((r) => setTimeout(r, 250)); }
     throw new Error('the voice engine did not become ready:\n' + log.join(''));
   }
   async function stopEngine() { if (!engine) return; const e = engine; engine = null; await new Promise((r) => { e.once('exit', r); e.kill(); setTimeout(r, 3000); }); }

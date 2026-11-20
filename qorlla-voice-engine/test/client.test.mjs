@@ -87,6 +87,7 @@ test('RACE (v2.3): the callee answers while the caller’s own dial request is s
     return res;
   };
   const c = new QorllaVoiceClient(r.base, () => idp.token('alice'), (e) => events.push(e), { WebSocketImpl: W, fetchImpl, deviceId: r.device('alice') }); c.autoStart = false;       // no microphone in Node: we only check the SDK DECIDED to start
+  t.after(() => c.disconnect());                                                                                                                  // the SDK keeps a timer and a socket: close them, or the test process never exits
   await c.connect(); assert.ok(await until(() => events.find((e) => e.type === 'ready')));
   const call = await c.dial(ext.bob); assert.equal(answered.status, 200, 'the callee answered before the caller had its response');
   assert.ok(await until(() => events.find((e) => e.type === 'call_accepted' && e.call.id === call.id), 4000), 'the caller learned the call was answered, although the event came first');

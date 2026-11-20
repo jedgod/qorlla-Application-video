@@ -252,7 +252,7 @@ function attachActor(req, res, next) {
 // Entering a meeting that Qorlla Meet can host: the invitee is taken straight into the current Meet video page (not the old built-in room).
 async function meetHandoff(meeting, who, req) {
     try {
-        if (!meetLaunch.enabled() || !(await meetPublicBase(req))) return settingsOf(meeting).waitingRoom ? { blocked: true } : null;
+        if (!meetLaunch.enabled() || !(await meetPublicBase(req))) return settingsOf(meeting).waitingRoom || meeting.viaMeet ? { blocked: true, status: 503, error: 'Qorlla Meet is not reachable right now. Try again in a moment.' } : null;       // a meeting that already lives in Meet is never routed to the built-in room
         const pub = await meetPublicBase(req);
         const link = await meetLaunch.ensureLink(meeting, meeting.hostName || meeting.ownerName || 'Host', { title: meeting.topic, settings: settingsOf(meeting), limits: ML.limitsFor(meeting.limitExempt) });
         const session = await meetLaunch.join(link, { name: who.name, accountId: who.accountId || undefined });
@@ -261,7 +261,7 @@ async function meetHandoff(meeting, who, req) {
     } catch (e) {
         console.warn('[Meet hand-off] ' + e.message);
         if (e.code === 'REFUSED') return { blocked: true, status: 423, error: /locked/i.test(e.message) ? 'This meeting is locked. Ask the host.' : 'This meeting is not available.' };   // Meet said no: never route around it through the built-in room
-        return settingsOf(meeting).waitingRoom ? { blocked: true } : null;     // the built-in room has no waiting room: never use it where the host asked for one
+        return settingsOf(meeting).waitingRoom || meeting.viaMeet ? { blocked: true, status: 503, error: 'Qorlla Meet is not reachable right now. Try again in a moment.' } : null;     // the built-in room has no waiting room, and it is a DIFFERENT room from the one in Meet: never use it for either
     }
 }
 // Where the Qorlla apps can be downloaded, only when the operator has published them (https links in the environment). Nothing is advertised that is not configured.
@@ -479,7 +479,7 @@ async function doStart(meeting, user, b, req) {
         meeting.viaMeet = true; hist.recordAccount(meeting, user.id); saveSnapshotSoon();
         const ret = String(b.returnUrl || '');
         return { status: 200, body: { mode: 'meet', settings, url: meetLaunch.url(pub, session, { mic: b.mic !== false, camera: b.camera !== false, returnUrl: /^https?:\/\//.test(ret) ? ret : '', prefs: { camLabel: b.camLabel, micLabel: b.micLabel, spkLabel: b.spkLabel, res: b.res } }) } };
-    } catch (e) { console.warn('[Meet start] ' + e.message); return unavailable('meet_unavailable', e.message); }
+    } catch (e) { console.warn('[Meet start] ' + e.message); return unavailable('meet_unavailable', 'Qorlla Meet is not reachable right now. Try again in a moment.'); }   // the technical reason stays in the log, never in the person's screen
 }
 for (const base of ['/api/meetings', '/api/v1/meetings']) {
     // start: apply title / password / admission settings, then straight into Meet as host. Never returns a credential - only where to go.
@@ -1050,22 +1050,15 @@ app.get('/locales/pt-PT.js', (req, res) => res.sendFile(path.join(__dirname, 'lo
 // Where is Qorlla Meet (the full video app)? MEET_PUBLIC_URL when set; otherwise a Meet answering on this machine (MEET_PROBE_URL, default
 // http://127.0.0.1:3000) is detected, so "New meeting" opens the current video page whenever Meet is running. Only a server that really is Meet
 // qualifies (it must answer GET /api/config with { iceServers: [...] }); any other app on that port is ignored. MEET_DETECT=off disables the probe.
-let meetProbe = { at: 0, port: 0 };
-async function probeMeetPort() {
+const { createMeetProbe } = require('./meet-probe');
+const probeMeetPort = createMeetProbe({ check: async () => {
     if (process.env.MEET_DETECT === 'off') return 0;
-    if (Date.now() - meetProbe.at < 4000) return meetProbe.port;
-    let port = 0;
-    try {
-        const base = new URL(process.env.MEET_PROBE_URL || 'http://127.0.0.1:3000');
-        if (Number(base.port || 80) !== Number(process.env.PORT || 5000)) {
-            const r = await fetch(base.origin + '/api/config', { signal: AbortSignal.timeout(800) });
-            const j = r.ok ? await r.json() : null;
-            if (j && Array.isArray(j.iceServers)) port = Number(base.port || 80);
-        }
-    } catch (e) { /* nothing (or not Meet) there */ }
-    meetProbe = { at: Date.now(), port };
-    return port;
-}
+    const base = new URL(process.env.MEET_PROBE_URL || 'http://127.0.0.1:3000');
+    if (Number(base.port || 80) === Number(process.env.PORT || 5000)) return 0;
+    const r = await fetch(base.origin + '/api/config', { signal: AbortSignal.timeout(800) });
+    const j = r.ok ? await r.json() : null;
+    return j && Array.isArray(j.iceServers) ? Number(base.port || 80) : 0;
+} });
 async function meetPublicBase(req) {
     let url = '';
     try { const u = new URL(process.env.MEET_PUBLIC_URL || ''); if (/^https?:$/.test(u.protocol)) url = u.origin + '/'; } catch (e) { /* unset */ }

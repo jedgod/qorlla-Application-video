@@ -159,3 +159,25 @@ test('EVIDENCE SOURCES: the browser route is OFF by default (production); Meetâ€
   assert.equal((await meetCall(body('esann', 9500, { participantId: 'meet-esann-OTHER' }), { rep: strict })).status, 403, 'the Meet session may not change under the evidence');
   assert.equal((await strict.api('esann', 'POST', U(call, 'complete'))).body.state, 'completed', 'both vouched by Meet: the server releases the call'); const cr = await callRow(call); assert.equal(cr.end_reason, 'moved_to_meeting');
 });
+
+test('MEET REPORTS (v2.3): duplicate, delayed, concurrent (two engine instances) and late reports are safe: never an error, never a regression of the evidence, never a write after the hand-off is closed', async (t) => {
+  if (skip(t)) return;
+  const r2 = await h.replica({ env: ENV({}) }), x = await accepted('mrann', 'mrben'), body = (acc, bytes, o = {}) => ({ meetingId: MEET, participantId: 'meet-' + acc + '-sess', accountId: acc, inboundAudioBytes: bytes, ...o });
+  const row = async () => (await rows('SELECT version, status, init_last, recip_last, init_ready_at, recip_ready_at FROM voice_handoffs WHERE call_id=$1', [x.call]))[0], send = (acc, bytes, rep) => meetCall(body(acc, bytes), { rep });
+  // 1. forty identical FIRST reports per side, fired at once at BOTH instances: every answer is a plain success and exactly one clock start is stored
+  const first = await Promise.all([...Array(40)].map((_, i) => send(i % 2 ? 'mrann' : 'mrben', 1000, i % 4 < 2 ? r : r2)));
+  assert.ok(first.every((k) => k.status === 200), 'no error under concurrency: ' + JSON.stringify(first.filter((k) => k.status !== 200).slice(0, 2)));
+  let rw = await row(); assert.equal(rw.init_last.bytes, 1000); assert.equal(rw.recip_last.bytes, 1000); assert.equal(rw.init_ready_at, null, 'one second has not passed: nobody is ready yet');
+  // 2. a DUPLICATE changes nothing (no write, no version bump)
+  const v0 = (await row()).version; assert.equal((await send('mrann', 1000, r)).status, 200); assert.equal((await row()).version, v0, 'an identical report writes nothing');
+  await sleep(1150);
+  // 3. growth reported concurrently by both sides through both instances: both become ready
+  const grow = await Promise.all([...Array(30)].map((_, i) => send(i % 2 ? 'mrann' : 'mrben', 5000 + i * 10, i % 3 ? r : r2)));
+  assert.ok(grow.every((k) => k.status === 200), 'no error: ' + JSON.stringify(grow.filter((k) => k.status !== 200).slice(0, 2)));
+  rw = await row(); assert.ok(rw.init_ready_at && rw.recip_ready_at, 'both sides ready'); const high = { a: rw.init_last.bytes, b: rw.recip_last.bytes }; assert.ok(high.a >= 5000 && high.b >= 5000);
+  // 4. a DELAYED report (an older, smaller counter that arrives after newer ones) is ignored: the stored evidence never goes backwards
+  assert.equal((await send('mrann', 2000, r2)).status, 200); rw = await row(); assert.equal(rw.init_last.bytes, high.a, 'older counter did not replace the newer one'); assert.equal(rw.recip_last.bytes, high.b);
+  // 5. a report after the hand-off is CLOSED writes nothing and is not an error
+  assert.equal((await x.rep.api('mrben', 'POST', U(x.call, 'cancel'))).status, 200); const vc = (await row()).version;
+  const late = await send('mrann', 99999, r); assert.equal(late.status, 200); assert.equal(late.body.ready, false); assert.equal((await row()).version, vc, 'nothing is written after the hand-off closed'); assert.equal((await callRow(x.call)).status, 'active', 'and the phone call is untouched');
+});

@@ -24,7 +24,7 @@ const req = createRequire(path.join(root, 'package.json'));
 let ioc, bcrypt, secrets = null;
 try { ioc = req('socket.io-client').io; bcrypt = req('bcryptjs'); secrets = JSON.parse(fs.readFileSync(path.join(root, '.dev-stack', 'secrets.json'), 'utf8')); } catch { /* skipped below */ }
 const PASSWORD = 'Handoff-pass-9917!x', ENGINE_ADMIN = 'e'.repeat(40), ISSUER = 'qorlla-workload';
-const MEET_SQL = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', 'v4_7_recording_consent.sql', 'v4_8_collab.sql', 'v4_9_recording_storage.sql', 'v4_10_admission.sql', 'v4_11_history.sql', 'v4_12_limit.sql', 'v4_13_phone.sql', 'v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_17_shield_identity.sql', 'v4_18_billing_hold.sql'];
+const MEET_SQL = ['schema.sql', 'v2_migration.sql', 'v3_migration.sql', 'v3_1_to_v3_5_migration.sql', '002_recovery.sql', 'v4_7_recording_consent.sql', 'v4_8_collab.sql', 'v4_9_recording_storage.sql', 'v4_10_admission.sql', 'v4_11_history.sql', 'v4_12_limit.sql', 'v4_13_phone.sql', 'v4_14_telephony.sql', 'v4_15_telephony_features.sql', 'v4_16_number_authority.sql', 'v4_17_shield_identity.sql', 'v4_18_billing_hold.sql', 'v4_19_ai_request.sql', 'v4_20_ai_consent_seq.sql', 'v4_21_handoffs.sql', 'v4_22_host_controls.sql', 'v4_25_chat_features.sql', 'v4_26_chat_conversations.sql', 'v4_27_more.sql', 'v4_28_collaboration.sql', 'v4_29_breakouts.sql', 'v4_30_breakout_collab.sql', 'v4_31_breakout_classroom.sql'];
 
 let db, h, engine, meet, main, jwksSrv, ports, dataDir, startMeet, children = [], keys = {};
 const free = () => new Promise((ok) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => ok(p)); }); });

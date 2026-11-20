@@ -153,7 +153,12 @@ test('ordering end to end: a stream of events for one account, with Redis stoppe
   const expected = (await db.pool.query("SELECT id FROM voice_reliable_events WHERE account_id='bob' AND id > $1 ORDER BY id", [start])).rows.map((x) => Number(x.id)); assert.ok(expected.length >= 20, 'bob has a real stream of events: ' + expected.length);
   assert.ok(await until(() => expected.every((id) => b.inbox.some((m) => m.eventId === id)), 40000), 'every event reached bob: missing ' + JSON.stringify(expected.filter((id) => !b.inbox.some((m) => m.eventId === id))));
   const firstSeen = []; for (const m of b.inbox) if (m.eventId && !firstSeen.includes(m.eventId)) firstSeen.push(m.eventId);
-  assert.deepEqual(firstSeen.filter((id) => id > start), expected, 'in event-id order (duplicates may repeat an id; a later id never overtakes an earlier one)');
+  const got = firstSeen.filter((id) => id > start);
+  if (JSON.stringify(got) !== JSON.stringify(expected)) {                                                                                       // evidence for the next occurrence (the assertion below is unchanged): who held what, and what each event went through
+    const rows = (await db.pool.query("SELECT o.event_id, e.account_id AS acct, e.kind, o.attempts, o.last_error, left(coalesce(o.locked_by,''), 6) AS lock FROM voice_outbox o JOIN voice_reliable_events e ON e.id = o.event_id WHERE e.id > $1 ORDER BY o.event_id", [start])).rows;
+    console.log('ORDERING EVIDENCE workers r1=' + r1.voice.worker.workerId.slice(0, 6) + ' r2=' + r2.voice.worker.workerId.slice(0, 6) + ' | arrival at bob: ' + JSON.stringify(b.inbox.filter((m) => m.eventId).map((m) => [m.eventId, m.type])) + ' | outbox rows with retries or for bob: ' + JSON.stringify(rows.filter((r) => r.attempts > 0 || r.acct === 'bob').map((r) => [r.event_id, r.acct, r.kind, r.attempts, String(r.last_error || '').slice(0, 30), r.lock])));
+  }
+  assert.deepEqual(got, expected, 'in event-id order (duplicates may repeat an id; a later id never overtakes an earlier one)');
   assert.ok(await until(async () => (await metrics(r1)).outbox.pending === 0, 30000)); assert.equal((await metrics(r1)).outbox.dead, 0, 'a Redis outage set nothing aside');
   await endAll(); await r1.stop(); await r2.stop();
 });

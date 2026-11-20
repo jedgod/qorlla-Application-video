@@ -91,21 +91,29 @@ export function createShield({ store, db, env = process.env, jwks } = {}) {
 
   /** Express middleware factory: a short-lived workload credential (JWT) naming the calling service and the scope it needs. Replay-protected (jti), expiry-capped. */
   const requireWorkload = (scope) => async (req, res, next) => {
+    const t0 = Date.now(), ph = {}; let tm = t0; const lap = (k) => { const n = Date.now(); ph[k] = n - tm; tm = n; };
+    if (res && typeof res.once === 'function') res.once('finish', () => { const total = Date.now() - t0; if (total > 1000) console.warn('slow_workload_request', scope, total + 'ms', JSON.stringify(ph)); });       // phases of the credential check, so a slow answer can be explained
     try {
       if (!enabled) return res.status(503).json({ error: 'shield_disabled' });
       const token = (req.get('authorization') || '').match(/^Bearer (\S+)$/)?.[1];
       if (!keys || !env.SHIELD_WORKLOAD_ISSUER || !workloads.size || !token) return res.status(401).json({ error: 'unauthorized' });
-      const { payload } = await jwtVerify(token, keys, { issuer: env.SHIELD_WORKLOAD_ISSUER, audience: 'qorlla-shield', algorithms: ['RS256', 'ES256', 'EdDSA'], clockTolerance: 5 });
+      const { payload } = await jwtVerify(token, keys, { issuer: env.SHIELD_WORKLOAD_ISSUER, audience: 'qorlla-shield', algorithms: ['RS256', 'ES256', 'EdDSA'], clockTolerance: 5 }); lap('jwt');
       if (typeof payload.sub !== 'string' || typeof payload.jti !== 'string' || payload.jti.length < 16 || !payload.exp || !payload.iat || payload.exp - payload.iat > 300) return res.status(401).json({ error: 'unauthorized' });
       // proof of possession of the client certificate (never from a header: only from the TLS socket, and only if the handshake authorized it)
       const ctx = { workload: String(payload.sub).slice(0, 128), scope, ip: (req.socket && req.socket.remoteAddress) || null };
-      const proof = await certProof(req, payload); if (proof) { await recordEvent(payload.sub, 'workload.' + scope, 'DENY', proof, { ...ctx, ...(req.certThumbprint ? { discriminator: req.certThumbprint } : {}) }); return res.status(401).json({ error: 'unauthorized' }); }
+      const proof = await certProof(req, payload); lap('cert'); if (proof) { await recordEvent(payload.sub, 'workload.' + scope, 'DENY', proof, { ...ctx, ...(req.certThumbprint ? { discriminator: req.certThumbprint } : {}) }); return res.status(401).json({ error: 'unauthorized' }); }
       const scopes = workloads.get(payload.sub);
       if (!scopes || !scopes.has(scope)) { await recordEvent(payload.sub, 'workload.' + scope, 'DENY', 'WORKLOAD_NOT_AUTHORIZED', ctx); return res.status(403).json({ error: 'forbidden' }); }
-      const fresh = await db.query('INSERT INTO shield_workload_jti(jti_hash, expires_at) VALUES($1, to_timestamp($2)) ON CONFLICT DO NOTHING RETURNING 1', [sha(payload.jti), payload.exp + 60]);
+      const fresh = await db.query('INSERT INTO shield_workload_jti(jti_hash, expires_at) VALUES($1, to_timestamp($2)) ON CONFLICT DO NOTHING RETURNING 1', [sha(payload.jti), payload.exp + 60]); lap('jti');
       if (!fresh.rowCount) { await recordEvent(payload.sub, 'workload.' + scope, 'DENY', 'WORKLOAD_REPLAY', ctx); return res.status(401).json({ error: 'unauthorized' }); }
       req.workload = payload.sub; next();
-    } catch { res.status(401).json({ error: 'unauthorized' }); }
+    } catch (e) {
+      // A credential that is wrong, expired, unknown or replayed is a 401. A FAILURE OF THE CHECK ITSELF (database, key fetch, anything unexpected) is not the caller's fault: it is logged and
+      // answered 503 so the caller retries and an operator can see it. Both fail closed: nothing is let through.
+      const code = e && e.code, authFailure = typeof code === 'string' && /^ERR_(JWT|JWS|JWE|JWK|JOSE_ALG|JOSE_NOT_SUPPORTED)/.test(code) && code !== 'ERR_JWKS_TIMEOUT' && code !== 'ERR_JOSE_GENERIC';
+      if (authFailure) return res.status(401).json({ error: 'unauthorized' });
+      console.error('workload_check_failed', scope, code || (e && e.name), e && e.message ? String(e.message).slice(0, 120) : ''); res.status(503).json({ error: 'workload_check_unavailable' });
+    }
   };
   /** The admin routes' alternative to the shared secret. Returns true when the request carries a valid workload credential with scope voice.admin. */
   async function workloadOkForAdmin(req) {

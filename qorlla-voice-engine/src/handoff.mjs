@@ -106,9 +106,9 @@ export function createHandoff({ store, shield, enforce, requireShield = false, t
     });
   }
 
-  /** The evidence rule, shared by both sources. `h` is the locked, accepted hand-off row and k its side ('init' | 'recip'). */
-  async function applyEvidence(c, h, k, sessionId, inboundAudioBytes) {
-    if (h[k + '_session'] && h[k + '_session'] !== sessionId) { await record(h[k === 'init' ? 'initiator_id' : 'recipient_id'], 'DENY', 'EVIDENCE_SESSION_CHANGED', { callId: h.call_id }); throw deny('EVIDENCE_REJECTED'); }
+  /** The evidence rule, shared by both sources, as a PURE step: from the stored row and one report to what the row should become (or a refusal). */
+  function evidenceStep(h, k, sessionId, inboundAudioBytes) {
+    if (h[k + '_session'] && h[k + '_session'] !== sessionId) return { deny: 'EVIDENCE_SESSION_CHANGED' };
     const t = now(), first = h[k + '_first'], last = h[k + '_last'];
     let setFirst = first, setLast = last, readyAt = h[k + '_ready_at'] ? new Date(h[k + '_ready_at']).getTime() : null;
     if (inboundAudioBytes > 0) {
@@ -116,8 +116,18 @@ export function createHandoff({ store, shield, enforce, requireShield = false, t
       else if (inboundAudioBytes < last.bytes) { /* a counter that goes backwards proves nothing (and is ignored) */ }
       else if (t - first.at >= minGapMs && inboundAudioBytes - first.bytes >= minGrowth && inboundAudioBytes > last.bytes) { setLast = { at: t, bytes: inboundAudioBytes }; readyAt = t; }
     }
-    await c.query(`UPDATE voice_handoffs SET ${k}_session=$2, ${k}_first=$3, ${k}_last=$4, ${k}_ready_at=$5, version=version+1 WHERE id=$1`, [h.id, sessionId, setFirst ? JSON.stringify(setFirst) : null, setLast ? JSON.stringify(setLast) : null, readyAt ? iso(readyAt) : null]);
-    return { ready: !!readyAt && t - readyAt <= freshMs };
+    const prevReady = h[k + '_ready_at'] ? new Date(h[k + '_ready_at']).getTime() : null;
+    const changed = h[k + '_session'] !== sessionId || JSON.stringify(setFirst) !== JSON.stringify(first) || JSON.stringify(setLast) !== JSON.stringify(last) || readyAt !== prevReady;
+    return { setFirst, setLast, readyAt, changed, t, ready: !!readyAt && t - readyAt <= freshMs };
+  }
+  const evidenceSql = (k) => `UPDATE voice_handoffs SET ${k}_session=$2, ${k}_first=$3, ${k}_last=$4, ${k}_ready_at=$5, version=version+1`;
+
+  /** Used inside a transaction by the page-reported source: `h` is the locked, accepted hand-off row and k its side ('init' | 'recip'). */
+  async function applyEvidence(c, h, k, sessionId, inboundAudioBytes) {
+    const r = evidenceStep(h, k, sessionId, inboundAudioBytes);
+    if (r.deny) { await record(h[k === 'init' ? 'initiator_id' : 'recipient_id'], 'DENY', 'EVIDENCE_SESSION_CHANGED', { callId: h.call_id }); throw deny('EVIDENCE_REJECTED'); }
+    await c.query(`${evidenceSql(k)} WHERE id=$1`, [h.id, sessionId, r.setFirst ? JSON.stringify(r.setFirst) : null, r.setLast ? JSON.stringify(r.setLast) : null, r.readyAt ? iso(r.readyAt) : null]);
+    return { ready: r.ready };
   }
 
   /** SOURCE 1 (default, production): Qorlla Meet vouches for one of its own authenticated sessions. The caller is the Meet workload (Shield-authenticated, server to server); the
@@ -126,15 +136,22 @@ export function createHandoff({ store, shield, enforce, requireShield = false, t
   async function readyFromMeet({ meetingId, participantId, accountId, inboundAudioBytes }) {
     if (typeof meetingId !== 'string' || !/^[0-9 ]{9,16}$/.test(meetingId) || typeof participantId !== 'string' || !/^[A-Za-z0-9_-]{6,80}$/.test(participantId) || typeof accountId !== 'string' || accountId.length < 1 || accountId.length > 128 || !Number.isInteger(inboundAudioBytes) || inboundAudioBytes < 0 || inboundAudioBytes > 1e12) throw deny('INVALID_EVIDENCE', 400);
     if (busy('meet:' + accountId, 240)) throw deny('RATE_LIMITED', 429);
-    const digits = meetingId.replace(/\D/g, '');
-    // ONE short transaction: lock the open hand-off row once and read the call's state in the same statement. (It used to run the full settle() sequence and lock twice per report; with
-    // two sides reporting every second plus the status polls those transactions queued behind each other on the row lock, held every pooled connection, and readiness reached the server late.)
-    return store.tx(async (c) => {
-      const h = (await c.query("SELECT h.*, c.status AS call_status FROM voice_handoffs h JOIN voice_calls c ON c.id=h.call_id WHERE h.status='accepted' AND regexp_replace(h.meeting_id, '[^0-9]', '', 'g')=$1 AND (h.initiator_id=$2 OR h.recipient_id=$2) ORDER BY h.created_at DESC LIMIT 1 FOR UPDATE OF h", [digits, accountId])).rows[0];
+    const digits = meetingId.replace(/\D/g, ''), t0 = Date.now();
+    // TWO statements and NO lock, however slow the database is: read the open hand-off, compute the next state, and write it with a compare-and-set on THIS side's own columns (a report from the
+    // other side, which changes other columns, never conflicts). A lost race is retried a bounded number of times; a report that changes nothing (a duplicate or a flat counter) writes nothing.
+    // The write itself re-checks that the hand-off is still accepted, not past its deadline, and that the call is still live, so a late write can never revive or extend anything.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const h = (await store.query("SELECT h.*, c.status AS call_status FROM voice_handoffs h JOIN voice_calls c ON c.id=h.call_id WHERE h.status='accepted' AND regexp_replace(h.meeting_id, '[^0-9]', '', 'g')=$1 AND (h.initiator_id=$2 OR h.recipient_id=$2) ORDER BY h.created_at DESC LIMIT 1", [digits, accountId])).rows[0];
       if (!h) return { ready: false, reason: 'no_handoff' };
       if (h.call_status !== 'active' || new Date(h.release_deadline).getTime() <= now()) return { ready: false, reason: 'not_open' };       // the next status request settles (closes) it
-      return applyEvidence(c, h, h.initiator_id === accountId ? 'init' : 'recip', participantId, inboundAudioBytes);
-    });
+      const k = h.initiator_id === accountId ? 'init' : 'recip', r = evidenceStep(h, k, participantId, inboundAudioBytes);
+      if (r.deny) { await record(accountId, 'DENY', 'EVIDENCE_SESSION_CHANGED', { callId: h.call_id }); throw deny('EVIDENCE_REJECTED'); }
+      if (!r.changed) { return { ready: r.ready }; }
+      const w = await store.query(`${evidenceSql(k)} WHERE id=$1 AND status='accepted' AND release_deadline > $6::timestamptz AND ${k}_session IS NOT DISTINCT FROM $7::text AND ${k}_last IS NOT DISTINCT FROM $8::jsonb AND EXISTS (SELECT 1 FROM voice_calls WHERE id=voice_handoffs.call_id AND status='active') RETURNING 1`,
+        [h.id, participantId, r.setFirst ? JSON.stringify(r.setFirst) : null, r.setLast ? JSON.stringify(r.setLast) : null, r.readyAt ? iso(r.readyAt) : null, iso(now()), h[k + '_session'] || null, h[k + '_last'] ? JSON.stringify(h[k + '_last']) : null]);
+      if (w.rowCount) { const ms = Date.now() - t0; if (ms > 1000) console.warn('slow_handoff_media', ms + 'ms'); return { ready: r.ready }; }
+    }
+    return { ready: false, reason: 'busy' };                                                                                                       // three lost races in a row: the caller's next report (about a second later) tries again
   }
 
   /** SOURCE 2 (off unless explicitly enabled; for tests and for deployments without Meet-side vouching): the page reports the numbers itself, bound by the hand-off nonce. */

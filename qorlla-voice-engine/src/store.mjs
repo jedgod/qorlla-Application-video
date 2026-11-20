@@ -205,7 +205,7 @@ export function createStore(db = pool) {
     return { days: d, calls: r.calls, answered: r.answered, seconds: Number(r.seconds), groupRooms: g.rooms, groupSeconds: Number(g.seconds), note: 'Seconds are measured by the server from answer (or join) to end (or leave). Client-supplied durations are never used.' };
   }
   const ping = async () => { await db.query('SELECT 1'); return true; };
-  return { tx, identity, provisionIdentity, listIdentities, setEnabled, createCall, getCall, liveCall, listCalls, transition, expireRinging, expireStaleCalls, claimDevice, refreshLease, signalContext, listBlocks, addBlock, removeBlock, usage, ping, validDevice, rooms };
+  return { tx, query: (sql, params) => db.query(sql, params), identity, provisionIdentity, listIdentities, setEnabled, createCall, getCall, liveCall, listCalls, transition, expireRinging, expireStaleCalls, claimDevice, refreshLease, signalContext, listBlocks, addBlock, removeBlock, usage, ping, validDevice, rooms };
 }
 
 const defaultStore = createStore(pool);

@@ -2288,8 +2288,8 @@ body.qv-on:not(.qv-remote-on) .qv-stage:not(.qv-mob) .qv-local { position:static
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (r) {
         if (r.ok && r.d.mode === 'meet' && r.d.url) { pendingNew = null; openMeetPage(r.d.url); return; }       // straight into the meeting as host
-        if (r.d.mode === 'builtin') { releaseMeetWindow(); pendingNew = null; goBuiltin({ start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', meetingId: m.meetingId, name: name }); return; }
-        throw new Error(r.d.error || 'The meeting could not be started.');
+        if (r.d.mode === 'builtin' && !(typeof voice !== 'undefined' && voice.move)) { releaseMeetWindow(); pendingNew = null; goBuiltin({ start: 'join', mic: mic ? 'true' : 'false', camera: cam ? 'true' : 'false', meetingId: m.meetingId, name: name }); return; }
+        throw new Error(typeof voice !== 'undefined' && voice.move ? 'Qorlla Meet could not be reached. Your phone call is still connected. Try again.' : (r.d.error || 'The meeting could not be started.'));         // during a move the advice "turn the waiting room off" would mean leaving for a different room
       }).catch(function (er) {                                                              // keep everything the person typed; offer a retry
         releaseMeetWindow(); sd.busy = false; sd.requestId = crypto.randomUUID(); $('sdGo').disabled = false; $('sdGo').textContent = 'Retry start'; $('sdErr').textContent = er.message || 'The meeting could not be started.';
       });
@@ -2342,7 +2342,9 @@ body.qv-on:not(.qv-remote-on) .qv-stage:not(.qv-mob) .qv-local { position:static
     fetch('/api/guest/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: fmt, displayName: name, passcode: pw || undefined, mic: mic, camera: cam, prefs: { camLabel: camLabel, micLabel: micLabel, spkLabel: spkLabel, res: camRes() } }) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
       .then(function (r) {
-        if (r.ok) { if (r.d.meet && r.d.meet.url) { openMeetPage(r.d.meet.url); return; } releaseMeetWindow(); p.meetingId = fmt; goBuiltin(p); return; }
+        if (r.ok) { if (r.d.meet && r.d.meet.url) { openMeetPage(r.d.meet.url); return; } releaseMeetWindow();
+          if (typeof voice !== 'undefined' && voice.move) { sd.busy = false; $('sdGo').disabled = false; $('sdGo').textContent = 'Join meeting'; err.textContent = 'Qorlla Meet could not be reached. Your phone call is still connected. Try again.'; return; }       // never the built-in room during a move: this page would navigate away and drop the call
+          p.meetingId = fmt; goBuiltin(p); return; }
         releaseMeetWindow();
         var msg = r.status === 403 ? (r.d.passcodeRequired ? (pw ? 'We could not join that meeting. Check the meeting ID and password.' : 'This meeting needs a password.') : (r.d.error || 'You cannot join this meeting.'))
           : r.status === 404 ? 'We could not join that meeting. Check the meeting ID and password.' : (r.d.error || 'The meeting could not be joined (HTTP ' + r.status + ').');
@@ -6100,6 +6102,9 @@ body.qv-on:not(.qv-remote-on) .qv-stage:not(.qv-mob) .qv-local { position:static
         if (st.state === 'accepted') {
           m.nonce = st.nonce; m.meetingId = st.meetingId || m.meetingId; if (!m.agreed) { m.agreed = true; clearTimeout(voice.moveAskT); voiceMoveAgreed(); }
           if (st.you.ready && st.peer.ready && !m.completing) { m.completing = true; c.post('/calls/' + encodeURIComponent(c.callId) + '/move/complete', {}).then(function (r) { m.completing = false; if (r.state === 'completed') voiceMoveDone(); }).catch(function () { m.completing = false; }); }
+        } else if (st.state === 'pending' && m.role === 'host' && m.token && c.ctl && c.ctl.readyState === 'open' && Date.now() - (m.lastReq || 0) > 4000) {
+          // the request travels once over the call's data channel; the SERVER knows it is still unanswered, so while it is pending it is offered again (a reload on the other side, or a channel that was not open yet, never loses it)
+          m.lastReq = Date.now(); c.control({ t: 'move_req', token: m.token, meetingId: m.meetingId, topic: m.title });
         } else if (st.state === 'completed') { voiceMoveDone(); return; }
         else if (['cancelled', 'expired', 'failed'].indexOf(st.state) >= 0) { var cb = voice.move; voiceMoveClear(true); toast(I18n.t(MOVE_WHY[st.closedReason] || 'The move did not complete.') + ' ' + I18n.t('You are still on the phone call.')); return; }
         voice.moveVerifyT = setTimeout(tick, 1500);
@@ -6137,7 +6142,7 @@ body.qv-on:not(.qv-remote-on) .qv-stage:not(.qv-mob) .qv-local { position:static
       return fetch('/api/meetings/' + encodeURIComponent(r.d.meeting.meetingId) + '/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ waitingRoom: false, joinBeforeHost: true, lockAfterJoin: false }) }).then(function (pr) { if (!pr.ok) throw new Error('The meeting could not be prepared.'); })
         .then(function () { return c.post('/calls/' + encodeURIComponent(c.callId) + '/move/start', { meetingId: r.d.meeting.meetingId }); }).then(function (t) { return { meeting: r.d.meeting, t: t }; });
     }).then(function (x) {
-      if (!voice.move) return; voice.move = { role: 'host', meetingId: x.meeting.meetingId, title: x.meeting.topic };
+      if (!voice.move) return; voice.move = { role: 'host', meetingId: x.meeting.meetingId, title: x.meeting.topic, token: x.t.token, lastReq: Date.now() };
       c.control({ t: 'move_req', token: x.t.token, meetingId: x.meeting.meetingId, topic: x.meeting.topic }); voiceMoveSync();
       voiceMoveBarShow(I18n.t('Asking') + ' ' + ($('vbPeer').textContent || I18n.t('the other person')) + ' ' + I18n.t('to move to a Qorlla Meeting\u2026')); clearTimeout(voice.moveAskT); voice.moveAskT = setTimeout(function () { if (voice.move && !voice.move.agreed) { c.control({ t: 'move_cancel' }); voiceMoveClear(true); toast(I18n.t('No answer. You are still on the phone call.')); } }, 60000);
     }).catch(function (e) { voice.move = null; voiceMoveClear(true); toast(e && e.code === 'move_denied' || (e && e.status === 403) ? I18n.t('Moving this call to a meeting was not allowed.') : (e && e.message) || I18n.t('The meeting could not be created.'), 'err'); });
