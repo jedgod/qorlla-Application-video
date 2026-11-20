@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 export const CHANNEL = 'qorlla:voice:v1:signals';
 export function validateEnvelope(m, now = Date.now()) {
   return !!m && typeof m === 'object' && m.version === 1 && typeof m.id === 'string' && /^[0-9a-f-]{36}$/i.test(m.id) && typeof m.source === 'string' && m.source.length <= 128
-    && typeof m.account === 'string' && m.account.length <= 256 && (m.device === null || (typeof m.device === 'string' && m.device.length <= 64)) && Number.isFinite(m.ts) && Math.abs(now - m.ts) < 30000 && JSON.stringify(m.payload ?? null).length <= 70000;
+    && typeof m.account === 'string' && m.account.length <= 256 && (m.prev === undefined || (Number.isSafeInteger(m.prev) && m.prev >= 0)) && (m.device === null || (typeof m.device === 'string' && m.device.length <= 64)) && Number.isFinite(m.ts) && Math.abs(now - m.ts) < 30000 && JSON.stringify(m.payload ?? null).length <= 70000;
 }
 export class RedisBus {
   constructor({ url, onDelivery, logger = console, instanceId = randomUUID(), clientFactory = null }) {
@@ -24,9 +24,9 @@ export class RedisBus {
     await this.connecting; return this;
   }
   get up() { return this.ready && !!this.publisher?.isReady; }
-  async publish(account, device, payload) {
+  async publish(account, device, payload, meta = {}) {
     if (!this.up) throw Error('distributed_bus_unavailable');
-    const msg = { version: 1, id: randomUUID(), source: this.instanceId, account, device, ts: Date.now(), payload };
+    const msg = { version: 1, id: randomUUID(), source: this.instanceId, account, device, ts: Date.now(), payload, ...(Number.isSafeInteger(meta.prev) ? { prev: meta.prev } : {}) };
     await this.publisher.publish(CHANNEL, JSON.stringify(msg)); return msg;
   }
   async close() { this.ready = false; await Promise.allSettled([this.subscriber?.quit(), this.publisher?.quit()].filter(Boolean)); }

@@ -27,8 +27,9 @@ export class OutboxWorker {
           AND NOT EXISTS (SELECT 1 FROM voice_outbox p WHERE p.account_id = o.account_id AND p.event_id < o.event_id AND p.delivered_at IS NULL AND p.dead_at IS NULL)
         ORDER BY o.event_id FOR UPDATE OF o SKIP LOCKED LIMIT $1)
       UPDATE voice_outbox o SET locked_by = $2, locked_until = now() + interval '30 seconds' FROM picked JOIN voice_reliable_events e ON e.id = picked.event_id
-      WHERE o.event_id = picked.event_id RETURNING o.event_id, e.account_id, e.kind, e.payload`, [this.batchSize, this.workerId]);
-    return rows.map((r) => ({ ...r, event_id: Number(r.event_id) })).sort((a, b) => a.event_id - b.event_id);
+      WHERE o.event_id = picked.event_id RETURNING o.event_id, e.account_id, e.kind, e.payload,
+        (SELECT max(p.id) FROM voice_reliable_events p WHERE p.account_id = e.account_id AND p.id < e.id) AS prev`, [this.batchSize, this.workerId]);
+    return rows.map((r) => ({ ...r, event_id: Number(r.event_id), prev: r.prev === null ? 0 : Number(r.prev) })).sort((a, b) => a.event_id - b.event_id);
   }
   async retry(fn, times = 3) { for (let i = 1; ; i++) { try { return await fn(); } catch (e) { if (i >= times) throw e; await new Promise((r) => setTimeout(r, 40 * i)); } } }
   async runOnce() {
@@ -36,7 +37,7 @@ export class OutboxWorker {
     const ok = [], failed = [], queue = [...events];
     const lane = async () => {
       for (let e = queue.shift(); e; e = queue.shift()) {
-        try { await withTimeout(Promise.resolve(this.publish(e.account_id, { ...e.payload, eventId: e.event_id, kind: e.kind })), this.publishTimeoutMs); ok.push(e.event_id); }
+        try { await withTimeout(Promise.resolve(this.publish(e.account_id, { ...e.payload, eventId: e.event_id, kind: e.kind }, { prev: e.prev })), this.publishTimeoutMs); ok.push(e.event_id); }
         catch (error) { const message = String(error.message || error); failed.push({ id: e.event_id, message }); this.stats.failed++; this.logger.error('voice_outbox_publish_failed', message); }
       }
     };

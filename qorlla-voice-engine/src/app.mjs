@@ -37,10 +37,10 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
   if (retention.warning) console.warn('voice: ' + retention.warning);
   const shield = createShield({ store, db, env, jwks: shieldJwks }), enforce = env.SHIELD_ENFORCE === 'true';
   const numberSync = createNumberProjection({ store }), aliases = createAliases({ store, env });
-  const router = new VoiceRouter();
+  const router = new VoiceRouter({ replay: (account, after) => reliability.replay(account, after), gapMs: num(env.VOICE_ORDER_GAP_MS, 100) });
   const bus = busOption !== undefined ? busOption : (env.REDIS_URL ? new RedisBus({ url: env.REDIS_URL, instanceId, onDelivery: (m) => router.onRemote(m) }) : null);
   if (bus) { router.bus = bus; if (!bus.onDelivery) bus.onDelivery = (m) => router.onRemote(m); }
-  const worker = outbox ? new OutboxWorker({ db, workerId: instanceId, publish: (account, msg) => router.deliverDurable(account, msg), intervalMs: Number(env.VOICE_OUTBOX_INTERVAL_MS || 500), publishTimeoutMs: num(env.VOICE_OUTBOX_PUBLISH_TIMEOUT_MS, 5000), maxAttempts: num(env.VOICE_OUTBOX_MAX_ATTEMPTS, 25) }) : null;
+  const worker = outbox ? new OutboxWorker({ db, workerId: instanceId, publish: (account, msg, meta) => router.deliverDurable(account, msg, meta), intervalMs: Number(env.VOICE_OUTBOX_INTERVAL_MS || 500), publishTimeoutMs: num(env.VOICE_OUTBOX_PUBLISH_TIMEOUT_MS, 5000), maxAttempts: num(env.VOICE_OUTBOX_MAX_ATTEMPTS, 25) }) : null;
   const kick = () => worker?.kick();
   const sockets = router.sockets, send = (account, payload, device) => router.send(account, payload, device);
   const closeAccount = (account, code = 4001, reason = 'account_changed') => router.send(account, { type: '__close', code, reason });
@@ -389,7 +389,7 @@ export function createVoiceApp({ store, db, authenticate, env = process.env, mai
     let tokens = 200; const refill = setInterval(() => { tokens = 200; }, 10000); refill.unref?.();
     ws.on('close', () => { clearInterval(refill); router.detach(ws); });
     const reply = (m) => { try { ws.send(JSON.stringify(m)); } catch { /* gone */ } };
-    const readySent = (async () => { try { reply({ type: 'ready', extension: ws.extension, deviceId: ws.deviceId, cursor: await reliability.latest(account) }); return true; } catch { ws.close(1011, 'unavailable'); return false; } })();
+    const readySent = (async () => { try { const cursor = await reliability.latest(account); router.baseline(ws, cursor); reply({ type: 'ready', extension: ws.extension, deviceId: ws.deviceId, cursor }); return true; } catch { ws.close(1011, 'unavailable'); return false; } })();
     ws.on('message', async (raw) => {
       try {
         if (--tokens < 0) { ws.close(1008, 'rate_limit'); return; }          // counted before anything is awaited, so a flood cannot slip through
